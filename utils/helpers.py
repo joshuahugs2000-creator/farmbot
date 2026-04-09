@@ -3,6 +3,9 @@ from telegram.ext import ContextTypes
 import database.db as _db
 from database.db import upsert_user, get_user, get_user_by_username, compute_title
 from database.models import User
+import logging
+
+logger = logging.getLogger(__name__)
 
 def mention(user: User) -> str:
     """Retourne un lien mention HTML."""
@@ -33,27 +36,32 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     - la réponse à un message
     - une entité text_mention (user connu de Telegram)
     - un @username → résolu via la base de données
-    Renvoie None si introuvable.
     """
+    msg = update.message
+
     # 1. Réponse à un message
-    if update.message.reply_to_message:
-        return update.message.reply_to_message.from_user
+    if msg.reply_to_message:
+        from_user = msg.reply_to_message.from_user
+        logger.info(f"[parse_target] reply_to_message détecté → from_user={from_user}")
+        return from_user
 
     # 2. Entités du message
-    for entity in (update.message.entities or []):
+    entities = msg.entities or []
+    text = msg.text or msg.caption or ""
+    logger.info(f"[parse_target] Pas de reply. text={repr(text)} entities={[(e.type, e.offset, e.length) for e in entities]}")
+
+    for entity in entities:
         if entity.type == "text_mention" and entity.user:
-            # Telegram fournit directement l'objet user
+            logger.info(f"[parse_target] text_mention → {entity.user}")
             return entity.user
 
         if entity.type == "mention":
-            # @username : Telegram ne fournit PAS entity.user ici
-            # On extrait le @username du texte et on cherche en DB
-            text = update.message.text or ""
-            username = text[entity.offset : entity.offset + entity.length]  # inclut le @
+            username = text[entity.offset : entity.offset + entity.length]
+            logger.info(f"[parse_target] mention @username={username}")
             async with _db.AsyncSessionLocal() as session:
                 db_user = await get_user_by_username(session, username)
+            logger.info(f"[parse_target] db_user pour {username} = {db_user}")
             if db_user:
-                # Reconstituer un objet TGUser minimal compatible
                 class _FakeUser:
                     def __init__(self, u):
                         self.id         = u.user_id
@@ -62,9 +70,9 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         self.is_bot     = False
                 return _FakeUser(db_user)
             else:
-                # L'utilisateur n'a jamais interagi avec le bot
                 return None
 
+    logger.info("[parse_target] Aucune cible trouvée → None")
     return None
 
 def progress_bar(current: int, total: int, length: int = 10) -> str:

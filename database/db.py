@@ -40,6 +40,15 @@ async def get_user(session: AsyncSession, user_id: int) -> Optional[User]:
     return r.scalar_one_or_none()
 
 
+async def get_user_by_username(session: AsyncSession, username: str) -> Optional[User]:
+    """Cherche un user par son @username (sans le @, insensible à la casse)."""
+    clean = username.lstrip("@").lower()
+    r = await session.execute(
+        select(User).where(func.lower(User.username) == clean)
+    )
+    return r.scalar_one_or_none()
+
+
 async def compute_title(session: AsyncSession, user_id: int) -> str:
     """Calcule le titre dynastique selon taille famille + karma."""
     user = await get_user(session, user_id)

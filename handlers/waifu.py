@@ -48,7 +48,7 @@ async def waifu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def upvote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Donne +1 karma à quelqu'un (1 fois par jour)."""
-    target_tg = parse_target(update, context)
+    target_tg = await parse_target(update, context)
     if not target_tg:
         return await update.message.reply_text(
             "❗ Réponds au message de la personne ou mentionne-la."
@@ -72,7 +72,7 @@ async def upvote(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def downvote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Donne -1 karma à quelqu'un (1 fois par jour)."""
-    target_tg = parse_target(update, context)
+    target_tg = await parse_target(update, context)
     if not target_tg:
         return await update.message.reply_text(
             "❗ Réponds au message de la personne ou mentionne-la."

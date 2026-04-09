@@ -1,4 +1,4 @@
-import io, random
+import io, random, logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
@@ -11,6 +11,8 @@ from database.db import (
 from database.models import RelationType, RequestType
 from utils.helpers import mention, mention_tg, is_group, parse_target, ensure_user
 from config import MOODS
+
+logger = logging.getLogger(__name__)
 
 
 # ─── HELPERS INTERNES ────────────────────────────────────────────────────────
@@ -39,7 +41,11 @@ async def _sync_family_name(session, user_id: int, family_ids: list):
 async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
         return await update.message.reply_text("❗ Cette commande n'est disponible que dans un groupe.")
+
+    logger.info(f"[marry] sender={update.effective_user.id} reply={bool(update.message.reply_to_message)} args={context.args}")
     target_tg = await parse_target(update, context)
+    logger.info(f"[marry] target_tg={target_tg} id={getattr(target_tg,'id',None)}")
+
     if not target_tg:
         return await update.message.reply_text(
             "❗ Mentionne ou réponds au message de la personne que tu veux épouser.\n"

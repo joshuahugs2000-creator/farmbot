@@ -39,8 +39,13 @@ async def _sync_family_name(session, user_id: int, family_ids: list):
 async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
         return await update.message.reply_text("❗ Cette commande n'est disponible que dans un groupe.")
-    target_tg = parse_target(update, context)
-    if not target_tg or target_tg.id == update.effective_user.id or target_tg.is_bot:
+    target_tg = await parse_target(update, context)
+    if not target_tg:
+        return await update.message.reply_text(
+            "❗ Mentionne ou réponds au message de la personne que tu veux épouser.\n"
+            "💡 Si elle n'a jamais utilisé le bot, elle doit d'abord envoyer /start."
+        )
+    if target_tg.id == update.effective_user.id or target_tg.is_bot:
         return await update.message.reply_text("❗ Mentionne ou réponds au message de la personne que tu veux épouser.")
 
     sender = await ensure_user(update.effective_user)
@@ -69,7 +74,7 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def adopt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
         return await update.message.reply_text("❗ Commande de groupe uniquement.")
-    target_tg = parse_target(update, context)
+    target_tg = await parse_target(update, context)
     if not target_tg or target_tg.id == update.effective_user.id or target_tg.is_bot:
         return await update.message.reply_text("❗ Mentionne la personne à adopter.")
 
@@ -96,7 +101,7 @@ async def adopt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def friend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
         return await update.message.reply_text("❗ Commande de groupe uniquement.")
-    target_tg = parse_target(update, context)
+    target_tg = await parse_target(update, context)
     if not target_tg or target_tg.id == update.effective_user.id or target_tg.is_bot:
         return await update.message.reply_text("❗ Mentionne la personne.")
 
@@ -196,7 +201,7 @@ async def divorce(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /disown ─────────────────────────────────────────────────────────────────
 
 async def disown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    target_tg = parse_target(update, context)
+    target_tg = await parse_target(update, context)
     if not target_tg:
         return await update.message.reply_text("❗ Mentionne l'enfant à désavouer.")
     user   = await ensure_user(update.effective_user)
@@ -214,7 +219,7 @@ async def disown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /unfriend ───────────────────────────────────────────────────────────────
 
 async def unfriend(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    target_tg = parse_target(update, context)
+    target_tg = await parse_target(update, context)
     if not target_tg:
         return await update.message.reply_text("❗ Mentionne l'ami à retirer.")
     user   = await ensure_user(update.effective_user)

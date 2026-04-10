@@ -42,17 +42,19 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
         return await update.message.reply_text("❗ Cette commande n'est disponible que dans un groupe.")
 
-    logger.info(f"[marry] sender={update.effective_user.id} reply={bool(update.message.reply_to_message)} args={context.args}")
     target_tg = await parse_target(update, context)
-    logger.info(f"[marry] target_tg={target_tg} id={getattr(target_tg,'id',None)}")
 
     if not target_tg:
         return await update.message.reply_text(
-            "❗ Mentionne ou réponds au message de la personne que tu veux épouser.\n"
-            "💡 Si elle n'a jamais utilisé le bot, elle doit d'abord envoyer /start."
+            "❗ Comment utiliser /marry :\n"
+            "1️⃣ Réponds au message de la personne visée + /marry\n"
+            "2️⃣ Ou écris /marry @pseudo\n\n"
+            "💡 Si la personne n'a jamais utilisé le bot, elle doit d'abord envoyer /start."
         )
-    if target_tg.id == update.effective_user.id or target_tg.is_bot:
-        return await update.message.reply_text("❗ Mentionne ou réponds au message de la personne que tu veux épouser.")
+    if target_tg.id == update.effective_user.id:
+        return await update.message.reply_text("😅 Tu ne peux pas te marier avec toi-même ! Réponds au message de l'autre personne.")
+    if target_tg.is_bot:
+        return await update.message.reply_text("🤖 Tu ne peux pas épouser un bot !")
 
     sender = await ensure_user(update.effective_user)
     target = await ensure_user(target_tg)
@@ -81,8 +83,17 @@ async def adopt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
         return await update.message.reply_text("❗ Commande de groupe uniquement.")
     target_tg = await parse_target(update, context)
-    if not target_tg or target_tg.id == update.effective_user.id or target_tg.is_bot:
-        return await update.message.reply_text("❗ Mentionne la personne à adopter.")
+    if not target_tg:
+        return await update.message.reply_text(
+            "❗ Comment utiliser /adopt :\n"
+            "1️⃣ Réponds au message de la personne visée + /adopt\n"
+            "2️⃣ Ou écris /adopt @pseudo\n\n"
+            "💡 La personne doit avoir envoyé /start au bot."
+        )
+    if target_tg.id == update.effective_user.id:
+        return await update.message.reply_text("😅 Tu ne peux pas t'adopter toi-même !")
+    if target_tg.is_bot:
+        return await update.message.reply_text("🤖 Tu ne peux pas adopter un bot !")
 
     sender = await ensure_user(update.effective_user)
     target = await ensure_user(target_tg)
@@ -108,8 +119,17 @@ async def friend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_group(update):
         return await update.message.reply_text("❗ Commande de groupe uniquement.")
     target_tg = await parse_target(update, context)
-    if not target_tg or target_tg.id == update.effective_user.id or target_tg.is_bot:
-        return await update.message.reply_text("❗ Mentionne la personne.")
+    if not target_tg:
+        return await update.message.reply_text(
+            "❗ Comment utiliser /friend :\n"
+            "1️⃣ Réponds au message de la personne visée + /friend\n"
+            "2️⃣ Ou écris /friend @pseudo\n\n"
+            "💡 La personne doit avoir envoyé /start au bot."
+        )
+    if target_tg.id == update.effective_user.id:
+        return await update.message.reply_text("😅 Tu es déjà ton propre ami !")
+    if target_tg.is_bot:
+        return await update.message.reply_text("🤖 Tu ne peux pas ajouter un bot en ami !")
 
     sender = await ensure_user(update.effective_user)
     target = await ensure_user(target_tg)

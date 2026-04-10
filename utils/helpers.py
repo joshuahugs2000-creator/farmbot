@@ -32,35 +32,37 @@ def is_group(update: Update) -> bool:
 
 async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Retourne le TGUser cible depuis :
+    Retourne un objet compatible TGUser depuis :
     - la réponse à un message
-    - une entité text_mention (user connu de Telegram)
-    - un @username → résolu via la base de données
+    - une entité text_mention
+    - un @username résolu via la DB
     """
     msg = update.message
 
     # 1. Réponse à un message
     if msg.reply_to_message:
-        from_user = msg.reply_to_message.from_user
-        logger.info(f"[parse_target] reply_to_message détecté → from_user={from_user}")
-        return from_user
+        tg_user = msg.reply_to_message.from_user
+        logger.info(f"[parse_target] reply → from_user={tg_user}")
+        if tg_user:
+            return tg_user
+        # from_user=None = admin anonyme ou channel → on ne peut pas identifier
+        logger.warning("[parse_target] reply_to_message.from_user est None (admin anonyme ?)")
+        return None
 
-    # 2. Entités du message
-    entities = msg.entities or []
+    # 2. Entités texte
     text = msg.text or msg.caption or ""
-    logger.info(f"[parse_target] Pas de reply. text={repr(text)} entities={[(e.type, e.offset, e.length) for e in entities]}")
-
-    for entity in entities:
+    for entity in (msg.entities or []):
+        # Mention avec objet user connu de Telegram
         if entity.type == "text_mention" and entity.user:
-            logger.info(f"[parse_target] text_mention → {entity.user}")
+            logger.info(f"[parse_target] text_mention → {entity.user.id}")
             return entity.user
 
+        # @username classique → résolution via DB
         if entity.type == "mention":
-            username = text[entity.offset : entity.offset + entity.length]
-            logger.info(f"[parse_target] mention @username={username}")
+            username = text[entity.offset: entity.offset + entity.length]
+            logger.info(f"[parse_target] mention → {username}")
             async with _db.AsyncSessionLocal() as session:
                 db_user = await get_user_by_username(session, username)
-            logger.info(f"[parse_target] db_user pour {username} = {db_user}")
             if db_user:
                 class _FakeUser:
                     def __init__(self, u):
@@ -69,10 +71,10 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         self.username   = u.username
                         self.is_bot     = False
                 return _FakeUser(db_user)
-            else:
-                return None
+            logger.info(f"[parse_target] {username} introuvable en DB")
+            return None
 
-    logger.info("[parse_target] Aucune cible trouvée → None")
+    logger.info("[parse_target] Aucune cible → None")
     return None
 
 def progress_bar(current: int, total: int, length: int = 10) -> str:

@@ -1,6 +1,7 @@
 import logging
 from datetime import time
 
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -35,6 +36,19 @@ async def on_startup(app: Application):
     logger.info("✅ Base de données initialisée.")
 
 
+async def error_handler(update: object, context):
+    """Log l'erreur et envoie un message dans le chat si possible."""
+    logger.error("Exception dans un handler :", exc_info=context.error)
+    if isinstance(update, Update) and update.message:
+        try:
+            await update.message.reply_text(
+                f"❗ Erreur interne : <code>{type(context.error).__name__}: {context.error}</code>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+
 def main():
     app = (
         Application.builder()
@@ -42,6 +56,9 @@ def main():
         .post_init(on_startup)
         .build()
     )
+
+    # ── Error handler ─────────────────────────────────────────────────────────
+    app.add_error_handler(error_handler)
 
     # ── Général ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",       start))
@@ -89,7 +106,7 @@ def main():
     # ── Job quotidien : anniversaires ─────────────────────────────────────────
     app.job_queue.run_daily(
         check_anniversaries,
-        time=time(hour=8, minute=0),   # 08:00 UTC chaque matin
+        time=time(hour=8, minute=0),
         name="anniversary_check",
     )
 

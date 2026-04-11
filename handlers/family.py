@@ -123,9 +123,18 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         if await get_spouse(session, sender.user_id):
-            return await update.message.reply_text("💍 Tu es déjà marié(e) !")
+            return await update.message.reply_text("💍 Tu es déjà marié(e) ! Divorce d'abord avec /divorce.")
         if await get_spouse(session, target.user_id):
-            return await update.message.reply_text(f"💔 {mention(target)} est déjà marié(e).")
+            return await update.message.reply_text(f"💔 {mention(target)} est déjà marié(e).", parse_mode=ParseMode.HTML)
+
+        # Bloquer si une demande de mariage est déjà en attente (envoyée par sender)
+        from sqlalchemy import select as _sel
+        from database.models import PendingRequest as _PR
+        _ex = await session.execute(
+            _sel(_PR).where(_PR.from_user_id == sender.user_id, _PR.request_type == RequestType.MARRY)
+        )
+        if _ex.scalar_one_or_none():
+            return await update.message.reply_text("⏳ Tu as déjà une demande de mariage en attente !")
 
         req = await create_request(session, sender.user_id, target.user_id, RequestType.MARRY, group_id, 0)
         msg = await update.message.reply_text(

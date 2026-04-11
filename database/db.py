@@ -2,19 +2,17 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy import select, and_, or_, delete, func
 from .models import (
     Base, User, GroupSettings, Relationship, PendingRequest,
-    Garden, DailyWaifu, KarmaVote, RelationType, RequestType,
+    Garden, DailyWaifu, KarmaVote, UserBet, RelationType, RequestType,
 )
 from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TITLES
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-# Initialisé au niveau module → les imports dans les handlers capturent la vraie valeur
 engine            = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 async def init_db():
-    """Crée les tables si elles n'existent pas."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -41,9 +39,7 @@ async def get_user(session: AsyncSession, user_id: int) -> Optional[User]:
 
 async def get_user_by_username(session: AsyncSession, username: str) -> Optional[User]:
     clean = username.lstrip("@").lower()
-    r = await session.execute(
-        select(User).where(func.lower(User.username) == clean)
-    )
+    r = await session.execute(select(User).where(func.lower(User.username) == clean))
     return r.scalar_one_or_none()
 
 
@@ -75,7 +71,7 @@ async def get_settings(session: AsyncSession, group_id: int) -> GroupSettings:
 
 # ─── RELATIONSHIPS ────────────────────────────────────────────────────────────
 
-async def get_relationships(session: AsyncSession, user_id: int, group_id: Optional[int] = None) -> list:
+async def get_relationships(session: AsyncSession, user_id: int, group_id: Optional[int] = None) -> List[Relationship]:
     cond = [or_(Relationship.user_id == user_id, Relationship.related_user_id == user_id)]
     if group_id is not None:
         cond.append(or_(Relationship.group_id == group_id, Relationship.group_id.is_(None)))
@@ -112,8 +108,7 @@ async def add_relationship(session: AsyncSession, uid: int, rid: int,
     return rel
 
 
-async def remove_relationship(session: AsyncSession, uid: int, rid: int,
-                               rel_type: RelationType):
+async def remove_relationship(session: AsyncSession, uid: int, rid: int, rel_type: RelationType):
     await session.execute(
         delete(Relationship).where(
             and_(
@@ -128,8 +123,7 @@ async def remove_relationship(session: AsyncSession, uid: int, rid: int,
     await session.commit()
 
 
-async def relationship_exists(session: AsyncSession, uid: int, rid: int,
-                               rel_type: RelationType) -> bool:
+async def relationship_exists(session: AsyncSession, uid: int, rid: int, rel_type: RelationType) -> bool:
     r = await session.execute(
         select(Relationship).where(
             and_(
@@ -180,7 +174,7 @@ async def delete_request(session: AsyncSession, req_id: int):
 
 # ─── GARDEN ───────────────────────────────────────────────────────────────────
 
-async def get_garden(session: AsyncSession, user_id: int, group_id: int) -> list:
+async def get_garden(session: AsyncSession, user_id: int, group_id: int) -> List[Garden]:
     r = await session.execute(
         select(Garden).where(
             and_(Garden.user_id == user_id, Garden.group_id == group_id, Garden.harvested == False)
@@ -216,9 +210,7 @@ async def harvest_plant(session: AsyncSession, garden_id: int) -> int:
 async def get_or_set_waifu(session: AsyncSession, group_id: int, family_ids: List[int]) -> int:
     today = datetime.utcnow().strftime("%Y-%m-%d")
     r = await session.execute(
-        select(DailyWaifu).where(
-            and_(DailyWaifu.group_id == group_id, DailyWaifu.date == today)
-        )
+        select(DailyWaifu).where(and_(DailyWaifu.group_id == group_id, DailyWaifu.date == today))
     )
     w = r.scalar_one_or_none()
     if w:
@@ -242,10 +234,8 @@ async def vote_karma(session: AsyncSession, voter_id: int, target_id: int,
     today = datetime.utcnow().strftime("%Y-%m-%d")
     r = await session.execute(
         select(KarmaVote).where(
-            and_(KarmaVote.voter_id  == voter_id,
-                 KarmaVote.target_id == target_id,
-                 KarmaVote.group_id  == group_id,
-                 KarmaVote.date      == today)
+            and_(KarmaVote.voter_id == voter_id, KarmaVote.target_id == target_id,
+                 KarmaVote.group_id == group_id, KarmaVote.date == today)
         )
     )
     if r.scalar_one_or_none():
@@ -266,11 +256,9 @@ async def process_inheritance(session: AsyncSession, user_id: int) -> dict:
     user = await get_user(session, user_id)
     if not user:
         return {}
-
     family_ids   = await get_family_members(session, user_id)
     coins_each   = 0
     oldest_child = None
-
     if family_ids:
         total      = int(user.coins * 0.8)
         coins_each = total // len(family_ids)
@@ -279,7 +267,6 @@ async def process_inheritance(session: AsyncSession, user_id: int) -> dict:
             m = r.scalar_one_or_none()
             if m:
                 m.coins += coins_each
-
         r2 = await session.execute(
             select(Relationship).where(
                 and_(Relationship.user_id == user_id,
@@ -289,7 +276,6 @@ async def process_inheritance(session: AsyncSession, user_id: int) -> dict:
         first_child_rel = r2.scalars().first()
         if first_child_rel:
             oldest_child = first_child_rel.related_user_id
-
     await session.execute(
         delete(Relationship).where(
             or_(Relationship.user_id == user_id, Relationship.related_user_id == user_id)
@@ -314,9 +300,14 @@ async def get_leaderboard(session: AsyncSession, limit: int = 10) -> List[dict]:
     return ranked[:limit]
 
 
+async def get_richlist(session: AsyncSession, limit: int = 10) -> List[User]:
+    r = await session.execute(select(User).order_by(User.coins.desc()).limit(limit))
+    return list(r.scalars().all())
+
+
 # ─── ANNIVERSARIES ────────────────────────────────────────────────────────────
 
-async def get_anniversaries_today(session: AsyncSession) -> list:
+async def get_anniversaries_today(session: AsyncSession) -> List[Relationship]:
     today = datetime.utcnow()
     r     = await session.execute(
         select(Relationship).where(Relationship.relation_type == RelationType.SPOUSE)
@@ -329,3 +320,134 @@ async def get_anniversaries_today(session: AsyncSession) -> list:
                 rel.created_at.year != today.year):
             results.append(rel)
     return results
+
+
+# ─── ECONOMY ──────────────────────────────────────────────────────────────────
+
+async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
+    """Ajoute (ou retire si négatif) des coins. Retourne le nouveau solde."""
+    r    = await session.execute(select(User).where(User.user_id == user_id))
+    user = r.scalar_one_or_none()
+    if not user:
+        return 0
+    user.coins = max(0, user.coins + amount)
+    await session.commit()
+    return user.coins
+
+
+async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount: int) -> str:
+    """Transfère des coins entre deux users. Retourne 'ok'|'insufficient'|'not_found'."""
+    r1 = await session.execute(select(User).where(User.user_id == from_id))
+    r2 = await session.execute(select(User).where(User.user_id == to_id))
+    sender = r1.scalar_one_or_none()
+    target = r2.scalar_one_or_none()
+    if not sender or not target:
+        return "not_found"
+    if sender.coins < amount:
+        return "insufficient"
+    sender.coins -= amount
+    target.coins += amount
+    await session.commit()
+    return "ok"
+
+
+async def claim_daily(session: AsyncSession, user_id: int) -> dict:
+    """Bonus quotidien. Retourne {'status': 'ok'|'already', 'amount': int, 'next': str}."""
+    import random
+    r    = await session.execute(select(User).where(User.user_id == user_id))
+    user = r.scalar_one_or_none()
+    if not user:
+        return {"status": "not_found"}
+    now_key = datetime.utcnow().strftime("%Y-%m-%d")
+    if user.last_daily == now_key:
+        return {"status": "already", "next": "demain"}
+    amount       = random.randint(50_000, 300_000)
+    user.coins  += amount
+    user.last_daily = now_key
+    await session.commit()
+    return {"status": "ok", "amount": amount, "balance": user.coins}
+
+
+async def claim_work(session: AsyncSession, user_id: int) -> dict:
+    """Travail (cooldown 8h). Retourne {'status': 'ok'|'cooldown', 'amount': int, 'wait_min': int}."""
+    import random
+    r    = await session.execute(select(User).where(User.user_id == user_id))
+    user = r.scalar_one_or_none()
+    if not user:
+        return {"status": "not_found"}
+    now = datetime.utcnow()
+    if user.last_work and (now - user.last_work).total_seconds() < 8 * 3600:
+        wait = int((8 * 3600 - (now - user.last_work).total_seconds()) / 60)
+        return {"status": "cooldown", "wait_min": wait}
+    amount       = random.randint(10_000, 150_000)
+    user.coins  += amount
+    user.last_work = now
+    await session.commit()
+    return {"status": "ok", "amount": amount, "balance": user.coins}
+
+
+# ─── BETS ─────────────────────────────────────────────────────────────────────
+
+async def create_bet(session: AsyncSession, proposer_id: int, group_id: int,
+                     amount: int, description: str) -> Optional[UserBet]:
+    r = await session.execute(select(User).where(User.user_id == proposer_id))
+    u = r.scalar_one_or_none()
+    if not u or u.coins < amount:
+        return None
+    u.coins -= amount
+    bet = UserBet(
+        proposer_id  = proposer_id,
+        group_id     = group_id,
+        amount       = amount,
+        description  = description,
+        expires_at   = datetime.utcnow() + timedelta(hours=24),
+    )
+    session.add(bet)
+    await session.commit()
+    return bet
+
+
+async def accept_bet(session: AsyncSession, bet_id: int, acceptor_id: int) -> str:
+    r = await session.execute(select(UserBet).where(UserBet.id == bet_id))
+    bet = r.scalar_one_or_none()
+    if not bet:
+        return "not_found"
+    if bet.status != "pending":
+        return "not_pending"
+    if bet.proposer_id == acceptor_id:
+        return "self"
+    if datetime.utcnow() > bet.expires_at:
+        bet.status = "cancelled"
+        await session.commit()
+        return "expired"
+    r2 = await session.execute(select(User).where(User.user_id == acceptor_id))
+    u  = r2.scalar_one_or_none()
+    if not u or u.coins < bet.amount:
+        return "insufficient"
+    u.coins     -= bet.amount
+    bet.target_id = acceptor_id
+    bet.status    = "active"
+    await session.commit()
+    return "ok"
+
+
+async def resolve_bet(session: AsyncSession, bet_id: int, winner_id: int,
+                      resolver_id: int) -> str:
+    r = await session.execute(select(UserBet).where(UserBet.id == bet_id))
+    bet = r.scalar_one_or_none()
+    if not bet:
+        return "not_found"
+    if bet.status != "active":
+        return "not_active"
+    if resolver_id not in (bet.proposer_id, bet.target_id):
+        return "not_participant"
+    if winner_id not in (bet.proposer_id, bet.target_id):
+        return "invalid_winner"
+    r2 = await session.execute(select(User).where(User.user_id == winner_id))
+    winner = r2.scalar_one_or_none()
+    if winner:
+        winner.coins += bet.amount * 2
+    bet.status    = "done"
+    bet.winner_id = winner_id
+    await session.commit()
+    return "ok"

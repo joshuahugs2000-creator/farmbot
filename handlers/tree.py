@@ -1,149 +1,102 @@
-"""
-Génère une image PNG de l'arbre généalogique avec Pillow.
-Layout :
-    Row 0  →  Parents
-    Row 1  →  User  +  Époux/se
-    Row 2  →  Enfants
-    Côté   →  Amis (colonne à droite)
-"""
-from PIL import Image, ImageDraw, ImageFont
+import io
+from telegram import Update
+from telegram.ext import ContextTypes
+
+from database.db import AsyncSessionLocal, get_user, get_relationships, get_family_members, compute_title
 from database.models import RelationType
-from config import PROFILE_COLORS
-import io, os
-
-W, H        = 900, 600
-NODE_W      = 140
-NODE_H      = 50
-RADIUS      = 10
-PAD         = 20
-BG_COLOR    = (18, 18, 30)
-LINE_COLOR  = (100, 100, 140)
-TEXT_COLOR  = (240, 240, 255)
-
-COLOR_MAP = {
-    "blue":   (52,  152, 219),
-    "green":  (46,  204, 113),
-    "red":    (231, 76,  60),
-    "purple": (155, 89,  182),
-    "orange": (230, 126, 34),
-    "pink":   (253, 121, 168),
-    "gold":   (241, 196, 15),
-    "teal":   (26,  188, 156),
-}
-
-try:
-    FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    if not os.path.exists(FONT_PATH):
-        FONT_PATH = None
-    FONT_SM   = ImageFont.truetype(FONT_PATH, 13) if FONT_PATH else ImageFont.load_default()
-    FONT_LG   = ImageFont.truetype(FONT_PATH, 16) if FONT_PATH else ImageFont.load_default()
-    FONT_XS   = ImageFont.truetype(FONT_PATH, 11) if FONT_PATH else ImageFont.load_default()
-except Exception:
-    FONT_SM = FONT_LG = FONT_XS = ImageFont.load_default()
+from utils.helpers import ensure_user
 
 
-def _node_color(profile_color: str) -> tuple:
-    return COLOR_MAP.get(profile_color, (52, 152, 219))
+async def tree(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Génère et envoie une image de l'arbre généalogique de l'utilisateur."""
+    # Import lazy : si Pillow n'est pas dispo, seule cette commande échoue
+    try:
+        from utils.tree_renderer import render_tree
+    except Exception as e:
+        return await update.message.reply_text(f"❗ Arbre indisponible : {e}")
 
+    tg_user = update.effective_user
+    user    = await ensure_user(tg_user)
 
-def _draw_node(draw: ImageDraw, x: int, y: int, label: str,
-               subtitle: str, color: tuple):
-    # Ombre
-    draw.rounded_rectangle([x+3, y+3, x+NODE_W+3, y+NODE_H+3],
-                            radius=RADIUS, fill=(10, 10, 20))
-    # Fond coloré
-    draw.rounded_rectangle([x, y, x+NODE_W, y+NODE_H],
-                            radius=RADIUS, fill=color)
-    # Texte principal
-    draw.text((x + NODE_W//2, y + 14), label,
-              font=FONT_SM, fill=TEXT_COLOR, anchor="mm")
-    # Sous-titre (titre dynastique)
-    if subtitle:
-        draw.text((x + NODE_W//2, y + 36), subtitle,
-                  font=FONT_XS, fill=(220, 220, 255), anchor="mm")
+    async with AsyncSessionLocal() as session:
+        rels = await get_relationships(session, user.user_id)
+        u    = await get_user(session, user.user_id)
 
+        user_node = {
+            "name":  (u.first_name[:16] if u else tg_user.first_name[:16]),
+            "title": await compute_title(session, user.user_id),
+            "color": (u.profile_color if u else "blue"),
+        }
 
-def _center_x(col: int, total_cols: int) -> int:
-    """Centre un nœud horizontalement dans sa colonne."""
-    available = W - 200   # réserver 200px à droite pour les amis
-    col_w     = available // max(total_cols, 1)
-    return PAD + col * col_w + (col_w - NODE_W) // 2
+        spouse_node  = None
+        parent_nodes = []
+        child_nodes  = []
+        friend_nodes = []
 
+        for rel in rels:
+            other_id = rel.related_user_id if rel.user_id == user.user_id else rel.user_id
+            other    = await get_user(session, other_id)
+            title    = await compute_title(session, other_id)
+            n = {
+                "name":  (other.first_name[:16] if other else str(other_id)),
+                "title": title,
+                "color": (other.profile_color if other else "blue"),
+            }
+            if rel.relation_type == RelationType.SPOUSE:
+                spouse_node = n
+            elif rel.relation_type == RelationType.PARENT:
+                if rel.user_id == user.user_id:
+                    child_nodes.append(n)
+                else:
+                    parent_nodes.append(n)
+            elif rel.relation_type == RelationType.FRIEND:
+                friend_nodes.append(n)
 
-def render_tree(members: dict) -> bytes:
-    """
     members = {
-        'user':    {'name': str, 'title': str, 'color': str},
-        'spouse':  {'name': str, 'title': str, 'color': str} | None,
-        'parents': [{'name', 'title', 'color'}, ...],
-        'children':[{'name', 'title', 'color'}, ...],
-        'friends': [{'name', 'title', 'color'}, ...],
+        "user":     user_node,
+        "spouse":   spouse_node,
+        "parents":  parent_nodes,
+        "children": child_nodes,
+        "friends":  friend_nodes,
     }
-    Retourne les bytes PNG de l'image.
-    """
-    img  = Image.new("RGB", (W, H), BG_COLOR)
-    draw = ImageDraw.Draw(img)
 
-    # Titre
-    draw.text((W//2, 22), "Arbre Genealogique", font=FONT_LG,
-              fill=(200, 200, 255), anchor="mm")
+    await update.message.reply_text("Génération de l'arbre en cours...")
+    img_bytes = render_tree(members)
+    await update.message.reply_photo(
+        photo=io.BytesIO(img_bytes),
+        caption=f"Arbre de {tg_user.first_name}",
+    )
 
-    positions = {}   # label → (cx, cy) centre du nœud
 
-    def draw_node_at(cx: int, cy: int, info: dict, key: str):
-        x = cx - NODE_W // 2
-        y = cy - NODE_H // 2
-        _draw_node(draw, x, y, info["name"], info.get("title", ""),
-                   _node_color(info.get("color", "blue")))
-        positions[key] = (cx, cy)
+async def bigtree(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Affiche tous les membres du groupe sous forme de texte."""
+    if update.effective_chat.type not in ("group", "supergroup"):
+        return await update.message.reply_text("❗ Commande de groupe uniquement.")
 
-    # ── Rangée parents ──
-    parents = members.get("parents") or []
-    for i, p in enumerate(parents[:4]):
-        cx = _center_x(i, max(len(parents), 1))
-        draw_node_at(cx + NODE_W//2, 90, p, f"parent_{i}")
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        from database.models import Relationship, User
+        r    = await session.execute(select(Relationship).where(
+            Relationship.group_id == update.effective_chat.id
+        ))
+        rels = list(r.scalars().all())
 
-    # ── User + époux/se ──
-    user_cx = W // 2 - (NODE_W // 2 + 20 if members.get("spouse") else 0)
-    draw_node_at(user_cx, 230, members["user"], "user")
+        seen  = set()
+        lines = ["<b>Arbre du groupe</b>\n"]
+        for rel in rels:
+            pair = tuple(sorted([rel.user_id, rel.related_user_id]))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            u1 = await get_user(session, rel.user_id)
+            u2 = await get_user(session, rel.related_user_id)
+            n1 = u1.first_name if u1 else str(rel.user_id)
+            n2 = u2.first_name if u2 else str(rel.related_user_id)
+            emoji = {"spouse": "💍", "parent": "👨‍👦", "friend": "🤝"}.get(rel.relation_type.value, "•")
+            lines.append(f"{emoji} {n1} ↔ {n2}")
 
-    if members.get("spouse"):
-        spouse_cx = user_cx + NODE_W + 40
-        draw_node_at(spouse_cx, 230, members["spouse"], "spouse")
-        # Trait de mariage
-        draw.line([(user_cx, 230), (spouse_cx, 230)],
-                  fill=(241, 196, 15), width=3)
+        if len(lines) == 1:
+            lines.append("Aucune relation enregistrée dans ce groupe.")
 
-    # Trait parents → user
-    for i in range(len(parents[:4])):
-        key = f"parent_{i}"
-        if key in positions:
-            draw.line([positions[key], (user_cx, 230)],
-                      fill=LINE_COLOR, width=2)
-
-    # ── Rangée enfants ──
-    children = members.get("children") or []
-    for i, c in enumerate(children[:5]):
-        cx = _center_x(i, max(len(children), 1))
-        child_cx = cx + NODE_W // 2
-        draw_node_at(child_cx, 390, c, f"child_{i}")
-        draw.line([(user_cx, 230 + NODE_H//2), (child_cx, 390 - NODE_H//2)],
-                  fill=LINE_COLOR, width=2)
-
-    # ── Amis (colonne droite) ──
-    friends = members.get("friends") or []
-    friend_x = W - NODE_W - PAD
-    draw.text((friend_x + NODE_W//2, 50), "Amis",
-              font=FONT_XS, fill=(180, 180, 220), anchor="mm")
-    for i, f in enumerate(friends[:6]):
-        fy = 75 + i * (NODE_H + 12)
-        _draw_node(draw, friend_x, fy, f["name"], f.get("title", ""),
-                   _node_color(f.get("color", "teal")))
-        # Trait pointillé vers user
-        draw.line([(friend_x, fy + NODE_H//2), (user_cx, 230)],
-                  fill=(80, 80, 120), width=1)
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return buf.read()
+    from telegram.constants import ParseMode
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

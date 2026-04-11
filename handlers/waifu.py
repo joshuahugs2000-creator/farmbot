@@ -27,18 +27,18 @@ async def waifu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not waifu_user:
             return await update.message.reply_text("❗ Erreur lors de la sélection.")
 
-        mood = random.choice(MOODS)
-        title = f"Waifu du jour — {mood}"
-        text = (
+        mood     = random.choice(MOODS)
+        text     = (
             f"✨ <b>Waifu du jour</b> ✨\n\n"
             f"💖 {mention(waifu_user)}\n"
             f"Humeur : {mood}\n\n"
             f"<i>Reviens demain pour une nouvelle waifu !</i>"
         )
+        photo_id = waifu_user.photo_file_id   # lu DANS la session
 
-    if waifu_user.photo_file_id:
+    if photo_id:
         await update.message.reply_photo(
-            photo=waifu_user.photo_file_id,
+            photo=photo_id,
             caption=text,
             parse_mode=ParseMode.HTML,
         )

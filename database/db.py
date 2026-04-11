@@ -21,6 +21,7 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily  VARCHAR(20)  DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_work   TIMESTAMP    DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS coins       BIGINT       DEFAULT 10000",
+            "UPDATE users SET coins = 10000 WHERE coins < 10000",
         ]
         for sql in migrations:
             try:

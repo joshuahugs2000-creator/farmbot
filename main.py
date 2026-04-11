@@ -11,18 +11,22 @@ from telegram.ext import (
 from config import BOT_TOKEN
 from database import init_db
 
-# Handlers
-from handlers.misc    import start, help_cmd, leaderboard, mode, toggle
-from handlers.family  import (
+from handlers.misc     import start, help_cmd, leaderboard, mode, toggle
+from handlers.family   import (
     marry, adopt, friend, divorce, disown, unfriend,
     setfamilyname, leave, familyphoto,
     request_callback, leave_callback,
 )
-from handlers.tree    import tree, bigtree
-from handlers.garden  import garden, plant_cmd, harvest
-from handlers.waifu   import waifu, upvote, downvote
-from handlers.profile import me, setpic, customize, color_callback, titles
-from handlers.events  import check_anniversaries
+from handlers.tree     import tree, bigtree
+from handlers.garden   import garden, plant_cmd, harvest
+from handlers.waifu    import waifu, upvote, downvote
+from handlers.profile  import me, setpic, customize, color_callback, titles
+from handlers.events   import check_anniversaries
+from handlers.economy  import (
+    acc, daily, work, pay, richlist,
+    blackjack, roulette, slots, race,
+    bet, bet_callback, acceptbet, resolvebet,
+)
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -33,17 +37,15 @@ logger = logging.getLogger(__name__)
 
 async def on_startup(app: Application):
     await init_db()
-    logger.info("✅ Base de données initialisée.")
+    logger.info("Base de données initialisée.")
 
 
 async def error_handler(update: object, context):
-    """Log l'erreur et envoie un message dans le chat si possible."""
     logger.error("Exception dans un handler :", exc_info=context.error)
     if isinstance(update, Update) and update.message:
         try:
             await update.message.reply_text(
-                f"❗ Erreur interne : <code>{type(context.error).__name__}: {context.error}</code>",
-                parse_mode="HTML",
+                f"Erreur interne : {type(context.error).__name__}: {context.error}"
             )
         except Exception:
             pass
@@ -57,7 +59,6 @@ def main():
         .build()
     )
 
-    # ── Error handler ─────────────────────────────────────────────────────────
     app.add_error_handler(error_handler)
 
     # ── Général ──────────────────────────────────────────────────────────────
@@ -68,15 +69,15 @@ def main():
     app.add_handler(CommandHandler("toggle",      toggle))
 
     # ── Famille ──────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("marry",          marry))
-    app.add_handler(CommandHandler("adopt",          adopt))
-    app.add_handler(CommandHandler("friend",         friend))
-    app.add_handler(CommandHandler("divorce",        divorce))
-    app.add_handler(CommandHandler("disown",         disown))
-    app.add_handler(CommandHandler("unfriend",       unfriend))
-    app.add_handler(CommandHandler("setfamilyname",  setfamilyname))
-    app.add_handler(CommandHandler("leave",          leave))
-    app.add_handler(CommandHandler("familyphoto",    familyphoto))
+    app.add_handler(CommandHandler("marry",         marry))
+    app.add_handler(CommandHandler("adopt",         adopt))
+    app.add_handler(CommandHandler("friend",        friend))
+    app.add_handler(CommandHandler("divorce",       divorce))
+    app.add_handler(CommandHandler("disown",        disown))
+    app.add_handler(CommandHandler("unfriend",      unfriend))
+    app.add_handler(CommandHandler("setfamilyname", setfamilyname))
+    app.add_handler(CommandHandler("leave",         leave))
+    app.add_handler(CommandHandler("familyphoto",   familyphoto))
 
     # ── Arbre ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("tree",    tree))
@@ -98,19 +99,34 @@ def main():
     app.add_handler(CommandHandler("customize", customize))
     app.add_handler(CommandHandler("titles",    titles))
 
-    # ── Callbacks inline ─────────────────────────────────────────────────────
+    # ── Économie ─────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("acc",        acc))
+    app.add_handler(CommandHandler("daily",      daily))
+    app.add_handler(CommandHandler("work",       work))
+    app.add_handler(CommandHandler("pay",        pay))
+    app.add_handler(CommandHandler("richlist",   richlist))
+    app.add_handler(CommandHandler("blackjack",  blackjack))
+    app.add_handler(CommandHandler("roulette",   roulette))
+    app.add_handler(CommandHandler("slots",      slots))
+    app.add_handler(CommandHandler("race",       race))
+    app.add_handler(CommandHandler("bet",        bet))
+    app.add_handler(CommandHandler("acceptbet",  acceptbet))
+    app.add_handler(CommandHandler("resolvebet", resolvebet))
+
+    # ── Callbacks ─────────────────────────────────────────────────────────────
     app.add_handler(CallbackQueryHandler(request_callback, pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,   pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,   pattern=r"^color:"))
+    app.add_handler(CallbackQueryHandler(bet_callback,     pattern=r"^bet:"))
 
-    # ── Job quotidien : anniversaires ─────────────────────────────────────────
+    # ── Job quotidien ─────────────────────────────────────────────────────────
     app.job_queue.run_daily(
         check_anniversaries,
         time=time(hour=8, minute=0),
         name="anniversary_check",
     )
 
-    logger.info("🤖 Bot démarré.")
+    logger.info("Bot demarre.")
     app.run_polling(drop_pending_updates=True)
 
 

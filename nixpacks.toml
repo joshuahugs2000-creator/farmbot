@@ -1,2 +1,2 @@
 [phases.setup]
-nixPkgs = ["python311", "fontconfig", "dejavu_fonts"]
+nixPkgs = ["python311", "dejavu_fonts", "zlib", "libjpeg"]

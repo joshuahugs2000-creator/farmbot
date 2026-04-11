@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import select, and_, or_, delete, func
+from sqlalchemy import select, and_, or_, delete, func, text
 from .models import (
     Base, User, GroupSettings, Relationship, PendingRequest,
     Garden, DailyWaifu, KarmaVote, UserBet, RelationType, RequestType,
@@ -13,8 +13,20 @@ AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_co
 
 
 async def init_db():
+    """Crée les tables et ajoute les colonnes manquantes (migration douce)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migration : ajout des colonnes economy si elles n'existent pas encore
+        migrations = [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily  VARCHAR(20)  DEFAULT NULL",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_work   TIMESTAMP    DEFAULT NULL",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS coins       BIGINT       DEFAULT 10000",
+        ]
+        for sql in migrations:
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                pass  # colonne déjà présente ou autre erreur non-bloquante
 
 
 # ─── USERS ───────────────────────────────────────────────────────────────────
@@ -325,7 +337,6 @@ async def get_anniversaries_today(session: AsyncSession) -> List[Relationship]:
 # ─── ECONOMY ──────────────────────────────────────────────────────────────────
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
-    """Ajoute (ou retire si négatif) des coins. Retourne le nouveau solde."""
     r    = await session.execute(select(User).where(User.user_id == user_id))
     user = r.scalar_one_or_none()
     if not user:
@@ -336,7 +347,6 @@ async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
 
 
 async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount: int) -> str:
-    """Transfère des coins entre deux users. Retourne 'ok'|'insufficient'|'not_found'."""
     r1 = await session.execute(select(User).where(User.user_id == from_id))
     r2 = await session.execute(select(User).where(User.user_id == to_id))
     sender = r1.scalar_one_or_none()
@@ -352,7 +362,6 @@ async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount
 
 
 async def claim_daily(session: AsyncSession, user_id: int) -> dict:
-    """Bonus quotidien. Retourne {'status': 'ok'|'already', 'amount': int, 'next': str}."""
     import random
     r    = await session.execute(select(User).where(User.user_id == user_id))
     user = r.scalar_one_or_none()
@@ -360,16 +369,15 @@ async def claim_daily(session: AsyncSession, user_id: int) -> dict:
         return {"status": "not_found"}
     now_key = datetime.utcnow().strftime("%Y-%m-%d")
     if user.last_daily == now_key:
-        return {"status": "already", "next": "demain"}
-    amount       = random.randint(50_000, 300_000)
-    user.coins  += amount
+        return {"status": "already"}
+    amount          = random.randint(500, 3_000)
+    user.coins     += amount
     user.last_daily = now_key
     await session.commit()
     return {"status": "ok", "amount": amount, "balance": user.coins}
 
 
 async def claim_work(session: AsyncSession, user_id: int) -> dict:
-    """Travail (cooldown 8h). Retourne {'status': 'ok'|'cooldown', 'amount': int, 'wait_min': int}."""
     import random
     r    = await session.execute(select(User).where(User.user_id == user_id))
     user = r.scalar_one_or_none()
@@ -379,8 +387,8 @@ async def claim_work(session: AsyncSession, user_id: int) -> dict:
     if user.last_work and (now - user.last_work).total_seconds() < 8 * 3600:
         wait = int((8 * 3600 - (now - user.last_work).total_seconds()) / 60)
         return {"status": "cooldown", "wait_min": wait}
-    amount       = random.randint(10_000, 150_000)
-    user.coins  += amount
+    amount         = random.randint(200, 2_000)
+    user.coins    += amount
     user.last_work = now
     await session.commit()
     return {"status": "ok", "amount": amount, "balance": user.coins}
@@ -424,15 +432,14 @@ async def accept_bet(session: AsyncSession, bet_id: int, acceptor_id: int) -> st
     u  = r2.scalar_one_or_none()
     if not u or u.coins < bet.amount:
         return "insufficient"
-    u.coins     -= bet.amount
+    u.coins      -= bet.amount
     bet.target_id = acceptor_id
     bet.status    = "active"
     await session.commit()
     return "ok"
 
 
-async def resolve_bet(session: AsyncSession, bet_id: int, winner_id: int,
-                      resolver_id: int) -> str:
+async def resolve_bet(session: AsyncSession, bet_id: int, winner_id: int, resolver_id: int) -> str:
     r = await session.execute(select(UserBet).where(UserBet.id == bet_id))
     bet = r.scalar_one_or_none()
     if not bet:

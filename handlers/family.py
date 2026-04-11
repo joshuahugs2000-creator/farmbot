@@ -1,382 +1,277 @@
-import io, random, logging
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ContextTypes
-from telegram.constants import ParseMode
-
-from database.db import (
-    AsyncSessionLocal, upsert_user, get_user, get_spouse, get_relationships,
-    get_family_members, add_relationship, remove_relationship, relationship_exists,
-    create_request, get_request, delete_request, process_inheritance, compute_title,
-)
-from database.models import RelationType, RequestType
-from utils.helpers import mention, mention_tg, is_group, parse_target, ensure_user
-from config import MOODS
+"""
+Générateur de cartes de relation (mariage, adoption, amitié).
+Reproduit le style de la carte d'invitation avec photos de profil,
+ornements et texte centré.
+"""
+import io
+import math
+from datetime import datetime
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageChops
+import logging
 
 logger = logging.getLogger(__name__)
 
-
-# ─── HELPERS INTERNES ────────────────────────────────────────────────────────
-
-def _req_keyboard(req_id: int, req_type: str):
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Accepter", callback_data=f"req:accept:{req_id}:{req_type}"),
-        InlineKeyboardButton("❌ Refuser",  callback_data=f"req:decline:{req_id}:{req_type}"),
-    ]])
-
-
-async def _sync_family_name(session, user_id: int, family_ids: list):
-    """Propage le nom de famille à tous les membres qui n'en ont pas."""
-    user = await get_user(session, user_id)
-    if not user or not user.family_name:
-        return
-    for fid in family_ids:
-        m = await get_user(session, fid)
-        if m and not m.family_name:
-            m.family_name = user.family_name
-    await session.commit()
-
-
-# ─── /marry ──────────────────────────────────────────────────────────────────
-
-async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_group(update):
-        return await update.message.reply_text("❗ Cette commande n'est disponible que dans un groupe.")
-
-    target_tg = await parse_target(update, context)
-
-    if not target_tg:
-        return await update.message.reply_text(
-            "❗ Comment utiliser /marry :\n"
-            "1️⃣ Réponds au message de la personne visée + /marry\n"
-            "2️⃣ Ou écris /marry @pseudo\n\n"
-            "💡 Si la personne n'a jamais utilisé le bot, elle doit d'abord envoyer /start."
-        )
-    if target_tg.id == update.effective_user.id:
-        return await update.message.reply_text("😅 Tu ne peux pas te marier avec toi-même ! Réponds au message de l'autre personne.")
-    if target_tg.is_bot:
-        return await update.message.reply_text("🤖 Tu ne peux pas épouser un bot !")
-
-    sender = await ensure_user(update.effective_user)
-    target = await ensure_user(target_tg)
-    group_id = update.effective_chat.id
-
-    async with AsyncSessionLocal() as session:
-        if await get_spouse(session, sender.user_id):
-            return await update.message.reply_text("💍 Tu es déjà marié(e) !")
-        if await get_spouse(session, target.user_id):
-            return await update.message.reply_text(f"💔 {mention(target)} est déjà marié(e).")
-
-        req = await create_request(session, sender.user_id, target.user_id, RequestType.MARRY, group_id, 0)
-        msg = await update.message.reply_text(
-            f"💌 {mention(sender)} demande {mention(target)} en mariage !\n"
-            f"{mention(target)}, acceptes-tu ?",
-            reply_markup=_req_keyboard(req.id, "marry"),
-            parse_mode=ParseMode.HTML,
-        )
-        req.message_id = msg.message_id
-        await session.commit()
-
-
-# ─── /adopt ──────────────────────────────────────────────────────────────────
-
-async def adopt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_group(update):
-        return await update.message.reply_text("❗ Commande de groupe uniquement.")
-    target_tg = await parse_target(update, context)
-    if not target_tg:
-        return await update.message.reply_text(
-            "❗ Comment utiliser /adopt :\n"
-            "1️⃣ Réponds au message de la personne visée + /adopt\n"
-            "2️⃣ Ou écris /adopt @pseudo\n\n"
-            "💡 La personne doit avoir envoyé /start au bot."
-        )
-    if target_tg.id == update.effective_user.id:
-        return await update.message.reply_text("😅 Tu ne peux pas t'adopter toi-même !")
-    if target_tg.is_bot:
-        return await update.message.reply_text("🤖 Tu ne peux pas adopter un bot !")
-
-    sender = await ensure_user(update.effective_user)
-    target = await ensure_user(target_tg)
-    group_id = update.effective_chat.id
-
-    async with AsyncSessionLocal() as session:
-        if await relationship_exists(session, sender.user_id, target.user_id, RelationType.PARENT):
-            return await update.message.reply_text("👨‍👧 Cette personne est déjà dans ta famille.")
-        req = await create_request(session, sender.user_id, target.user_id, RequestType.ADOPT, group_id, 0)
-        msg = await update.message.reply_text(
-            f"👨‍👦 {mention(sender)} souhaite adopter {mention(target)} !\n"
-            f"{mention(target)}, acceptes-tu ?",
-            reply_markup=_req_keyboard(req.id, "adopt"),
-            parse_mode=ParseMode.HTML,
-        )
-        req.message_id = msg.message_id
-        await session.commit()
-
-
-# ─── /friend ─────────────────────────────────────────────────────────────────
-
-async def friend(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_group(update):
-        return await update.message.reply_text("❗ Commande de groupe uniquement.")
-    target_tg = await parse_target(update, context)
-    if not target_tg:
-        return await update.message.reply_text(
-            "❗ Comment utiliser /friend :\n"
-            "1️⃣ Réponds au message de la personne visée + /friend\n"
-            "2️⃣ Ou écris /friend @pseudo\n\n"
-            "💡 La personne doit avoir envoyé /start au bot."
-        )
-    if target_tg.id == update.effective_user.id:
-        return await update.message.reply_text("😅 Tu es déjà ton propre ami !")
-    if target_tg.is_bot:
-        return await update.message.reply_text("🤖 Tu ne peux pas ajouter un bot en ami !")
-
-    sender = await ensure_user(update.effective_user)
-    target = await ensure_user(target_tg)
-    group_id = update.effective_chat.id
-
-    async with AsyncSessionLocal() as session:
-        if await relationship_exists(session, sender.user_id, target.user_id, RelationType.FRIEND):
-            return await update.message.reply_text("🤝 Vous êtes déjà amis !")
-        req = await create_request(session, sender.user_id, target.user_id, RequestType.FRIEND, group_id, 0)
-        msg = await update.message.reply_text(
-            f"🤝 {mention(sender)} veut être ami(e) avec {mention(target)} !\n"
-            f"{mention(target)}, acceptes-tu ?",
-            reply_markup=_req_keyboard(req.id, "friend"),
-            parse_mode=ParseMode.HTML,
-        )
-        req.message_id = msg.message_id
-        await session.commit()
-
-
-# ─── CALLBACK : accepter / refuser ───────────────────────────────────────────
-
-async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    _, action, req_id_str, req_type_str = query.data.split(":")
-    req_id = int(req_id_str)
-
-    async with AsyncSessionLocal() as session:
-        req = await get_request(session, req_id)
-        if not req:
-            return await query.edit_message_text("⏰ Cette demande a expiré.")
-
-        from datetime import datetime
-        if datetime.utcnow() > req.expires_at:
-            await delete_request(session, req_id)
-            return await query.edit_message_text("⏰ Demande expirée.")
-
-        # Seule la cible peut répondre
-        if query.from_user.id != req.to_user_id:
-            return await query.answer("❗ Cette demande ne te concerne pas.", show_alert=True)
-
-        if action == "decline":
-            await delete_request(session, req_id)
-            return await query.edit_message_text("❌ Demande refusée.")
-
-        # ── Acceptation ──
-        sender = await get_user(session, req.from_user_id)
-        target = await get_user(session, req.to_user_id)
-
-        if req_type_str == "marry":
-            if await get_spouse(session, req.from_user_id) or await get_spouse(session, req.to_user_id):
-                await delete_request(session, req_id)
-                return await query.edit_message_text("💔 L'un de vous est déjà marié(e).")
-            await add_relationship(session, req.from_user_id, req.to_user_id,
-                                   RelationType.SPOUSE, req.group_id)
-            # Propagation du nom de famille
-            fam = await get_family_members(session, req.from_user_id)
-            await _sync_family_name(session, req.from_user_id, fam)
-            text = (f"💒 {mention(sender)} et {mention(target)} sont maintenant mariés ! 🎉\n"
-                    f"Félicitations à la famille {sender.family_name or ''} !")
-
-        elif req_type_str == "adopt":
-            await add_relationship(session, req.from_user_id, req.to_user_id,
-                                   RelationType.PARENT, req.group_id)
-            fam = await get_family_members(session, req.from_user_id)
-            await _sync_family_name(session, req.from_user_id, fam)
-            text = f"👨‍👦 {mention(sender)} a officiellement adopté {mention(target)} !"
-
-        else:  # friend
-            await add_relationship(session, req.from_user_id, req.to_user_id,
-                                   RelationType.FRIEND, req.group_id)
-            text = f"🤝 {mention(sender)} et {mention(target)} sont maintenant amis !"
-
-        await delete_request(session, req_id)
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML)
-
-
-# ─── /divorce ────────────────────────────────────────────────────────────────
-
-async def divorce(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = await ensure_user(update.effective_user)
-    async with AsyncSessionLocal() as session:
-        rel = await get_spouse(session, user.user_id)
-        if not rel:
-            return await update.message.reply_text("💔 Tu n'es pas marié(e).")
-        spouse_id = rel.related_user_id if rel.user_id == user.user_id else rel.user_id
-        spouse = await get_user(session, spouse_id)
-        await remove_relationship(session, user.user_id, spouse_id, RelationType.SPOUSE)
-        await update.message.reply_text(
-            f"💔 {mention(user)} et {mention(spouse)} ont divorcé.",
-            parse_mode=ParseMode.HTML,
-        )
-
-
-# ─── /disown ─────────────────────────────────────────────────────────────────
-
-async def disown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    target_tg = await parse_target(update, context)
-    if not target_tg:
-        return await update.message.reply_text("❗ Mentionne l'enfant à désavouer.")
-    user   = await ensure_user(update.effective_user)
-    target = await ensure_user(target_tg)
-    async with AsyncSessionLocal() as session:
-        if not await relationship_exists(session, user.user_id, target.user_id, RelationType.PARENT):
-            return await update.message.reply_text("❗ Cette personne n'est pas dans ta famille.")
-        await remove_relationship(session, user.user_id, target.user_id, RelationType.PARENT)
-        await update.message.reply_text(
-            f"😔 {mention(user)} a désavoué {mention(target)}.",
-            parse_mode=ParseMode.HTML,
-        )
-
-
-# ─── /unfriend ───────────────────────────────────────────────────────────────
-
-async def unfriend(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    target_tg = await parse_target(update, context)
-    if not target_tg:
-        return await update.message.reply_text("❗ Mentionne l'ami à retirer.")
-    user   = await ensure_user(update.effective_user)
-    target = await ensure_user(target_tg)
-    async with AsyncSessionLocal() as session:
-        if not await relationship_exists(session, user.user_id, target.user_id, RelationType.FRIEND):
-            return await update.message.reply_text("❗ Vous n'êtes pas amis.")
-        await remove_relationship(session, user.user_id, target.user_id, RelationType.FRIEND)
-        await update.message.reply_text(
-            f"😶 {mention(user)} et {mention(target)} ne sont plus amis.",
-            parse_mode=ParseMode.HTML,
-        )
-
-
-# ─── /setfamilyname ──────────────────────────────────────────────────────────
-
-async def setfamilyname(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        return await update.message.reply_text("Usage : /setfamilyname NomDeFamille")
-    name = " ".join(context.args)[:50]
-    user = await ensure_user(update.effective_user)
-    async with AsyncSessionLocal() as session:
-        u = await get_user(session, user.user_id)
-        u.family_name = name
-        fam = await get_family_members(session, user.user_id)
-        await _sync_family_name(session, user.user_id, fam)
-        await session.commit()
-    await update.message.reply_text(f"🏠 Nom de famille défini : <b>{name}</b>", parse_mode=ParseMode.HTML)
-
-
-# ─── /leave (héritage) ───────────────────────────────────────────────────────
-
-async def leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = await ensure_user(update.effective_user)
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Confirmer", callback_data=f"leave:confirm:{user.user_id}"),
-        InlineKeyboardButton("❌ Annuler",   callback_data=f"leave:cancel"),
-    ]])
-    await update.message.reply_text(
-        f"⚠️ {mention(user)}, es-tu sûr(e) de vouloir quitter ?\n"
-        "80 % de tes coins seront transmis à ta famille et toutes tes relations seront dissoutes.",
-        reply_markup=keyboard,
-        parse_mode=ParseMode.HTML,
-    )
-
-
-async def leave_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    parts = query.data.split(":")
-
-    if parts[1] == "cancel":
-        return await query.edit_message_text("✅ Annulé.")
-
-    user_id = int(parts[2])
-    if query.from_user.id != user_id:
-        return await query.answer("❗ Ce n'est pas ta demande.", show_alert=True)
-
-    async with AsyncSessionLocal() as session:
-        result = await process_inheritance(session, user_id)
-
-    if not result:
-        return await query.edit_message_text("❗ Erreur lors du départ.")
-
-    oldest = result.get("oldest_child")
-    title_msg = ""
-    if oldest:
-        async with AsyncSessionLocal() as session:
-            heir = await get_user(session, oldest)
-            if heir:
-                title_msg = f"\n👑 {mention(heir)} hérite du titre dynastique !"
-
-    members_count = len(result.get("members", []))
-    await query.edit_message_text(
-        f"🕊️ <b>Adieu !</b>\n"
-        f"💰 {result['coins_each']} coins transmis à chacun des {members_count} membres de ta famille."
-        + title_msg,
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ─── /familyphoto ─────────────────────────────────────────────────────────────
-
-async def familyphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Compose une grille des photos de profil de la famille."""
-    from PIL import Image
-    import io as sio
-
-    user = await ensure_user(update.effective_user)
-    async with AsyncSessionLocal() as session:
-        family_ids = await get_family_members(session, user.user_id)
-        all_ids = [user.user_id] + family_ids
-
-        # Récupérer les noms
-        names = {}
-        for uid in all_ids[:9]:
-            u = await get_user(session, uid)
-            if u:
-                names[uid] = u.first_name
-
-    await update.message.reply_text("📸 Composition de la photo de famille...")
-
-    THUMB = 120
-    COLS  = 3
-    ROWS  = (len(all_ids[:9]) + COLS - 1) // COLS
-    img   = Image.new("RGB", (COLS * THUMB, ROWS * THUMB), (20, 20, 35))
-
-    for idx, uid in enumerate(all_ids[:9]):
-        col = idx % COLS
-        row = idx // COLS
-        x, y = col * THUMB, row * THUMB
-        # Essayer de télécharger la photo
+# ─── PALETTE & DIMENSIONS ────────────────────────────────────────────────────
+W, H = 600, 900
+BG_TOP    = (55, 45, 40)
+BG_BOTTOM = (20, 18, 15)
+ACCENT    = (180, 80, 80)       # rouge-brun (ornements)
+GOLD      = (210, 175, 100)
+WHITE     = (255, 255, 255)
+CREAM     = (240, 230, 210)
+DARK      = (30, 25, 20)
+
+
+# ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+def _gradient_bg(size):
+    """Fond dégradé vertical sombre."""
+    img = Image.new("RGB", size)
+    draw = ImageDraw.Draw(img)
+    for y in range(size[1]):
+        t = y / size[1]
+        r = int(BG_TOP[0] + (BG_BOTTOM[0] - BG_TOP[0]) * t)
+        g = int(BG_TOP[1] + (BG_BOTTOM[1] - BG_TOP[1]) * t)
+        b = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * t)
+        draw.line([(0, y), (size[0], y)], fill=(r, g, b))
+    return img
+
+
+def _mandala_ornament(size=180, color=ACCENT):
+    """Dessine un ornement mandala-floral simplifié."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    cx, cy = size // 2, size // 2
+    R = size // 2
+
+    # Cercles concentriques discrets
+    for r in range(R, 0, -12):
+        alpha = int(80 * (r / R))
+        draw.ellipse([cx-r, cy-r, cx+r, cy+r],
+                     outline=(*color, alpha), width=1)
+
+    # Pétales rayonnants
+    for i in range(16):
+        angle = math.radians(i * (360 / 16))
+        for petal_r in [0.5, 0.75]:
+            px = cx + int(R * petal_r * math.cos(angle))
+            py = cy + int(R * petal_r * math.sin(angle))
+            pr = int(R * 0.12)
+            alpha = 150 if petal_r == 0.5 else 100
+            draw.ellipse([px-pr, py-pr, px+pr, py+pr],
+                         fill=(*color, alpha))
+
+    # Cercle central
+    draw.ellipse([cx-12, cy-12, cx+12, cy+12],
+                 fill=(*GOLD, 180))
+
+    # Triangles décoratifs aux diagonales
+    for i in range(8):
+        angle = math.radians(i * 45 + 22.5)
+        x1 = cx + int(R * 0.9 * math.cos(angle))
+        y1 = cy + int(R * 0.9 * math.sin(angle))
+        x2 = cx + int(R * 0.7 * math.cos(angle - 0.15))
+        y2 = cy + int(R * 0.7 * math.sin(angle - 0.15))
+        x3 = cx + int(R * 0.7 * math.cos(angle + 0.15))
+        y3 = cy + int(R * 0.7 * math.sin(angle + 0.15))
+        draw.polygon([(x1, y1), (x2, y2), (x3, y3)], fill=(*ACCENT, 140))
+
+    return img
+
+
+def _circle_photo(img_bytes: bytes | None, size: int) -> Image.Image:
+    """Découpe la photo en cercle avec bordure dorée."""
+    result = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+
+    if img_bytes:
         try:
-            photos = await context.bot.get_user_profile_photos(uid, limit=1)
-            if photos.total_count:
-                file = await context.bot.get_file(photos.photos[0][0].file_id)
-                data = await file.download_as_bytearray()
-                thumb = Image.open(sio.BytesIO(bytes(data))).resize((THUMB, THUMB))
-                img.paste(thumb, (x, y))
-            else:
-                raise ValueError("no photo")
+            src = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+            src = src.resize((size, size), Image.LANCZOS)
         except Exception:
-            from PIL import ImageDraw
-            from config import PROFILE_COLORS
-            d = ImageDraw.Draw(img)
-            d.rectangle([x, y, x+THUMB, y+THUMB], fill=(40, 40, 60))
-            d.text((x+THUMB//2, y+THUMB//2), names.get(uid, "?")[0].upper(),
-                   fill=(200, 200, 255), anchor="mm")
+            src = None
+    else:
+        src = None
 
-    buf = sio.BytesIO()
-    img.save(buf, format="JPEG", quality=90)
+    # Fond de secours
+    if src is None:
+        src = Image.new("RGBA", (size, size), (60, 55, 50, 255))
+        d = ImageDraw.Draw(src)
+        d.text((size//2, size//2), "?", fill=CREAM, anchor="mm")
+
+    # Masque circulaire
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size-1, size-1], fill=255)
+
+    result.paste(src, mask=mask)
+
+    # Bordure dorée
+    border_draw = ImageDraw.Draw(result)
+    bw = max(3, size // 40)
+    border_draw.ellipse([bw//2, bw//2, size-bw//2, size-bw//2],
+                        outline=GOLD, width=bw)
+
+    return result
+
+
+def _get_font(size: int, bold: bool = False):
+    """Essaie de charger DejaVu, sinon police par défaut."""
+    paths = [
+        f"/usr/share/fonts/truetype/dejavu/DejaVuSans{'Bold' if bold else ''}.ttf",
+        f"/usr/share/fonts/dejavu/DejaVuSans{'Bold' if bold else ''}.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+    for p in paths:
+        try:
+            return ImageFont.truetype(p, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
+def _draw_centered(draw, text, y, font, color=WHITE, letter_spacing=3):
+    """Texte centré avec espacement optionnel entre lettres."""
+    # Calcul largeur totale avec espacement
+    total_w = 0
+    for ch in text:
+        bb = font.getbbox(ch)
+        total_w += (bb[2] - bb[0]) + letter_spacing
+    total_w -= letter_spacing
+
+    x = (W - total_w) // 2
+    for ch in text:
+        draw.text((x, y), ch, font=font, fill=color)
+        bb = font.getbbox(ch)
+        x += (bb[2] - bb[0]) + letter_spacing
+
+
+def _separator_line(draw, y, color=GOLD):
+    """Ligne décorative centrée."""
+    lw = 160
+    cx = W // 2
+    draw.line([(cx - lw, y), (cx - 20, y)], fill=color, width=1)
+    draw.line([(cx + 20, y), (cx + lw, y)], fill=color, width=1)
+    # Losange central
+    draw.polygon([
+        (cx, y - 4), (cx + 8, y), (cx, y + 4), (cx - 8, y)
+    ], fill=color)
+
+
+# ─── FONCTION PRINCIPALE ─────────────────────────────────────────────────────
+
+def generate_relation_card(
+    name1: str,
+    name2: str,
+    relation: str,       # "married", "adopted", "friends"
+    photo1: bytes | None = None,
+    photo2: bytes | None = None,
+) -> bytes:
+    """
+    Génère une carte de relation et retourne les bytes JPEG.
+
+    relation: "married" | "adopted" | "friends"
+    """
+
+    # ── Textes selon relation ──
+    if relation == "married":
+        top_label    = "YOU ARE INVITED TO THE WEDDING OF"
+        connector    = "&"
+        bottom_label = "MARIAGE"
+        emoji_accent = None
+    elif relation == "adopted":
+        top_label    = "UNE NOUVELLE FAMILLE EST NEE"
+        connector    = "adopte"
+        bottom_label = "ADOPTION"
+        emoji_accent = None
+    else:  # friends
+        top_label    = "UNE BELLE AMITIE EST NEE"
+        connector    = "&"
+        bottom_label = "AMITIE"
+        emoji_accent = None
+
+    date_str = datetime.utcnow().strftime("%B %d   %I %p").upper()
+
+    # ── Canvas ──
+    canvas = _gradient_bg((W, H))
+    draw   = ImageDraw.Draw(canvas)
+
+    # ── Ornements mandala (coins) ──
+    msize = 210
+    mandala = _mandala_ornament(msize, ACCENT)
+    # Coin haut-gauche
+    canvas.paste(mandala, (-msize//4, -msize//4), mandala)
+    # Coin haut-droit (retourné horizontalement)
+    canvas.paste(mandala.transpose(Image.FLIP_LEFT_RIGHT),
+                 (W - msize + msize//4, -msize//4), mandala)
+    # Coin bas (centré, plus petit)
+    mbot = _mandala_ornament(300, (40, 35, 30))
+    canvas.paste(mbot, (W//2 - 150, H - 200), mbot)
+
+    # ── Photos de profil ──
+    photo_size = 190
+    gap        = 30
+    total_w    = 2 * photo_size + gap
+    left_x     = (W - total_w) // 2
+    right_x    = left_x + photo_size + gap
+    photo_y    = 160
+
+    p1 = _circle_photo(photo1, photo_size)
+    p2 = _circle_photo(photo2, photo_size)
+    canvas.paste(p1, (left_x, photo_y), p1)
+    canvas.paste(p2, (right_x, photo_y), p2)
+
+    # ── Typographie ──
+    font_small  = _get_font(14)
+    font_name   = _get_font(42, bold=True)
+    font_conn   = _get_font(36, bold=True)
+    font_date   = _get_font(28, bold=True)
+    font_label  = _get_font(13)
+
+    # Ligne supérieure (label catégorie)
+    _draw_centered(draw, top_label, photo_y + photo_size + 40, font_small,
+                   color=(190, 180, 165), letter_spacing=2)
+
+    # Nom 1
+    name1_y = photo_y + photo_size + 70
+    _draw_centered(draw, name1.upper(), name1_y, font_name,
+                   color=WHITE, letter_spacing=2)
+
+    bb1 = font_name.getbbox(name1.upper())
+    name1_h = bb1[3] - bb1[1]
+
+    # Connecteur (&, "adopte"…)
+    conn_y = name1_y + name1_h + 8
+    _draw_centered(draw, connector.upper(), conn_y, font_conn,
+                   color=WHITE, letter_spacing=1)
+
+    bb_conn = font_conn.getbbox(connector.upper())
+    conn_h = bb_conn[3] - bb_conn[1]
+
+    # Nom 2
+    name2_y = conn_y + conn_h + 8
+    _draw_centered(draw, name2.upper(), name2_y, font_name,
+                   color=WHITE, letter_spacing=2)
+
+    bb2 = font_name.getbbox(name2.upper())
+    name2_h = bb2[3] - bb2[1]
+
+    # Séparateur
+    sep_y = name2_y + name2_h + 22
+    _separator_line(draw, sep_y)
+
+    # Date
+    date_y = sep_y + 18
+    _draw_centered(draw, date_str, date_y, font_date,
+                   color=WHITE, letter_spacing=3)
+
+    bb_date = font_date.getbbox(date_str)
+    date_h = bb_date[3] - bb_date[1]
+
+    # Séparateur bas
+    sep2_y = date_y + date_h + 18
+    _separator_line(draw, sep2_y)
+
+    # ── Export JPEG ──
+    buf = io.BytesIO()
+    canvas.convert("RGB").save(buf, format="JPEG", quality=92)
     buf.seek(0)
-    family_name_str = f"Famille {user.family_name}" if user.family_name else "Photo de famille"
-    await update.message.reply_photo(buf, caption=f"📸 {family_name_str}")
+    return buf.getvalue()

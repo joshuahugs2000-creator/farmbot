@@ -24,9 +24,9 @@ from handlers.profile  import me, setpic, customize, color_callback, titles
 from handlers.events   import check_anniversaries
 from handlers.economy  import (
     acc, daily, work, pay, richlist,
-    blackjack, roulette, slots, race,
-    bet, bet_callback, acceptbet, resolvebet,
+    blackjack, roulette, slots,
 )
+from handlers.race_bet import bet, race_bet_callback
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -108,16 +108,13 @@ def main():
     app.add_handler(CommandHandler("blackjack",  blackjack))
     app.add_handler(CommandHandler("roulette",   roulette))
     app.add_handler(CommandHandler("slots",      slots))
-    app.add_handler(CommandHandler("race",       race))
-    app.add_handler(CommandHandler("bet",        bet))
-    app.add_handler(CommandHandler("acceptbet",  acceptbet))
-    app.add_handler(CommandHandler("resolvebet", resolvebet))
+    app.add_handler(CommandHandler("bet",  bet))
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
     app.add_handler(CallbackQueryHandler(request_callback, pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,   pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,   pattern=r"^color:"))
-    app.add_handler(CallbackQueryHandler(bet_callback,     pattern=r"^bet:"))
+    app.add_handler(CallbackQueryHandler(race_bet_callback, pattern=r"^rb:"))
 
     # ── Job quotidien ─────────────────────────────────────────────────────────
     app.job_queue.run_daily(

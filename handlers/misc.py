@@ -66,19 +66,17 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         top = await get_leaderboard(session, 10)
+        if not top:
+            return await update.message.reply_text("📊 Aucune donnée disponible.")
 
-    if not top:
-        return await update.message.reply_text("📊 Aucune donnée disponible.")
-
-    lines = ["🏆 <b>Classement — Plus grandes familles</b>\n"]
-    medals = ["🥇", "🥈", "🥉"]
-    for i, entry in enumerate(top):
-        u     = entry["user"]
-        size  = entry["size"]
-        medal = medals[i] if i < 3 else f"{i+1}."
-        async with AsyncSessionLocal() as session:
+        lines  = ["🏆 <b>Classement — Plus grandes familles</b>\n"]
+        medals = ["🥇", "🥈", "🥉"]
+        for i, entry in enumerate(top):
+            u     = entry["user"]
+            size  = entry["size"]
+            medal = medals[i] if i < 3 else f"{i+1}."
             title = await compute_title(session, u.user_id)
-        lines.append(f"{medal} {u.first_name} — {size} membres  {title}  ⭐{u.karma}")
+            lines.append(f"{medal} {u.first_name} — {size} membres  {title}  ⭐{u.karma}")
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 

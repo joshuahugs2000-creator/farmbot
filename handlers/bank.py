@@ -504,7 +504,7 @@ async def bankloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Job : versement des intérêts toutes les 6h ───────────────────────────────
 
 async def pay_interests(context):
-    """Appelé par le job_queue toutes les 6h. Verse les intérêts + applique pénalités de retard."""
+    """Toutes les 6h : verse les intérêts + applique les pénalités de retard (sans notif)."""
     now = datetime.utcnow()
     paid_count = 0
     total_paid = 0
@@ -517,10 +517,8 @@ async def pay_interests(context):
             b = BANKS.get(acc.bank_id)
             if not b or acc.balance <= 0:
                 continue
-
             last = acc.last_interest or acc.opened_at
             hours_elapsed = (now - last).total_seconds() / 3600
-
             if hours_elapsed >= INTEREST_INTERVAL_HOURS:
                 interest = int(acc.balance * b["interest_rate"])
                 acc.balance      += interest
@@ -528,54 +526,97 @@ async def pay_interests(context):
                 total_paid += interest
                 paid_count += 1
 
-        # ── RÈGLE 3 : prêts en retard → déduction forcée du compte ──
-        loan_result = await session.execute(
-            select(Loan).where(Loan.status == "active")
-        )
+        # Prêts en retard → pénalité 5% + déduction forcée
+        loan_result = await session.execute(select(Loan).where(Loan.status == "active"))
         loans = loan_result.scalars().all()
 
         for loan in loans:
             if now > loan.due_at:
-                # Pénalité 5% du restant dû
                 penalty = int(loan.remaining * 0.05)
                 loan.remaining += penalty
-
-                # Déduire tout ce qu'on peut du compte perso (solde négatif autorisé)
                 u = await get_user(session, loan.user_id)
                 if u:
-                    deducted = min(loan.remaining, max(0, u.coins))
-                    u.coins        -= loan.remaining  # peut passer négatif
-                    loan.remaining -= deducted
-                    if loan.remaining <= 0:
-                        loan.status = "paid"
-
-                    # Notifier l'utilisateur
-                    try:
-                        bank_name = BANKS.get(loan.bank_id, {}).get("name", loan.bank_id)
-                        msg = (
-                            f"⚠️ <b>Prêt en retard — Déduction automatique !</b>\n\n"
-                            f"Ton prêt à la <b>{bank_name}</b> était en retard.\n"
-                            f"💸 Pénalité (+5%) appliquée : <b>{_fmt(penalty)} $</b>\n"
-                            f"💳 Déduit de ton compte : <b>{_fmt(deducted)} $</b>\n"
-                            f"📉 Nouveau solde : <b>{_fmt(u.coins)} $</b>"
-                        )
-                        if u.coins < 0:
-                            msg += f"\n\n🔴 <b>Ton solde est négatif ! Remboursez d'urgence.</b>"
-                        if loan.remaining > 0:
-                            msg += f"\n💳 Reste encore à rembourser : <b>{_fmt(loan.remaining)} $</b>"
-                        else:
-                            msg += f"\n✅ Prêt soldé."
-                        await context.bot.send_message(
-                            chat_id=loan.user_id,
-                            text=msg,
-                            parse_mode="HTML",
-                        )
-                    except Exception:
-                        pass
+                    u.coins -= loan.remaining  # peut passer négatif
+                    loan.remaining = 0
+                    loan.status = "paid"
 
         await session.commit()
 
     logger.info(f"[BANK] Intérêts versés : {paid_count} comptes, {total_paid:,} $ au total.")
+
+
+async def remind_loans(context):
+    """2x par semaine : rappel dans les groupes pour tous les prêts actifs en retard."""
+    from database.models import GroupSettings, Relationship
+    from sqlalchemy import select as _sel
+
+    now = datetime.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        loans = (await session.execute(
+            select(Loan).where(Loan.status == "active")
+        )).scalars().all()
+
+        if not loans:
+            return
+
+        groups    = (await session.execute(select(GroupSettings))).scalars().all()
+        group_ids = [g.group_id for g in groups]
+
+        user_groups: dict = {}
+        for loan in loans:
+            uid  = loan.user_id
+            rels = (await session.execute(
+                _sel(Relationship).where(
+                    Relationship.user_id == uid,
+                    Relationship.group_id.in_(group_ids),
+                )
+            )).scalars().all()
+            found = list({r.group_id for r in rels if r.group_id})
+            user_groups[uid] = found if found else group_ids
+
+    warned = 0
+    for loan in loans:
+        b         = BANKS.get(loan.bank_id, {})
+        bank_name = b.get("name", loan.bank_id)
+        overdue   = now > loan.due_at
+
+        if overdue:
+            status_line = "🔴 <b>EN RETARD</b> — pénalité de 5% appliquée automatiquement !"
+        else:
+            jours_restants = (loan.due_at - now).days
+            status_line = f"⏳ Délai restant : <b>{jours_restants} jour(s)</b>"
+
+        msg = (
+            f"🏦 <b>Rappel remboursement</b>
+
+"
+            f"<a href="tg://user?id={loan.user_id}">Cet utilisateur</a> a un prêt actif "
+            f"à la <b>{bank_name}</b>.
+
+"
+            f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>
+"
+            f"📅 Date limite : <b>{loan.due_at.strftime('%d/%m/%Y')}</b>
+"
+            f"{status_line}
+
+"
+            f"👉 /bankrepay {loan.bank_id} [montant]"
+        )
+
+        sent_to = set()
+        for gid in user_groups.get(loan.user_id, []):
+            if gid in sent_to:
+                continue
+            try:
+                await context.bot.send_message(chat_id=gid, text=msg, parse_mode="HTML")
+                sent_to.add(gid)
+                warned += 1
+            except Exception as e:
+                logger.warning(f"[BANK] Rappel impossible dans groupe {gid} : {e}")
+
+    logger.info(f"[BANK] Rappels de remboursement envoyés : {warned} messages.")
 
 
 # ─── Avertissement au démarrage pour les prêts existants ─────────────────────

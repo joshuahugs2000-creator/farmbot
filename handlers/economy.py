@@ -38,19 +38,38 @@ def _fmt(n: int) -> str:
 # ─── /acc ─────────────────────────────────────────────────────────────────────
 
 async def acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = await ensure_user(update.effective_user)
+    await ensure_user(update.effective_user)
+
+    # Cibler quelqu'un via reply ou @mention, sinon soi-même
+    target_tg = await parse_target(update, context)
+    if target_tg and target_tg.id != update.effective_user.id:
+        target      = await ensure_user(target_tg)
+        target_name = target_tg.first_name
+        target_id   = target.user_id
+        own_account = False
+    else:
+        me          = await ensure_user(update.effective_user)
+        target_name = update.effective_user.first_name
+        target_id   = me.user_id
+        own_account = True
+
     async with AsyncSessionLocal() as session:
-        u = await get_user(session, user.user_id)
+        u = await get_user(session, target_id)
         if not u:
-            return await update.message.reply_text("Compte introuvable. Fais /start d'abord.")
+            return await update.message.reply_text(
+                f"❌ {target_name} n'a pas encore de compte. Il doit faire /start d'abord."
+            )
         coins = u.coins
 
+    footer = "\n📥 /daily  |  🔨 /work  |  💸 /pay" if own_account else ""
+
     await update.message.reply_text(
-        f"💳 Compte de {update.effective_user.first_name}\n"
+        f"💳 Compte de <b>{target_name}</b>\n"
         f"━━━━━━━━━━━━━━━━━\n"
-        f"💰 Solde : {_fmt(coins)} $\n"
-        f"━━━━━━━━━━━━━━━━━\n"
-        f"📥 /daily  |  🔨 /work  |  💸 /pay"
+        f"💰 Solde : <b>{_fmt(coins)} $</b>\n"
+        f"━━━━━━━━━━━━━━━━━"
+        f"{footer}",
+        parse_mode="HTML",
     )
 
 

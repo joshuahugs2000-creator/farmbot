@@ -35,7 +35,7 @@ from handlers.admin    import (
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
     bankbalance, bankloan, bankrepay, bankloans,
-    pay_interests, warn_existing_loans,
+    pay_interests, warn_existing_loans_direct,
 )
 from handlers.invest   import market, buy, sell, portfolio
 from handlers.couple   import couple
@@ -51,7 +51,7 @@ async def on_startup(app: Application):
     await init_db()
     logger.info("Base de données initialisée.")
     # Avertir tous les débiteurs actifs dès le démarrage
-    app.job_queue.run_once(warn_existing_loans, when=5, name="warn_loans_startup")
+    await warn_existing_loans_direct(app.bot)
 
 
 async def error_handler(update: object, context):

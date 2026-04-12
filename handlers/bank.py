@@ -580,16 +580,47 @@ async def pay_interests(context):
 
 # ─── Avertissement au démarrage pour les prêts existants ─────────────────────
 
-async def warn_existing_loans(context):
-    """Appelé une seule fois au démarrage. Avertit tous les débiteurs actifs."""
-    async with AsyncSessionLocal() as session:
-        loan_result = await session.execute(
-            select(Loan).where(Loan.status == "active")
-        )
-        loans = loan_result.scalars().all()
+async def warn_existing_loans_direct(bot):
+    """Appelé directement au démarrage.
+    Envoie un message dans tous les groupes connus pour alerter les débiteurs."""
+    from database.db import AsyncSessionLocal
+    from database.models import GroupSettings, Relationship
+    from sqlalchemy import select as _sel
 
-    now = datetime.utcnow()
+    async with AsyncSessionLocal() as session:
+        # Récupérer tous les prêts actifs
+        loans = (await session.execute(
+            select(Loan).where(Loan.status == "active")
+        )).scalars().all()
+
+        if not loans:
+            logger.info("[BANK] Aucun prêt actif au démarrage.")
+            return
+
+        # Récupérer tous les groupes connus
+        groups = (await session.execute(
+            select(GroupSettings)
+        )).scalars().all()
+        group_ids = [g.group_id for g in groups]
+
+        # Pour chaque prêt, trouver les groupes où l'utilisateur est actif
+        # (via ses relations enregistrées dans ces groupes)
+        user_groups: dict[int, list[int]] = {}  # user_id → [group_id, ...]
+        for loan in loans:
+            uid = loan.user_id
+            rels = (await session.execute(
+                _sel(Relationship).where(
+                    Relationship.user_id == uid,
+                    Relationship.group_id.in_(group_ids),
+                )
+            )).scalars().all()
+            found = list({r.group_id for r in rels if r.group_id})
+            # Si aucune relation trouvée, envoyer dans tous les groupes connus
+            user_groups[uid] = found if found else group_ids
+
+    now    = datetime.utcnow()
     warned = 0
+    failed = 0
 
     for loan in loans:
         b         = BANKS.get(loan.bank_id, {})
@@ -604,25 +635,34 @@ async def warn_existing_loans(context):
 
         msg = (
             f"🏦 <b>Rappel important — Prêt en cours</b>\n\n"
-            f"Tu as un prêt actif à la <b>{bank_name}</b>.\n\n"
+            f"<a href=\"tg://user?id={loan.user_id}\">Cet utilisateur</a> a un prêt actif "
+            f"à la <b>{bank_name}</b>.\n\n"
             f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n"
             f"📅 Date limite : <b>{loan.due_at.strftime('%d/%m/%Y')}</b>\n"
             f"{status_line}\n\n"
             f"⚠️ <b>Nouvelles règles en vigueur :</b>\n"
-            f"• Tu ne peux pas emprunter tant que ce prêt n'est pas remboursé.\n"
-            f"• Si tu ne paies pas avant la date limite, la somme sera déduite "
-            f"de ton compte automatiquement (solde négatif possible).\n\n"
-            f"👉 Utilise /bankrepay {loan.bank_id} [montant] pour rembourser."
+            f"• Impossible d'emprunter tant que ce prêt n'est pas remboursé.\n"
+            f"• Si non remboursé avant la date limite, la somme sera déduite "
+            f"automatiquement du compte (solde négatif possible).\n\n"
+            f"👉 /bankrepay {loan.bank_id} [montant] pour rembourser."
         )
 
-        try:
-            await context.bot.send_message(
-                chat_id=loan.user_id,
-                text=msg,
-                parse_mode="HTML",
-            )
-            warned += 1
-        except Exception:
-            pass
+        target_groups = user_groups.get(loan.user_id, group_ids)
+        sent_to = set()
 
-    logger.info(f"[BANK] Avertissements envoyés à {warned} débiteur(s) au démarrage.")
+        for gid in target_groups:
+            if gid in sent_to:
+                continue
+            try:
+                await bot.send_message(
+                    chat_id=gid,
+                    text=msg,
+                    parse_mode="HTML",
+                )
+                sent_to.add(gid)
+                warned += 1
+            except Exception as e:
+                logger.warning(f"[BANK] Impossible d'envoyer dans le groupe {gid} : {e}")
+                failed += 1
+
+    logger.info(f"[BANK] Avertissements envoyés : {warned} messages, {failed} échoués.")

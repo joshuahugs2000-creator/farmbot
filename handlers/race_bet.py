@@ -10,7 +10,7 @@ Jeux disponibles :
   Hasard    : dés royaux, cartes, tir à la cible, récolte
 
 Règles :
-  - Mise minimum : 500 coins
+  - Mise minimum : 500 $
   - Tous les participants misent le même montant
   - Le concurrent gagnant est tiré au sort (pondéré par cote)
   - Plusieurs joueurs sur le même concurrent → ils partagent le gain
@@ -295,14 +295,14 @@ async def bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Usage :\n"
             "/bet [mise]        — ouvre une course au groupe\n"
             "/bet [mise] @user  — duel contre un joueur\n\n"
-            "Mise minimum : 500 coins."
+            "Mise minimum : 500 $."
         )
 
     try:
         mise = int(context.args[0].replace(",", "").replace(" ", ""))
         assert mise >= 500
     except (ValueError, AssertionError):
-        return await update.message.reply_text("Mise minimum : 500 coins.")
+        return await update.message.reply_text("Mise minimum : 500 $.")
 
     proposer = await ensure_user(update.effective_user)
     group_id = update.effective_chat.id
@@ -324,7 +324,7 @@ async def bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Choisir le jeu : afficher le menu ──
     msg = await update.message.reply_text(
         f"{'⚔️ DUEL' if duel_target else '🎮 NOUVEAU PARI'} — {mention(proposer)}\n"
-        f"Mise : {_fmt(mise)} coins{'  •  Duel contre ' + mention(duel_target) if duel_target else ''}\n\n"
+        f"Mise : {_fmt(mise)} ${'  •  Duel contre ' + mention(duel_target) if duel_target else ''}\n\n"
         "Choisis le jeu :",
         reply_markup=_game_menu_keyboard("__tmp__"),
         parse_mode=ParseMode.HTML,
@@ -401,7 +401,7 @@ async def _handle_game_pick(query, sid: str, game_key: str):
         await query.edit_message_text(
             f"⚔️ {game['name']}\n\n"
             f"{sess['proposer_name']} défie {sess['duel_target_name']} !\n"
-            f"Mise : {_fmt(sess['mise'])} coins chacun\n\n"
+            f"Mise : {_fmt(sess['mise'])} $ chacun\n\n"
             f"Concurrents :\n{contestants_txt}\n\n"
             f"⏳ {sess['duel_target_name']}, tu as {SESSION_JOIN_TIMEOUT}s pour accepter.",
             reply_markup=_duel_accept_keyboard(sid),
@@ -416,7 +416,7 @@ async def _handle_game_pick(query, sid: str, game_key: str):
         await query.edit_message_text(
             f"🎮 {game['name']}\n\n"
             f"Proposé par {sess['proposer_name']}\n"
-            f"Mise : {_fmt(sess['mise'])} coins\n\n"
+            f"Mise : {_fmt(sess['mise'])} $\n\n"
             f"Concurrents :\n{contestants_txt}\n\n"
             f"⏳ {SESSION_JOIN_TIMEOUT}s pour rejoindre la course !",
             reply_markup=_join_keyboard(sid),
@@ -453,7 +453,7 @@ async def _handle_join(query, context, sid: str):
     try:
         await query.edit_message_text(
             f"🎮 {game['name']}\n\n"
-            f"Mise : {_fmt(sess['mise'])} coins\n\n"
+            f"Mise : {_fmt(sess['mise'])} $\n\n"
             f"Concurrents :\n{contestants_txt}\n\n"
             f"Participants ({len(sess['participants'])}) :\n{participants_txt}\n\n"
             f"⏳ {SESSION_JOIN_TIMEOUT}s restantes pour rejoindre.",
@@ -480,11 +480,11 @@ async def _handle_duel_accept(query, context, sid: str):
         p = await get_user(session, proposer_id)
         t = await get_user(session, target_id)
         if not p or p.coins < mise:
-            await query.edit_message_text("Le proposant n'a plus assez de coins !")
+            await query.edit_message_text("Le proposant n'a plus assez de $ !")
             active_sessions.pop(sid, None)
             return
         if not t or t.coins < mise:
-            return await query.answer("Tu n'as pas assez de coins !", show_alert=True)
+            return await query.answer("Tu n'as pas assez de $ !", show_alert=True)
 
     sess["participants"][proposer_id] = {"name": sess["proposer_name"], "pick": None}
     sess["participants"][target_id]   = {"name": sess["duel_target_name"], "pick": None}
@@ -498,7 +498,7 @@ async def _handle_duel_accept(query, context, sid: str):
     await query.edit_message_text(
         f"⚔️ DUEL ACCEPTÉ — {game['name']}\n\n"
         f"{sess['proposer_name']} vs {sess['duel_target_name']}\n"
-        f"Mise : {_fmt(mise)} coins chacun\n\n"
+        f"Mise : {_fmt(mise)} $ chacun\n\n"
         f"Concurrents :\n{contestants_txt}\n\n"
         f"⏳ {SESSION_PICK_TIMEOUT}s pour choisir votre concurrent !",
         reply_markup=_pick_keyboard(sid, sess["game_key"]),
@@ -590,7 +590,7 @@ async def _timeout_join(sid: str, bot, chat_id: int, msg_id: int):
     try:
         await bot.edit_message_text(
             f"🎮 {game['name']}\n\n"
-            f"Mise : {_fmt(sess['mise'])} coins\n\n"
+            f"Mise : {_fmt(sess['mise'])} $\n\n"
             f"Concurrents :\n{contestants_txt}\n\n"
             f"Participants ({len(sess['participants'])}) :\n{participants_txt}\n\n"
             f"⏳ {SESSION_PICK_TIMEOUT}s pour choisir votre concurrent !",
@@ -688,9 +688,9 @@ async def _run_race(sid: str):
                 profit = gain_each - mise
                 name   = parts[uid]["name"]
                 if len(winners_uids) > 1:
-                    result_lines.append(f"  🏆 {name} +{_fmt(gain_each)} coins (cagnotte partagée)")
+                    result_lines.append(f"  🏆 {name} +{_fmt(gain_each)} $ (cagnotte partagée)")
                 else:
-                    result_lines.append(f"  🏆 {name} +{_fmt(gain_each)} coins")
+                    result_lines.append(f"  🏆 {name} +{_fmt(gain_each)} $")
         else:
             # Personne n'avait misé sur le gagnant → cagnotte brûlée
             result_lines.append("  💸 Personne n'avait choisi le bon — cagnotte brûlée !")
@@ -698,7 +698,7 @@ async def _run_race(sid: str):
         # Perdants
         for uid, info in parts.items():
             if uid not in winners_uids:
-                result_lines.append(f"  ❌ {info['name']} -{_fmt(mise)} coins")
+                result_lines.append(f"  ❌ {info['name']} -{_fmt(mise)} $")
 
     # Construire le classement de la course
     race_board = []

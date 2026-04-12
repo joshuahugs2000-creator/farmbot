@@ -17,7 +17,6 @@ async def init_db():
     """Crée les tables et ajoute les colonnes manquantes (migration douce)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migration : ajout des colonnes economy si elles n'existent pas encore
         migrations = [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily  VARCHAR(20)  DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_work   TIMESTAMP    DEFAULT NULL",
@@ -36,7 +35,7 @@ async def init_db():
             try:
                 await conn.execute(text(sql))
             except Exception:
-                pass  # colonne déjà présente ou autre erreur non-bloquante
+                pass
 
 
 # ─── USERS ───────────────────────────────────────────────────────────────────
@@ -113,9 +112,12 @@ async def get_spouse(session: AsyncSession, user_id: int, group_id: Optional[int
 
 
 async def get_family_members(session: AsyncSession, user_id: int) -> List[int]:
+    """Retourne uniquement conjoint + enfants/parents. Les amis sont exclus."""
     rels = await get_relationships(session, user_id)
     members = set()
     for rel in rels:
+        if rel.relation_type == RelationType.FRIEND:
+            continue  # les amis ne font PAS partie de la famille
         members.add(rel.user_id)
         members.add(rel.related_user_id)
     members.discard(user_id)
@@ -473,7 +475,6 @@ async def resolve_bet(session: AsyncSession, bet_id: int, winner_id: int, resolv
 # ─── COMPTE COMMUN (COUPLE) ───────────────────────────────────────────────────
 
 async def get_couple_account(session: AsyncSession, user_id: int) -> Optional[CoupleAccount]:
-    """Retourne le compte commun d'un utilisateur s'il existe."""
     r = await session.execute(
         select(CoupleAccount).where(
             or_(CoupleAccount.user1_id == user_id, CoupleAccount.user2_id == user_id)
@@ -483,7 +484,6 @@ async def get_couple_account(session: AsyncSession, user_id: int) -> Optional[Co
 
 
 async def create_couple_account(session: AsyncSession, user1_id: int, user2_id: int) -> Optional[CoupleAccount]:
-    """Crée un compte commun entre deux mariés. Retourne None si déjà existant."""
     existing = await get_couple_account(session, user1_id)
     if existing:
         return None
@@ -494,7 +494,6 @@ async def create_couple_account(session: AsyncSession, user1_id: int, user2_id: 
 
 
 async def couple_deposit(session: AsyncSession, user_id: int, amount: int) -> str:
-    """Transfère de l'argent du compte perso vers le compte commun."""
     user = await get_user(session, user_id)
     if not user:
         return "not_found"
@@ -503,14 +502,13 @@ async def couple_deposit(session: AsyncSession, user_id: int, amount: int) -> st
     account = await get_couple_account(session, user_id)
     if not account:
         return "no_account"
-    user.coins    -= amount
+    user.coins      -= amount
     account.balance += amount
     await session.commit()
     return "ok"
 
 
 async def couple_withdraw(session: AsyncSession, user_id: int, amount: int) -> str:
-    """Transfère de l'argent du compte commun vers le compte perso."""
     account = await get_couple_account(session, user_id)
     if not account:
         return "no_account"
@@ -526,7 +524,6 @@ async def couple_withdraw(session: AsyncSession, user_id: int, amount: int) -> s
 
 
 async def dissolve_couple_account(session: AsyncSession, user1_id: int, user2_id: int):
-    """Divise le solde en 2 et supprime le compte commun au divorce."""
     account = await get_couple_account(session, user1_id)
     if not account:
         return
@@ -541,10 +538,9 @@ async def dissolve_couple_account(session: AsyncSession, user1_id: int, user2_id
 
 async def deduct_for_game(session: AsyncSession, user_id: int, amount: int) -> str:
     """
-    Déduit la mise pour un jeu :
     1. Essaie le compte perso
     2. Si insuffisant et marié, essaie le compte commun
-    Retourne : 'perso', 'couple', 'insufficient'
+    Retourne : 'perso', 'couple', ou 'insufficient'
     """
     user = await get_user(session, user_id)
     if not user:
@@ -553,7 +549,6 @@ async def deduct_for_game(session: AsyncSession, user_id: int, amount: int) -> s
         user.coins -= amount
         await session.commit()
         return "perso"
-    # Essai compte commun
     account = await get_couple_account(session, user_id)
     if account and account.balance >= amount:
         account.balance -= amount

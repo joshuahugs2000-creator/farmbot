@@ -330,7 +330,7 @@ async def leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]])
     await update.message.reply_text(
         f"⚠️ {mention(user)}, es-tu sur(e) de vouloir quitter ?\n"
-        "80% de tes coins seront transmis a ta famille.",
+        "80% de tes $ seront transmis a ta famille.",
         reply_markup=keyboard,
         parse_mode=ParseMode.HTML,
     )
@@ -352,7 +352,7 @@ async def leave_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     members_count = len(result.get("members", []))
     await query.edit_message_text(
         f"Adieu !\n"
-        f"{result['coins_each']:,} coins transmis a chacun des {members_count} membres."
+        f"{result['coins_each']:,} $ transmis a chacun des {members_count} membres."
     )
 
 

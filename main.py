@@ -19,9 +19,9 @@ from handlers.family   import (
 )
 from handlers.tree     import tree, bigtree
 from handlers.garden   import garden, plant_cmd, harvest
-from handlers.waifu    import waifu, upvote, downvote
 from handlers.profile  import me, setpic, customize, color_callback, titles
 from handlers.events   import check_anniversaries
+from handlers.events_random import setup_random_events, open_chest_cmd
 from handlers.economy  import (
     acc, daily, work, pay, richlist,
     blackjack, roulette, slots,
@@ -100,11 +100,6 @@ def main():
     app.add_handler(CommandHandler("plant",   plant_cmd))
     app.add_handler(CommandHandler("harvest", harvest))
 
-    # ── Waifu & Karma ─────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("waifu",    waifu))
-    app.add_handler(CommandHandler("upvote",   upvote))
-    app.add_handler(CommandHandler("downvote", downvote))
-
     # ── Profil ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("me",        me))
     app.add_handler(CommandHandler("setpic",    setpic))
@@ -155,6 +150,10 @@ def main():
     # ── Couple ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("couple",    couple))
 
+    # ── Événements aléatoires ─────────────────────────────────────────────────
+    app.add_handler(CommandHandler("open", open_chest_cmd))
+    setup_random_events(app)
+
     # ── Callbacks ─────────────────────────────────────────────────────────────
     app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
@@ -162,13 +161,11 @@ def main():
     app.add_handler(CallbackQueryHandler(race_bet_callback, pattern=r"^rb:"))
 
     # ── Jobs périodiques ──────────────────────────────────────────────────────
-    # Anniversaires : 1x/jour à 8h
     app.job_queue.run_daily(
         check_anniversaries,
         time=time(hour=8, minute=0),
         name="anniversary_check",
     )
-    # Intérêts bancaires : toutes les 6h
     app.job_queue.run_repeating(
         pay_interests,
         interval=timedelta(hours=6),

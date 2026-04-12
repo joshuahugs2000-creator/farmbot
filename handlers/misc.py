@@ -18,7 +18,6 @@ HELP_TEXT = """
 /unfriend — Retirer un ami
 /setfamilyname nom — Nom de famille
 /leave — Quitter (heritage transmis)
-/familyphoto — Photo de famille
 
 <b>Arbre</b>
 /tree — Ton arbre genealogique
@@ -69,8 +68,15 @@ HELP_TEXT = """
 /sell actif quantite — Vendre des actions
 /portfolio — Voir son portefeuille
 
+<b>Compte commun (couple)</b>
+/couple create — Creer le compte commun
+/couple balance — Voir le solde commun
+/couple deposit montant — Deposer depuis ton compte perso
+/couple withdraw montant — Retirer vers ton compte perso
+
 <b>General</b>
 /leaderboard — Top familles
+/familyphoto — Photo de famille
 /mode — Mode global/groupe
 /toggle garden|waifu — Activer/desactiver
 /help — Cette aide

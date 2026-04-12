@@ -30,6 +30,24 @@ async def init_db():
                 balance    BIGINT DEFAULT 0,
                 created_at TIMESTAMP DEFAULT NOW()
             )""",
+            """CREATE TABLE IF NOT EXISTS lottery_sessions (
+                id           SERIAL PRIMARY KEY,
+                group_id     BIGINT NOT NULL,
+                creator_id   BIGINT,
+                ticket_price BIGINT NOT NULL,
+                loto_type    VARCHAR(10) NOT NULL DEFAULT 'private',
+                status       VARCHAR(10) NOT NULL DEFAULT 'active',
+                winner_id    BIGINT,
+                pot          BIGINT DEFAULT 0,
+                created_at   TIMESTAMP DEFAULT NOW(),
+                drawn_at     TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS lottery_tickets (
+                id         SERIAL PRIMARY KEY,
+                session_id INTEGER REFERENCES lottery_sessions(id),
+                user_id    BIGINT REFERENCES users(user_id),
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
         ]
         for sql in migrations:
             try:

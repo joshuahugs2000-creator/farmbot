@@ -66,7 +66,7 @@ async def _do_draw(bot, loto: LotterySession, session) -> dict | None:
     tickets = r.scalars().all()
     if not tickets:
         loto.status = "closed"
-        loto.drawn_at = datetime.now(timezone.utc)
+        loto.drawn_at = datetime.utcnow()
         await session.commit()
         return None
 
@@ -79,7 +79,7 @@ async def _do_draw(bot, loto: LotterySession, session) -> dict | None:
 
     loto.status    = "closed"
     loto.winner_id = winner_ticket.user_id
-    loto.drawn_at  = datetime.now(timezone.utc)
+    loto.drawn_at  = datetime.utcnow()
     await session.commit()
 
     total_tickets = len(tickets)

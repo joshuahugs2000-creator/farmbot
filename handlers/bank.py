@@ -349,20 +349,37 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Tu dois d'abord ouvrir un compte à la {b['name']} (/bankopen {bank_id})."
             )
 
-        # Vérifier prêt actif existant dans cette banque
-        existing_loan = (await session.execute(
+        # ── RÈGLE 1 : aucun prêt actif autorisé (toutes banques confondues) ──
+        any_existing_loan = (await session.execute(
             select(Loan).where(
                 Loan.user_id == user.user_id,
-                Loan.bank_id == bank_id,
                 Loan.status  == "active",
             )
         )).scalar_one_or_none()
 
-        if existing_loan:
+        if any_existing_loan:
+            b_existing = BANKS.get(any_existing_loan.bank_id, {})
             return await update.message.reply_text(
-                f"Tu as déjà un prêt actif à la {b['name']} !\n"
-                f"Remboursement restant : {_fmt(existing_loan.remaining)} $\n"
-                f"Utilise /bankrepay {bank_id} [montant] pour rembourser."
+                f"❌ <b>Prêt refusé.</b>\n\n"
+                f"Tu as déjà un prêt actif à la <b>{b_existing.get('name', any_existing_loan.bank_id)}</b> !\n"
+                f"💳 Reste à rembourser : <b>{_fmt(any_existing_loan.remaining)} $</b>\n\n"
+                f"Tu dois rembourser entièrement avant de pouvoir emprunter à nouveau.\n"
+                f"Utilise : /bankrepay {any_existing_loan.bank_id} [montant]",
+                parse_mode=ParseMode.HTML,
+            )
+
+        # ── RÈGLE 2 : avoir au moins 25% du montant demandé en solde bancaire ──
+        total_in_bank = acc.balance
+        required_collateral = int(amount * 0.25)
+        if total_in_bank < required_collateral:
+            return await update.message.reply_text(
+                f"❌ <b>Garantie insuffisante.</b>\n\n"
+                f"Pour emprunter <b>{_fmt(amount)} $</b>, tu dois avoir au minimum "
+                f"<b>{_fmt(required_collateral)} $</b> (25%) dans ton compte à la {b['name']}.\n\n"
+                f"💰 Ton solde actuel dans cette banque : <b>{_fmt(total_in_bank)} $</b>\n"
+                f"📉 Il te manque : <b>{_fmt(required_collateral - total_in_bank)} $</b>\n\n"
+                f"Dépose d'abord via /bankdeposit {bank_id} [montant].",
+                parse_mode=ParseMode.HTML,
             )
 
         interest    = int(amount * b["loan_rate"])
@@ -390,6 +407,8 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📈 Intérêts ({b['loan_rate']*100:.0f}%) : {_fmt(interest)} $\n"
         f"💸 Total à rembourser : <b>{_fmt(total_due)} $</b>\n"
         f"📅 Date limite : {due_at.strftime('%d/%m/%Y')}\n\n"
+        f"⚠️ Si tu ne rembourses pas avant la date limite, la somme sera déduite "
+        f"de ton compte (solde négatif possible).\n\n"
         f"👛 Nouveau solde : {_fmt(new_balance)} $\n"
         f"Utilisez /bankrepay {bank_id} [montant] pour rembourser.",
         parse_mode=ParseMode.HTML,
@@ -485,7 +504,7 @@ async def bankloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Job : versement des intérêts toutes les 6h ───────────────────────────────
 
 async def pay_interests(context):
-    """Appelé par le job_queue toutes les 6h. Verse les intérêts sur tous les comptes."""
+    """Appelé par le job_queue toutes les 6h. Verse les intérêts + applique pénalités de retard."""
     now = datetime.utcnow()
     paid_count = 0
     total_paid = 0
@@ -509,17 +528,101 @@ async def pay_interests(context):
                 total_paid += interest
                 paid_count += 1
 
-        # Vérifier les prêts en retard → pénalité
+        # ── RÈGLE 3 : prêts en retard → déduction forcée du compte ──
         loan_result = await session.execute(
             select(Loan).where(Loan.status == "active")
         )
         loans = loan_result.scalars().all()
+
         for loan in loans:
             if now > loan.due_at:
-                # Pénalité de 5% du restant dû
+                # Pénalité 5% du restant dû
                 penalty = int(loan.remaining * 0.05)
                 loan.remaining += penalty
+
+                # Déduire tout ce qu'on peut du compte perso (solde négatif autorisé)
+                u = await get_user(session, loan.user_id)
+                if u:
+                    deducted = min(loan.remaining, max(0, u.coins))
+                    u.coins        -= loan.remaining  # peut passer négatif
+                    loan.remaining -= deducted
+                    if loan.remaining <= 0:
+                        loan.status = "paid"
+
+                    # Notifier l'utilisateur
+                    try:
+                        bank_name = BANKS.get(loan.bank_id, {}).get("name", loan.bank_id)
+                        msg = (
+                            f"⚠️ <b>Prêt en retard — Déduction automatique !</b>\n\n"
+                            f"Ton prêt à la <b>{bank_name}</b> était en retard.\n"
+                            f"💸 Pénalité (+5%) appliquée : <b>{_fmt(penalty)} $</b>\n"
+                            f"💳 Déduit de ton compte : <b>{_fmt(deducted)} $</b>\n"
+                            f"📉 Nouveau solde : <b>{_fmt(u.coins)} $</b>"
+                        )
+                        if u.coins < 0:
+                            msg += f"\n\n🔴 <b>Ton solde est négatif ! Remboursez d'urgence.</b>"
+                        if loan.remaining > 0:
+                            msg += f"\n💳 Reste encore à rembourser : <b>{_fmt(loan.remaining)} $</b>"
+                        else:
+                            msg += f"\n✅ Prêt soldé."
+                        await context.bot.send_message(
+                            chat_id=loan.user_id,
+                            text=msg,
+                            parse_mode="HTML",
+                        )
+                    except Exception:
+                        pass
 
         await session.commit()
 
     logger.info(f"[BANK] Intérêts versés : {paid_count} comptes, {total_paid:,} $ au total.")
+
+
+# ─── Avertissement au démarrage pour les prêts existants ─────────────────────
+
+async def warn_existing_loans(context):
+    """Appelé une seule fois au démarrage. Avertit tous les débiteurs actifs."""
+    async with AsyncSessionLocal() as session:
+        loan_result = await session.execute(
+            select(Loan).where(Loan.status == "active")
+        )
+        loans = loan_result.scalars().all()
+
+    now = datetime.utcnow()
+    warned = 0
+
+    for loan in loans:
+        b         = BANKS.get(loan.bank_id, {})
+        bank_name = b.get("name", loan.bank_id)
+        overdue   = now > loan.due_at
+
+        if overdue:
+            status_line = "🔴 <b>EN RETARD</b> — déduction automatique imminente !"
+        else:
+            jours_restants = (loan.due_at - now).days
+            status_line = f"⏳ Délai restant : <b>{jours_restants} jour(s)</b>"
+
+        msg = (
+            f"🏦 <b>Rappel important — Prêt en cours</b>\n\n"
+            f"Tu as un prêt actif à la <b>{bank_name}</b>.\n\n"
+            f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n"
+            f"📅 Date limite : <b>{loan.due_at.strftime('%d/%m/%Y')}</b>\n"
+            f"{status_line}\n\n"
+            f"⚠️ <b>Nouvelles règles en vigueur :</b>\n"
+            f"• Tu ne peux pas emprunter tant que ce prêt n'est pas remboursé.\n"
+            f"• Si tu ne paies pas avant la date limite, la somme sera déduite "
+            f"de ton compte automatiquement (solde négatif possible).\n\n"
+            f"👉 Utilise /bankrepay {loan.bank_id} [montant] pour rembourser."
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=loan.user_id,
+                text=msg,
+                parse_mode="HTML",
+            )
+            warned += 1
+        except Exception:
+            pass
+
+    logger.info(f"[BANK] Avertissements envoyés à {warned} débiteur(s) au démarrage.")

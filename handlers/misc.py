@@ -43,7 +43,7 @@ HELP_TEXT = """
 /acc — Voir ton compte
 /daily — Bonus quotidien
 /work — Travailler (cooldown 8h)
-/pay montant — Envoyer des coins
+/pay montant — Envoyer des $
 /richlist — Top 10 des plus riches
 
 <b>Casino</b>

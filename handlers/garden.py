@@ -33,7 +33,7 @@ async def garden(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u      = await get_user(session, user.user_id)
         coins  = u.coins if u else 0
 
-    lines = [f"Jardin de {update.effective_user.first_name}  Coins: {coins:,}\n"]
+    lines = [f"Jardin de {update.effective_user.first_name}  $ : {coins:,}\n"]
     for slot_i in range(GARDEN_SLOTS):
         g = next((p for p in plants if p.slot == slot_i), None)
         if g:
@@ -79,7 +79,7 @@ async def plant_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins  = (info["grow_time"] % 3600) // 60
     await update.message.reply_text(
         f"{info['emoji']} {plant_type} plante dans le slot {slot+1} !\n"
-        f"Pret dans {hours}h{mins:02d}m — Valeur : {info['value']} coins"
+        f"Pret dans {hours}h{mins:02d}m — Valeur : {info['value']} $"
     )
 
 
@@ -113,8 +113,8 @@ async def harvest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for g in ready:
             coins = await harvest_plant(session, g.id)
             total += coins
-            lines.append(f"  {PLANT_TYPES[g.plant_type]['emoji']} {g.plant_type} → +{coins:,} coins")
+            lines.append(f"  {PLANT_TYPES[g.plant_type]['emoji']} {g.plant_type} → +{coins:,} $")
 
     await update.message.reply_text(
-        "Recolte terminee !\n" + "\n".join(lines) + f"\nTotal : {total:,} coins"
+        "Recolte terminee !\n" + "\n".join(lines) + f"\nTotal : {total:,} $"
     )

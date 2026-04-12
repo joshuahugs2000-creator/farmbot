@@ -136,6 +136,17 @@ class Loan(Base):
     status        = Column(String(20), default="active")
 
 
+# ─── COMPTE COMMUN ────────────────────────────────────────────────────────────
+
+class CoupleAccount(Base):
+    __tablename__ = "couple_accounts"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    user1_id   = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    user2_id   = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    balance    = Column(BigInteger, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # ─── INVESTISSEMENTS ──────────────────────────────────────────────────────────
 
 class Investment(Base):

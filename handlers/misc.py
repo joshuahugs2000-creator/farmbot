@@ -28,11 +28,6 @@ HELP_TEXT = """
 /plant slot plante — Planter
 /harvest [slot] — Recolter
 
-<b>Waifu et Karma</b>
-/waifu — Waifu du jour
-/upvote — +1 karma (repondre)
-/downvote — -1 karma (repondre)
-
 <b>Profil</b>
 /me — Ton profil
 /setpic — Photo de profil
@@ -74,11 +69,15 @@ HELP_TEXT = """
 /couple deposit montant — Deposer depuis ton compte perso
 /couple withdraw montant — Retirer vers ton compte perso
 
+<b>Evenements</b>
+/open — Ouvrir un coffre mystere (si actif)
+⭐ Heure Doree — gains casino x2 (annonce automatique)
+
 <b>General</b>
 /leaderboard — Top familles
 /familyphoto — Photo de famille
 /mode — Mode global/groupe
-/toggle garden|waifu — Activer/desactiver
+/toggle garden — Activer/desactiver le jardin
 /help — Cette aide
 """
 
@@ -87,7 +86,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(update.effective_user)
     await update.message.reply_text(
         f"Bienvenue dans <b>FamTree Bot</b>, {update.effective_user.first_name} !\n\n"
-        "Cree ta famille virtuelle, gere ton jardin, joue au casino et decouvre ta waifu du jour.\n\n"
+        "Cree ta famille virtuelle, gere ton jardin, joue au casino et batis ta dynastie !\n\n"
         "Tape /help pour voir toutes les commandes.",
         parse_mode=ParseMode.HTML,
     )
@@ -99,7 +98,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
-        top   = await get_leaderboard(session, 10)
+        top = await get_leaderboard(session, 10)
         if not top:
             return await update.message.reply_text("Aucune donnee disponible.")
 
@@ -131,7 +130,7 @@ async def toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type not in ("group", "supergroup"):
         return await update.message.reply_text("Commande de groupe uniquement.")
     if not context.args:
-        return await update.message.reply_text("Usage : /toggle garden|waifu")
+        return await update.message.reply_text("Usage : /toggle garden")
 
     feature  = context.args[0].lower()
     group_id = update.effective_chat.id
@@ -141,11 +140,8 @@ async def toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if feature == "garden":
             s.garden_enabled = not s.garden_enabled
             state = "active" if s.garden_enabled else "desactive"
-        elif feature == "waifu":
-            s.waifu_enabled = not s.waifu_enabled
-            state = "active" if s.waifu_enabled else "desactive"
         else:
-            return await update.message.reply_text("Fonctionnalite inconnue. Choix : garden, waifu")
+            return await update.message.reply_text("Fonctionnalite inconnue. Seul 'garden' est disponible.")
         await session.commit()
 
     await update.message.reply_text(f"{feature.capitalize()} : {state}.")

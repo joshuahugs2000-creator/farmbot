@@ -229,9 +229,19 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.SPOUSE, req.group_id)
             fam = await get_family_members(session, req.from_user_id)
             await _sync_family_name(session, req.from_user_id, fam)
+
+            # Cadeau de mariage aleatoire (500 - 8000 coins chacun)
+            gift = random.randint(500, 8_000)
+            for uid in (req.from_user_id, req.to_user_id):
+                u = await get_user(session, uid)
+                if u:
+                    u.coins += gift
+            await session.commit()
+
             relation_type = "married"
             text = (f"💒 {mention(sender)} et {mention(target)} sont maintenant maries ! 🎉\n"
-                    f"Felicitations a la famille {sender.family_name or ''} !")
+                    f"Felicitations a la famille {sender.family_name or ''} !\n"
+                    f"💝 Cadeau de mariage : <b>{gift:,} $</b> chacun !")
 
         elif req_type_str == "adopt":
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.PARENT, req.group_id)

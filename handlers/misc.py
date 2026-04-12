@@ -18,6 +18,7 @@ HELP_TEXT = """
 /unfriend — Retirer un ami
 /setfamilyname nom — Nom de famille
 /leave — Quitter (heritage transmis)
+/familyphoto — Photo de famille
 
 <b>Arbre</b>
 /tree — Ton arbre genealogique
@@ -50,16 +51,26 @@ HELP_TEXT = """
 /blackjack mise — Blackjack vs bot
 /roulette mise choix — Roulette
 /slots mise — Machine a sous
-/race mise numero — Courses de chevaux
-
-<b>Paris</b>
 /bet mise description — Proposer un pari
-/acceptbet id — Accepter un pari
-/resolvebet id gagnant — Resoudre un pari
+
+<b>Banque</b>
+/banks — Voir les banques disponibles
+/bankopen — Ouvrir un compte bancaire
+/bankdeposit montant — Deposer des coins
+/bankwithdraw montant — Retirer des coins
+/bankbalance — Voir son solde bancaire
+/bankloan montant — Prendre un pret
+/bankrepay montant — Rembourser un pret
+/bankloans — Voir ses prets
+
+<b>Investissements</b>
+/market — Voir le marche
+/buy actif quantite — Acheter des actions
+/sell actif quantite — Vendre des actions
+/portfolio — Voir son portefeuille
 
 <b>General</b>
 /leaderboard — Top familles
-/familyphoto — Photo de famille
 /mode — Mode global/groupe
 /toggle garden|waifu — Activer/desactiver
 /help — Cette aide

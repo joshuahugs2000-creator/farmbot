@@ -160,3 +160,27 @@ class Investment(Base):
     sold_at    = Column(DateTime, nullable=True)
     sell_price = Column(BigInteger, nullable=True)
     status     = Column(String(20), default="active")
+
+
+# ─── LOTERIE ──────────────────────────────────────────────────────────────────
+
+class LotterySession(Base):
+    __tablename__ = "lottery_sessions"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    group_id     = Column(BigInteger, nullable=False)
+    creator_id   = Column(BigInteger, nullable=True)   # NULL = lancée par le bot
+    ticket_price = Column(BigInteger, nullable=False)
+    loto_type    = Column(String(10), nullable=False, default="private")  # private | bot
+    status       = Column(String(10), default="active")   # active | closed
+    winner_id    = Column(BigInteger, nullable=True)
+    pot          = Column(BigInteger, default=0)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    drawn_at     = Column(DateTime, nullable=True)
+
+
+class LotteryTicket(Base):
+    __tablename__ = "lottery_tickets"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey("lottery_sessions.id"), nullable=False)
+    user_id    = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

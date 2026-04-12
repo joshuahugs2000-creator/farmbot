@@ -1,5 +1,5 @@
 import logging
-from datetime import time
+from datetime import time, timedelta
 
 from telegram import Update
 from telegram.ext import (
@@ -27,6 +27,17 @@ from handlers.economy  import (
     blackjack, roulette, slots,
 )
 from handlers.race_bet import bet, race_bet_callback
+from handlers.admin    import (
+    adminhelp, give, take, setcoins, userinfo,
+    ban, unban, resetuser,
+    adminadd, adminremove, adminlist, broadcast,
+)
+from handlers.bank     import (
+    banks, bankopen, bankdeposit, bankwithdraw,
+    bankbalance, bankloan, bankrepay, bankloans,
+    pay_interests,
+)
+from handlers.invest   import market, buy, sell, portfolio
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -108,19 +119,57 @@ def main():
     app.add_handler(CommandHandler("blackjack",  blackjack))
     app.add_handler(CommandHandler("roulette",   roulette))
     app.add_handler(CommandHandler("slots",      slots))
-    app.add_handler(CommandHandler("bet",  bet))
+    app.add_handler(CommandHandler("bet",        bet))
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("adminhelp",    adminhelp))
+    app.add_handler(CommandHandler("give",         give))
+    app.add_handler(CommandHandler("take",         take))
+    app.add_handler(CommandHandler("setcoins",     setcoins))
+    app.add_handler(CommandHandler("userinfo",     userinfo))
+    app.add_handler(CommandHandler("ban",          ban))
+    app.add_handler(CommandHandler("unban",        unban))
+    app.add_handler(CommandHandler("resetuser",    resetuser))
+    app.add_handler(CommandHandler("adminadd",     adminadd))
+    app.add_handler(CommandHandler("adminremove",  adminremove))
+    app.add_handler(CommandHandler("adminlist",    adminlist))
+    app.add_handler(CommandHandler("broadcast",    broadcast))
+
+    # ── Banque ────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("banks",        banks))
+    app.add_handler(CommandHandler("bankopen",     bankopen))
+    app.add_handler(CommandHandler("bankdeposit",  bankdeposit))
+    app.add_handler(CommandHandler("bankwithdraw", bankwithdraw))
+    app.add_handler(CommandHandler("bankbalance",  bankbalance))
+    app.add_handler(CommandHandler("bankloan",     bankloan))
+    app.add_handler(CommandHandler("bankrepay",    bankrepay))
+    app.add_handler(CommandHandler("bankloans",    bankloans))
+
+    # ── Investissements ───────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("market",    market))
+    app.add_handler(CommandHandler("buy",       buy))
+    app.add_handler(CommandHandler("sell",      sell))
+    app.add_handler(CommandHandler("portfolio", portfolio))
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
-    app.add_handler(CallbackQueryHandler(request_callback, pattern=r"^req:"))
-    app.add_handler(CallbackQueryHandler(leave_callback,   pattern=r"^leave:"))
-    app.add_handler(CallbackQueryHandler(color_callback,   pattern=r"^color:"))
+    app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
+    app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
+    app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
     app.add_handler(CallbackQueryHandler(race_bet_callback, pattern=r"^rb:"))
 
-    # ── Job quotidien ─────────────────────────────────────────────────────────
+    # ── Jobs périodiques ──────────────────────────────────────────────────────
+    # Anniversaires : 1x/jour à 8h
     app.job_queue.run_daily(
         check_anniversaries,
         time=time(hour=8, minute=0),
         name="anniversary_check",
+    )
+    # Intérêts bancaires : toutes les 6h
+    app.job_queue.run_repeating(
+        pay_interests,
+        interval=timedelta(hours=6),
+        first=timedelta(minutes=5),
+        name="bank_interests",
     )
 
     logger.info("Bot demarre.")

@@ -546,7 +546,7 @@ async def pay_interests(context):
 
 
 async def remind_loans(context):
-    """2x par semaine : rappel dans les groupes pour tous les prêts actifs en retard."""
+    """2x par semaine : rappel dans les groupes pour tous les prets actifs."""
     from database.models import GroupSettings, Relationship
     from sqlalchemy import select as _sel
 
@@ -563,7 +563,7 @@ async def remind_loans(context):
         groups    = (await session.execute(select(GroupSettings))).scalars().all()
         group_ids = [g.group_id for g in groups]
 
-        user_groups: dict = {}
+        user_groups = {}
         for loan in loans:
             uid  = loan.user_id
             rels = (await session.execute(
@@ -582,28 +582,24 @@ async def remind_loans(context):
         overdue   = now > loan.due_at
 
         if overdue:
-            status_line = "🔴 <b>EN RETARD</b> — pénalité de 5% appliquée automatiquement !"
+            status_line = "🔴 EN RETARD — penalite de 5% appliquee automatiquement !"
         else:
             jours_restants = (loan.due_at - now).days
-            status_line = f"⏳ Délai restant : <b>{jours_restants} jour(s)</b>"
+            status_line    = f"Delai restant : {jours_restants} jour(s)"
 
-        msg = (
-            f"🏦 <b>Rappel remboursement</b>
-
-"
-            f"<a href="tg://user?id={loan.user_id}">Cet utilisateur</a> a un prêt actif "
-            f"à la <b>{bank_name}</b>.
-
-"
-            f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>
-"
-            f"📅 Date limite : <b>{loan.due_at.strftime('%d/%m/%Y')}</b>
-"
-            f"{status_line}
-
-"
-            f"👉 /bankrepay {loan.bank_id} [montant]"
-        )
+        user_link = f'<a href="tg://user?id={loan.user_id}">cet utilisateur</a>'
+        lines = [
+            "🏦 <b>Rappel remboursement</b>",
+            "",
+            f"Attention, {user_link} a un pret actif a la <b>{bank_name}</b>.",
+            "",
+            f"💳 Reste a rembourser : <b>{_fmt(loan.remaining)} $</b>",
+            f"📅 Date limite : <b>{loan.due_at.strftime('%d/%m/%Y')}</b>",
+            f"⚠️ {status_line}",
+            "",
+            f"👉 /bankrepay {loan.bank_id} [montant]",
+        ]
+        msg = "\n".join(lines)
 
         sent_to = set()
         for gid in user_groups.get(loan.user_id, []):
@@ -616,10 +612,8 @@ async def remind_loans(context):
             except Exception as e:
                 logger.warning(f"[BANK] Rappel impossible dans groupe {gid} : {e}")
 
-    logger.info(f"[BANK] Rappels de remboursement envoyés : {warned} messages.")
+    logger.info(f"[BANK] Rappels envoyes : {warned} messages.")
 
-
-# ─── Avertissement au démarrage pour les prêts existants ─────────────────────
 
 async def warn_existing_loans_direct(bot):
     """Appelé directement au démarrage.

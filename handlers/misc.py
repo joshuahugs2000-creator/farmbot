@@ -47,6 +47,14 @@ HELP_TEXT = """
 /slots mise — Machine a sous
 /bet mise description — Proposer un pari
 
+<b>Loterie</b>
+/createloto prix — Lancer une loterie privee (min 1 000 $)
+/loto — Voir la loterie active du groupe
+/ticket [nb] — Acheter des tickets
+/tirage — Forcer le tirage (createur ou admin)
+/tirageforce — Forcer le tirage bot (admin)
+/cancelloto — Annuler la loterie et rembourser
+
 <b>Banque</b>
 /banks — Voir les banques disponibles
 /bankopen — Ouvrir un compte bancaire

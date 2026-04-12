@@ -159,8 +159,7 @@ def main():
     app.add_handler(CommandHandler("loto",         loto))
     app.add_handler(CommandHandler("ticket",       ticket))
     app.add_handler(CommandHandler("tirage",       tirage))
-    app.add_handler(CommandHandler("tirageforcé",  tirage_force))
-    app.add_handler(CommandHandler("tirageforce",  tirage_force))   # alias sans accent
+    app.add_handler(CommandHandler("tirageforce",  tirage_force))
     app.add_handler(CommandHandler("cancelloto",   cancelloto))
 
     # ── Machine à sous ────────────────────────────────────────────────────────

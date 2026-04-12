@@ -1,183 +1,709 @@
+"""
+Système bancaire complet.
+
+5 banques de rang différent — plus la banque est prestigieuse :
+  • Dépôt minimum plus élevé
+  • Taux d'intérêt plus avantageux (versés toutes les 6h via job)
+  • Prêts plus importants disponibles
+
+Commandes :
+  /banks         — liste des banques
+  /bankopen      — ouvrir un compte
+  /bankdeposit   — déposer
+  /bankwithdraw  — retirer
+  /bankbalance   — voir ses comptes
+  /bankloan      — emprunter
+  /bankrepay     — rembourser un prêt
+  /bankloans     — voir ses prêts
+"""
+
 import logging
-from datetime import time, timedelta
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ContextTypes
+from telegram.constants import ParseMode
+from sqlalchemy import select
 
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-)
+from database.db import AsyncSessionLocal, get_user, add_coins
+from database.models import BankAccount, Loan
+from utils.helpers import ensure_user
 
-from config import BOT_TOKEN
-from database import init_db
-
-from handlers.misc     import start, help_cmd, leaderboard, mode, toggle
-from handlers.family   import (
-    marry, adopt, friend, divorce, disown, unfriend,
-    setfamilyname, leave, familyphoto,
-    request_callback, leave_callback,
-)
-from handlers.tree     import tree, bigtree
-from handlers.garden   import garden, plant_cmd, harvest
-from handlers.profile  import me, setpic, customize, color_callback, titles
-from handlers.events   import check_anniversaries
-from handlers.events_random import setup_random_events, open_chest_cmd
-from handlers.economy  import (
-    acc, daily, work, pay, richlist,
-    blackjack, roulette, slots,
-)
-from handlers.race_bet import bet, race_bet_callback
-from handlers.admin    import (
-    adminhelp, give, take, setcoins, userinfo,
-    ban, unban, resetuser,
-    adminadd, adminremove, adminlist, broadcast,
-)
-from handlers.bank     import (
-    banks, bankopen, bankdeposit, bankwithdraw,
-    bankbalance, bankloan, bankrepay, bankloans,
-    pay_interests, warn_existing_loans_direct,
-)
-from handlers.invest   import market, buy, sell, portfolio
-from handlers.couple   import couple
-
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    level=logging.INFO,
-)
 logger = logging.getLogger(__name__)
 
+# ─── Définition des banques ───────────────────────────────────────────────────
 
-async def on_startup(app: Application):
-    await init_db()
-    logger.info("Base de données initialisée.")
-    # Avertir tous les débiteurs actifs dès le démarrage
-    await warn_existing_loans_direct(app.bot)
+BANKS = {
+    "bronze": {
+        "name":          "🥉 Banque Bronze",
+        "rank":          1,
+        "emoji":         "🥉",
+        "desc":          "Banque populaire, accessible à tous",
+        "min_deposit":   1_000,
+        "max_deposit":   500_000,
+        "interest_rate": 0.005,    # 0.5% toutes les 6h → ~2%/jour
+        "max_loan":      100_000,
+        "loan_rate":     0.08,     # 8% d'intérêt sur le prêt
+        "loan_days":     7,
+    },
+    "silver": {
+        "name":          "🥈 Banque Silver",
+        "rank":          2,
+        "emoji":         "🥈",
+        "desc":          "Pour les épargnants sérieux",
+        "min_deposit":   10_000,
+        "max_deposit":   2_000_000,
+        "interest_rate": 0.008,    # 0.8% → ~3.2%/jour
+        "max_loan":      500_000,
+        "loan_rate":     0.06,
+        "loan_days":     14,
+    },
+    "gold": {
+        "name":          "🥇 Banque Gold",
+        "rank":          3,
+        "emoji":         "🥇",
+        "desc":          "Banque des investisseurs fortunés",
+        "min_deposit":   100_000,
+        "max_deposit":   10_000_000,
+        "interest_rate": 0.012,    # 1.2% → ~4.8%/jour
+        "max_loan":      2_000_000,
+        "loan_rate":     0.05,
+        "loan_days":     21,
+    },
+    "platinum": {
+        "name":          "💠 Banque Platinum",
+        "rank":          4,
+        "emoji":         "💠",
+        "desc":          "Réservée aux élites financières",
+        "min_deposit":   500_000,
+        "max_deposit":   50_000_000,
+        "interest_rate": 0.018,    # 1.8% → ~7.2%/jour
+        "max_loan":      10_000_000,
+        "loan_rate":     0.04,
+        "loan_days":     30,
+    },
+    "diamond": {
+        "name":          "💎 Banque Diamond",
+        "rank":          5,
+        "emoji":         "💎",
+        "desc":          "La banque des milliardaires",
+        "min_deposit":   2_000_000,
+        "max_deposit":   999_999_999_999,
+        "interest_rate": 0.025,    # 2.5% → ~10%/jour
+        "max_loan":      50_000_000,
+        "loan_rate":     0.03,
+        "loan_days":     60,
+    },
+}
+
+BANK_KEYS = ["bronze", "silver", "gold", "platinum", "diamond"]
+
+INTEREST_INTERVAL_HOURS = 6  # toutes les 6h
 
 
-async def error_handler(update: object, context):
-    logger.error("Exception dans un handler :", exc_info=context.error)
-    if isinstance(update, Update) and update.message:
-        try:
-            await update.message.reply_text(
-                f"Erreur interne : {type(context.error).__name__}: {context.error}"
+def _fmt(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
+
+
+# ─── /banks ───────────────────────────────────────────────────────────────────
+
+async def banks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lines = ["<b>🏦 Banques disponibles</b>\n"]
+    for key in BANK_KEYS:
+        b = BANKS[key]
+        lines.append(
+            f"{b['emoji']} <b>{b['name']}</b>  (Rang {b['rank']}/5)\n"
+            f"  └ {b['desc']}\n"
+            f"  └ Dépôt min : {_fmt(b['min_deposit'])} $ · Max : {_fmt(b['max_deposit'])} $\n"
+            f"  └ Intérêts  : +{b['interest_rate']*100:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
+            f"  └ Prêt max  : {_fmt(b['max_loan'])} $  (taux {b['loan_rate']*100:.0f}%)\n"
+        )
+    lines.append("Utilisez /bankopen [banque] pour ouvrir un compte.")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── /bankopen ────────────────────────────────────────────────────────────────
+
+async def bankopen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        keys = " | ".join(BANK_KEYS)
+        return await update.message.reply_text(
+            f"Usage : /bankopen [banque]\nBanques : {keys}"
+        )
+
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text(f"Banque inconnue. Choix : {' | '.join(BANK_KEYS)}")
+
+    user = await ensure_user(update.effective_user)
+    async with AsyncSessionLocal() as session:
+        existing = await session.execute(
+            select(BankAccount).where(
+                BankAccount.user_id == user.user_id,
+                BankAccount.bank_id == bank_id,
             )
-        except Exception:
-            pass
+        )
+        if existing.scalar_one_or_none():
+            return await update.message.reply_text(
+                f"Tu as déjà un compte à la {BANKS[bank_id]['name']} !"
+            )
 
+        acc = BankAccount(
+            user_id       = user.user_id,
+            bank_id       = bank_id,
+            balance       = 0,
+            last_interest = datetime.utcnow(),
+        )
+        session.add(acc)
+        await session.commit()
 
-def main():
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .post_init(on_startup)
-        .build()
+    b = BANKS[bank_id]
+    await update.message.reply_text(
+        f"✅ Compte ouvert à la <b>{b['name']}</b> !\n"
+        f"Dépôt minimum : {_fmt(b['min_deposit'])} $\n"
+        f"Intérêts : +{b['interest_rate']*100:.1f}% toutes les {INTEREST_INTERVAL_HOURS}h\n\n"
+        f"Utilisez /bankdeposit {bank_id} [montant] pour alimenter votre compte.",
+        parse_mode=ParseMode.HTML,
     )
 
-    app.add_error_handler(error_handler)
 
-    # ── Général ──────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("start",       start))
-    app.add_handler(CommandHandler("help",        help_cmd))
-    app.add_handler(CommandHandler("leaderboard", leaderboard))
-    app.add_handler(CommandHandler("mode",        mode))
-    app.add_handler(CommandHandler("toggle",      toggle))
+# ─── /bankdeposit ─────────────────────────────────────────────────────────────
 
-    # ── Famille ──────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("marry",         marry))
-    app.add_handler(CommandHandler("adopt",         adopt))
-    app.add_handler(CommandHandler("friend",        friend))
-    app.add_handler(CommandHandler("divorce",       divorce))
-    app.add_handler(CommandHandler("disown",        disown))
-    app.add_handler(CommandHandler("unfriend",      unfriend))
-    app.add_handler(CommandHandler("setfamilyname", setfamilyname))
-    app.add_handler(CommandHandler("leave",         leave))
-    app.add_handler(CommandHandler("familyphoto",   familyphoto))
+async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text("Usage : /bankdeposit [banque] [montant]")
 
-    # ── Arbre ────────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("tree",    tree))
-    app.add_handler(CommandHandler("bigtree", bigtree))
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text("Banque inconnue.")
 
-    # ── Jardin ───────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("garden",  garden))
-    app.add_handler(CommandHandler("plant",   plant_cmd))
-    app.add_handler(CommandHandler("harvest", harvest))
+    try:
+        amount = int(context.args[1].replace(",", "").replace(" ", ""))
+        assert amount > 0
+    except (ValueError, AssertionError):
+        return await update.message.reply_text("Montant invalide.")
 
-    # ── Profil ───────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("me",        me))
-    app.add_handler(CommandHandler("setpic",    setpic))
-    app.add_handler(CommandHandler("customize", customize))
-    app.add_handler(CommandHandler("titles",    titles))
+    b    = BANKS[bank_id]
+    user = await ensure_user(update.effective_user)
 
-    # ── Économie ─────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("acc",        acc))
-    app.add_handler(CommandHandler("daily",      daily))
-    app.add_handler(CommandHandler("work",       work))
-    app.add_handler(CommandHandler("pay",        pay))
-    app.add_handler(CommandHandler("richlist",   richlist))
-    app.add_handler(CommandHandler("blackjack",  blackjack))
-    app.add_handler(CommandHandler("roulette",   roulette))
-    app.add_handler(CommandHandler("slots",      slots))
-    app.add_handler(CommandHandler("bet",        bet))
+    if amount < b["min_deposit"]:
+        return await update.message.reply_text(
+            f"Dépôt minimum pour la {b['name']} : {_fmt(b['min_deposit'])} $"
+        )
 
-    # ── Admin ─────────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("adminhelp",    adminhelp))
-    app.add_handler(CommandHandler("give",         give))
-    app.add_handler(CommandHandler("take",         take))
-    app.add_handler(CommandHandler("setcoins",     setcoins))
-    app.add_handler(CommandHandler("userinfo",     userinfo))
-    app.add_handler(CommandHandler("ban",          ban))
-    app.add_handler(CommandHandler("unban",        unban))
-    app.add_handler(CommandHandler("resetuser",    resetuser))
-    app.add_handler(CommandHandler("adminadd",     adminadd))
-    app.add_handler(CommandHandler("adminremove",  adminremove))
-    app.add_handler(CommandHandler("adminlist",    adminlist))
-    app.add_handler(CommandHandler("broadcast",    broadcast))
+    async with AsyncSessionLocal() as session:
+        acc = (await session.execute(
+            select(BankAccount).where(
+                BankAccount.user_id == user.user_id,
+                BankAccount.bank_id == bank_id,
+            )
+        )).scalar_one_or_none()
 
-    # ── Banque ────────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("banks",        banks))
-    app.add_handler(CommandHandler("bankopen",     bankopen))
-    app.add_handler(CommandHandler("bankdeposit",  bankdeposit))
-    app.add_handler(CommandHandler("bankwithdraw", bankwithdraw))
-    app.add_handler(CommandHandler("bankbalance",  bankbalance))
-    app.add_handler(CommandHandler("bankloan",     bankloan))
-    app.add_handler(CommandHandler("bankrepay",    bankrepay))
-    app.add_handler(CommandHandler("bankloans",    bankloans))
+        if not acc:
+            return await update.message.reply_text(
+                f"Tu n'as pas de compte à la {b['name']}. Utilise /bankopen {bank_id}"
+            )
 
-    # ── Investissements ───────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("market",    market))
-    app.add_handler(CommandHandler("buy",       buy))
-    app.add_handler(CommandHandler("sell",      sell))
-    app.add_handler(CommandHandler("portfolio", portfolio))
+        if acc.balance + amount > b["max_deposit"]:
+            return await update.message.reply_text(
+                f"Dépôt maximum atteint ({_fmt(b['max_deposit'])} $)."
+            )
 
-    # ── Couple ────────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("couple",    couple))
+        u = await get_user(session, user.user_id)
+        if not u or u.coins < amount:
+            return await update.message.reply_text("Solde insuffisant !")
 
-    # ── Événements aléatoires ─────────────────────────────────────────────────
-    app.add_handler(CommandHandler("open", open_chest_cmd))
-    setup_random_events(app)
+        u.coins     -= amount
+        acc.balance += amount
+        await session.commit()
+        new_wallet  = u.coins
+        new_balance = acc.balance
 
-    # ── Callbacks ─────────────────────────────────────────────────────────────
-    app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
-    app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
-    app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
-    app.add_handler(CallbackQueryHandler(race_bet_callback, pattern=r"^rb:"))
-
-    # ── Jobs périodiques ──────────────────────────────────────────────────────
-    app.job_queue.run_daily(
-        check_anniversaries,
-        time=time(hour=8, minute=0),
-        name="anniversary_check",
-    )
-    app.job_queue.run_repeating(
-        pay_interests,
-        interval=timedelta(hours=6),
-        first=timedelta(minutes=5),
-        name="bank_interests",
+    await update.message.reply_text(
+        f"🏦 Dépôt effectué à la <b>{b['name']}</b>\n"
+        f"💰 Déposé   : +{_fmt(amount)} $\n"
+        f"📊 En banque : {_fmt(new_balance)} $\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} $",
+        parse_mode=ParseMode.HTML,
     )
 
-    logger.info("Bot demarre.")
-    app.run_polling(drop_pending_updates=True)
+
+# ─── /bankwithdraw ────────────────────────────────────────────────────────────
+
+async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text("Usage : /bankwithdraw [banque] [montant]")
+
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text("Banque inconnue.")
+
+    try:
+        amount = int(context.args[1].replace(",", "").replace(" ", ""))
+        assert amount > 0
+    except (ValueError, AssertionError):
+        return await update.message.reply_text("Montant invalide.")
+
+    user = await ensure_user(update.effective_user)
+    b    = BANKS[bank_id]
+
+    async with AsyncSessionLocal() as session:
+        acc = (await session.execute(
+            select(BankAccount).where(
+                BankAccount.user_id == user.user_id,
+                BankAccount.bank_id == bank_id,
+            )
+        )).scalar_one_or_none()
+
+        if not acc:
+            return await update.message.reply_text(f"Pas de compte à la {b['name']}.")
+
+        if acc.balance < amount:
+            return await update.message.reply_text(
+                f"Solde bancaire insuffisant ! Tu as {_fmt(acc.balance)} $ dans cette banque."
+            )
+
+        u = await get_user(session, user.user_id)
+        acc.balance -= amount
+        u.coins     += amount
+        await session.commit()
+        new_wallet  = u.coins
+        new_balance = acc.balance
+
+    await update.message.reply_text(
+        f"🏦 Retrait effectué de la <b>{b['name']}</b>\n"
+        f"💸 Retiré    : {_fmt(amount)} $\n"
+        f"📊 En banque : {_fmt(new_balance)} $\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} $",
+        parse_mode=ParseMode.HTML,
+    )
 
 
-if __name__ == "__main__":
-    main()
+# ─── /bankbalance ─────────────────────────────────────────────────────────────
+
+async def bankbalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = await ensure_user(update.effective_user)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(BankAccount).where(BankAccount.user_id == user.user_id)
+        )
+        accounts = result.scalars().all()
+        u = await get_user(session, user.user_id)
+
+    if not accounts:
+        return await update.message.reply_text(
+            "Tu n'as aucun compte bancaire.\nUtilise /banks pour voir les banques disponibles."
+        )
+
+    lines = [f"<b>🏦 Comptes bancaires de {update.effective_user.first_name}</b>\n"]
+    total = 0
+    for acc in accounts:
+        b   = BANKS.get(acc.bank_id, {})
+        rate = b.get("interest_rate", 0) * 100
+        lines.append(
+            f"{b.get('emoji','🏦')} <b>{b.get('name', acc.bank_id)}</b>\n"
+            f"  └ Solde : {_fmt(acc.balance)} $\n"
+            f"  └ Taux  : +{rate:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
+        )
+        total += acc.balance
+
+    lines.append(f"\n💼 Total en banque : <b>{_fmt(total)} $</b>")
+    lines.append(f"👛 Portefeuille     : {_fmt(u.coins if u else 0)} $")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── /bankloan ────────────────────────────────────────────────────────────────
+
+async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text("Usage : /bankloan [banque] [montant]")
+
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text("Banque inconnue.")
+
+    try:
+        amount = int(context.args[1].replace(",", "").replace(" ", ""))
+        assert amount > 0
+    except (ValueError, AssertionError):
+        return await update.message.reply_text("Montant invalide.")
+
+    b    = BANKS[bank_id]
+    user = await ensure_user(update.effective_user)
+
+    if amount > b["max_loan"]:
+        return await update.message.reply_text(
+            f"Prêt maximum pour la {b['name']} : {_fmt(b['max_loan'])} $"
+        )
+
+    async with AsyncSessionLocal() as session:
+        # Vérifier qu'il a un compte dans cette banque
+        acc = (await session.execute(
+            select(BankAccount).where(
+                BankAccount.user_id == user.user_id,
+                BankAccount.bank_id == bank_id,
+            )
+        )).scalar_one_or_none()
+
+        if not acc:
+            return await update.message.reply_text(
+                f"Tu dois d'abord ouvrir un compte à la {b['name']} (/bankopen {bank_id})."
+            )
+
+        # ── RÈGLE 1 : aucun prêt actif autorisé (toutes banques confondues) ──
+        any_existing_loan = (await session.execute(
+            select(Loan).where(
+                Loan.user_id == user.user_id,
+                Loan.status  == "active",
+            )
+        )).scalar_one_or_none()
+
+        if any_existing_loan:
+            b_existing = BANKS.get(any_existing_loan.bank_id, {})
+            return await update.message.reply_text(
+                f"❌ <b>Prêt refusé.</b>\n\n"
+                f"Tu as déjà un prêt actif à la <b>{b_existing.get('name', any_existing_loan.bank_id)}</b> !\n"
+                f"💳 Reste à rembourser : <b>{_fmt(any_existing_loan.remaining)} $</b>\n\n"
+                f"Tu dois rembourser entièrement avant de pouvoir emprunter à nouveau.\n"
+                f"Utilise : /bankrepay {any_existing_loan.bank_id} [montant]",
+                parse_mode=ParseMode.HTML,
+            )
+
+        # ── RÈGLE 2 : avoir au moins 25% du montant demandé en solde bancaire ──
+        total_in_bank = acc.balance
+        required_collateral = int(amount * 0.25)
+        if total_in_bank < required_collateral:
+            return await update.message.reply_text(
+                f"❌ <b>Garantie insuffisante.</b>\n\n"
+                f"Pour emprunter <b>{_fmt(amount)} $</b>, tu dois avoir au minimum "
+                f"<b>{_fmt(required_collateral)} $</b> (25%) dans ton compte à la {b['name']}.\n\n"
+                f"💰 Ton solde actuel dans cette banque : <b>{_fmt(total_in_bank)} $</b>\n"
+                f"📉 Il te manque : <b>{_fmt(required_collateral - total_in_bank)} $</b>\n\n"
+                f"Dépose d'abord via /bankdeposit {bank_id} [montant].",
+                parse_mode=ParseMode.HTML,
+            )
+
+        interest    = int(amount * b["loan_rate"])
+        total_due   = amount + interest
+        due_at      = datetime.utcnow() + timedelta(days=b["loan_days"])
+
+        loan = Loan(
+            user_id       = user.user_id,
+            bank_id       = bank_id,
+            amount        = amount,
+            remaining     = total_due,
+            interest_rate = b["loan_rate"],
+            due_at        = due_at,
+        )
+        session.add(loan)
+
+        u = await get_user(session, user.user_id)
+        u.coins += amount
+        await session.commit()
+        new_balance = u.coins
+
+    await update.message.reply_text(
+        f"💳 <b>Prêt accordé par la {b['name']}</b>\n\n"
+        f"💰 Montant emprunté : {_fmt(amount)} $\n"
+        f"📈 Intérêts ({b['loan_rate']*100:.0f}%) : {_fmt(interest)} $\n"
+        f"💸 Total à rembourser : <b>{_fmt(total_due)} $</b>\n"
+        f"📅 Date limite : {due_at.strftime('%d/%m/%Y')}\n\n"
+        f"⚠️ Si tu ne rembourses pas avant la date limite, la somme sera déduite "
+        f"de ton compte (solde négatif possible).\n\n"
+        f"👛 Nouveau solde : {_fmt(new_balance)} $\n"
+        f"Utilisez /bankrepay {bank_id} [montant] pour rembourser.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /bankrepay ───────────────────────────────────────────────────────────────
+
+async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text("Usage : /bankrepay [banque] [montant]")
+
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text("Banque inconnue.")
+
+    try:
+        amount = int(context.args[1].replace(",", "").replace(" ", ""))
+        assert amount > 0
+    except (ValueError, AssertionError):
+        return await update.message.reply_text("Montant invalide.")
+
+    user = await ensure_user(update.effective_user)
+    b    = BANKS[bank_id]
+
+    async with AsyncSessionLocal() as session:
+        loan = (await session.execute(
+            select(Loan).where(
+                Loan.user_id == user.user_id,
+                Loan.bank_id == bank_id,
+                Loan.status  == "active",
+            )
+        )).scalar_one_or_none()
+
+        if not loan:
+            return await update.message.reply_text(f"Aucun prêt actif à la {b['name']}.")
+
+        u = await get_user(session, user.user_id)
+        if not u or u.coins < amount:
+            return await update.message.reply_text("Solde insuffisant !")
+
+        pay_amount = min(amount, loan.remaining)
+        u.coins        -= pay_amount
+        loan.remaining -= pay_amount
+
+        if loan.remaining <= 0:
+            loan.status = "paid"
+            msg_extra   = "\n✅ <b>Prêt entièrement remboursé !</b>"
+        else:
+            msg_extra   = f"\n💳 Reste à rembourser : {_fmt(loan.remaining)} $"
+
+        await session.commit()
+        new_wallet = u.coins
+
+    await update.message.reply_text(
+        f"🏦 Remboursement à la <b>{b['name']}</b>\n"
+        f"💸 Payé : {_fmt(pay_amount)} $\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} $"
+        + msg_extra,
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /bankloans ───────────────────────────────────────────────────────────────
+
+async def bankloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = await ensure_user(update.effective_user)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Loan).where(Loan.user_id == user.user_id, Loan.status == "active")
+        )
+        loans = result.scalars().all()
+
+    if not loans:
+        return await update.message.reply_text("Aucun prêt actif en cours.")
+
+    lines = [f"<b>💳 Prêts actifs de {update.effective_user.first_name}</b>\n"]
+    total_debt = 0
+    for loan in loans:
+        b       = BANKS.get(loan.bank_id, {})
+        overdue = " ⚠️ EN RETARD" if datetime.utcnow() > loan.due_at else ""
+        lines.append(
+            f"{b.get('emoji','🏦')} <b>{b.get('name', loan.bank_id)}</b>{overdue}\n"
+            f"  └ Reste à payer : {_fmt(loan.remaining)} $\n"
+            f"  └ Date limite   : {loan.due_at.strftime('%d/%m/%Y')}\n"
+        )
+        total_debt += loan.remaining
+
+    lines.append(f"\n💸 Dette totale : <b>{_fmt(total_debt)} $</b>")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── Job : versement des intérêts toutes les 6h ───────────────────────────────
+
+async def pay_interests(context):
+    """Toutes les 6h : verse les intérêts + applique les pénalités de retard (sans notif)."""
+    now = datetime.utcnow()
+    paid_count = 0
+    total_paid = 0
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(BankAccount))
+        accounts = result.scalars().all()
+
+        for acc in accounts:
+            b = BANKS.get(acc.bank_id)
+            if not b or acc.balance <= 0:
+                continue
+            last = acc.last_interest or acc.opened_at
+            hours_elapsed = (now - last).total_seconds() / 3600
+            if hours_elapsed >= INTEREST_INTERVAL_HOURS:
+                interest = int(acc.balance * b["interest_rate"])
+                acc.balance      += interest
+                acc.last_interest = now
+                total_paid += interest
+                paid_count += 1
+
+        # Prêts en retard → pénalité 5% + déduction forcée
+        loan_result = await session.execute(select(Loan).where(Loan.status == "active"))
+        loans = loan_result.scalars().all()
+
+        for loan in loans:
+            if now > loan.due_at:
+                penalty = int(loan.remaining * 0.05)
+                loan.remaining += penalty
+                u = await get_user(session, loan.user_id)
+                if u:
+                    u.coins -= loan.remaining  # peut passer négatif
+                    loan.remaining = 0
+                    loan.status = "paid"
+
+        await session.commit()
+
+    logger.info(f"[BANK] Intérêts versés : {paid_count} comptes, {total_paid:,} $ au total.")
+
+
+async def remind_loans(context):
+    """2x par semaine : rappel dans les groupes pour tous les prêts actifs en retard."""
+    from database.models import GroupSettings, Relationship
+    from sqlalchemy import select as _sel
+
+    now = datetime.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        loans = (await session.execute(
+            select(Loan).where(Loan.status == "active")
+        )).scalars().all()
+
+        if not loans:
+            return
+
+        groups    = (await session.execute(select(GroupSettings))).scalars().all()
+        group_ids = [g.group_id for g in groups]
+
+        user_groups: dict = {}
+        for loan in loans:
+            uid  = loan.user_id
+            rels = (await session.execute(
+                _sel(Relationship).where(
+                    Relationship.user_id == uid,
+                    Relationship.group_id.in_(group_ids),
+                )
+            )).scalars().all()
+            found = list({r.group_id for r in rels if r.group_id})
+            user_groups[uid] = found if found else group_ids
+
+    warned = 0
+    for loan in loans:
+        b         = BANKS.get(loan.bank_id, {})
+        bank_name = b.get("name", loan.bank_id)
+        overdue   = now > loan.due_at
+
+        if overdue:
+            status_line = "🔴 <b>EN RETARD</b> — pénalité de 5% appliquée automatiquement !"
+        else:
+            jours_restants = (loan.due_at - now).days
+            status_line = f"⏳ Délai restant : <b>{jours_restants} jour(s)</b>"
+
+        msg = (
+            f"🏦 <b>Rappel remboursement</b>
+
+"
+            f"<a href="tg://user?id={loan.user_id}">Cet utilisateur</a> a un prêt actif "
+            f"à la <b>{bank_name}</b>.
+
+"
+            f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>
+"
+            f"📅 Date limite : <b>{loan.due_at.strftime('%d/%m/%Y')}</b>
+"
+            f"{status_line}
+
+"
+            f"👉 /bankrepay {loan.bank_id} [montant]"
+        )
+
+        sent_to = set()
+        for gid in user_groups.get(loan.user_id, []):
+            if gid in sent_to:
+                continue
+            try:
+                await context.bot.send_message(chat_id=gid, text=msg, parse_mode="HTML")
+                sent_to.add(gid)
+                warned += 1
+            except Exception as e:
+                logger.warning(f"[BANK] Rappel impossible dans groupe {gid} : {e}")
+
+    logger.info(f"[BANK] Rappels de remboursement envoyés : {warned} messages.")
+
+
+# ─── Avertissement au démarrage pour les prêts existants ─────────────────────
+
+async def warn_existing_loans_direct(bot):
+    """Appelé directement au démarrage.
+    Envoie un message dans tous les groupes connus pour alerter les débiteurs."""
+    from database.db import AsyncSessionLocal
+    from database.models import GroupSettings, Relationship
+    from sqlalchemy import select as _sel
+
+    async with AsyncSessionLocal() as session:
+        # Récupérer tous les prêts actifs
+        loans = (await session.execute(
+            select(Loan).where(Loan.status == "active")
+        )).scalars().all()
+
+        if not loans:
+            logger.info("[BANK] Aucun prêt actif au démarrage.")
+            return
+
+        # Récupérer tous les groupes connus
+        groups = (await session.execute(
+            select(GroupSettings)
+        )).scalars().all()
+        group_ids = [g.group_id for g in groups]
+
+        # Pour chaque prêt, trouver les groupes où l'utilisateur est actif
+        # (via ses relations enregistrées dans ces groupes)
+        user_groups: dict[int, list[int]] = {}  # user_id → [group_id, ...]
+        for loan in loans:
+            uid = loan.user_id
+            rels = (await session.execute(
+                _sel(Relationship).where(
+                    Relationship.user_id == uid,
+                    Relationship.group_id.in_(group_ids),
+                )
+            )).scalars().all()
+            found = list({r.group_id for r in rels if r.group_id})
+            # Si aucune relation trouvée, envoyer dans tous les groupes connus
+            user_groups[uid] = found if found else group_ids
+
+    now    = datetime.utcnow()
+    warned = 0
+    failed = 0
+
+    for loan in loans:
+        b         = BANKS.get(loan.bank_id, {})
+        bank_name = b.get("name", loan.bank_id)
+        overdue   = now > loan.due_at
+
+        if overdue:
+            status_line = "🔴 <b>EN RETARD</b> — déduction automatique imminente !"
+        else:
+            jours_restants = (loan.due_at - now).days
+            status_line = f"⏳ Délai restant : <b>{jours_restants} jour(s)</b>"
+
+        msg = (
+            f"🏦 <b>Rappel important — Prêt en cours</b>\n\n"
+            f"<a href=\"tg://user?id={loan.user_id}\">Cet utilisateur</a> a un prêt actif "
+            f"à la <b>{bank_name}</b>.\n\n"
+            f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n"
+            f"📅 Date limite : <b>{loan.due_at.strftime('%d/%m/%Y')}</b>\n"
+            f"{status_line}\n\n"
+            f"⚠️ <b>Nouvelles règles en vigueur :</b>\n"
+            f"• Impossible d'emprunter tant que ce prêt n'est pas remboursé.\n"
+            f"• Si non remboursé avant la date limite, la somme sera déduite "
+            f"automatiquement du compte (solde négatif possible).\n\n"
+            f"👉 /bankrepay {loan.bank_id} [montant] pour rembourser."
+        )
+
+        target_groups = user_groups.get(loan.user_id, group_ids)
+        sent_to = set()
+
+        for gid in target_groups:
+            if gid in sent_to:
+                continue
+            try:
+                await bot.send_message(
+                    chat_id=gid,
+                    text=msg,
+                    parse_mode="HTML",
+                )
+                sent_to.add(gid)
+                warned += 1
+            except Exception as e:
+                logger.warning(f"[BANK] Impossible d'envoyer dans le groupe {gid} : {e}")
+                failed += 1
+
+    logger.info(f"[BANK] Avertissements envoyés : {warned} messages, {failed} échoués.")

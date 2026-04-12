@@ -3,6 +3,7 @@ from sqlalchemy import select, and_, or_, delete, func, text
 from .models import (
     Base, User, GroupSettings, Relationship, PendingRequest,
     Garden, DailyWaifu, KarmaVote, UserBet, RelationType, RequestType,
+    CoupleAccount,
 )
 from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TITLES
 from datetime import datetime, timedelta
@@ -23,6 +24,13 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS coins       BIGINT       DEFAULT 10000",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned   BOOLEAN      NOT NULL DEFAULT FALSE",
             "UPDATE users SET coins = 10000 WHERE coins < 10000",
+            """CREATE TABLE IF NOT EXISTS couple_accounts (
+                id         SERIAL PRIMARY KEY,
+                user1_id   BIGINT REFERENCES users(user_id),
+                user2_id   BIGINT REFERENCES users(user_id),
+                balance    BIGINT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
         ]
         for sql in migrations:
             try:
@@ -460,3 +468,103 @@ async def resolve_bet(session: AsyncSession, bet_id: int, winner_id: int, resolv
     bet.winner_id = winner_id
     await session.commit()
     return "ok"
+
+
+# ─── COMPTE COMMUN (COUPLE) ───────────────────────────────────────────────────
+
+async def get_couple_account(session: AsyncSession, user_id: int) -> Optional[CoupleAccount]:
+    """Retourne le compte commun d'un utilisateur s'il existe."""
+    r = await session.execute(
+        select(CoupleAccount).where(
+            or_(CoupleAccount.user1_id == user_id, CoupleAccount.user2_id == user_id)
+        )
+    )
+    return r.scalar_one_or_none()
+
+
+async def create_couple_account(session: AsyncSession, user1_id: int, user2_id: int) -> Optional[CoupleAccount]:
+    """Crée un compte commun entre deux mariés. Retourne None si déjà existant."""
+    existing = await get_couple_account(session, user1_id)
+    if existing:
+        return None
+    account = CoupleAccount(user1_id=user1_id, user2_id=user2_id, balance=0)
+    session.add(account)
+    await session.commit()
+    return account
+
+
+async def couple_deposit(session: AsyncSession, user_id: int, amount: int) -> str:
+    """Transfère de l'argent du compte perso vers le compte commun."""
+    user = await get_user(session, user_id)
+    if not user:
+        return "not_found"
+    if user.coins < amount:
+        return "insufficient"
+    account = await get_couple_account(session, user_id)
+    if not account:
+        return "no_account"
+    user.coins    -= amount
+    account.balance += amount
+    await session.commit()
+    return "ok"
+
+
+async def couple_withdraw(session: AsyncSession, user_id: int, amount: int) -> str:
+    """Transfère de l'argent du compte commun vers le compte perso."""
+    account = await get_couple_account(session, user_id)
+    if not account:
+        return "no_account"
+    if account.balance < amount:
+        return "insufficient"
+    user = await get_user(session, user_id)
+    if not user:
+        return "not_found"
+    account.balance -= amount
+    user.coins      += amount
+    await session.commit()
+    return "ok"
+
+
+async def dissolve_couple_account(session: AsyncSession, user1_id: int, user2_id: int):
+    """Divise le solde en 2 et supprime le compte commun au divorce."""
+    account = await get_couple_account(session, user1_id)
+    if not account:
+        return
+    share = account.balance // 2
+    for uid in (user1_id, user2_id):
+        u = await get_user(session, uid)
+        if u:
+            u.coins += share
+    await session.execute(delete(CoupleAccount).where(CoupleAccount.id == account.id))
+    await session.commit()
+
+
+async def deduct_for_game(session: AsyncSession, user_id: int, amount: int) -> str:
+    """
+    Déduit la mise pour un jeu :
+    1. Essaie le compte perso
+    2. Si insuffisant et marié, essaie le compte commun
+    Retourne : 'perso', 'couple', 'insufficient'
+    """
+    user = await get_user(session, user_id)
+    if not user:
+        return "insufficient"
+    if user.coins >= amount:
+        user.coins -= amount
+        await session.commit()
+        return "perso"
+    # Essai compte commun
+    account = await get_couple_account(session, user_id)
+    if account and account.balance >= amount:
+        account.balance -= amount
+        await session.commit()
+        return "couple"
+    return "insufficient"
+
+
+async def add_coins_smart(session: AsyncSession, user_id: int, amount: int):
+    """Ajoute les gains toujours sur le compte perso."""
+    user = await get_user(session, user_id)
+    if user:
+        user.coins += amount
+        await session.commit()

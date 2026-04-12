@@ -7,7 +7,7 @@ from utils.helpers import ensure_user, mention
 
 
 HELP_TEXT = """
-<b>FamTree Bot — Commandes</b>
+<b>Family Bot — Commandes</b>
 
 <b>Famille</b>
 /marry — Demander en mariage

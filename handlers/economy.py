@@ -3,7 +3,7 @@ Système économique complet :
 /acc         — voir son compte
 /daily       — bonus quotidien
 /work        — travailler (cooldown 8h)
-/pay         — transférer des coins
+/pay         — transférer des $
 /richlist    — classement des plus riches
 /blackjack   — blackjack vs bot
 /roulette    — roulette
@@ -47,7 +47,7 @@ async def acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"💳 Compte de {update.effective_user.first_name}\n"
         f"━━━━━━━━━━━━━━━━━\n"
-        f"💰 Solde : {_fmt(coins)} coins\n"
+        f"💰 Solde : {_fmt(coins)} $\n"
         f"━━━━━━━━━━━━━━━━━\n"
         f"📥 /daily  |  🔨 /work  |  💸 /pay"
     )
@@ -65,8 +65,8 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif result["status"] == "ok":
         await update.message.reply_text(
             f"🎁 Bonus quotidien recu !\n"
-            f"💰 +{_fmt(result['amount'])} coins\n"
-            f"Solde : {_fmt(result['balance'])} coins"
+            f"💰 +{_fmt(result['amount'])} $\n"
+            f"Solde : {_fmt(result['balance'])} $"
         )
     else:
         await update.message.reply_text("Erreur. Fais /start d'abord.")
@@ -99,8 +99,8 @@ async def work(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job_desc, _, _ = random.choice(JOBS)
         await update.message.reply_text(
             f"{job_desc}\n"
-            f"💰 +{_fmt(result['amount'])} coins\n"
-            f"Solde : {_fmt(result['balance'])} coins"
+            f"💰 +{_fmt(result['amount'])} $\n"
+            f"Solde : {_fmt(result['balance'])} $"
         )
     else:
         await update.message.reply_text("Erreur. Fais /start d'abord.")
@@ -130,12 +130,12 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = await transfer_coins(session, sender.user_id, target.user_id, amount)
 
     if result == "insufficient":
-        await update.message.reply_text(f"Solde insuffisant ! Il te faut {_fmt(amount)} coins.")
+        await update.message.reply_text(f"Solde insuffisant ! Il te faut {_fmt(amount)} $.")
     elif result == "not_found":
         await update.message.reply_text("Utilisateur introuvable.")
     else:
         await update.message.reply_text(
-            f"💸 {mention(sender)} a envoye {_fmt(amount)} coins a {mention(target)} !",
+            f"💸 {mention(sender)} a envoye {_fmt(amount)} $ a {mention(target)} !",
             parse_mode=ParseMode.HTML,
         )
 
@@ -150,7 +150,7 @@ async def richlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines  = ["💰 Classement des plus riches\n"]
     for i, u in enumerate(top):
         medal = medals[i] if i < 3 else f"{i+1}."
-        lines.append(f"{medal} {u.first_name} — {_fmt(u.coins)} coins")
+        lines.append(f"{medal} {u.first_name} — {_fmt(u.coins)} $")
 
     await update.message.reply_text("\n".join(lines))
 
@@ -192,7 +192,7 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mise = int(context.args[0].replace(" ","").replace(",",""))
         assert mise >= 1000
     except (ValueError, AssertionError):
-        return await update.message.reply_text("Mise minimum : 1 000 coins.")
+        return await update.message.reply_text("Mise minimum : 1 000 $.")
 
     user = await ensure_user(update.effective_user)
     async with AsyncSessionLocal() as session:
@@ -225,14 +225,14 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result == "win":
             gain = mise
             await add_coins(session, user.user_id, mise)
-            msg  = f"✅ Tu gagnes {_fmt(mise)} coins !"
+            msg  = f"✅ Tu gagnes {_fmt(mise)} $ !"
         elif result == "push":
             gain = 0
             msg  = "Egalite — mise remboursee."
         else:
             gain = -mise
             await add_coins(session, user.user_id, -mise)
-            msg  = f"❌ Tu perds {_fmt(mise)} coins."
+            msg  = f"❌ Tu perds {_fmt(mise)} $."
 
         u2 = await get_user(session, user.user_id)
         new_bal = u2.coins if u2 else 0
@@ -242,7 +242,7 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Toi    : {_show_hand(player)} = {pv}\n"
         f"Dealer : {_show_hand(dealer)} = {dv}\n\n"
         f"{msg}\n"
-        f"Solde : {_fmt(new_bal)} coins"
+        f"Solde : {_fmt(new_bal)} $"
     )
 
 
@@ -263,7 +263,7 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mise = int(context.args[0].replace(",",""))
         assert mise >= 1000
     except (ValueError, AssertionError):
-        return await update.message.reply_text("Mise minimum 1 000 coins.")
+        return await update.message.reply_text("Mise minimum 1 000 $.")
 
     choix = context.args[1].lower()
     user  = await ensure_user(update.effective_user)
@@ -293,10 +293,10 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if win:
             gain = mise * (mult - 1)
             await add_coins(session, user.user_id, gain)
-            msg  = f"✅ Gagne ! +{_fmt(gain)} coins"
+            msg  = f"✅ Gagne ! +{_fmt(gain)} $"
         else:
             await add_coins(session, user.user_id, -mise)
-            msg  = f"❌ Perdu. -{_fmt(mise)} coins"
+            msg  = f"❌ Perdu. -{_fmt(mise)} $"
         u2      = await get_user(session, user.user_id)
         new_bal = u2.coins if u2 else 0
 
@@ -304,9 +304,9 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🎡 ROULETTE\n"
         f"Numero : {numero} {color_emoji}\n"
-        f"Ton pari : {choix} ({_fmt(mise)} coins)\n\n"
+        f"Ton pari : {choix} ({_fmt(mise)} $)\n\n"
         f"{msg}\n"
-        f"Solde : {_fmt(new_bal)} coins"
+        f"Solde : {_fmt(new_bal)} $"
     )
 
 
@@ -323,7 +323,7 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mise = int(context.args[0].replace(",",""))
         assert mise >= 1000
     except (ValueError, AssertionError):
-        return await update.message.reply_text("Mise minimum 1 000 coins.")
+        return await update.message.reply_text("Mise minimum 1 000 $.")
 
     user = await ensure_user(update.effective_user)
     async with AsyncSessionLocal() as session:
@@ -337,14 +337,14 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s = reels[0]
         mult = {"💎": 50, "7️⃣": 30, "⭐": 15, "🍇": 8, "🍊": 5, "🍋": 3, "🍒": 2}.get(s, 2)
         gain = mise * mult
-        msg  = f"🎰 JACKPOT ! x{mult} — +{_fmt(gain)} coins !"
+        msg  = f"🎰 JACKPOT ! x{mult} — +{_fmt(gain)} $ !"
         delta = gain
     elif reels[0] == reels[1] or reels[1] == reels[2]:
         gain = mise // 2
-        msg  = f"Deux identiques ! +{_fmt(gain)} coins."
+        msg  = f"Deux identiques ! +{_fmt(gain)} $."
         delta = gain
     else:
-        msg  = f"Rien. -{_fmt(mise)} coins."
+        msg  = f"Rien. -{_fmt(mise)} $."
         delta = -mise
 
     async with AsyncSessionLocal() as session:
@@ -356,7 +356,7 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎰 SLOTS\n"
         f"[ {reels[0]} | {reels[1]} | {reels[2]} ]\n\n"
         f"{msg}\n"
-        f"Solde : {_fmt(new_bal)} coins"
+        f"Solde : {_fmt(new_bal)} $"
     )
 
 
@@ -411,10 +411,10 @@ async def race(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gain  = int(mise * cote)
             delta = gain - mise
             await add_coins(session, user.user_id, delta)
-            msg = f"✅ {HORSES[choix][0]} gagne ! +{_fmt(delta)} coins (x{cote})"
+            msg = f"✅ {HORSES[choix][0]} gagne ! +{_fmt(delta)} $ (x{cote})"
         else:
             await add_coins(session, user.user_id, -mise)
-            msg = f"❌ {HORSES[winner][0]} gagne. Tu perds {_fmt(mise)} coins."
+            msg = f"❌ {HORSES[winner][0]} gagne. Tu perds {_fmt(mise)} $."
         u2      = await get_user(session, user.user_id)
         new_bal = u2.coins if u2 else 0
 
@@ -422,7 +422,7 @@ async def race(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏇 COURSE !\n\n"
         + "\n".join(race_lines) +
         f"\n\n{msg}\n"
-        f"Solde : {_fmt(new_bal)} coins"
+        f"Solde : {_fmt(new_bal)} $"
     )
 
 
@@ -441,7 +441,7 @@ async def bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount = int(context.args[0].replace(",",""))
         assert amount >= 1000
     except (ValueError, AssertionError):
-        return await update.message.reply_text("Mise minimum 1 000 coins.")
+        return await update.message.reply_text("Mise minimum 1 000 $.")
 
     description = " ".join(context.args[1:])
     user        = await ensure_user(update.effective_user)
@@ -453,12 +453,12 @@ async def bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("Solde insuffisant pour proposer ce pari !")
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"🤝 Accepter ({_fmt(amount)} coins)", callback_data=f"bet:accept:{b.id}"),
+            InlineKeyboardButton(f"🤝 Accepter ({_fmt(amount)} $)", callback_data=f"bet:accept:{b.id}"),
         ]])
         await update.message.reply_text(
             f"🎲 PARI OUVERT !\n"
             f"Proposeur : {mention(user)}\n"
-            f"Mise : {_fmt(amount)} coins chacun\n"
+            f"Mise : {_fmt(amount)} $ chacun\n"
             f"Question : {description}\n\n"
             f"ID du pari : #{b.id}\n"
             f"Utilise le bouton pour accepter, ou /acceptbet {b.id}",

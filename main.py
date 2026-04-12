@@ -39,6 +39,10 @@ from handlers.bank     import (
 )
 from handlers.invest   import market, buy, sell, portfolio
 from handlers.couple   import couple
+from handlers.lottery  import (
+    createloto, loto, ticket, tirage, tirage_force, cancelloto,
+    setup_lottery_jobs,
+)
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -150,6 +154,18 @@ def main():
     # ── Couple ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("couple",    couple))
 
+    # ── Loterie ───────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("createloto",   createloto))
+    app.add_handler(CommandHandler("loto",         loto))
+    app.add_handler(CommandHandler("ticket",       ticket))
+    app.add_handler(CommandHandler("tirage",       tirage))
+    app.add_handler(CommandHandler("tirageforcé",  tirage_force))
+    app.add_handler(CommandHandler("tirageforce",  tirage_force))   # alias sans accent
+    app.add_handler(CommandHandler("cancelloto",   cancelloto))
+
+    # ── Machine à sous ────────────────────────────────────────────────────────
+    # /slots est déjà géré dans handlers/economy.py
+
     # ── Événements aléatoires ─────────────────────────────────────────────────
     app.add_handler(CommandHandler("open", open_chest_cmd))
     setup_random_events(app)
@@ -180,6 +196,9 @@ def main():
         first=timedelta(minutes=10),
         name="loan_reminders",
     )
+
+    # ── Loterie Bot ───────────────────────────────────────────────────────────
+    setup_lottery_jobs(app)
 
     logger.info("Bot demarre.")
     app.run_polling(drop_pending_updates=True)

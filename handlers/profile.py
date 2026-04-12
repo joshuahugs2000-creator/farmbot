@@ -28,7 +28,7 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏠 Famille  : {u.family_name or '—'}" if u else "",
         f"👨‍👩‍👧 Membres  : {size}",
         f"⭐ Karma    : {u.karma if u else 0}",
-        f"💰 Coins    : {u.coins if u else 0}",
+        f"💰 $ : {u.coins if u else 0}",
         f"{color_dot} Couleur   : {u.profile_color if u else 'blue'}",
     ]
 

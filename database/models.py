@@ -30,12 +30,13 @@ class User(Base):
     first_name    = Column(String(255), nullable=False)
     photo_file_id = Column(String(512), nullable=True)
     profile_color = Column(String(20), default="blue")
-    coins         = Column(BigInteger, default=10_000)   # 10M au départ
+    coins         = Column(BigInteger, default=10_000)
     karma         = Column(Integer, default=0)
     family_name   = Column(String(100), nullable=True)
-    last_daily    = Column(String(20), nullable=True)         # YYYY-MM-DD HH
+    last_daily    = Column(String(20), nullable=True)
     last_work     = Column(DateTime, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
+    is_banned     = Column(Boolean, default=False)
 
 
 class GroupSettings(Base):
@@ -97,15 +98,54 @@ class KarmaVote(Base):
 
 
 class UserBet(Base):
-    """Paris entre utilisateurs."""
     __tablename__ = "user_bets"
     id            = Column(Integer, primary_key=True, autoincrement=True)
     proposer_id   = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
-    target_id     = Column(BigInteger, ForeignKey("users.user_id"), nullable=True)  # None = ouvert
+    target_id     = Column(BigInteger, ForeignKey("users.user_id"), nullable=True)
     group_id      = Column(BigInteger, nullable=False)
     amount        = Column(BigInteger, nullable=False)
     description   = Column(String(500), nullable=False)
-    status        = Column(String(20), default="pending")  # pending|active|done|cancelled
+    status        = Column(String(20), default="pending")
     winner_id     = Column(BigInteger, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
     expires_at    = Column(DateTime, nullable=False)
+
+
+# ─── BANQUE ───────────────────────────────────────────────────────────────────
+
+class BankAccount(Base):
+    __tablename__ = "bank_accounts"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    user_id       = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    bank_id       = Column(String(30), nullable=False)
+    balance       = Column(BigInteger, default=0)
+    last_interest = Column(DateTime, nullable=True)
+    opened_at     = Column(DateTime, default=datetime.utcnow)
+
+
+class Loan(Base):
+    __tablename__ = "loans"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    user_id       = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    bank_id       = Column(String(30), nullable=False)
+    amount        = Column(BigInteger, nullable=False)
+    remaining     = Column(BigInteger, nullable=False)
+    interest_rate = Column(Float, nullable=False)
+    due_at        = Column(DateTime, nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    status        = Column(String(20), default="active")
+
+
+# ─── INVESTISSEMENTS ──────────────────────────────────────────────────────────
+
+class Investment(Base):
+    __tablename__ = "investments"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    user_id    = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    asset_id   = Column(String(50), nullable=False)
+    quantity   = Column(Integer, default=1)
+    buy_price  = Column(BigInteger, nullable=False)
+    bought_at  = Column(DateTime, default=datetime.utcnow)
+    sold_at    = Column(DateTime, nullable=True)
+    sell_price = Column(BigInteger, nullable=True)
+    status     = Column(String(20), default="active")

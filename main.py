@@ -38,6 +38,7 @@ from handlers.bank     import (
     pay_interests,
 )
 from handlers.invest   import market, buy, sell, portfolio
+from handlers.couple   import couple
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -150,6 +151,9 @@ def main():
     app.add_handler(CommandHandler("buy",       buy))
     app.add_handler(CommandHandler("sell",      sell))
     app.add_handler(CommandHandler("portfolio", portfolio))
+
+    # ── Couple ────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("couple",    couple))
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
     app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))

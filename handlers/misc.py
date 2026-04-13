@@ -77,6 +77,14 @@ HELP_TEXT = """
 /couple deposit montant — Deposer depuis ton compte perso
 /couple withdraw montant — Retirer vers ton compte perso
 
+<b>Criminalite</b>
+/rob @pseudo — Voler un joueur
+/police @pseudo — Signaler un voleur recent a la police
+/bail — Payer sa caution pour sortir de prison
+/juge @pseudo — Porter plainte contre un criminel recent
+/rebet — Pari quitte ou double (mise x2 a chaque round)
+/security — Acheter une protection contre les vols
+
 <b>Evenements</b>
 /open — Ouvrir un coffre mystere (si actif)
 ⭐ Heure Doree — gains casino x2 (annonce automatique)

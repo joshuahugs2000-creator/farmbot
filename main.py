@@ -33,7 +33,7 @@ from handlers.admin    import (
     adminhelp, give, take, setcoins, userinfo,
     ban, unban, resetuser,
     adminadd, adminremove, adminlist, broadcast,
-    liberer, prisonlist,
+    liberer, prisonlist, emprisonner,
     is_admin,
 )
 from handlers.bank     import (
@@ -74,7 +74,7 @@ PRISON_EXEMPT_COMMANDS = {
     # Les commandes admin restent accessibles pour les admins
     "adminhelp", "give", "take", "setcoins", "userinfo",
     "ban", "unban", "resetuser", "adminadd", "adminremove",
-    "adminlist", "broadcast", "liberer", "prisonlist",
+    "adminlist", "broadcast", "liberer", "prisonlist", "emprisonner",
 }
 
 
@@ -247,8 +247,9 @@ def main():
     app.add_handler(CommandHandler("adminremove",  adminremove))
     app.add_handler(CommandHandler("adminlist",    adminlist))
     app.add_handler(CommandHandler("broadcast",    broadcast))
-    app.add_handler(CommandHandler("liberer",      liberer))
-    app.add_handler(CommandHandler("prisonlist",   prisonlist))
+    app.add_handler(CommandHandler("liberer",        liberer))
+    app.add_handler(CommandHandler("prisonlist",     prisonlist))
+    app.add_handler(CommandHandler("emprisonner",    emprisonner))
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))

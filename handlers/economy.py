@@ -604,13 +604,13 @@ def is_group(update: Update) -> bool:
 
 # ─── /des ─────────────────────────────────────────────────────────────────────
 
-DES_MISE    = 10_000
-DES_GAIN    = 20_000_000
+DES_MISE    = 100_000
+DES_GAIN    = 15_000_000
 DES_FACES   = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣", 6: "6️⃣", 7: "7️⃣", 8: "8️⃣", 9: "9️⃣", 10: "🔟"}
 
 async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /des <1-6>  — Mise fixe de 10 000 $. Devine le dé exact → gagne 20 000 000 $.
+    /des <1-10>  — Mise fixe de 100 000 $. Devine le dé exact → gagne 15 000 000 $.
     """
     player_tg = update.effective_user
     await ensure_user(player_tg)

@@ -43,6 +43,12 @@ from handlers.lottery  import (
     createloto, loto, ticket, tirage, tirage_force, cancelloto,
     setup_lottery_jobs,
 )
+from handlers.crime    import (
+    rob, police, bail, juge, juge_callback,
+    rebet, rebet_callback,
+    security, security_callback,
+    init_crime_tables,
+)
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -53,6 +59,7 @@ logger = logging.getLogger(__name__)
 
 async def on_startup(app: Application):
     await init_db()
+    await init_crime_tables()
     logger.info("Base de données initialisée.")
 
 
@@ -162,6 +169,14 @@ def main():
     app.add_handler(CommandHandler("tirageforce",  tirage_force))
     app.add_handler(CommandHandler("cancelloto",   cancelloto))
 
+    # ── Criminalité ───────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("rob",      rob))
+    app.add_handler(CommandHandler("police",   police))
+    app.add_handler(CommandHandler("bail",     bail))
+    app.add_handler(CommandHandler("juge",     juge))
+    app.add_handler(CommandHandler("rebet",    rebet))
+    app.add_handler(CommandHandler("security", security))
+
     # ── Machine à sous ────────────────────────────────────────────────────────
     # /slots est déjà géré dans handlers/economy.py
 
@@ -174,6 +189,9 @@ def main():
     app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
     app.add_handler(CallbackQueryHandler(race_bet_callback, pattern=r"^rb:"))
+    app.add_handler(CallbackQueryHandler(juge_callback,     pattern=r"^juge:"))
+    app.add_handler(CallbackQueryHandler(rebet_callback,    pattern=r"^rebet:"))
+    app.add_handler(CallbackQueryHandler(security_callback, pattern=r"^sec:"))
 
     # ── Jobs périodiques ──────────────────────────────────────────────────────
     app.job_queue.run_daily(

@@ -26,7 +26,7 @@ from handlers.events   import check_anniversaries
 from handlers.events_random import setup_random_events, open_chest_cmd
 from handlers.economy  import (
     acc, daily, work, pay, richlist,
-    blackjack, roulette, slots,
+    blackjack, roulette, slots, des,
 )
 from handlers.race_bet import bet, race_bet_callback
 from handlers.admin    import (
@@ -232,6 +232,7 @@ def main():
     app.add_handler(CommandHandler("blackjack",  _prison_checked(blackjack)))
     app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
     app.add_handler(CommandHandler("slots",      _prison_checked(slots)))
+    app.add_handler(CommandHandler("des",        _prison_checked(des)))
     app.add_handler(CommandHandler("bet",        _prison_checked(bet)))
 
     # ── Admin (jamais bloqués) ────────────────────────────────────────────────

@@ -17,10 +17,11 @@ Commandes :
 """
 
 import logging
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from database.db import AsyncSessionLocal, get_user, add_coins
 from database.models import User, BankAccount, Loan, Investment
@@ -54,11 +55,14 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await _deny(update)
 
     text = (
-        "<b>🛡 Panneau Admin</b>\n\n"
+        "<b>🛡 Panneau Admin — God Mode</b>\n\n"
         "<b>💰 Gestion argent</b>\n"
         "/give @user montant — Donner des $\n"
         "/take @user montant — Retirer des $\n"
         "/setcoins @user montant — Définir le solde exact\n\n"
+        "<b>⛓️ Gestion prison</b>\n"
+        "/liberer @user — Libérer quelqu'un de prison\n"
+        "/prisonlist — Voir tous les prisonniers actuels\n\n"
         "<b>👤 Gestion utilisateurs</b>\n"
         "/userinfo @user — Infos complètes sur un user\n"
         "/ban @user — Bannir un utilisateur\n"
@@ -326,6 +330,90 @@ async def adminlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ids = "\n".join(f"• <code>{uid}</code>" for uid in ADMIN_IDS)
     await update.message.reply_text(
         f"<b>🛡 Admins actifs ({len(ADMIN_IDS)})</b>\n{ids}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /liberer ─────────────────────────────────────────────────────────────────
+
+async def liberer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Libère immédiatement un prisonnier (God mode admin)."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    target_tg = await parse_target(update, context)
+    if not target_tg:
+        return await update.message.reply_text("Usage : /liberer @user")
+
+    target = await ensure_user(target_tg)
+
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            text("SELECT * FROM crime_prison WHERE user_id = :uid"),
+            {"uid": target.user_id}
+        )
+        prison_row = r.fetchone()
+
+        if not prison_row:
+            return await update.message.reply_text(
+                f"✅ {target_tg.first_name} n'est pas en prison."
+            )
+
+        minutes_left = max(0, int((prison_row.released_at - datetime.utcnow()).total_seconds() / 60))
+
+        await session.execute(
+            text("DELETE FROM crime_prison WHERE user_id = :uid"),
+            {"uid": target.user_id}
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"🔓 <b>GRÂCE PRÉSIDENTIELLE</b>\n\n"
+        f"{mention(target)} a été libéré(e) par l'admin !\n"
+        f"⏱️ Il restait <b>{minutes_left} minute(s)</b> de peine.\n"
+        f"🆓 Il/Elle est maintenant libre.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /prisonlist ──────────────────────────────────────────────────────────────
+
+async def prisonlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Liste tous les prisonniers actuels."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            text("SELECT * FROM crime_prison ORDER BY released_at ASC")
+        )
+        rows = r.fetchall()
+
+        if not rows:
+            return await update.message.reply_text("🏛️ Les prisons sont vides ! Personne n'est incarcéré.")
+
+        lines = ["<b>⛓️ LISTE DES PRISONNIERS</b>\n"]
+        now = datetime.utcnow()
+
+        for row in rows:
+            u = await get_user(session, row.user_id)
+            name = u.first_name if u else f"ID {row.user_id}"
+            minutes_left = max(0, int((row.released_at - now).total_seconds() / 60))
+            h = minutes_left // 60
+            m = minutes_left % 60
+            duration_str = f"{h}h{m:02d}m" if h > 0 else f"{m}m"
+
+            lines.append(
+                f"👤 <b>{name}</b> (<code>{row.user_id}</code>)\n"
+                f"   💰 Vol : {_fmt(row.amount_stolen)} $  |  🔓 Caution : {_fmt(row.bail_amount)} $\n"
+                f"   ⏳ Libération dans : <b>{duration_str}</b>\n"
+            )
+
+        lines.append(f"\n📊 Total : <b>{len(rows)} prisonnier(s)</b>")
+        lines.append("Utilise /liberer @user pour libérer quelqu'un.")
+
+    await update.message.reply_text(
+        "\n".join(lines),
         parse_mode=ParseMode.HTML,
     )
 

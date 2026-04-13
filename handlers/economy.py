@@ -600,3 +600,83 @@ async def resolvebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def is_group(update: Update) -> bool:
     return update.effective_chat.type in ("group", "supergroup")
+
+
+# ─── /des ─────────────────────────────────────────────────────────────────────
+
+DES_MISE    = 10_000
+DES_GAIN    = 20_000_000
+DES_EMOJI   = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣", 6: "6️⃣"}
+DES_FACES   = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
+
+async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /des <1-6>  — Mise fixe de 10 000 $. Devine le dé exact → gagne 20 000 000 $.
+    """
+    player_tg = update.effective_user
+    await ensure_user(player_tg)
+
+    # Vérifier l'argument
+    if not context.args:
+        await update.message.reply_text(
+            f"🎲 <b>JEU DU DÉ</b>\n\n"
+            f"Mise fixe : <b>{_fmt(DES_MISE)} 💰</b>\n"
+            f"Si tu trouves le bon chiffre (1 à 6) → <b>{_fmt(DES_GAIN)} 💰</b> !\n\n"
+            f"Usage : <code>/des 4</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    try:
+        choix = int(context.args[0])
+        assert 1 <= choix <= 6
+    except (ValueError, AssertionError):
+        await update.message.reply_text("❌ Choisis un nombre entre <b>1</b> et <b>6</b>.\nEx: <code>/des 3</code>", parse_mode=ParseMode.HTML)
+        return
+
+    async with AsyncSessionLocal() as session:
+        # Prison ?
+        if await _is_in_prison(session, player_tg.id):
+            prison = await _get_prison(session, player_tg.id)
+            from datetime import datetime
+            mins = max(0, int((prison.released_at - datetime.utcnow()).total_seconds() / 60))
+            await update.message.reply_text(f"⛓️ Tu es en prison ! Libération dans <b>{mins} min</b>.", parse_mode=ParseMode.HTML)
+            return
+
+        player = await get_user(session, player_tg.id)
+        if player.coins < DES_MISE:
+            await update.message.reply_text(
+                f"❌ Il te faut <b>{_fmt(DES_MISE)} 💰</b> pour jouer.\nTon solde : <b>{_fmt(player.coins)} 💰</b>",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        # Déduire la mise
+        player.coins -= DES_MISE
+        await session.commit()
+
+        # Lancer le dé
+        resultat = random.randint(1, 6)
+        face_choix   = DES_FACES[choix]
+        face_resultat = DES_FACES[resultat]
+
+        if resultat == choix:
+            # GAGNÉ
+            player.coins += DES_GAIN
+            await session.commit()
+            await update.message.reply_text(
+                f"🎲 <b>JEU DU DÉ</b>\n\n"
+                f"Ton choix   : {face_choix} <b>{choix}</b>\n"
+                f"Résultat    : {face_resultat} <b>{resultat}</b>\n\n"
+                f"🏆 <b>JACKPOT ! TU AS TROUVÉ !</b>\n"
+                f"💰 <b>+{_fmt(DES_GAIN)} 💰</b> crédités !",
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await update.message.reply_text(
+                f"🎲 <b>JEU DU DÉ</b>\n\n"
+                f"Ton choix   : {face_choix} <b>{choix}</b>\n"
+                f"Résultat    : {face_resultat} <b>{resultat}</b>\n\n"
+                f"❌ <b>PERDU !</b> -{_fmt(DES_MISE)} 💰",
+                parse_mode=ParseMode.HTML
+            )

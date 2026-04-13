@@ -7,9 +7,9 @@ from utils.helpers import ensure_user, mention
 
 
 HELP_TEXT = """
-<b>Family Bot — Commandes</b>
+<b>🌳 Family Bot — Commandes</b>
 
-<b>Famille</b>
+<b>👨‍👩‍👧 Famille</b>
 /marry — Demander en mariage
 /adopt — Adopter un membre
 /friend — Ajouter un ami
@@ -19,35 +19,37 @@ HELP_TEXT = """
 /setfamilyname nom — Nom de famille
 /leave — Quitter (heritage transmis)
 
-<b>Arbre</b>
+<b>🌲 Arbre</b>
 /tree — Ton arbre genealogique
 /bigtree — Arbre du groupe
 
-<b>Jardin</b>
+<b>🌱 Jardin</b>
 /garden — Voir ton jardin
 /plant slot plante — Planter
 /harvest [slot] — Recolter
 
-<b>Profil</b>
+<b>👤 Profil</b>
 /me — Ton profil
 /setpic — Photo de profil
 /customize — Couleur du profil
 /titles — Liste des titres
 
-<b>Economie</b>
+<b>💰 Economie</b>
 /acc — Voir ton compte
 /daily — Bonus quotidien
 /work — Travailler (cooldown 8h)
 /pay montant — Envoyer des $
 /richlist — Top 10 des plus riches
 
-<b>Casino</b>
+<b>🎲 Casino</b>
 /blackjack mise — Blackjack vs bot
 /roulette mise choix — Roulette
 /slots mise — Machine a sous
+/des 1-6 — Mise 10 000 $, devine le de → 20 000 000 $
+/rebet mise — Pari quitte ou double (max 100 000 $, gains illimites)
 /bet mise description — Proposer un pari
 
-<b>Loterie</b>
+<b>🎟 Loterie</b>
 /createloto prix — Lancer une loterie privee (min 1 000 $)
 /loto — Voir la loterie active du groupe
 /ticket [nb] — Acheter des tickets
@@ -55,7 +57,7 @@ HELP_TEXT = """
 /tirageforce — Forcer le tirage bot (admin)
 /cancelloto — Annuler la loterie et rembourser
 
-<b>Banque</b>
+<b>🏦 Banque</b>
 /banks — Voir les banques disponibles
 /bankopen — Ouvrir un compte bancaire
 /bankdeposit montant — Deposer des coins
@@ -65,31 +67,30 @@ HELP_TEXT = """
 /bankrepay montant — Rembourser un pret
 /bankloans — Voir ses prets
 
-<b>Investissements</b>
+<b>📈 Investissements</b>
 /market — Voir le marche
 /buy actif quantite — Acheter des actions
 /sell actif quantite — Vendre des actions
 /portfolio — Voir son portefeuille
 
-<b>Compte commun (couple)</b>
+<b>💑 Compte commun (couple)</b>
 /couple create — Creer le compte commun
 /couple balance — Voir le solde commun
 /couple deposit montant — Deposer depuis ton compte perso
 /couple withdraw montant — Retirer vers ton compte perso
 
-<b>Criminalite</b>
+<b>⛓️ Criminalite</b>
 /rob @pseudo — Voler un joueur
 /police @pseudo — Signaler un voleur recent a la police
 /bail — Payer sa caution pour sortir de prison
 /juge @pseudo — Porter plainte contre un criminel recent
-/rebet — Pari quitte ou double (mise x2 a chaque round)
 /security — Acheter une protection contre les vols
 
-<b>Evenements</b>
+<b>✨ Evenements</b>
 /open — Ouvrir un coffre mystere (si actif)
 ⭐ Heure Doree — gains casino x2 (annonce automatique)
 
-<b>General</b>
+<b>📊 General</b>
 /leaderboard — Top familles
 /familyphoto — Photo de famille
 /mode — Mode global/groupe

@@ -26,6 +26,7 @@ from database.db import (
     deduct_for_game, add_coins_smart,
 )
 from utils.helpers import ensure_user, parse_target, mention
+from handlers.crime import _is_in_prison, _get_prison
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,16 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = await ensure_user(update.effective_user)
 
+    async with AsyncSessionLocal() as session:
+        if await _is_in_prison(session, update.effective_user.id):
+            prison = await _get_prison(session, update.effective_user.id)
+            if prison:
+                minutes_left = int((prison.released_at - __import__('datetime').datetime.utcnow()).total_seconds() / 60)
+                return await update.message.reply_text(
+                    f"🔒 Tu es en prison ! Impossible de jouer.\nLibération dans <b>{minutes_left} minutes</b>.",
+                    parse_mode=ParseMode.HTML
+                )
+
     player = [_card(), _card()]
     dealer = [_card(), _card()]
     pv     = _hand_value(player)
@@ -287,6 +298,16 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choix = context.args[1].lower()
     user  = await ensure_user(update.effective_user)
 
+    async with AsyncSessionLocal() as session:
+        if await _is_in_prison(session, update.effective_user.id):
+            prison = await _get_prison(session, update.effective_user.id)
+            if prison:
+                minutes_left = int((prison.released_at - __import__('datetime').datetime.utcnow()).total_seconds() / 60)
+                return await update.message.reply_text(
+                    f"🔒 Tu es en prison ! Impossible de jouer.\nLibération dans <b>{minutes_left} minutes</b>.",
+                    parse_mode=ParseMode.HTML
+                )
+
     numero = random.randint(0, 36)
     couleur = "rouge" if numero in REDS else ("noir" if numero in BLACKS else "vert")
 
@@ -343,6 +364,16 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Mise minimum 1 000 $.")
 
     user = await ensure_user(update.effective_user)
+
+    async with AsyncSessionLocal() as session:
+        if await _is_in_prison(session, update.effective_user.id):
+            prison = await _get_prison(session, update.effective_user.id)
+            if prison:
+                minutes_left = int((prison.released_at - __import__('datetime').datetime.utcnow()).total_seconds() / 60)
+                return await update.message.reply_text(
+                    f"🔒 Tu es en prison ! Impossible de jouer.\nLibération dans <b>{minutes_left} minutes</b>.",
+                    parse_mode=ParseMode.HTML
+                )
 
     reels = random.choices(SYMBOLS, weights=WEIGHTS, k=3)
 

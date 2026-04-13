@@ -1,4 +1,4 @@
-import logging
+
 from datetime import time, timedelta
 
 from telegram import Update

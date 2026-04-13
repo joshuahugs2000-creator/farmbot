@@ -8,6 +8,7 @@ Système criminalité :
 """
 import random
 import logging
+import asyncio
 from datetime import datetime, timedelta
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -460,6 +461,67 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── /juge ────────────────────────────────────────────────────────────────────
 
+# Dict pour tracker les tâches de timeout de jugement {accused_id: asyncio.Task}
+_judgment_timeouts: dict = {}
+
+
+async def _auto_guilty(accused_id: int, chat_id: int, message_id: int, bot):
+    """Déclare automatiquement l'accusé coupable après 60 secondes sans réponse."""
+    await asyncio.sleep(60)
+
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            text("SELECT * FROM crime_judgment WHERE accused_id = :uid"),
+            {"uid": accused_id}
+        )
+        judgment = r.fetchone()
+        if not judgment:
+            return  # Déjà traité
+
+        accused = await get_user(session, accused_id)
+        amount = judgment.amount
+        group_id = judgment.group_id
+
+        # Supprimer le jugement
+        await session.execute(
+            text("DELETE FROM crime_judgment WHERE accused_id = :uid"),
+            {"uid": accused_id}
+        )
+
+        # Peine normale (pas de réduction car silence = coupable)
+        base_duration = _prison_duration(amount)
+        released_at = datetime.utcnow() + timedelta(minutes=base_duration)
+        bail = amount * 2
+
+        await session.execute(
+            text("""INSERT INTO crime_prison (user_id, group_id, amount_stolen, bail_amount, released_at)
+                    VALUES (:uid, :gid, :amt, :bail, :rel)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET group_id=:gid, amount_stolen=:amt, bail_amount=:bail, released_at=:rel"""),
+            {"uid": accused_id, "gid": group_id, "amt": amount, "bail": bail, "rel": released_at}
+        )
+        await session.commit()
+
+        accused_mention = mention(accused) if accused else f"<a href='tg://user?id={accused_id}'>Accusé</a>"
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=(
+                    f"⚖️ <b>VERDICT — SILENCE = COUPABLE</b>\n\n"
+                    f"⏰ {accused_mention} n'a pas répondu dans les 60 secondes.\n\n"
+                    f"🔒 Déclaré(e) <b>COUPABLE</b> par défaut.\n"
+                    f"Prison : <b>{base_duration} minutes</b>\n"
+                    f"💸 Caution : <b>{_fmt(bail)} 💰</b>"
+                ),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception:
+            pass
+
+    _judgment_timeouts.pop(accused_id, None)
+
+
 async def juge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type not in ("group", "supergroup"):
         await update.message.reply_text("❌ Cette commande est réservée aux groupes.")
@@ -544,15 +606,25 @@ async def juge(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
 
         nb_crimes = len(crimes)
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             f"⚖️ <b>CONVOCATION AU TRIBUNAL</b>\n\n"
             f"L'accusé {mention(accused)} est convoqué devant le juge.\n\n"
             f"📋 <b>Dossier :</b> {nb_crimes} vol(s) au cours des 7 derniers jours\n"
             f"💰 <b>Total dérobé :</b> {_fmt(total_stolen)} 💰\n\n"
-            f"Comment plaidez-vous ?",
+            f"Comment plaidez-vous ? ⏰ <b>60 secondes pour répondre</b>",
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
+
+        # Annuler un timeout précédent s'il existe
+        if target_tg.id in _judgment_timeouts:
+            _judgment_timeouts[target_tg.id].cancel()
+
+        # Lancer le timeout de 60 secondes
+        task = asyncio.create_task(
+            _auto_guilty(target_tg.id, update.effective_chat.id, msg.message_id, context.bot)
+        )
+        _judgment_timeouts[target_tg.id] = task
 
 
 async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -570,6 +642,11 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.from_user.id != accused_id:
         await query.answer("⚖️ Seul l'accusé peut plaider !", show_alert=True)
         return
+
+    # Annuler le timeout automatique puisque l'accusé a répondu
+    if accused_id in _judgment_timeouts:
+        _judgment_timeouts[accused_id].cancel()
+        _judgment_timeouts.pop(accused_id, None)
 
     async with AsyncSessionLocal() as session:
         # Récupérer le jugement

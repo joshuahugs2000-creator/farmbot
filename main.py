@@ -44,7 +44,7 @@ from handlers.lottery  import (
     setup_lottery_jobs,
 )
 from handlers.crime    import (
-    rob, police, bail, juge, juge_callback,
+    rob, police, bail, bail_judgment, juge, juge_callback,
     rebet, rebet_callback,
     security, security_callback,
     init_crime_tables,
@@ -172,8 +172,9 @@ def main():
     # ── Criminalité ───────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("rob",      rob))
     app.add_handler(CommandHandler("police",   police))
-    app.add_handler(CommandHandler("bail",     bail))
-    app.add_handler(CommandHandler("juge",     juge))
+    app.add_handler(CommandHandler("bail",          bail))
+    app.add_handler(CommandHandler("bail_judgment", bail_judgment))
+    app.add_handler(CommandHandler("juge",          juge))
     app.add_handler(CommandHandler("rebet",    rebet))
     app.add_handler(CommandHandler("security", security))
 

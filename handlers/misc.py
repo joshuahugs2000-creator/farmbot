@@ -45,7 +45,16 @@ HELP_TEXT = """
 /blackjack mise — Blackjack vs bot
 /roulette mise choix — Roulette
 /slots mise — Machine a sous
-/des 1-6 — Mise 10 000 $, devine le de → 20 000 000 $
+/des 1-10 — Mise 100 000 $, devine le de → 15 000 000 $
+
+/shop — Boutique luxe (voiture, villa, yacht, jet...)
+/acheter <id> — Acheter un objet
+/inventaire — Voir ses objets
+/revendre <id> @joueur <prix> — Revendre entre joueurs
+/impots — Voir son taux d'imposition (prelevé chaque jour)
+/alarme <1-3> — Installer une protection contre les cambrioleurs
+/cambrioler @joueur — Tenter de voler un objet
+/braquage [mise] — Braquage collectif de banque (2-6 joueurs)
 /rebet mise — Pari quitte ou double (max 100 000 $, gains illimites)
 /bet mise description — Proposer un pari
 

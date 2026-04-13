@@ -357,11 +357,16 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bail = amount * 2
             released_at = datetime.utcnow() + timedelta(minutes=_prison_duration(amount))
 
-            # Rembourser la victime
+            # Rembourser la victime (le vol était réussi, donc la somme est dans les poches du suspect)
             victim = await get_user(session, victim_id)
+            refund_msg = ""
             if victim:
+                suspect.coins = max(0, suspect.coins - amount)
                 victim.coins += amount
-                suspect.coins -= amount
+                await session.commit()
+                refund_msg = f"💸 Les <b>{_fmt(amount)} 💰</b> volés ont été restitués à {mention(victim)}.\n"
+            else:
+                await session.commit()
 
             # Emprisonner
             await session.execute(
@@ -376,14 +381,11 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             minutes_prison = int((released_at - datetime.utcnow()).total_seconds() / 60)
 
-            victim_mention = mention(victim) if victim else "la victime"
-
             await update.message.reply_text(
                 f"🚔 La police a intercepté {mention(suspect)} !\n\n"
-                f"✅ Les <b>{_fmt(amount)} 💰</b> volés ont été rendus à {victim_mention}.\n"
-                f"🔒 {mention(suspect)} est en prison pour <b>{minutes_prison} minutes</b>.\n\n"
-                f"💸 Caution : <b>{_fmt(bail)} 💰</b>\n"
-                f"_(N'importe qui peut payer sa caution)_",
+                f"{refund_msg}"
+                f"🔒 {mention(suspect)} est en prison pour <b>{minutes_prison} minutes</b>.\n"
+                f"💸 Caution : <b>{_fmt(bail)} 💰</b> (payable par n'importe qui)",
                 parse_mode=ParseMode.HTML
             )
         else:

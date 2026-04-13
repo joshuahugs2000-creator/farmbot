@@ -994,9 +994,8 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Gagné — doubler le pot (plafond 100 000)
-        REBET_CAP = 100_000
-        pot = min(bet_amount * 2, REBET_CAP)
+        # Gagné — doubler le pot
+        pot = bet_amount * 2
 
         # Sauvegarder la partie
         await session.execute(
@@ -1013,11 +1012,10 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ])
 
-        cap_note = f"\n⚠️ <i>Plafond de {_fmt(REBET_CAP)} 💰 atteint !</i>" if pot == REBET_CAP else ""
         msg = await update.message.reply_text(
             f"🎲 <b>REBET — Round 1</b>\n\n"
             f"Mise de départ : <b>{_fmt(bet_amount)} 💰</b>\n"
-            f"✅ Gagné ! Cagnotte actuelle : <b>{_fmt(pot)} 💰</b>{cap_note}\n\n"
+            f"✅ Gagné ! Cagnotte actuelle : <b>{_fmt(pot)} 💰</b>\n\n"
             f"Que fais-tu ?",
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
@@ -1099,8 +1097,7 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.HTML
                 )
             else:
-                REBET_CAP = 100_000
-                new_pot = min(pot * 2, REBET_CAP)
+                new_pot = pot * 2
 
                 await session.execute(
                     text("UPDATE crime_rebet SET pot = :pot, round = :rnd WHERE user_id = :uid"),
@@ -1108,7 +1105,6 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 await session.commit()
 
-                cap_note = f"\n⚠️ <i>Plafond de {_fmt(REBET_CAP)} 💰 atteint !</i>" if new_pot == REBET_CAP else ""
                 keyboard = InlineKeyboardMarkup([
                     [
                         InlineKeyboardButton(f"💰 Récupérer {_fmt(new_pot)} 💰", callback_data=f"rebet:take:{player_id}"),
@@ -1119,7 +1115,7 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(
                     f"🎲 <b>REBET — Round {next_round}</b>\n\n"
                     f"✅ Gagné encore ! Incroyable...\n"
-                    f"💰 Cagnotte : <b>{_fmt(new_pot)} 💰</b>{cap_note}\n\n"
+                    f"💰 Cagnotte : <b>{_fmt(new_pot)} 💰</b>\n\n"
                     f"Que fais-tu ?",
                     reply_markup=keyboard,
                     parse_mode=ParseMode.HTML

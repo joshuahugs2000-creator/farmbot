@@ -137,7 +137,7 @@ async def _is_in_prison(session, user_id: int) -> bool:
     if not row:
         return False
     if datetime.utcnow() >= row.released_at:
-        # Peine terminée, on libère
+        # Peine terminée, on libère automatiquement
         await session.execute(
             text("DELETE FROM crime_prison WHERE user_id = :uid"),
             {"uid": user_id}
@@ -145,6 +145,29 @@ async def _is_in_prison(session, user_id: int) -> bool:
         await session.commit()
         return False
     return True
+
+
+async def _prison_block_message(update: Update, session, user_id: int) -> bool:
+    """
+    Vérifie si l'utilisateur est en prison et envoie un message de blocage.
+    Retourne True si bloqué, False sinon.
+    """
+    if await _is_in_prison(session, user_id):
+        prison = await _get_prison(session, user_id)
+        minutes_left = max(0, int((prison.released_at - datetime.utcnow()).total_seconds() / 60))
+        h = minutes_left // 60
+        m = minutes_left % 60
+        duration_str = f"{h}h{m:02d}m" if h > 0 else f"{m} minute(s)"
+        await update.message.reply_text(
+            f"🔒 <b>Tu es en prison !</b>\n\n"
+            f"Tu ne peux utiliser aucune commande du bot tant que tu es incarcéré.\n"
+            f"⏳ Libération dans : <b>{duration_str}</b>\n"
+            f"💸 Caution : <b>{_fmt(prison.bail_amount)} 💰</b>\n\n"
+            f"Demande à quelqu'un de payer ta caution avec <code>/bail @toi</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return True
+    return False
 
 
 async def _get_recent_rob(session, robber_id: int, group_id: int, minutes: int = 5):
@@ -185,14 +208,7 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         # Vérifier si le voleur est en prison
-        if await _is_in_prison(session, robber_tg.id):
-            prison = await _get_prison(session, robber_tg.id)
-            minutes_left = int((prison.released_at - datetime.utcnow()).total_seconds() / 60)
-            await update.message.reply_text(
-                f"🔒 Tu es en prison ! Libération dans <b>{minutes_left} minutes</b>.\n"
-                f"La caution est de <b>{_fmt(prison.bail_amount)} 💰</b>.",
-                parse_mode=ParseMode.HTML
-            )
+        if await _prison_block_message(update, session, robber_tg.id):
             return
 
         # Trouver la cible
@@ -240,34 +256,58 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
         steal_pct = random.uniform(0.05, 0.30)
         amount = max(1, int(victim.coins * steal_pct))
 
-        # Chance de succès : 55%
-        success = random.random() < 0.55
+        # Chance de succès : 45% (55% d'échec = plus de risque)
+        success = random.random() < 0.45
 
         group_id = update.effective_chat.id
 
         if success:
-            # Vol réussi
-            victim.coins  -= amount
-            robber.coins  += amount
+            # ── Vol réussi ──────────────────────────────────────────────────
+            # On enlève l'argent au voleur ET à la victime — le voleur prend le risque
+            # mais l'argent est immédiatement restitué à la victime
+            actual_stolen = min(amount, robber.coins)  # le voleur rend ce qu'il peut
+            victim.coins  -= amount           # la victime perd temporairement
+            victim.coins  += amount           # ... mais récupère immédiatement
+            # En réalité : le voleur perd le montant qu'il tentait de voler
+            robber.coins  -= actual_stolen
+            # Et la victime est remboursée (son solde net = 0 changement, le voleur paie)
+            # Pour rendre ça intéressant : le voleur perd l'argent, la victime est intacte
             await session.commit()
 
-            # Logger le vol
+            # Logger le vol (réussi mais pénalisé)
             await session.execute(
                 text("""INSERT INTO crime_rob_log (robber_id, victim_id, group_id, amount, success)
                         VALUES (:rid, :vid, :gid, :amt, TRUE)"""),
                 {"rid": robber_tg.id, "vid": target_tg.id, "gid": group_id, "amt": amount}
             )
+
+            # Emprisonner le voleur même en cas de succès
+            bail = amount * 2
+            released_at = datetime.utcnow() + timedelta(minutes=_prison_duration(amount))
+
+            await session.execute(
+                text("""INSERT INTO crime_prison (user_id, group_id, amount_stolen, bail_amount, released_at)
+                        VALUES (:uid, :gid, :amt, :bail, :rel)
+                        ON CONFLICT (user_id) DO UPDATE
+                        SET group_id=:gid, amount_stolen=:amt, bail_amount=:bail, released_at=:rel"""),
+                {"uid": robber_tg.id, "gid": group_id, "amt": amount,
+                 "bail": bail, "rel": released_at}
+            )
             await session.commit()
 
+            minutes_prison = int((released_at - datetime.utcnow()).total_seconds() / 60)
+
             await update.message.reply_text(
-                f"💰 Vol réussi !\n"
-                f"<b>{robber_tg.first_name}</b> a dérobé <b>{_fmt(amount)} 💰</b> "
-                f"à {mention(victim)} !\n\n"
-                f"⚠️ La police peut encore intervenir dans les <b>5 prochaines minutes</b> !",
+                f"🚔 <b>{robber_tg.first_name}</b> s'est fait pincer en flagrant délit !\n\n"
+                f"Il tentait de voler <b>{_fmt(amount)} 💰</b> à {mention(victim)}.\n"
+                f"💸 <b>{_fmt(actual_stolen)} 💰</b> ont été saisis et restitués à la victime.\n\n"
+                f"🔒 En prison pour <b>{minutes_prison} minutes</b>.\n"
+                f"💸 Caution : <b>{_fmt(bail)} 💰</b> (payable par quelqu'un d'autre)\n\n"
+                f"⛔ Toutes les commandes du bot sont bloquées jusqu'à libération.",
                 parse_mode=ParseMode.HTML
             )
         else:
-            # Échec — la police peut l'arrêter directement
+            # ── Vol raté ────────────────────────────────────────────────────
             bail = amount * 2
             released_at = datetime.utcnow() + timedelta(minutes=_prison_duration(amount))
 
@@ -292,9 +332,10 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await update.message.reply_text(
                 f"🚔 <b>{robber_tg.first_name}</b> s'est fait attraper !\n\n"
-                f"Il tentait de voler <b>{_fmt(amount)} 💰</b>.\n"
+                f"Il tentait de voler <b>{_fmt(amount)} 💰</b> à {mention(victim)}.\n"
                 f"🔒 En prison pour <b>{minutes_prison} minutes</b>.\n"
-                f"💸 Caution : <b>{_fmt(bail)} 💰</b> (payable par quelqu'un d'autre)",
+                f"💸 Caution : <b>{_fmt(bail)} 💰</b> (payable par quelqu'un d'autre)\n\n"
+                f"⛔ Toutes les commandes du bot sont bloquées jusqu'à libération.",
                 parse_mode=ParseMode.HTML
             )
 
@@ -308,6 +349,11 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     caller_tg = update.effective_user
     await ensure_user(caller_tg)
+
+    async with AsyncSessionLocal() as session:
+        # Bloquer si l'appelant est en prison
+        if await _prison_block_message(update, session, caller_tg.id):
+            return
 
     target_tg = await parse_target(update, context)
     if not target_tg:
@@ -357,7 +403,7 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bail = amount * 2
             released_at = datetime.utcnow() + timedelta(minutes=_prison_duration(amount))
 
-            # Rembourser la victime (le vol était réussi, donc la somme est dans les poches du suspect)
+            # Rembourser la victime
             victim = await get_user(session, victim_id)
             refund_msg = ""
             if victim:
@@ -385,7 +431,8 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🚔 La police a intercepté {mention(suspect)} !\n\n"
                 f"{refund_msg}"
                 f"🔒 {mention(suspect)} est en prison pour <b>{minutes_prison} minutes</b>.\n"
-                f"💸 Caution : <b>{_fmt(bail)} 💰</b> (payable par n'importe qui)",
+                f"💸 Caution : <b>{_fmt(bail)} 💰</b> (payable par n'importe qui)\n\n"
+                f"⛔ Toutes ses commandes sont bloquées jusqu'à libération.",
                 parse_mode=ParseMode.HTML
             )
         else:
@@ -416,11 +463,12 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if target_tg.id == payer_tg.id:
         await update.message.reply_text(
-            "❌ Tu dois payer ta propre caution ? Demande à quelqu'un d'autre !"
+            "❌ Tu ne peux pas payer ta propre caution ! Demande à quelqu'un d'autre."
         )
         return
 
     async with AsyncSessionLocal() as session:
+        # Le payeur peut être en prison lui-même, c'est OK (quelqu'un paie pour un autre)
         await ensure_user(target_tg)
         prisoner = await get_user(session, target_tg.id)
         payer = await get_user(session, payer_tg.id)
@@ -429,6 +477,18 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not prison_row:
             await update.message.reply_text(
                 f"✅ {target_tg.first_name} n'est pas en prison !"
+            )
+            return
+
+        # Vérifier si la peine est déjà expirée
+        if datetime.utcnow() >= prison_row.released_at:
+            await session.execute(
+                text("DELETE FROM crime_prison WHERE user_id = :uid"),
+                {"uid": target_tg.id}
+            )
+            await session.commit()
+            await update.message.reply_text(
+                f"✅ {target_tg.first_name} vient d'être libéré automatiquement, sa peine était terminée !"
             )
             return
 
@@ -456,7 +516,7 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🔓 {mention(payer)} a payé la caution de {mention(prisoner)} !\n"
             f"💸 <b>{_fmt(bail_amount)} 💰</b> dépensés.\n"
-            f"🆓 {mention(prisoner)} est libre !",
+            f"🆓 {mention(prisoner)} est libre et peut à nouveau utiliser toutes les commandes !",
             parse_mode=ParseMode.HTML
         )
 
@@ -514,7 +574,8 @@ async def _auto_guilty(accused_id: int, chat_id: int, message_id: int, bot):
                     f"⏰ {accused_mention} n'a pas répondu dans les 60 secondes.\n\n"
                     f"🔒 Déclaré(e) <b>COUPABLE</b> par défaut.\n"
                     f"Prison : <b>{base_duration} minutes</b>\n"
-                    f"💸 Caution : <b>{_fmt(bail)} 💰</b>"
+                    f"💸 Caution : <b>{_fmt(bail)} 💰</b>\n\n"
+                    f"⛔ Toutes ses commandes sont bloquées jusqu'à libération."
                 ),
                 parse_mode=ParseMode.HTML
             )
@@ -531,6 +592,10 @@ async def juge(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     accuser_tg = update.effective_user
     await ensure_user(accuser_tg)
+
+    async with AsyncSessionLocal() as session:
+        if await _prison_block_message(update, session, accuser_tg.id):
+            return
 
     target_tg = await parse_target(update, context)
     if not target_tg:
@@ -693,7 +758,8 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚖️ <b>VERDICT</b>\n\n"
                 f"{accused_mention} a plaidé <b>COUPABLE</b>.\n\n"
                 f"🔒 Peine réduite : <b>{reduced} minutes</b> de prison.\n"
-                f"💸 Caution : <b>{_fmt(bail)} 💰</b>",
+                f"💸 Caution : <b>{_fmt(bail)} 💰</b>\n\n"
+                f"⛔ Toutes ses commandes sont bloquées jusqu'à libération.",
                 parse_mode=ParseMode.HTML
             )
 
@@ -736,7 +802,8 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"🔒 {accused_mention} est déclaré(e) <b>COUPABLE</b>.\n"
                     f"Prison : <b>{base_duration} minutes</b>\n"
                     f"💸 Caution : <b>{_fmt(bail)} 💰</b>\n\n"
-                    f"_(La moitié de la caution ira à {accuser_mention} si elle est payée)_",
+                    f"_(La moitié de la caution ira à {accuser_mention} si elle est payée)_\n"
+                    f"⛔ Toutes ses commandes sont bloquées jusqu'à libération.",
                     parse_mode=ParseMode.HTML
                 )
 
@@ -764,7 +831,8 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"😤 {accused_mention} a menti ! Peine <b>DOUBLÉE</b>.\n"
                     f"🔒 Prison : <b>{base_duration} minutes</b>\n"
                     f"💸 Caution : <b>{_fmt(bail)} 💰</b>\n\n"
-                    f"_(La moitié de la caution ira à {accuser_mention} si elle est payée)_",
+                    f"_(La moitié de la caution ira à {accuser_mention} si elle est payée)_\n"
+                    f"⛔ Toutes ses commandes sont bloquées jusqu'à libération.",
                     parse_mode=ParseMode.HTML
                 )
 
@@ -806,6 +874,18 @@ async def bail_judgment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ {target_tg.first_name} n'est pas en prison !")
             return
 
+        # Vérifier si peine expirée
+        if datetime.utcnow() >= prison_row.released_at:
+            await session.execute(
+                text("DELETE FROM crime_prison WHERE user_id = :uid"),
+                {"uid": target_tg.id}
+            )
+            await session.commit()
+            await update.message.reply_text(
+                f"✅ {target_tg.first_name} vient d'être libéré automatiquement !"
+            )
+            return
+
         bail_amount = prison_row.bail_amount
 
         if payer.coins < bail_amount:
@@ -829,7 +909,7 @@ async def bail_judgment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🔓 {mention(payer)} a payé la caution de {mention(prisoner)} !\n"
             f"💸 <b>{_fmt(bail_amount)} 💰</b> dépensés.\n"
-            f"🆓 {mention(prisoner)} est libre !",
+            f"🆓 {mention(prisoner)} est libre et peut à nouveau utiliser toutes les commandes !",
             parse_mode=ParseMode.HTML
         )
 
@@ -845,8 +925,7 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         # En prison ?
-        if await _is_in_prison(session, player_tg.id):
-            await update.message.reply_text("🔒 Tu es en prison, impossible de jouer !")
+        if await _prison_block_message(update, session, player_tg.id):
             return
 
         # Partie déjà active ?
@@ -1046,6 +1125,10 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(player_tg)
 
     async with AsyncSessionLocal() as session:
+        # En prison ?
+        if await _prison_block_message(update, session, player_tg.id):
+            return
+
         player = await get_user(session, player_tg.id)
 
         # Afficher les agences disponibles

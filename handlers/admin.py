@@ -13,6 +13,8 @@ Commandes :
   /adminadd     — ajouter un admin
   /adminremove  — retirer un admin
   /adminlist    — liste des admins
+  /liberer      — libérer un prisonnier (God mode)
+  /prisonlist   — voir tous les prisonniers actuels
   /broadcast    — message à tous les users
 """
 
@@ -193,10 +195,27 @@ async def userinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         investments = inv_res.scalars().all()
 
+        # Vérifier si en prison
+        prison_res = await session.execute(
+            text("SELECT * FROM crime_prison WHERE user_id = :uid"),
+            {"uid": u.user_id}
+        )
+        prison_row = prison_res.fetchone()
+
         total_banked = sum(a.balance for a in accounts)
         total_debt   = sum(l.remaining for l in loans)
 
     banned_str = "  🚫 BANNI" if u.is_banned else ""
+    prison_str = ""
+    if prison_row:
+        now = datetime.utcnow()
+        if now < prison_row.released_at:
+            mins = max(0, int((prison_row.released_at - now).total_seconds() / 60))
+            h = mins // 60
+            m = mins % 60
+            dur = f"{h}h{m:02d}m" if h > 0 else f"{m}m"
+            prison_str = f"\n🔒 EN PRISON — libération dans {dur} | caution : {_fmt(prison_row.bail_amount)} $"
+
     lines = [
         f"<b>👤 Infos — {u.first_name}{banned_str}</b>",
         "",
@@ -210,6 +229,8 @@ async def userinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👨‍👩‍👧 Famille     : {u.family_name or '—'}",
         f"📅 Inscrit le   : {u.created_at.strftime('%d/%m/%Y') if u.created_at else '—'}",
     ]
+    if prison_str:
+        lines.append(prison_str)
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -359,7 +380,8 @@ async def liberer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ {target_tg.first_name} n'est pas en prison."
             )
 
-        minutes_left = max(0, int((prison_row.released_at - datetime.utcnow()).total_seconds() / 60))
+        now = datetime.utcnow()
+        minutes_left = max(0, int((prison_row.released_at - now).total_seconds() / 60))
 
         await session.execute(
             text("DELETE FROM crime_prison WHERE user_id = :uid"),
@@ -367,33 +389,37 @@ async def liberer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await session.commit()
 
-    await update.message.reply_text(
-        f"🔓 <b>GRÂCE PRÉSIDENTIELLE</b>\n\n"
-        f"{mention(target)} a été libéré(e) par l'admin !\n"
-        f"⏱️ Il restait <b>{minutes_left} minute(s)</b> de peine.\n"
-        f"🆓 Il/Elle est maintenant libre.",
-        parse_mode=ParseMode.HTML,
-    )
+        await update.message.reply_text(
+            f"🔓 <b>GRÂCE PRÉSIDENTIELLE</b>\n\n"
+            f"{mention(target)} a été libéré(e) par l'admin !\n"
+            f"⏱️ Il restait <b>{minutes_left} minute(s)</b> de peine.\n"
+            f"🆓 Il/Elle est maintenant libre et peut utiliser toutes les commandes.",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 # ─── /prisonlist ──────────────────────────────────────────────────────────────
 
 async def prisonlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Liste tous les prisonniers actuels."""
+    """Liste tous les prisonniers actuels (dont la peine n'est pas encore expirée)."""
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
+    now = datetime.utcnow()
+
     async with AsyncSessionLocal() as session:
+        # On ne récupère QUE les prisonniers encore actifs
         r = await session.execute(
-            text("SELECT * FROM crime_prison ORDER BY released_at ASC")
+            text("SELECT * FROM crime_prison WHERE released_at > :now ORDER BY released_at ASC"),
+            {"now": now}
         )
         rows = r.fetchall()
 
         if not rows:
-            return await update.message.reply_text("🏛️ Les prisons sont vides ! Personne n'est incarcéré.")
+            await update.message.reply_text("🏛️ Les prisons sont vides ! Personne n'est incarcéré.")
+            return
 
         lines = ["<b>⛓️ LISTE DES PRISONNIERS</b>\n"]
-        now = datetime.utcnow()
 
         for row in rows:
             u = await get_user(session, row.user_id)
@@ -412,10 +438,10 @@ async def prisonlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"\n📊 Total : <b>{len(rows)} prisonnier(s)</b>")
         lines.append("Utilise /liberer @user pour libérer quelqu'un.")
 
-    await update.message.reply_text(
-        "\n".join(lines),
-        parse_mode=ParseMode.HTML,
-    )
+        await update.message.reply_text(
+            "\n".join(lines),
+            parse_mode=ParseMode.HTML,
+        )
 
 
 # ─── /broadcast ───────────────────────────────────────────────────────────────

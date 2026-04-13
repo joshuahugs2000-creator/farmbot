@@ -958,6 +958,14 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ La mise minimum est <b>1 💰</b>.", parse_mode=ParseMode.HTML)
             return
 
+        if bet_amount > 100_000:
+            await update.message.reply_text(
+                f"❌ La mise maximum au /rebet est <b>100 000 💰</b>.\n"
+                f"Tu as tenté de miser <b>{_fmt(bet_amount)} 💰</b>.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
         player = await get_user(session, player_tg.id)
         if player.coins < bet_amount:
             await update.message.reply_text(

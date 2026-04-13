@@ -54,6 +54,11 @@ from handlers.crime    import (
     init_crime_tables,
     _is_in_prison, _get_prison, _fmt,
 )
+from handlers.wealth_drain import (
+    shop, acheter, inventaire, revendre, acceptrevente,
+    impots, alarme, cambrioler, braquage, annulerbraquage,
+    init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
+)
 from database.db import AsyncSessionLocal
 
 logging.basicConfig(
@@ -154,6 +159,8 @@ async def prison_middleware(update: Update, context) -> bool:
 async def on_startup(app: Application):
     await init_db()
     await init_crime_tables()
+    await init_drain_tables()
+    await _ensure_cambriolage_cd_table()
     logger.info("Base de données initialisée.")
 
 
@@ -321,6 +328,19 @@ def main():
         first=timedelta(minutes=10),
         name="loan_reminders",
     )
+
+    # ── Système de drainage de richesse ──────────────────────────────────────
+    app.add_handler(CommandHandler("shop",            _prison_checked(shop)))
+    app.add_handler(CommandHandler("acheter",         _prison_checked(acheter)))
+    app.add_handler(CommandHandler("inventaire",      _prison_checked(inventaire)))
+    app.add_handler(CommandHandler("revendre",        _prison_checked(revendre)))
+    app.add_handler(CommandHandler("acceptrevente",   _prison_checked(acceptrevente)))
+    app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
+    app.add_handler(CommandHandler("alarme",          _prison_checked(alarme)))
+    app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
+    app.add_handler(CommandHandler("braquage",        _prison_checked(braquage)))
+    app.add_handler(CommandHandler("annulerbraquage", _prison_checked(annulerbraquage)))
+    setup_drain_jobs(app)
 
     # ── Loterie Bot ───────────────────────────────────────────────────────────
     setup_lottery_jobs(app)

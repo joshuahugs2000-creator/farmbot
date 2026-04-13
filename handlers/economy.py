@@ -606,8 +606,7 @@ def is_group(update: Update) -> bool:
 
 DES_MISE    = 10_000
 DES_GAIN    = 20_000_000
-DES_EMOJI   = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣", 6: "6️⃣"}
-DES_FACES   = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
+DES_FACES   = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣", 6: "6️⃣", 7: "7️⃣", 8: "8️⃣", 9: "9️⃣", 10: "🔟"}
 
 async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -621,17 +620,17 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🎲 <b>JEU DU DÉ</b>\n\n"
             f"Mise fixe : <b>{_fmt(DES_MISE)} 💰</b>\n"
-            f"Si tu trouves le bon chiffre (1 à 6) → <b>{_fmt(DES_GAIN)} 💰</b> !\n\n"
-            f"Usage : <code>/des 4</code>",
+            f"Si tu trouves le bon chiffre (1 à 10) → <b>{_fmt(DES_GAIN)} 💰</b> !\n\n"
+            f"Usage : <code>/des 7</code>",
             parse_mode=ParseMode.HTML
         )
         return
 
     try:
         choix = int(context.args[0])
-        assert 1 <= choix <= 6
+        assert 1 <= choix <= 10
     except (ValueError, AssertionError):
-        await update.message.reply_text("❌ Choisis un nombre entre <b>1</b> et <b>6</b>.\nEx: <code>/des 3</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("❌ Choisis un nombre entre <b>1</b> et <b>10</b>.\nEx: <code>/des 7</code>", parse_mode=ParseMode.HTML)
         return
 
     async with AsyncSessionLocal() as session:
@@ -656,7 +655,7 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
 
         # Lancer le dé
-        resultat = random.randint(1, 6)
+        resultat = random.randint(1, 10)
         face_choix   = DES_FACES[choix]
         face_resultat = DES_FACES[resultat]
 

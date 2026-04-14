@@ -604,13 +604,19 @@ def is_group(update: Update) -> bool:
 
 # ─── /des ─────────────────────────────────────────────────────────────────────
 
-DES_MISE    = 100_000
-DES_GAIN    = 15_000_000
-DES_FACES   = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣", 6: "6️⃣", 7: "7️⃣", 8: "8️⃣", 9: "9️⃣", 10: "🔟"}
+DES_MISE    = 50_000
+DES_GAIN    = 10_000_000
+DES_FACES   = {
+    1: "1️⃣",  2: "2️⃣",  3: "3️⃣",  4: "4️⃣",  5: "5️⃣",
+    6: "6️⃣",  7: "7️⃣",  8: "8️⃣",  9: "9️⃣",  10: "🔟",
+    11: "1️⃣1️⃣", 12: "1️⃣2️⃣", 13: "1️⃣3️⃣", 14: "1️⃣4️⃣", 15: "1️⃣5️⃣",
+    16: "1️⃣6️⃣", 17: "1️⃣7️⃣", 18: "1️⃣8️⃣", 19: "1️⃣9️⃣", 20: "2️⃣0️⃣",
+    21: "2️⃣1️⃣",
+}
 
 async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /des <1-10>  — Mise fixe de 100 000 $. Devine le dé exact → gagne 15 000 000 $.
+    /des <1-21>  — Mise fixe de 50 000 $. Devine le nombre exact → gagne 10 000 000 $.
     """
     player_tg = update.effective_user
     await ensure_user(player_tg)
@@ -620,17 +626,17 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🎲 <b>JEU DU DÉ</b>\n\n"
             f"Mise fixe : <b>{_fmt(DES_MISE)} 💰</b>\n"
-            f"Si tu trouves le bon chiffre (1 à 10) → <b>{_fmt(DES_GAIN)} 💰</b> !\n\n"
-            f"Usage : <code>/des 7</code>",
+            f"Si tu trouves le bon nombre (1 à 21) → <b>{_fmt(DES_GAIN)} 💰</b> !\n\n"
+            f"Usage : <code>/des 14</code>",
             parse_mode=ParseMode.HTML
         )
         return
 
     try:
         choix = int(context.args[0])
-        assert 1 <= choix <= 10
+        assert 1 <= choix <= 21
     except (ValueError, AssertionError):
-        await update.message.reply_text("❌ Choisis un nombre entre <b>1</b> et <b>10</b>.\nEx: <code>/des 7</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("❌ Choisis un nombre entre <b>1</b> et <b>21</b>.\nEx: <code>/des 14</code>", parse_mode=ParseMode.HTML)
         return
 
     async with AsyncSessionLocal() as session:
@@ -655,7 +661,7 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
 
         # Lancer le dé
-        resultat = random.randint(1, 10)
+        resultat = random.randint(1, 21)
         face_choix   = DES_FACES[choix]
         face_resultat = DES_FACES[resultat]
 

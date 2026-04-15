@@ -1,8 +1,9 @@
 """
-handlers/games.py — Jeux : Crash (multijoueur inline), Mines, Apple of Fortune, Roue de Fortune
+handlers/games.py — Jeux : Crash (multijoueur inline), Apple of Fortune, Roue de Fortune
 """
 import asyncio
 import random
+from datetime import date
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
@@ -31,33 +32,17 @@ async def _add_coins(session, user_id: int, amount: int):
 # ═══════════════════════════════════════════════════════════════════════════════
 # CRASH — Multijoueur avec bouton inline Cash Out
 # ═══════════════════════════════════════════════════════════════════════════════
-#
-# crash_games[chat_id] = {
-#     user_id: {
-#         "mise": int,
-#         "cashed_out": bool,
-#         "cashout_mult": float | None,
-#         "current_mult": float,      ← mis à jour chaque tick
-#         "first_name": str,
-#         "mention": str,             ← HTML mention
-#     }
-# }
-# crash_phase[chat_id]    = "lobby" | "running" | absent
-# crash_lobby_msg[chat_id] = Message  ← message lobby éditable
-# crash_live_msg[chat_id]  = Message  ← message live éditable
-# ──────────────────────────────────────────────────────────────────────────────
 
 crash_games:     dict = {}
 crash_phase:     dict = {}
 crash_lobby_msg: dict = {}
 crash_live_msg:  dict = {}
 
-LOBBY_SECONDS = 20   # durée de la phase de mise
-TICK_INTERVAL = 1.5  # secondes entre chaque update du multiplicateur
+LOBBY_SECONDS = 20
+TICK_INTERVAL = 1.5
 
 
 def _gen_crash_point() -> float:
-    """Génère le multiplicateur de crash avec house edge ~5%."""
     if random.random() < 0.05:
         return 1.0
     crash = 0.99 / (1 - random.random() * 0.95)
@@ -152,18 +137,15 @@ async def crash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML
         )
 
-    # Refuser si partie déjà en cours (phase running)
     if crash_phase.get(chat_id) == "running":
         return await update.message.reply_text(
             "⚠️ Une partie est en cours, attends la prochaine !",
             parse_mode=ParseMode.HTML
         )
 
-    # Initialiser le dict du chat si besoin
     if chat_id not in crash_games:
         crash_games[chat_id] = {}
 
-    # Refuser si joueur déjà inscrit
     if user.id in crash_games[chat_id]:
         return await update.message.reply_text(
             "⚠️ Tu es déjà inscrit pour cette partie !", parse_mode=ParseMode.HTML
@@ -188,7 +170,6 @@ async def crash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "lock":         asyncio.Lock(),
     }
 
-    # Premier joueur → lancer le lobby
     if crash_phase.get(chat_id) != "lobby":
         crash_phase[chat_id] = "lobby"
         msg = await update.message.reply_text(
@@ -198,10 +179,9 @@ async def crash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         crash_lobby_msg[chat_id] = msg
         asyncio.create_task(_run_lobby(context, chat_id))
     else:
-        # Mettre à jour le message lobby avec le nouveau joueur
         try:
             await crash_lobby_msg[chat_id].edit_text(
-                _lobby_text(chat_id, -1),   # -1 = on n'affiche pas le timer ici
+                _lobby_text(chat_id, -1),
                 parse_mode=ParseMode.HTML
             )
         except Exception:
@@ -213,7 +193,6 @@ async def crash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _run_lobby(context, chat_id: int):
-    """Phase lobby : countdown de LOBBY_SECONDS secondes, mise à jour toutes les 5s."""
     for remaining in range(LOBBY_SECONDS, 0, -5):
         await asyncio.sleep(5)
         if crash_phase.get(chat_id) != "lobby":
@@ -226,7 +205,6 @@ async def _run_lobby(context, chat_id: int):
         except Exception:
             pass
 
-    # Lancer la partie si au moins 1 joueur
     if not crash_games.get(chat_id):
         crash_phase.pop(chat_id, None)
         return
@@ -236,11 +214,9 @@ async def _run_lobby(context, chat_id: int):
 
 
 async def _run_crash(context, chat_id: int):
-    """Partie en cours : multiplicateur monte jusqu'au crash."""
     crash_point = _gen_crash_point()
     multiplier  = 1.0
 
-    # Envoyer le message live
     try:
         live_msg = await context.bot.send_message(
             chat_id,
@@ -253,13 +229,11 @@ async def _run_crash(context, chat_id: int):
         _cleanup_crash(chat_id)
         return
 
-    # Boucle de montée du multiplicateur
     while multiplier < crash_point:
         await asyncio.sleep(TICK_INTERVAL)
         multiplier = round(multiplier + 0.06 + multiplier * 0.04, 2)
         multiplier = min(multiplier, crash_point)
 
-        # Mettre à jour current_mult pour chaque joueur encore en jeu
         for uid, d in crash_games[chat_id].items():
             if not d["cashed_out"]:
                 d["current_mult"] = multiplier
@@ -273,8 +247,6 @@ async def _run_crash(context, chat_id: int):
         except Exception:
             pass
 
-    # CRASH — créditer les perdants (gains déjà crédités au cashout)
-    # Rien à créditer pour les perdants, la mise a déjà été débitée
     try:
         await live_msg.edit_text(
             _result_text(chat_id, crash_point),
@@ -302,7 +274,6 @@ def _cleanup_crash(chat_id: int):
 
 
 async def crash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Callback du bouton inline Cash Out pendant un Crash."""
     query   = update.callback_query
     user    = query.from_user
     chat_id = query.message.chat_id
@@ -319,12 +290,10 @@ async def crash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if crash_phase.get(chat_id) != "running":
         return await query.answer("⚠️ La partie n'est pas encore lancée.", show_alert=True)
 
-    # Verrou par joueur — empêche le double cash out en cas de clics simultanés
     async with d["lock"]:
         if d["cashed_out"]:
             return await query.answer("⚠️ Tu as déjà encaissé !", show_alert=True)
 
-        # Marquer ET capturer le multiplicateur AVANT tout await
         d["cashed_out"]   = True
         d["cashout_mult"] = d["current_mult"]
 
@@ -341,7 +310,6 @@ async def crash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         show_alert=True
     )
 
-    # Mettre à jour le message live immédiatement
     try:
         await crash_live_msg[chat_id].edit_text(
             _running_text(chat_id, mult),
@@ -353,192 +321,18 @@ async def crash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MINES
+# APPLE OF FORTUNE — 5 colonnes × 10 niveaux
+# 🍏 = pomme verte (bonne) | 🍎 = pomme rouge (bombe/perdu)
+# Mises : 50 000 $ minimum — 5 000 000 $ maximum
 # ═══════════════════════════════════════════════════════════════════════════════
 
-mines_sessions: dict = {}
+apple_sessions: dict = {}
 
-MINES_GRID_SIZE = 25  # 5x5
-MINES_COUNT     = 5
+APPLE_COLS   = 5
+APPLE_LEVELS = 10
+APPLE_MIN    = 50_000
+APPLE_MAX    = 5_000_000
 
-MINES_MULT = [
-    1.0,  1.12, 1.28, 1.47, 1.70,
-    1.98, 2.32, 2.74, 3.27, 3.94,
-    4.80, 5.92, 7.40, 9.40, 12.1,
-    15.9, 21.4, 29.6, 42.8, 65.0,
-]
-
-
-def _build_mines_keyboard(session_data: dict) -> InlineKeyboardMarkup:
-    revealed = session_data["revealed"]
-    grid     = session_data["grid"]
-    rows     = []
-    for row in range(5):
-        btn_row = []
-        for col in range(5):
-            idx = row * 5 + col
-            if revealed[idx]:
-                btn_row.append(InlineKeyboardButton(
-                    "💣" if grid[idx] else "💎",
-                    callback_data=f"mines:done:{idx}"
-                ))
-            else:
-                btn_row.append(InlineKeyboardButton("⬛", callback_data=f"mines:pick:{idx}"))
-        rows.append(btn_row)
-    mult       = session_data["multiplier"]
-    safe_count = sum(1 for i, r in enumerate(revealed) if r and not grid[i])
-    if safe_count > 0:
-        gain = int(session_data["mise"] * mult)
-        rows.append([InlineKeyboardButton(
-            f"💰 Cash Out x{mult:.2f} → {_fmt(gain)} $",
-            callback_data="mines:cashout"
-        )])
-    return InlineKeyboardMarkup(rows)
-
-
-async def mines_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/mines <mise>"""
-    user = update.effective_user
-    await ensure_user(user)
-
-    if not context.args:
-        return await update.message.reply_text(
-            f"💣 <b>Mines</b>\n\nGrille 5×5 — {MINES_COUNT} mines cachées.\n"
-            "Chaque case sûre augmente ton multiplicateur.\nUne mine = tout perdu !\n\n"
-            "Usage : <code>/mines &lt;mise&gt;</code>",
-            parse_mode=ParseMode.HTML
-        )
-
-    try:
-        mise = int(context.args[0].replace(" ", "").replace("_", ""))
-    except ValueError:
-        return await update.message.reply_text("❌ Mise invalide.")
-
-    if mise < 1000:
-        return await update.message.reply_text("❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML)
-
-    if user.id in mines_sessions:
-        return await update.message.reply_text("⚠️ Tu as déjà une partie en cours !", parse_mode=ParseMode.HTML)
-
-    async with AsyncSessionLocal() as session:
-        balance = await _get_balance(session, user.id)
-        if balance < mise:
-            return await update.message.reply_text(
-                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} $</b>", parse_mode=ParseMode.HTML
-            )
-        await _add_coins(session, user.id, -mise)
-
-    grid           = [False] * MINES_GRID_SIZE
-    mine_positions = random.sample(range(MINES_GRID_SIZE), MINES_COUNT)
-    for pos in mine_positions:
-        grid[pos] = True
-
-    mines_sessions[user.id] = {
-        "mise":       mise,
-        "grid":       grid,
-        "revealed":   [False] * MINES_GRID_SIZE,
-        "multiplier": 1.0,
-        "safe_count": 0,
-        "chat_id":    update.effective_chat.id,
-    }
-
-    keyboard = _build_mines_keyboard(mines_sessions[user.id])
-    await update.message.reply_text(
-        f"💣 <b>MINES</b> — {mention(user)}\n\n"
-        f"Mise : <b>{_fmt(mise)} $</b>  |  Mines : {MINES_COUNT}/25\n"
-        "Clique une case pour la révéler !\n"
-        "💰 Cash Out dès que tu veux.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard
-    )
-
-
-async def mines_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query  = update.callback_query
-    user   = query.from_user
-    await query.answer()
-
-    parts  = query.data.split(":")
-    action = parts[1]
-
-    if user.id not in mines_sessions:
-        await query.edit_message_reply_markup(reply_markup=None)
-        return
-
-    data = mines_sessions[user.id]
-
-    if action == "cashout":
-        gain   = int(data["mise"] * data["multiplier"])
-        profit = gain - data["mise"]
-        async with AsyncSessionLocal() as session:
-            await _add_coins(session, user.id, gain)
-        del mines_sessions[user.id]
-        await query.edit_message_text(
-            f"💰 <b>Cash Out !</b>\n\n"
-            f"Multiplicateur : <b>x{data['multiplier']:.2f}</b>\n"
-            f"Gain : <b>{_fmt(gain)} $</b>  (+{_fmt(profit)} $)\n\n"
-            "Bravo, tu as survécu ! 🎉",
-            parse_mode=ParseMode.HTML
-        )
-        return
-
-    if action == "pick":
-        idx = int(parts[2])
-        if data["revealed"][idx]:
-            return
-        data["revealed"][idx] = True
-
-        if data["grid"][idx]:
-            for i, is_mine in enumerate(data["grid"]):
-                if is_mine:
-                    data["revealed"][i] = True
-            del mines_sessions[user.id]
-            await query.edit_message_text(
-                f"💥 <b>BOOM ! Mine !</b>\n\n"
-                f"Tu as perdu <b>{_fmt(data['mise'])} $</b> 💸\n\n"
-                "Retente ta chance avec /mines",
-                parse_mode=ParseMode.HTML
-            )
-        else:
-            data["safe_count"] += 1
-            sc = data["safe_count"]
-            data["multiplier"] = MINES_MULT[sc] if sc < len(MINES_MULT) else MINES_MULT[-1]
-            gain     = int(data["mise"] * data["multiplier"])
-            keyboard = _build_mines_keyboard(data)
-            await query.edit_message_text(
-                f"💣 <b>MINES</b> — {user.first_name}\n\n"
-                f"Mise : <b>{_fmt(data['mise'])} $</b>  |  ✅ Cases sûres : {sc}\n"
-                f"📈 Multiplicateur : <b>x{data['multiplier']:.2f}</b>\n"
-                f"💰 Potentiel : {_fmt(gain)} $",
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard
-            )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# APPLE OF FORTUNE — 5 colonnes × 10 niveaux (style 1xBet officiel)
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# Bombes par niveau :
-#   Niveaux 1-3  → 1 bombe / 5 cases  (prob. 4/5 = 80%)
-#   Niveaux 4-6  → 2 bombes / 5 cases (prob. 3/5 = 60%)
-#   Niveaux 7-9  → 3 bombes / 5 cases (prob. 2/5 = 40%)
-#   Niveau  10   → 4 bombes / 5 cases (prob. 1/5 = 20%)
-#
-# Multiplicateurs officiels 1xBet :
-#   Niveau 1  → x1.23   Niveau 6  → x4.50
-#   Niveau 2  → x1.52   Niveau 7  → x6.80
-#   Niveau 3  → x1.90   Niveau 8  → x11.00
-#   Niveau 4  → x2.50   Niveau 9  → x18.50
-#   Niveau 5  → x3.35   Niveau 10 → x349.68
-# ──────────────────────────────────────────────────────────────────────────────
-
-apple_sessions: dict = {}  # user_id → session
-
-APPLE_COLS     = 5
-APPLE_LEVELS   = 10
-
-# Multiplicateur cumulatif après avoir passé le niveau N (index 1-10)
 APPLE_MULTS = {
     1:  1.23,
     2:  1.52,
@@ -558,21 +352,14 @@ def _apple_bombs(level: int) -> int:
     if level <= 9:  return 3
     return 4
 
-
 def _apple_gen_row(level: int) -> list:
-    """Génère une rangée : liste de 5 bools (True = bombe)."""
-    n_bombs  = _apple_bombs(level)
-    row      = [False] * APPLE_COLS
+    n_bombs = _apple_bombs(level)
+    row     = [False] * APPLE_COLS
     for pos in random.sample(range(APPLE_COLS), n_bombs):
         row[pos] = True
     return row
 
-
 def _apple_keyboard(session: dict) -> InlineKeyboardMarkup:
-    """Clavier de la rangée courante.
-    Le niveau est inclus dans callback_data pour invalider automatiquement
-    tous les boutons des niveaux précédents encore présents dans Telegram.
-    """
     level    = session["level"]
     revealed = session["row_revealed"]
     row      = session["row_bombs"]
@@ -580,64 +367,78 @@ def _apple_keyboard(session: dict) -> InlineKeyboardMarkup:
     buttons = []
     for i in range(APPLE_COLS):
         if revealed[i]:
-            label = "💣" if row[i] else "🍎"
+            # Pomme rouge = bombe, pomme verte = bonne
+            label = "🍎" if row[i] else "🍏"
             buttons.append(InlineKeyboardButton(label, callback_data=f"apple:done:{level}:{i}"))
         else:
-            # apple:pick:NIVEAU:IDX — si le niveau a changé, ce callback sera ignoré
-            buttons.append(InlineKeyboardButton("🍏", callback_data=f"apple:pick:{level}:{i}"))
+            buttons.append(InlineKeyboardButton("🍀", callback_data=f"apple:pick:{level}:{i}"))
 
     rows = [buttons]
 
-    # Bouton Cash Out si au moins 1 niveau passé
     if session["level"] > 1 or session.get("passed_one"):
         mult = APPLE_MULTS.get(session["level"] - 1, 1.0)
         gain = int(session["mise"] * mult)
         rows.append([InlineKeyboardButton(
-            f"💰 Cash Out x{mult:.2f} → {_fmt(gain)} $",
+            f"💰 Encaisser x{mult:.2f} → {_fmt(gain)} $",
             callback_data="apple:cashout"
         )])
 
     return InlineKeyboardMarkup(rows)
 
-
-def _apple_status(session: dict) -> str:
-    level   = session["level"]
+def _apple_danger_emoji(level: int) -> str:
     n_bombs = _apple_bombs(level)
     safe    = APPLE_COLS - n_bombs
-    mult    = APPLE_MULTS.get(level, "?")
+    return "🟢" * safe + "🔴" * n_bombs
+
+def _apple_status(session: dict) -> str:
+    level     = session["level"]
+    n_bombs   = _apple_bombs(level)
+    safe      = APPLE_COLS - n_bombs
+    mult_next = APPLE_MULTS.get(level, "?")
     prev_mult = APPLE_MULTS.get(level - 1, 1.0) if level > 1 else 1.0
-    gain_if_cashout = int(session["mise"] * prev_mult) if level > 1 else 0
+    cashout_gain = int(session["mise"] * prev_mult) if level > 1 else 0
 
-    danger_bar = "🔴" * n_bombs + "🟢" * safe
+    bar = _apple_danger_emoji(level)
 
-    text = (
-        f"🍎 <b>APPLE OF FORTUNE</b>\n\n"
-        f"📊 Niveau <b>{level}</b> / {APPLE_LEVELS}  |  Mise : <b>{_fmt(session['mise'])} $</b>\n"
-        f"💣 Bombes : <b>{n_bombs}/5</b>  {danger_bar}\n"
-        f"🎯 Si tu passes : <b>x{mult}</b>\n"
-    )
+    lines = [
+        f"🍏 <b>APPLE OF FORTUNE</b>",
+        f"━━━━━━━━━━━━━━━━━━━━",
+        f"📊 Niveau  <b>{level} / {APPLE_LEVELS}</b>",
+        f"💵 Mise    <b>{_fmt(session['mise'])} $</b>",
+        f"",
+        f"Risque ligne  {bar}",
+        f"🍎 Pommes rouges (pièges) : <b>{n_bombs}</b>",
+        f"🍏 Pommes vertes (sûres)  : <b>{safe}</b>",
+        f"",
+        f"🎯 Multiplicateur si tu passes : <b>x{mult_next}</b>",
+    ]
     if level > 1:
-        text += f"💰 Cash out maintenant : <b>{_fmt(gain_if_cashout)} $</b>\n"
-    text += "\nChoisis une case 👇"
-    return text
+        lines.append(f"💰 Encaisser maintenant : <b>{_fmt(cashout_gain)} $</b>")
+    lines.append(f"\n👇 <b>Choisis une pomme !</b>")
+    return "\n".join(lines)
 
 
 async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/apple <mise> — Apple of Fortune"""
+    """/apple <mise> — Apple of Fortune (50 000 $ – 5 000 000 $)"""
     user = update.effective_user
     await ensure_user(user)
 
     if not context.args:
         table = "\n".join(
-            f"  Niveau {lvl:2d} — x{mult:.2f}  ({APPLE_COLS - _apple_bombs(lvl)}/5 sûres)"
+            f"  Niveau {lvl:2d} — <b>x{mult:.2f}</b>  ({APPLE_COLS - _apple_bombs(lvl)}/5 sûres  |  {_apple_bombs(lvl)} pièges)"
             for lvl, mult in APPLE_MULTS.items()
         )
         return await update.message.reply_text(
-            "🍎 <b>Apple of Fortune</b>\n\n"
-            "Gravis 10 niveaux en choisissant une case parmi 5.\n"
-            "Les bombes augmentent à chaque palier — encaisse quand tu veux !\n\n"
+            "🍏 <b>Apple of Fortune</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Gravis 10 niveaux en choisissant une pomme parmi 5.\n"
+            "🍏 Pomme verte = tu passes au niveau suivant\n"
+            "🍎 Pomme rouge = BOOM, tu perds tout !\n"
+            "Les pièges augmentent à chaque palier.\n\n"
+            f"<b>Mises :</b> {_fmt(APPLE_MIN)} $ – {_fmt(APPLE_MAX)} $\n\n"
             f"<b>Table des gains :</b>\n{table}\n\n"
-            "Usage : <code>/apple &lt;mise&gt;</code>",
+            "Usage : <code>/apple &lt;mise&gt;</code>\n"
+            "Ex : <code>/apple 100000</code>",
             parse_mode=ParseMode.HTML
         )
 
@@ -646,8 +447,14 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         return await update.message.reply_text("❌ Mise invalide.")
 
-    if mise < 1000:
-        return await update.message.reply_text("❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML)
+    if mise < APPLE_MIN:
+        return await update.message.reply_text(
+            f"❌ Mise minimum : <b>{_fmt(APPLE_MIN)} $</b>", parse_mode=ParseMode.HTML
+        )
+    if mise > APPLE_MAX:
+        return await update.message.reply_text(
+            f"❌ Mise maximum : <b>{_fmt(APPLE_MAX)} $</b>", parse_mode=ParseMode.HTML
+        )
 
     if user.id in apple_sessions:
         return await update.message.reply_text("⚠️ Tu as déjà une partie en cours !", parse_mode=ParseMode.HTML)
@@ -660,16 +467,15 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         await _add_coins(session, user.id, -mise)
 
-    # Initialiser la session — niveau 1
     apple_sessions[user.id] = {
-        "mise":        mise,
-        "level":       1,
-        "row_bombs":   _apple_gen_row(1),
+        "mise":         mise,
+        "level":        1,
+        "row_bombs":    _apple_gen_row(1),
         "row_revealed": [False] * APPLE_COLS,
-        "row_picked":  False,   # True dès qu'une case a été jouée sur la ligne courante
-        "passed_one":  False,
-        "chat_id":     update.effective_chat.id,
-        "lock":        asyncio.Lock(),
+        "row_picked":   False,
+        "passed_one":   False,
+        "chat_id":      update.effective_chat.id,
+        "lock":         asyncio.Lock(),
     }
 
     sess     = apple_sessions[user.id]
@@ -706,89 +512,83 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _add_coins(session, user.id, gain)
         del apple_sessions[user.id]
         await query.edit_message_text(
-            f"💰 <b>Cash Out !</b>\n\n"
-            f"Niveau atteint : <b>{sess['level'] - 1}</b>  |  x{mult:.2f}\n"
-            f"Gain : <b>{_fmt(gain)} $</b>  (+{_fmt(profit)} $)\n\n"
-            "Bien joué ! 🍎",
+            f"💰 <b>Encaissé !</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Niveau atteint : <b>{sess['level'] - 1} / {APPLE_LEVELS}</b>\n"
+            f"Multiplicateur : <b>x{mult:.2f}</b>\n"
+            f"Gain : <b>{_fmt(gain)} $</b>  (<b>+{_fmt(profit)} $</b>)\n\n"
+            "Bien joué, tu as su t'arrêter ! 🍏",
             parse_mode=ParseMode.HTML
         )
         return
 
-    # ── Case déjà révélée (tap accidentel) ───────────────────────────────────
     if action == "done":
         return
 
-    # ── Choisir une case ─────────────────────────────────────────────────────
+    # ── Choisir une pomme ────────────────────────────────────────────────────
     if action == "pick":
-        # Format : apple:pick:NIVEAU:IDX
-        # Si le niveau dans le callback != niveau actuel → bouton d'un ancien niveau, ignorer
         btn_level = int(parts[2])
         idx       = int(parts[3])
 
         if btn_level != sess["level"]:
-            return  # bouton périmé d'un niveau précédent
+            return
 
-        # Vérification rapide AVANT le lock — si une case est déjà choisie, on ignore
         if sess["row_picked"]:
             return
 
-        # Verrou par session — empêche les clics simultanés sur la même ligne
         async with sess["lock"]:
-            # Re-vérifier à l'intérieur du lock (double-check pattern)
             if sess["row_picked"]:
-                return  # une case a déjà été jouée sur cette ligne
+                return
 
-            sess["row_picked"]        = True   # bloquer tout clic suivant immédiatement
+            sess["row_picked"]        = True
             sess["row_revealed"][idx] = True
 
-            # 💣 BOMBE
+            # 🍎 POMME ROUGE = BOMBE
             if sess["row_bombs"][idx]:
-                # Révéler toutes les bombes de la rangée
                 for i, is_bomb in enumerate(sess["row_bombs"]):
                     if is_bomb:
                         sess["row_revealed"][i] = True
-                # Afficher la rangée finale avec bombes visibles
                 keyboard = _apple_keyboard(sess)
                 del apple_sessions[user.id]
                 await query.edit_message_text(
-                    f"💥 <b>BOOM ! Pomme empoisonnée !</b>\n\n"
-                    f"Niveau {sess['level']} — Tu as perdu <b>{_fmt(sess['mise'])} $</b> 💸\n\n"
-                    "Retente ta chance avec /apple",
+                    f"🍎 <b>POMME EMPOISONNÉE !</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"Niveau {sess['level']} — Case {idx + 1} était un piège !\n\n"
+                    f"💸 Tu as perdu <b>{_fmt(sess['mise'])} $</b>\n\n"
+                    "Retente ta chance avec /apple 🍏",
                     parse_mode=ParseMode.HTML,
                     reply_markup=keyboard
                 )
                 return
 
-            # 🍎 BONNE POMME — niveau passé
+            # 🍏 POMME VERTE = NIVEAU PASSÉ
             current_level = sess["level"]
             mult          = APPLE_MULTS[current_level]
             gain_now      = int(sess["mise"] * mult)
 
-            # Niveau MAX atteint → victoire automatique
             if current_level == APPLE_LEVELS:
                 async with AsyncSessionLocal() as session:
                     await _add_coins(session, user.id, gain_now)
                 del apple_sessions[user.id]
                 await query.edit_message_text(
-                    f"🏆 <b>VICTOIRE TOTALE !</b>\n\n"
-                    f"Tu as gravi les {APPLE_LEVELS} niveaux !\n"
-                    f"x{mult:.2f}  →  <b>{_fmt(gain_now)} $</b> 🎉",
+                    f"🏆 <b>VICTOIRE ABSOLUE !</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"Tu as gravi les <b>{APPLE_LEVELS} niveaux</b> !\n"
+                    f"x{mult:.2f}  →  <b>{_fmt(gain_now)} $</b> 🎉🍏",
                     parse_mode=ParseMode.HTML
                 )
                 return
 
-            # Passer au niveau suivant
             next_level = current_level + 1
             sess["level"]        = next_level
             sess["row_bombs"]    = _apple_gen_row(next_level)
             sess["row_revealed"] = [False] * APPLE_COLS
-            sess["row_picked"]   = False   # réinitialiser pour la nouvelle ligne
+            sess["row_picked"]   = False
             sess["passed_one"]   = True
 
-        # Edit du message EN DEHORS du lock (await ne bloque plus la session)
         keyboard = _apple_keyboard(sess)
         await query.edit_message_text(
-            f"✅ <b>Bonne pomme !</b>  Niveau {current_level} passé — x{mult:.2f}\n\n"
+            f"🍏 <b>Bonne pomme !</b>  Niveau <b>{current_level}</b> passé — x{mult:.2f}\n\n"
             + _apple_status(sess),
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard
@@ -796,32 +596,86 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ROUE DE FORTUNE
+# ROUE DE FORTUNE — Segments variés : argent fixe, idem, multiplicateurs
 # ═══════════════════════════════════════════════════════════════════════════════
+#
+# Chaque segment : (label, type, valeur, poids)
+#   type "mult"  → gain = mise × valeur
+#   type "fixed" → gain = valeur (montant fixe indépendant de la mise)
+#   type "idem"  → gain = mise (remboursement exact)
+#   type "ruine" → gain = 0
+# ──────────────────────────────────────────────────────────────────────────────
 
 WHEEL_SEGMENTS = [
-    ("💀 RUINE",   0.0,   4),
-    ("😭 x0.1",    0.1,   8),
-    ("😞 x0.3",    0.3,  10),
-    ("😐 x0.5",    0.5,  12),
-    ("🙂 x0.8",    0.8,  14),
-    ("💰 x1.5",    1.5,  20),
-    ("🤑 x2.0",    2.0,  15),
-    ("🎯 x3.0",    3.0,  10),
-    ("⭐ x5.0",    5.0,   5),
-    ("🔥 x10.0",  10.0,   2),
+    # label                    type      valeur       poids
+    ("💀 Ruine totale",       "ruine",   0,             4),
+    ("😭 x0.1",               "mult",    0.1,           6),
+    ("😞 x0.3",               "mult",    0.3,           8),
+    ("🔄 IDEM",               "idem",    0,            12),
+    ("😐 x0.5",               "mult",    0.5,          10),
+    ("💵 +100 000 $",         "fixed",   100_000,       8),
+    ("🙂 x0.8",               "mult",    0.8,          10),
+    ("💰 x1.5",               "mult",    1.5,          15),
+    ("💵 +500 000 $",         "fixed",   500_000,       5),
+    ("🤑 x2.0",               "mult",    2.0,          10),
+    ("🎯 x3.0",               "mult",    3.0,           7),
+    ("💵 +1 000 000 $",       "fixed",   1_000_000,     3),
+    ("⭐ x5.0",               "mult",    5.0,           4),
+    ("🔥 x10.0",              "mult",    10.0,          2),
+    ("💎 JACKPOT x25.0",      "mult",    25.0,          1),
 ]
 
 
 def _spin_wheel() -> tuple:
-    total = sum(s[2] for s in WHEEL_SEGMENTS)
+    """Retourne (label, type, valeur)."""
+    total = sum(s[3] for s in WHEEL_SEGMENTS)
     r     = random.uniform(0, total)
     cum   = 0
-    for name, mult, weight in WHEEL_SEGMENTS:
+    for label, kind, val, weight in WHEEL_SEGMENTS:
         cum += weight
         if r <= cum:
-            return name, mult
-    return WHEEL_SEGMENTS[-1][0], WHEEL_SEGMENTS[-1][1]
+            return label, kind, val
+    last = WHEEL_SEGMENTS[-1]
+    return last[0], last[1], last[2]
+
+
+def _wheel_result_text(user_mention: str, mise: int, label: str, kind: str, val) -> tuple[str, int]:
+    """Calcule le gain et génère le texte de résultat. Retourne (texte, gain)."""
+    if kind == "ruine":
+        gain   = 0
+        profit = -mise
+        emoji  = "💀"
+        title  = "RUINE TOTALE !"
+    elif kind == "idem":
+        gain   = mise
+        profit = 0
+        emoji  = "🔄"
+        title  = "IDEM — Remboursé !"
+    elif kind == "fixed":
+        gain   = int(val)
+        profit = gain - mise
+        emoji  = "💵"
+        title  = f"{label.split(' ', 1)[1]} fixe !"
+    else:  # mult
+        gain   = int(mise * val)
+        profit = gain - mise
+        emoji  = "🎡"
+        title  = f"{label} !"
+
+    mise_str   = _fmt(mise)
+    gain_str   = _fmt(gain)
+    profit_str = (f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit))
+
+    text = (
+        f"{emoji} <b>{title}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎡 Résultat : <b>{label}</b>\n\n"
+        f"{user_mention}\n"
+        f"💵 Mise     : <b>{mise_str} $</b>\n"
+        f"🏆 Gain     : <b>{gain_str} $</b>\n"
+        f"{'📈' if profit >= 0 else '📉'} Résultat   : <b>{profit_str} $</b>"
+    )
+    return text, gain
 
 
 async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -830,9 +684,16 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(user)
 
     if not context.args:
-        wheel_display = "\n".join(f"  {name}" for name, _, _ in WHEEL_SEGMENTS)
+        segments_display = "\n".join(
+            f"  {label}  <i>(poids {w})</i>"
+            for label, _, _, w in WHEEL_SEGMENTS
+        )
         return await update.message.reply_text(
-            f"🎡 <b>Roue de Fortune</b>\n\nSegments :\n{wheel_display}\n\n"
+            "🎡 <b>Roue de Fortune</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Tourne la roue et tente ta chance !\n"
+            "Multiplicateurs, gains fixes, IDEM, JACKPOT… et la Ruine.\n\n"
+            f"<b>Segments :</b>\n{segments_display}\n\n"
             "Usage : <code>/roue &lt;mise&gt;</code>",
             parse_mode=ParseMode.HTML
         )
@@ -856,12 +717,12 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     animation_frames = [
         "🎡 La roue tourne...",
         "🎡 ⠋ En cours...",
-        "🎡 ⠙ En cours...",
+        "🎡 ⠙ Tourne encore...",
         "🎡 ⠹ Ralentit...",
-        "🎡 ⠸ Ralentit...",
-        "🎡 ⠼ Presque...",
-        "🎡 ⠴ Presque...",
-        "🎡 ⠦ Stop !",
+        "🎡 ⠸ Ça ralentit...",
+        "🎡 ⠼ Presque arrêtée...",
+        "🎡 ⠴ Stop imminent...",
+        "🎡 ⠦ Et c'est...",
     ]
 
     msg = await update.message.reply_text(animation_frames[0])
@@ -872,32 +733,10 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    name, mult = _spin_wheel()
-    gain       = int(mise * mult)
-    profit     = gain - mise
+    label, kind, val = _spin_wheel()
+    result_text, gain = _wheel_result_text(mention(user), mise, label, kind, val)
 
     async with AsyncSessionLocal() as session:
         await _add_coins(session, user.id, gain)
 
-    if mult == 0:
-        result = (
-            f"💀 <b>RUINE TOTALE !</b>\n\n"
-            f"{mention(user)} a tout perdu !\n"
-            f"Mise : <b>{_fmt(mise)} $</b>  →  Gain : <b>0 $</b>"
-        )
-    elif profit < 0:
-        result = (
-            f"🎡 <b>{name}</b>\n\n"
-            f"{mention(user)}\n"
-            f"Mise : {_fmt(mise)} $  →  Gain : <b>{_fmt(gain)} $</b>\n"
-            f"Perte : <b>-{_fmt(mise - gain)} $</b>"
-        )
-    else:
-        result = (
-            f"🎡 <b>{name}</b>\n\n"
-            f"{mention(user)}\n"
-            f"Mise : {_fmt(mise)} $  →  Gain : <b>{_fmt(gain)} $</b>\n"
-            f"Profit : <b>+{_fmt(profit)} $</b> 🎉"
-        )
-
-    await msg.edit_text(result, parse_mode=ParseMode.HTML)
+    await msg.edit_text(result_text, parse_mode=ParseMode.HTML)

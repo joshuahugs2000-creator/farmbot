@@ -1,591 +1,360 @@
-"""
-Système bancaire complet.
-
-5 banques de rang différent — plus la banque est prestigieuse :
-  • Dépôt minimum plus élevé
-  • Taux d'intérêt plus avantageux (versés toutes les 6h via job)
-  • Prêts plus importants disponibles
-
-Commandes :
-  /banks         — liste des banques
-  /bankopen      — ouvrir un compte
-  /bankdeposit   — déposer
-  /bankwithdraw  — retirer
-  /bankbalance   — voir ses comptes
-  /bankloan      — emprunter
-  /bankrepay     — rembourser un prêt
-  /bankloans     — voir ses prêts
-"""
-
 import logging
-from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ContextTypes
-from telegram.constants import ParseMode
-from sqlalchemy import select
+from datetime import time, timedelta
 
-from database.db import AsyncSessionLocal, get_user, add_coins
-from database.models import BankAccount, Loan
-from utils.helpers import ensure_user
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+)
 
+from config import BOT_TOKEN
+from database import init_db
+
+from handlers.misc     import start, help_cmd, leaderboard, mode, toggle
+from handlers.family   import (
+    marry, adopt, friend, divorce, disown, unfriend,
+    setfamilyname, leave, familyphoto,
+    request_callback, leave_callback,
+)
+from handlers.tree     import tree
+from handlers.garden   import garden, plant_cmd, harvest
+from handlers.profile  import me, setpic, customize, color_callback, titles
+from handlers.events   import check_anniversaries
+from handlers.events_random import setup_random_events, open_chest_cmd
+from handlers.economy  import (
+    acc, daily, work, pay, richlist,
+    blackjack, roulette, slots,
+)
+from handlers.games import (
+    crash_cmd, cashout_cmd,
+    mines_cmd, mines_callback,
+    roue_cmd,
+)
+from handlers.admin    import (
+    adminhelp, give, take, setcoins, userinfo,
+    ban, unban, resetuser,
+    adminadd, adminremove, adminlist, broadcast,
+    liberer, prisonlist, emprisonner,
+    is_admin, pause, resume,
+)
+from handlers.bank     import (
+    banks, bankopen, bankdeposit, bankwithdraw,
+    bankbalance, bankloan, bankrepay, bankloans,
+    pay_interests, remind_loans,
+)
+from handlers.invest   import market, buy, sell, portfolio
+from handlers.lottery  import (
+    createloto, loto, ticket, tirage, tirage_force, cancelloto,
+    setup_lottery_jobs,
+)
+from handlers.crime    import (
+    rob, police, bail, bail_judgment, juge, juge_callback,
+    security, security_callback,
+    init_crime_tables,
+    _is_in_prison, _get_prison, _fmt,
+)
+from handlers.wealth_drain import (
+    impots, cambrioler, braquage, annulerbraquage,
+    init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
+)
+from database.db import AsyncSessionLocal
+
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    level=logging.INFO,
+)
 logger = logging.getLogger(__name__)
 
-# ─── Définition des banques ───────────────────────────────────────────────────
-
-BANKS = {
-    "bronze": {
-        "name":          "🥉 Banque Bronze",
-        "rank":          1,
-        "emoji":         "🥉",
-        "desc":          "Banque populaire, accessible à tous",
-        "min_deposit":   1_000,
-        "max_deposit":   500_000,
-        "interest_rate": 0.005,    # 0.5% toutes les 6h → ~2%/jour
-        "max_loan":      100_000,
-        "loan_rate":     0.08,     # 8% d'intérêt sur le prêt
-        "loan_days":     7,
-    },
-    "silver": {
-        "name":          "🥈 Banque Silver",
-        "rank":          2,
-        "emoji":         "🥈",
-        "desc":          "Pour les épargnants sérieux",
-        "min_deposit":   10_000,
-        "max_deposit":   2_000_000,
-        "interest_rate": 0.008,    # 0.8% → ~3.2%/jour
-        "max_loan":      500_000,
-        "loan_rate":     0.06,
-        "loan_days":     14,
-    },
-    "gold": {
-        "name":          "🥇 Banque Gold",
-        "rank":          3,
-        "emoji":         "🥇",
-        "desc":          "Banque des investisseurs fortunés",
-        "min_deposit":   100_000,
-        "max_deposit":   10_000_000,
-        "interest_rate": 0.012,    # 1.2% → ~4.8%/jour
-        "max_loan":      2_000_000,
-        "loan_rate":     0.05,
-        "loan_days":     21,
-    },
-    "platinum": {
-        "name":          "💠 Banque Platinum",
-        "rank":          4,
-        "emoji":         "💠",
-        "desc":          "Réservée aux élites financières",
-        "min_deposit":   500_000,
-        "max_deposit":   50_000_000,
-        "interest_rate": 0.018,    # 1.8% → ~7.2%/jour
-        "max_loan":      10_000_000,
-        "loan_rate":     0.04,
-        "loan_days":     30,
-    },
-    "diamond": {
-        "name":          "💎 Banque Diamond",
-        "rank":          5,
-        "emoji":         "💎",
-        "desc":          "La banque des milliardaires",
-        "min_deposit":   2_000_000,
-        "max_deposit":   999_999_999_999,
-        "interest_rate": 0.025,    # 2.5% → ~10%/jour
-        "max_loan":      50_000_000,
-        "loan_rate":     0.03,
-        "loan_days":     60,
-    },
+# ─── Commandes exemptées du blocage prison ────────────────────────────────────
+# Ces commandes restent accessibles même en prison
+PRISON_EXEMPT_COMMANDS = {
+    "start",
+    "help",
+    # /bail et /bail_judgment sont accessibles pour PAYER la caution de quelqu'un d'autre
+    # mais pas pour se libérer soi-même (géré dans la fonction)
+    "bail",
+    "bail_judgment",
+    # Les commandes admin restent accessibles pour les admins
+    "adminhelp", "give", "take", "setcoins", "userinfo",
+    "ban", "unban", "resetuser", "adminadd", "adminremove",
+    "adminlist", "broadcast", "liberer", "prisonlist", "emprisonner",
+    "pause", "resume",
 }
 
-BANK_KEYS = ["bronze", "silver", "gold", "platinum", "diamond"]
 
-INTEREST_INTERVAL_HOURS = 6  # toutes les 6h
+async def prison_middleware(update: Update, context) -> bool:
+    """
+    Middleware global : bloque toutes les commandes si l'utilisateur est en prison.
+    Retourne True si bloqué, False sinon.
+    Appelé AVANT chaque handler de commande.
+    """
+    if not update.message or not update.message.text:
+        return False
 
+    user = update.effective_user
+    if not user:
+        return False
 
-def _fmt(n: int) -> str:
-    return f"{n:,}".replace(",", " ")
+    # Extraire la commande (ex: "/daily" → "daily")
+    text = update.message.text
+    if not text.startswith("/"):
+        return False
 
+    command = text.split()[0].lstrip("/").split("@")[0].lower()
 
-# ─── /banks ───────────────────────────────────────────────────────────────────
+    # Les commandes exemptées passent toujours
+    if command in PRISON_EXEMPT_COMMANDS:
+        return False
 
-async def banks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lines = ["<b>🏦 Banques disponibles</b>\n"]
-    for key in BANK_KEYS:
-        b = BANKS[key]
-        lines.append(
-            f"{b['emoji']} <b>{b['name']}</b>  (Rang {b['rank']}/5)\n"
-            f"  └ {b['desc']}\n"
-            f"  └ Dépôt min : {_fmt(b['min_deposit'])} $ · Max : {_fmt(b['max_deposit'])} $\n"
-            f"  └ Intérêts  : +{b['interest_rate']*100:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
-            f"  └ Prêt max  : {_fmt(b['max_loan'])} $  (taux {b['loan_rate']*100:.0f}%)\n"
-        )
-    lines.append("Utilisez /bankopen [banque] pour ouvrir un compte.")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    # Les admins ne sont jamais bloqués par la prison
+    if await is_admin(user.id):
+        return False
 
-
-# ─── /bankopen ────────────────────────────────────────────────────────────────
-
-async def bankopen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        keys = " | ".join(BANK_KEYS)
-        return await update.message.reply_text(
-            f"Usage : /bankopen [banque]\nBanques : {keys}"
-        )
-
-    bank_id = context.args[0].lower()
-    if bank_id not in BANKS:
-        return await update.message.reply_text(f"Banque inconnue. Choix : {' | '.join(BANK_KEYS)}")
-
-    user = await ensure_user(update.effective_user)
-    async with AsyncSessionLocal() as session:
-        existing = await session.execute(
-            select(BankAccount).where(
-                BankAccount.user_id == user.user_id,
-                BankAccount.bank_id == bank_id,
-            )
-        )
-        if existing.scalar_one_or_none():
-            return await update.message.reply_text(
-                f"Tu as déjà un compte à la {BANKS[bank_id]['name']} !"
-            )
-
-        acc = BankAccount(
-            user_id       = user.user_id,
-            bank_id       = bank_id,
-            balance       = 0,
-            last_interest = datetime.utcnow(),
-        )
-        session.add(acc)
-        await session.commit()
-
-    b = BANKS[bank_id]
-    await update.message.reply_text(
-        f"✅ Compte ouvert à la <b>{b['name']}</b> !\n"
-        f"Dépôt minimum : {_fmt(b['min_deposit'])} $\n"
-        f"Intérêts : +{b['interest_rate']*100:.1f}% toutes les {INTEREST_INTERVAL_HOURS}h\n\n"
-        f"Utilisez /bankdeposit {bank_id} [montant] pour alimenter votre compte.",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ─── /bankdeposit ─────────────────────────────────────────────────────────────
-
-async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or len(context.args) < 2:
-        return await update.message.reply_text("Usage : /bankdeposit [banque] [montant]")
-
-    bank_id = context.args[0].lower()
-    if bank_id not in BANKS:
-        return await update.message.reply_text("Banque inconnue.")
-
+    # Vérifier si en prison
     try:
-        amount = int(context.args[1].replace(",", "").replace(" ", ""))
-        assert amount > 0
-    except (ValueError, AssertionError):
-        return await update.message.reply_text("Montant invalide.")
-
-    b    = BANKS[bank_id]
-    user = await ensure_user(update.effective_user)
-
-    if amount < b["min_deposit"]:
-        return await update.message.reply_text(
-            f"Dépôt minimum pour la {b['name']} : {_fmt(b['min_deposit'])} $"
-        )
-
-    async with AsyncSessionLocal() as session:
-        acc = (await session.execute(
-            select(BankAccount).where(
-                BankAccount.user_id == user.user_id,
-                BankAccount.bank_id == bank_id,
+        async with AsyncSessionLocal() as session:
+            from datetime import datetime
+            prison_row_res = await session.execute(
+                __import__("sqlalchemy").text("SELECT * FROM crime_prison WHERE user_id = :uid"),
+                {"uid": user.id}
             )
-        )).scalar_one_or_none()
+            prison_row = prison_row_res.fetchone()
 
-        if not acc:
-            return await update.message.reply_text(
-                f"Tu n'as pas de compte à la {b['name']}. Utilise /bankopen {bank_id}"
+            if not prison_row:
+                return False
+
+            from datetime import datetime
+            now = datetime.utcnow()
+            if now >= prison_row.released_at:
+                # Peine expirée → libérer automatiquement
+                await session.execute(
+                    __import__("sqlalchemy").text("DELETE FROM crime_prison WHERE user_id = :uid"),
+                    {"uid": user.id}
+                )
+                await session.commit()
+                return False
+
+            # Bloqué !
+            minutes_left = max(0, int((prison_row.released_at - now).total_seconds() / 60))
+            h = minutes_left // 60
+            m = minutes_left % 60
+            duration_str = f"{h}h{m:02d}m" if h > 0 else f"{m} minute(s)"
+
+            await update.message.reply_text(
+                f"🔒 <b>Tu es en prison !</b>\n\n"
+                f"La commande <code>/{command}</code> n'est pas disponible.\n"
+                f"⏳ Libération dans : <b>{duration_str}</b>\n"
+                f"💸 Caution : <b>{_fmt(prison_row.bail_amount)} 💰</b>\n\n"
+                f"Demande à quelqu'un de payer ta caution avec <code>/bail @toi</code>",
+                parse_mode="HTML"
             )
+            return True
 
-        if acc.balance + amount > b["max_deposit"]:
-            return await update.message.reply_text(
-                f"Dépôt maximum atteint ({_fmt(b['max_deposit'])} $)."
-            )
+    except Exception as e:
+        logger.error(f"Erreur prison_middleware: {e}")
+        return False
 
-        u = await get_user(session, user.user_id)
-        if not u or u.coins < amount:
-            return await update.message.reply_text("Solde insuffisant !")
 
-        u.coins     -= amount
-        acc.balance += amount
-        await session.commit()
-        new_wallet  = u.coins
-        new_balance = acc.balance
+async def on_startup(app: Application):
+    await init_db()
+    await init_crime_tables()
+    await init_drain_tables()
+    await _ensure_cambriolage_cd_table()
+    logger.info("Base de données initialisée.")
 
-    await update.message.reply_text(
-        f"🏦 Dépôt effectué à la <b>{b['name']}</b>\n"
-        f"💰 Déposé   : +{_fmt(amount)} $\n"
-        f"📊 En banque : {_fmt(new_balance)} $\n"
-        f"👛 Portefeuille : {_fmt(new_wallet)} $",
-        parse_mode=ParseMode.HTML,
-    )
 
-
-# ─── /bankwithdraw ────────────────────────────────────────────────────────────
-
-async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or len(context.args) < 2:
-        return await update.message.reply_text("Usage : /bankwithdraw [banque] [montant]")
-
-    bank_id = context.args[0].lower()
-    if bank_id not in BANKS:
-        return await update.message.reply_text("Banque inconnue.")
-
-    try:
-        amount = int(context.args[1].replace(",", "").replace(" ", ""))
-        assert amount > 0
-    except (ValueError, AssertionError):
-        return await update.message.reply_text("Montant invalide.")
-
-    user = await ensure_user(update.effective_user)
-    b    = BANKS[bank_id]
-
-    async with AsyncSessionLocal() as session:
-        acc = (await session.execute(
-            select(BankAccount).where(
-                BankAccount.user_id == user.user_id,
-                BankAccount.bank_id == bank_id,
-            )
-        )).scalar_one_or_none()
-
-        if not acc:
-            return await update.message.reply_text(f"Pas de compte à la {b['name']}.")
-
-        if acc.balance < amount:
-            return await update.message.reply_text(
-                f"Solde bancaire insuffisant ! Tu as {_fmt(acc.balance)} $ dans cette banque."
-            )
-
-        u = await get_user(session, user.user_id)
-        acc.balance -= amount
-        u.coins     += amount
-        await session.commit()
-        new_wallet  = u.coins
-        new_balance = acc.balance
-
-    await update.message.reply_text(
-        f"🏦 Retrait effectué de la <b>{b['name']}</b>\n"
-        f"💸 Retiré    : {_fmt(amount)} $\n"
-        f"📊 En banque : {_fmt(new_balance)} $\n"
-        f"👛 Portefeuille : {_fmt(new_wallet)} $",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ─── /bankbalance ─────────────────────────────────────────────────────────────
-
-async def bankbalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = await ensure_user(update.effective_user)
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(BankAccount).where(BankAccount.user_id == user.user_id)
-        )
-        accounts = result.scalars().all()
-        u = await get_user(session, user.user_id)
-
-    if not accounts:
-        return await update.message.reply_text(
-            "Tu n'as aucun compte bancaire.\nUtilise /banks pour voir les banques disponibles."
-        )
-
-    lines = [f"<b>🏦 Comptes bancaires de {update.effective_user.first_name}</b>\n"]
-    total = 0
-    for acc in accounts:
-        b   = BANKS.get(acc.bank_id, {})
-        rate = b.get("interest_rate", 0) * 100
-        lines.append(
-            f"{b.get('emoji','🏦')} <b>{b.get('name', acc.bank_id)}</b>\n"
-            f"  └ Solde : {_fmt(acc.balance)} $\n"
-            f"  └ Taux  : +{rate:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
-        )
-        total += acc.balance
-
-    lines.append(f"\n💼 Total en banque : <b>{_fmt(total)} $</b>")
-    lines.append(f"👛 Portefeuille     : {_fmt(u.coins if u else 0)} $")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
-
-
-# ─── /bankloan ────────────────────────────────────────────────────────────────
-
-async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or len(context.args) < 2:
-        return await update.message.reply_text("Usage : /bankloan [banque] [montant]")
-
-    bank_id = context.args[0].lower()
-    if bank_id not in BANKS:
-        return await update.message.reply_text("Banque inconnue.")
-
-    try:
-        amount = int(context.args[1].replace(",", "").replace(" ", ""))
-        assert amount > 0
-    except (ValueError, AssertionError):
-        return await update.message.reply_text("Montant invalide.")
-
-    b    = BANKS[bank_id]
-    user = await ensure_user(update.effective_user)
-
-    if amount > b["max_loan"]:
-        return await update.message.reply_text(
-            f"Prêt maximum pour la {b['name']} : {_fmt(b['max_loan'])} $"
-        )
-
-    async with AsyncSessionLocal() as session:
-        # Vérifier qu'il a un compte dans cette banque
-        acc = (await session.execute(
-            select(BankAccount).where(
-                BankAccount.user_id == user.user_id,
-                BankAccount.bank_id == bank_id,
-            )
-        )).scalar_one_or_none()
-
-        if not acc:
-            return await update.message.reply_text(
-                f"Tu dois d'abord ouvrir un compte à la {b['name']} (/bankopen {bank_id})."
-            )
-
-        # ── RÈGLE 1 : aucun prêt actif autorisé (toutes banques confondues) ──
-        any_existing_loan = (await session.execute(
-            select(Loan).where(
-                Loan.user_id == user.user_id,
-                Loan.status  == "active",
-            )
-        )).scalar_one_or_none()
-
-        if any_existing_loan:
-            b_existing = BANKS.get(any_existing_loan.bank_id, {})
-            return await update.message.reply_text(
-                f"❌ <b>Prêt refusé.</b>\n\n"
-                f"Tu as déjà un prêt actif à la <b>{b_existing.get('name', any_existing_loan.bank_id)}</b> !\n"
-                f"💳 Reste à rembourser : <b>{_fmt(any_existing_loan.remaining)} $</b>\n\n"
-                f"Tu dois rembourser entièrement avant de pouvoir emprunter à nouveau.\n"
-                f"Utilise : /bankrepay {any_existing_loan.bank_id} [montant]",
-                parse_mode=ParseMode.HTML,
-            )
-
-        # ── RÈGLE 2 : avoir au moins 25% du montant demandé en solde bancaire ──
-        total_in_bank = acc.balance
-        required_collateral = int(amount * 0.25)
-        if total_in_bank < required_collateral:
-            return await update.message.reply_text(
-                f"❌ <b>Garantie insuffisante.</b>\n\n"
-                f"Pour emprunter <b>{_fmt(amount)} $</b>, tu dois avoir au minimum "
-                f"<b>{_fmt(required_collateral)} $</b> (25%) dans ton compte à la {b['name']}.\n\n"
-                f"💰 Ton solde actuel dans cette banque : <b>{_fmt(total_in_bank)} $</b>\n"
-                f"📉 Il te manque : <b>{_fmt(required_collateral - total_in_bank)} $</b>\n\n"
-                f"Dépose d'abord via /bankdeposit {bank_id} [montant].",
-                parse_mode=ParseMode.HTML,
-            )
-
-        interest    = int(amount * b["loan_rate"])
-        total_due   = amount + interest
-        due_at      = datetime.utcnow() + timedelta(days=b["loan_days"])
-
-        loan = Loan(
-            user_id       = user.user_id,
-            bank_id       = bank_id,
-            amount        = amount,
-            remaining     = total_due,
-            interest_rate = b["loan_rate"],
-            due_at        = due_at,
-        )
-        session.add(loan)
-
-        u = await get_user(session, user.user_id)
-        u.coins += amount
-        await session.commit()
-        new_balance = u.coins
-
-    await update.message.reply_text(
-        f"💳 <b>Prêt accordé par la {b['name']}</b>\n\n"
-        f"💰 Montant emprunté : {_fmt(amount)} $\n"
-        f"📈 Intérêts ({b['loan_rate']*100:.0f}%) : {_fmt(interest)} $\n"
-        f"💸 Total à rembourser : <b>{_fmt(total_due)} $</b>\n"
-        f"📅 Date limite : {due_at.strftime('%d/%m/%Y')}\n\n"
-        f"⚠️ Si tu ne rembourses pas avant la date limite, la somme sera déduite "
-        f"de ton compte (solde négatif possible).\n\n"
-        f"👛 Nouveau solde : {_fmt(new_balance)} $\n"
-        f"Utilisez /bankrepay {bank_id} [montant] pour rembourser.",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ─── /bankrepay ───────────────────────────────────────────────────────────────
-
-async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or len(context.args) < 2:
-        return await update.message.reply_text("Usage : /bankrepay [banque] [montant]")
-
-    bank_id = context.args[0].lower()
-    if bank_id not in BANKS:
-        return await update.message.reply_text("Banque inconnue.")
-
-    try:
-        amount = int(context.args[1].replace(",", "").replace(" ", ""))
-        assert amount > 0
-    except (ValueError, AssertionError):
-        return await update.message.reply_text("Montant invalide.")
-
-    user = await ensure_user(update.effective_user)
-    b    = BANKS[bank_id]
-
-    async with AsyncSessionLocal() as session:
-        loan = (await session.execute(
-            select(Loan).where(
-                Loan.user_id == user.user_id,
-                Loan.bank_id == bank_id,
-                Loan.status  == "active",
-            )
-        )).scalar_one_or_none()
-
-        if not loan:
-            return await update.message.reply_text(f"Aucun prêt actif à la {b['name']}.")
-
-        u = await get_user(session, user.user_id)
-        if not u or u.coins < amount:
-            return await update.message.reply_text("Solde insuffisant !")
-
-        pay_amount = min(amount, loan.remaining)
-        u.coins        -= pay_amount
-        loan.remaining -= pay_amount
-
-        if loan.remaining <= 0:
-            loan.status = "paid"
-            msg_extra   = "\n✅ <b>Prêt entièrement remboursé !</b>"
-        else:
-            msg_extra   = f"\n💳 Reste à rembourser : {_fmt(loan.remaining)} $"
-
-        await session.commit()
-        new_wallet = u.coins
-
-    await update.message.reply_text(
-        f"🏦 Remboursement à la <b>{b['name']}</b>\n"
-        f"💸 Payé : {_fmt(pay_amount)} $\n"
-        f"👛 Portefeuille : {_fmt(new_wallet)} $"
-        + msg_extra,
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ─── /bankloans ───────────────────────────────────────────────────────────────
-
-async def bankloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = await ensure_user(update.effective_user)
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Loan).where(Loan.user_id == user.user_id, Loan.status == "active")
-        )
-        loans = result.scalars().all()
-
-    if not loans:
-        return await update.message.reply_text("Aucun prêt actif en cours.")
-
-    lines = [f"<b>💳 Prêts actifs de {update.effective_user.first_name}</b>\n"]
-    total_debt = 0
-    for loan in loans:
-        b       = BANKS.get(loan.bank_id, {})
-        overdue = " ⚠️ EN RETARD" if datetime.utcnow() > loan.due_at else ""
-        lines.append(
-            f"{b.get('emoji','🏦')} <b>{b.get('name', loan.bank_id)}</b>{overdue}\n"
-            f"  └ Reste à payer : {_fmt(loan.remaining)} $\n"
-            f"  └ Date limite   : {loan.due_at.strftime('%d/%m/%Y')}\n"
-        )
-        total_debt += loan.remaining
-
-    lines.append(f"\n💸 Dette totale : <b>{_fmt(total_debt)} $</b>")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
-
-
-# ─── Job : versement des intérêts toutes les 6h ───────────────────────────────
-
-async def pay_interests(context):
-    """Toutes les 6h : verse les intérêts + applique les pénalités de retard (sans notif)."""
-    now = datetime.utcnow()
-    paid_count = 0
-    total_paid = 0
-
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(BankAccount))
-        accounts = result.scalars().all()
-
-        for acc in accounts:
-            b = BANKS.get(acc.bank_id)
-            if not b or acc.balance <= 0:
-                continue
-            last = acc.last_interest or acc.opened_at
-            hours_elapsed = (now - last).total_seconds() / 3600
-            if hours_elapsed >= INTEREST_INTERVAL_HOURS:
-                interest = int(acc.balance * b["interest_rate"])
-                acc.balance      += interest
-                acc.last_interest = now
-                total_paid += interest
-                paid_count += 1
-
-        # Prêts en retard → pénalité 5% + déduction forcée
-        loan_result = await session.execute(select(Loan).where(Loan.status == "active"))
-        loans = loan_result.scalars().all()
-
-        for loan in loans:
-            if now > loan.due_at:
-                penalty = int(loan.remaining * 0.05)
-                loan.remaining += penalty
-                u = await get_user(session, loan.user_id)
-                if u:
-                    u.coins -= loan.remaining  # peut passer négatif
-                    loan.remaining = 0
-                    loan.status = "paid"
-
-        await session.commit()
-
-    logger.info(f"[BANK] Intérêts versés : {paid_count} comptes, {total_paid:,} $ au total.")
-
-
-# ─── Job : rappels de remboursement (2x par semaine) ─────────────────────────
-
-async def remind_loans(context):
-    """Toutes les 84h : envoie un rappel aux utilisateurs ayant un prêt actif."""
-    now = datetime.utcnow()
-
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Loan).where(Loan.status == "active")
-        )
-        loans = result.scalars().all()
-
-    for loan in loans:
-        b             = BANKS.get(loan.bank_id, {})
-        overdue       = now > loan.due_at
-        jours_restants = max(0, (loan.due_at - now).days)
-
-        if overdue:
-            texte = (
-                f"⚠️ <b>PRÊT EN RETARD !</b>\n\n"
-                f"Tu as un prêt en retard à la <b>{b.get('name', loan.bank_id)}</b> !\n"
-                f"💸 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n\n"
-                f"Des pénalités de 5% sont appliquées à chaque cycle. "
-                f"Rembourse vite avec /bankrepay {loan.bank_id} [montant] !"
-            )
-        else:
-            texte = (
-                f"🔔 <b>Rappel de prêt</b>\n\n"
-                f"Tu as un prêt actif à la <b>{b.get('name', loan.bank_id)}</b>.\n"
-                f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n"
-                f"📅 Date limite dans : <b>{jours_restants} jour(s)</b>\n\n"
-                f"Utilise /bankrepay {loan.bank_id} [montant] pour rembourser."
-            )
-
+async def error_handler(update: object, context):
+    logger.error("Exception dans un handler :", exc_info=context.error)
+    if isinstance(update, Update) and update.message:
         try:
-            await context.bot.send_message(
-                chat_id=loan.user_id,
-                text=texte,
-                parse_mode=ParseMode.HTML,
+            await update.message.reply_text(
+                f"Erreur interne : {type(context.error).__name__}: {context.error}"
             )
-        except Exception as e:
-            logger.warning(f"[BANK] Impossible d'envoyer le rappel à {loan.user_id} : {e}")
+        except Exception:
+            pass
 
-    logger.info(f"[BANK] Rappels de prêt envoyés : {len(loans)} utilisateur(s) notifié(s).")
+
+def _prison_checked(handler_func):
+    """
+    Décorateur qui vérifie la pause + la prison avant d'exécuter un handler de commande.
+    """
+    async def wrapper(update: Update, context):
+        # ── Vérification pause ──
+        import handlers.admin as _admin_mod
+        if _admin_mod.BOT_PAUSED:
+            if not await is_admin(update.effective_user.id):
+                await update.message.reply_text(
+                    "⏸️ <b>Le bot est actuellement en pause.</b>\n"
+                    "Revenez plus tard !",
+                    parse_mode="HTML",
+                )
+                return
+        # ── Vérification prison ──
+        if await prison_middleware(update, context):
+            return
+        return await handler_func(update, context)
+    wrapper.__name__ = handler_func.__name__
+    return wrapper
+
+
+def main():
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(on_startup)
+        .build()
+    )
+
+    app.add_error_handler(error_handler)
+
+    # ── Général ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("start",       start))
+    app.add_handler(CommandHandler("help",        help_cmd))
+    app.add_handler(CommandHandler("leaderboard", _prison_checked(leaderboard)))
+    app.add_handler(CommandHandler("mode",        _prison_checked(mode)))
+    app.add_handler(CommandHandler("toggle",      _prison_checked(toggle)))
+
+    # ── Famille ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("marry",         _prison_checked(marry)))
+    app.add_handler(CommandHandler("adopt",         _prison_checked(adopt)))
+    app.add_handler(CommandHandler("friend",        _prison_checked(friend)))
+    app.add_handler(CommandHandler("divorce",       _prison_checked(divorce)))
+    app.add_handler(CommandHandler("disown",        _prison_checked(disown)))
+    app.add_handler(CommandHandler("unfriend",      _prison_checked(unfriend)))
+    app.add_handler(CommandHandler("setfamilyname", _prison_checked(setfamilyname)))
+    app.add_handler(CommandHandler("leave",         _prison_checked(leave)))
+    app.add_handler(CommandHandler("familyphoto",   _prison_checked(familyphoto)))
+
+    # ── Arbre ────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("tree",    _prison_checked(tree)))
+
+    # ── Jardin ───────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("garden",  _prison_checked(garden)))
+    app.add_handler(CommandHandler("plant",   _prison_checked(plant_cmd)))
+    app.add_handler(CommandHandler("harvest", _prison_checked(harvest)))
+
+    # ── Profil ───────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("me",        _prison_checked(me)))
+    app.add_handler(CommandHandler("setpic",    _prison_checked(setpic)))
+    app.add_handler(CommandHandler("customize", _prison_checked(customize)))
+    app.add_handler(CommandHandler("titles",    _prison_checked(titles)))
+
+    # ── Économie ─────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("acc",        _prison_checked(acc)))
+    app.add_handler(CommandHandler("daily",      _prison_checked(daily)))
+    app.add_handler(CommandHandler("work",       _prison_checked(work)))
+    app.add_handler(CommandHandler("pay",        _prison_checked(pay)))
+    app.add_handler(CommandHandler("richlist",   _prison_checked(richlist)))
+    app.add_handler(CommandHandler("blackjack",  _prison_checked(blackjack)))
+    app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
+    app.add_handler(CommandHandler("slots",      _prison_checked(slots)))
+
+    # ── Admin (jamais bloqués) ────────────────────────────────────────────────
+    app.add_handler(CommandHandler("adminhelp",    adminhelp))
+    app.add_handler(CommandHandler("give",         give))
+    app.add_handler(CommandHandler("take",         take))
+    app.add_handler(CommandHandler("setcoins",     setcoins))
+    app.add_handler(CommandHandler("userinfo",     userinfo))
+    app.add_handler(CommandHandler("ban",          ban))
+    app.add_handler(CommandHandler("unban",        unban))
+    app.add_handler(CommandHandler("resetuser",    resetuser))
+    app.add_handler(CommandHandler("adminadd",     adminadd))
+    app.add_handler(CommandHandler("adminremove",  adminremove))
+    app.add_handler(CommandHandler("adminlist",    adminlist))
+    app.add_handler(CommandHandler("broadcast",    broadcast))
+    app.add_handler(CommandHandler("liberer",        liberer))
+    app.add_handler(CommandHandler("prisonlist",     prisonlist))
+    app.add_handler(CommandHandler("emprisonner",    emprisonner))
+    app.add_handler(CommandHandler("pause",          pause))
+    app.add_handler(CommandHandler("resume",         resume))
+
+    # ── Banque ────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("banks",        _prison_checked(banks)))
+    app.add_handler(CommandHandler("bankopen",     _prison_checked(bankopen)))
+    app.add_handler(CommandHandler("bankdeposit",  _prison_checked(bankdeposit)))
+    app.add_handler(CommandHandler("bankwithdraw", _prison_checked(bankwithdraw)))
+    app.add_handler(CommandHandler("bankbalance",  _prison_checked(bankbalance)))
+    app.add_handler(CommandHandler("bankloan",     _prison_checked(bankloan)))
+    app.add_handler(CommandHandler("bankrepay",    _prison_checked(bankrepay)))
+    app.add_handler(CommandHandler("bankloans",    _prison_checked(bankloans)))
+
+    # ── Investissements ───────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("market",    _prison_checked(market)))
+    app.add_handler(CommandHandler("buy",       _prison_checked(buy)))
+    app.add_handler(CommandHandler("sell",      _prison_checked(sell)))
+    app.add_handler(CommandHandler("portfolio", _prison_checked(portfolio)))
+
+    # ── Couple ────────────────────────────────────────────────────────────────
+
+    # ── Loterie ───────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("createloto",   _prison_checked(createloto)))
+    app.add_handler(CommandHandler("loto",         _prison_checked(loto)))
+    app.add_handler(CommandHandler("ticket",       _prison_checked(ticket)))
+    app.add_handler(CommandHandler("tirage",       _prison_checked(tirage)))
+    app.add_handler(CommandHandler("tirageforce",  _prison_checked(tirage_force)))
+    app.add_handler(CommandHandler("cancelloto",   _prison_checked(cancelloto)))
+
+    # ── Criminalité ───────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("rob",           _prison_checked(rob)))
+    app.add_handler(CommandHandler("police",        _prison_checked(police)))
+    app.add_handler(CommandHandler("bail",          bail))           # exempt : payer pour autrui
+    app.add_handler(CommandHandler("bail_judgment", bail_judgment))  # exempt : payer pour autrui
+    app.add_handler(CommandHandler("juge",          _prison_checked(juge)))
+    app.add_handler(CommandHandler("security",      _prison_checked(security)))
+
+    # ── Événements aléatoires ─────────────────────────────────────────────────
+    app.add_handler(CommandHandler("open", _prison_checked(open_chest_cmd)))
+    setup_random_events(app)
+
+    # ── Callbacks ─────────────────────────────────────────────────────────────
+    app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
+    app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
+    app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
+    app.add_handler(CallbackQueryHandler(juge_callback,     pattern=r"^juge:"))
+    app.add_handler(CallbackQueryHandler(security_callback, pattern=r"^sec:"))
+
+    # ── Jobs périodiques ──────────────────────────────────────────────────────
+    app.job_queue.run_daily(
+        check_anniversaries,
+        time=time(hour=8, minute=0),
+        name="anniversary_check",
+    )
+    # Intérêts bancaires : toutes les 6h
+    app.job_queue.run_repeating(
+        pay_interests,
+        interval=timedelta(hours=6),
+        first=timedelta(minutes=5),
+        name="bank_interests",
+    )
+    # Rappels remboursement : 2x par semaine (toutes les 84h)
+    app.job_queue.run_repeating(
+        remind_loans,
+        interval=timedelta(hours=84),
+        first=timedelta(minutes=10),
+        name="loan_reminders",
+    )
+
+    # ── Système de drainage de richesse ──────────────────────────────────────
+    app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
+    app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
+    app.add_handler(CommandHandler("braquage",        _prison_checked(braquage)))
+    app.add_handler(CommandHandler("annulerbraquage", _prison_checked(annulerbraquage)))
+    app.add_handler(CommandHandler("crash",   _prison_checked(crash_cmd)))
+    app.add_handler(CommandHandler("cashout", _prison_checked(cashout_cmd)))
+    app.add_handler(CommandHandler("mines",   _prison_checked(mines_cmd)))
+    app.add_handler(CommandHandler("roue",    _prison_checked(roue_cmd)))
+    app.add_handler(CallbackQueryHandler(mines_callback, pattern=r"^mines:"))
+    setup_drain_jobs(app)
+
+    # ── Loterie Bot ───────────────────────────────────────────────────────────
+    setup_lottery_jobs(app)
+
+    logger.info("Bot demarre.")
+    app.run_polling(drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    main()

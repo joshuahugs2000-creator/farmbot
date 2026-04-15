@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
-from database.db import AsyncSessionLocal, get_user
+from database.db import AsyncSessionLocal, get_user, deduct_for_game, add_coins_smart
 from utils.helpers import ensure_user, mention
 
 import sqlalchemy as sa
@@ -742,3 +742,159 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _add_coins(session, user.id, gain)
 
     await msg.edit_text(result_text, parse_mode=ParseMode.HTML)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REBET — Quitte ou double avec boutons Récupérer / Remiser
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Stockage en mémoire : rebet_sessions[chat_id][user_id] = {mise, gains, round}
+rebet_sessions: dict = {}
+
+MIN_REBET = 5000
+
+
+def _rebet_keyboard(chat_id: int, user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("💰 Récupérer", callback_data=f"rebet:cash:{chat_id}:{user_id}"),
+        InlineKeyboardButton("🎲 Remiser",   callback_data=f"rebet:double:{chat_id}:{user_id}"),
+    ]])
+
+
+def _rebet_text(first_name: str, mise_initiale: int, gains: int, round_num: int) -> str:
+    multiplier = gains / mise_initiale if mise_initiale else 1
+    return (
+        f"🎲 <b>REBET — {first_name}</b>\n\n"
+        f"🪙 Mise de départ : <b>{_fmt(mise_initiale)} $</b>\n"
+        f"📈 Multiplicateur : <b>x{multiplier:.1f}</b>\n"
+        f"💵 Gains actuels : <b>{_fmt(gains)} $</b>\n"
+        f"🔄 Tour n°{round_num}\n\n"
+        f"Que veux-tu faire ?"
+    )
+
+
+async def rebet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await ensure_user(user)
+
+    if not context.args:
+        return await update.message.reply_text(
+            f"Usage : <code>/rebet &lt;mise&gt;</code>\n"
+            f"Mise minimum : <b>{_fmt(MIN_REBET)} $</b>\n\n"
+            "🎲 Quitte ou double — récupère ou remise !",
+            parse_mode=ParseMode.HTML
+        )
+
+    try:
+        mise = int(context.args[0].replace(" ", "").replace("_", ""))
+    except ValueError:
+        return await update.message.reply_text("❌ Mise invalide.")
+
+    if mise < MIN_REBET:
+        return await update.message.reply_text(
+            f"❌ Mise minimum : <b>{_fmt(MIN_REBET)} $</b>", parse_mode=ParseMode.HTML
+        )
+
+    chat_id = update.effective_chat.id
+
+    async with AsyncSessionLocal() as session:
+        result = await deduct_for_game(session, user.id, mise)
+
+    if result == "insufficient":
+        async with AsyncSessionLocal() as session:
+            bal = await _get_balance(session, user.id)
+        return await update.message.reply_text(
+            f"❌ Solde insuffisant. Tu as <b>{_fmt(bal)} $</b>", parse_mode=ParseMode.HTML
+        )
+
+    # Initialiser la session
+    if chat_id not in rebet_sessions:
+        rebet_sessions[chat_id] = {}
+
+    rebet_sessions[chat_id][user.id] = {
+        "mise": mise,
+        "gains": mise,
+        "round": 1,
+        "first_name": user.first_name,
+    }
+
+    await update.message.reply_text(
+        _rebet_text(user.first_name, mise, mise, 1),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_rebet_keyboard(chat_id, user.id),
+    )
+
+
+async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.split(":")
+    # format : rebet:action:chat_id:user_id
+    if len(parts) != 4:
+        return
+
+    _, action, chat_id_str, user_id_str = parts
+    chat_id = int(chat_id_str)
+    user_id = int(user_id_str)
+
+    # Vérifier que c'est bien le bon joueur
+    if query.from_user.id != user_id:
+        return await query.answer("❌ Ce n'est pas ton jeu !", show_alert=True)
+
+    session_data = rebet_sessions.get(chat_id, {}).get(user_id)
+    if not session_data:
+        return await query.edit_message_text("⌛ Session expirée. Relance avec /rebet.")
+
+    if action == "cash":
+        # Le joueur récupère ses gains
+        gains = session_data["gains"]
+        mise  = session_data["mise"]
+        rnd   = session_data["round"]
+        del rebet_sessions[chat_id][user_id]
+
+        async with AsyncSessionLocal() as session:
+            await add_coins_smart(session, user_id, gains)
+
+        profit = gains - mise
+        sign   = f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit)
+        await query.edit_message_text(
+            f"💰 <b>Gains récupérés !</b>\n\n"
+            f"🪙 Mise de départ : <b>{_fmt(mise)} $</b>\n"
+            f"✅ Gains encaissés : <b>{_fmt(gains)} $</b>\n"
+            f"📊 Profit net : <b>{sign} $</b>\n"
+            f"🔄 Tours joués : <b>{rnd}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif action == "double":
+        # Quitte ou double !
+        win = random.random() < 0.5
+
+        if win:
+            session_data["gains"] *= 2
+            session_data["round"] += 1
+            mise  = session_data["mise"]
+            gains = session_data["gains"]
+            rnd   = session_data["round"]
+
+            await query.edit_message_text(
+                f"✅ <b>Gagné !</b> Tes gains doublent !\n\n"
+                + _rebet_text(session_data["first_name"], mise, gains, rnd),
+                parse_mode=ParseMode.HTML,
+                reply_markup=_rebet_keyboard(chat_id, user_id),
+            )
+        else:
+            # Perdu — tout est perdu
+            mise = session_data["mise"]
+            rnd  = session_data["round"]
+            del rebet_sessions[chat_id][user_id]
+
+            await query.edit_message_text(
+                f"💥 <b>PERDU !</b>\n\n"
+                f"🪙 Mise de départ : <b>{_fmt(mise)} $</b>\n"
+                f"❌ Tu perds tout !\n"
+                f"🔄 Tours joués : <b>{rnd}</b>\n\n"
+                f"<i>Trop gourmand... 😅</i>",
+                parse_mode=ParseMode.HTML,
+            )

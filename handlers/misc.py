@@ -21,7 +21,6 @@ HELP_TEXT = """
 
 <b>🌲 Arbre</b>
 /tree — Ton arbre genealogique
-/bigtree — Arbre du groupe
 
 <b>🌱 Jardin</b>
 /garden — Voir ton jardin
@@ -45,18 +44,17 @@ HELP_TEXT = """
 /blackjack mise — Blackjack vs bot
 /roulette mise choix — Roulette
 /slots mise — Machine a sous
-/des 1-10 — Mise 100 000 $, devine le de → 15 000 000 $
+/des 1-21 — Devine le de → 10 000 000 $
 
+<b>🛍 Boutique & Objets</b>
 /shop — Boutique luxe (voiture, villa, yacht, jet...)
-/acheter <id> — Acheter un objet
+/acheter id — Acheter un objet
 /inventaire — Voir ses objets
-/revendre <id> @joueur <prix> — Revendre entre joueurs
-/impots — Voir son taux d'imposition (prelevé chaque jour)
-/alarme <1-3> — Installer une protection contre les cambrioleurs
 /cambrioler @joueur — Tenter de voler un objet
 /braquage [mise] — Braquage collectif de banque (2-6 joueurs)
-/rebet mise — Pari quitte ou double (max 100 000 $, gains illimites)
-/bet mise description — Proposer un pari
+
+<b>💸 Paris</b>
+/rebet mise — Pari quitte ou double (max 100 000 $)
 
 <b>🎟 Loterie</b>
 /createloto prix — Lancer une loterie privee (min 1 000 $)
@@ -74,7 +72,7 @@ HELP_TEXT = """
 /bankbalance — Voir son solde bancaire
 /bankloan montant — Prendre un pret
 /bankrepay montant — Rembourser un pret
-/bankloans — Voir ses prets
+/bankloans — Voir ses prets actifs
 
 <b>📈 Investissements</b>
 /market — Voir le marche
@@ -82,11 +80,8 @@ HELP_TEXT = """
 /sell actif quantite — Vendre des actions
 /portfolio — Voir son portefeuille
 
-<b>💑 Compte commun (couple)</b>
-/couple create — Creer le compte commun
-/couple balance — Voir le solde commun
-/couple deposit montant — Deposer depuis ton compte perso
-/couple withdraw montant — Retirer vers ton compte perso
+<b>💰 Impots</b>
+/impots — Voir son taux d'imposition (preleve chaque jour)
 
 <b>⛓️ Criminalite</b>
 /rob @pseudo — Voler un joueur

@@ -30,7 +30,6 @@ from handlers.economy  import (
 )
 from handlers.games import (
     crash_cmd, crash_callback,
-    mines_cmd, mines_callback,
     apple_cmd, apple_callback,
     roue_cmd,
 )
@@ -233,13 +232,11 @@ def main():
 
     # ── Jeux ─────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("crash",  _prison_checked(crash_cmd)))
-    app.add_handler(CommandHandler("mines",  _prison_checked(mines_cmd)))
     app.add_handler(CommandHandler("apple",  _prison_checked(apple_cmd)))
     app.add_handler(CommandHandler("roue",   _prison_checked(roue_cmd)))
 
     # Callbacks jeux (inline buttons)
     app.add_handler(CallbackQueryHandler(crash_callback,  pattern=r"^crash:"))
-    app.add_handler(CallbackQueryHandler(mines_callback,  pattern=r"^mines:"))
     app.add_handler(CallbackQueryHandler(apple_callback,  pattern=r"^apple:"))
 
     # ── Admin (jamais bloqués) ────────────────────────────────────────────────

@@ -185,6 +185,7 @@ async def crash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "current_mult": 1.0,
         "first_name":   user.first_name,
         "mention":      mention(user),
+        "lock":         asyncio.Lock(),
     }
 
     # Premier joueur → lancer le lobby
@@ -315,19 +316,21 @@ async def crash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     d = players[user.id]
 
-    if d["cashed_out"]:
-        return await query.answer("⚠️ Tu as déjà encaissé !", show_alert=True)
-
     if crash_phase.get(chat_id) != "running":
         return await query.answer("⚠️ La partie n'est pas encore lancée.", show_alert=True)
 
-    # Encaisser au multiplicateur courant
-    mult   = d["current_mult"]
+    # Verrou par joueur — empêche le double cash out en cas de clics simultanés
+    async with d["lock"]:
+        if d["cashed_out"]:
+            return await query.answer("⚠️ Tu as déjà encaissé !", show_alert=True)
+
+        # Marquer ET capturer le multiplicateur AVANT tout await
+        d["cashed_out"]   = True
+        d["cashout_mult"] = d["current_mult"]
+
+    mult   = d["cashout_mult"]
     gain   = int(d["mise"] * mult)
     profit = gain - d["mise"]
-
-    d["cashed_out"]   = True
-    d["cashout_mult"] = mult
 
     async with AsyncSessionLocal() as session:
         await _add_coins(session, user.id, gain)
@@ -663,6 +666,7 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "row_revealed": [False] * APPLE_COLS,
         "passed_one":  False,
         "chat_id":     update.effective_chat.id,
+        "lock":        asyncio.Lock(),
     }
 
     sess     = apple_sessions[user.id]
@@ -714,54 +718,64 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Choisir une case ─────────────────────────────────────────────────────
     if action == "pick":
         idx = int(parts[2])
-        if sess["row_revealed"][idx]:
-            return
 
-        sess["row_revealed"][idx] = True
+        # Verrou par session — empêche de cliquer plusieurs cases simultanément
+        async with sess["lock"]:
+            if sess["row_revealed"][idx]:
+                return  # case déjà traitée (double clic ou clic parallèle)
 
-        # 💣 BOMBE
-        if sess["row_bombs"][idx]:
-            # Révéler toutes les bombes de la rangée
-            for i, is_bomb in enumerate(sess["row_bombs"]):
-                if is_bomb:
-                    sess["row_revealed"][i] = True
-            # Afficher la rangée finale avec bombes visibles
-            keyboard = _apple_keyboard(sess)
-            del apple_sessions[user.id]
-            await query.edit_message_text(
-                f"💥 <b>BOOM ! Pomme empoisonnée !</b>\n\n"
-                f"Niveau {sess['level']} — Tu as perdu <b>{_fmt(sess['mise'])} $</b> 💸\n\n"
-                "Retente ta chance avec /apple",
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard
-            )
-            return
+            # Vérifier qu'une case n'a pas déjà été résolue sur cette ligne
+            # (si le niveau a changé entre le clic et le traitement)
+            if any(sess["row_revealed"]):
+                # Une case a déjà été jouée sur cette rangée, on ignore
+                return
 
-        # 🍎 BONNE POMME — niveau passé
-        current_level = sess["level"]
-        mult          = APPLE_MULTS[current_level]
-        gain_now      = int(sess["mise"] * mult)
+            sess["row_revealed"][idx] = True
 
-        # Niveau MAX atteint → victoire automatique
-        if current_level == APPLE_LEVELS:
-            async with AsyncSessionLocal() as session:
-                await _add_coins(session, user.id, gain_now)
-            del apple_sessions[user.id]
-            await query.edit_message_text(
-                f"🏆 <b>VICTOIRE TOTALE !</b>\n\n"
-                f"Tu as gravi les {APPLE_LEVELS} niveaux !\n"
-                f"x{mult:.2f}  →  <b>{_fmt(gain_now)} $</b> 🎉",
-                parse_mode=ParseMode.HTML
-            )
-            return
+            # 💣 BOMBE
+            if sess["row_bombs"][idx]:
+                # Révéler toutes les bombes de la rangée
+                for i, is_bomb in enumerate(sess["row_bombs"]):
+                    if is_bomb:
+                        sess["row_revealed"][i] = True
+                # Afficher la rangée finale avec bombes visibles
+                keyboard = _apple_keyboard(sess)
+                del apple_sessions[user.id]
+                await query.edit_message_text(
+                    f"💥 <b>BOOM ! Pomme empoisonnée !</b>\n\n"
+                    f"Niveau {sess['level']} — Tu as perdu <b>{_fmt(sess['mise'])} $</b> 💸\n\n"
+                    "Retente ta chance avec /apple",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=keyboard
+                )
+                return
 
-        # Passer au niveau suivant
-        next_level = current_level + 1
-        sess["level"]        = next_level
-        sess["row_bombs"]    = _apple_gen_row(next_level)
-        sess["row_revealed"] = [False] * APPLE_COLS
-        sess["passed_one"]   = True
+            # 🍎 BONNE POMME — niveau passé
+            current_level = sess["level"]
+            mult          = APPLE_MULTS[current_level]
+            gain_now      = int(sess["mise"] * mult)
 
+            # Niveau MAX atteint → victoire automatique
+            if current_level == APPLE_LEVELS:
+                async with AsyncSessionLocal() as session:
+                    await _add_coins(session, user.id, gain_now)
+                del apple_sessions[user.id]
+                await query.edit_message_text(
+                    f"🏆 <b>VICTOIRE TOTALE !</b>\n\n"
+                    f"Tu as gravi les {APPLE_LEVELS} niveaux !\n"
+                    f"x{mult:.2f}  →  <b>{_fmt(gain_now)} $</b> 🎉",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+
+            # Passer au niveau suivant
+            next_level = current_level + 1
+            sess["level"]        = next_level
+            sess["row_bombs"]    = _apple_gen_row(next_level)
+            sess["row_revealed"] = [False] * APPLE_COLS
+            sess["passed_one"]   = True
+
+        # Edit du message EN DEHORS du lock (await ne bloque plus la session)
         keyboard = _apple_keyboard(sess)
         await query.edit_message_text(
             f"✅ <b>Bonne pomme !</b>  Niveau {current_level} passé — x{mult:.2f}\n\n"

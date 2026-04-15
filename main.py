@@ -26,7 +26,12 @@ from handlers.events   import check_anniversaries
 from handlers.events_random import setup_random_events, open_chest_cmd
 from handlers.economy  import (
     acc, daily, work, pay, richlist,
-    blackjack, roulette, slots, des,
+    blackjack, roulette, slots,
+)
+from handlers.games import (
+    crash_cmd, cashout_cmd,
+    mines_cmd, mines_callback,
+    roue_cmd,
 )
 from handlers.admin    import (
     adminhelp, give, take, setcoins, userinfo,
@@ -38,7 +43,7 @@ from handlers.admin    import (
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
     bankbalance, bankloan, bankrepay, bankloans,
-    pay_interests,
+    pay_interests, remind_loans,
 )
 from handlers.invest   import market, buy, sell, portfolio
 from handlers.lottery  import (
@@ -52,7 +57,6 @@ from handlers.crime    import (
     _is_in_prison, _get_prison, _fmt,
 )
 from handlers.wealth_drain import (
-    shop, acheter, inventaire,
     impots, cambrioler, braquage, annulerbraquage,
     init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
 )
@@ -247,7 +251,6 @@ def main():
     app.add_handler(CommandHandler("blackjack",  _prison_checked(blackjack)))
     app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
     app.add_handler(CommandHandler("slots",      _prison_checked(slots)))
-    app.add_handler(CommandHandler("des",        _prison_checked(des)))
 
     # ── Admin (jamais bloqués) ────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",    adminhelp))
@@ -326,16 +329,24 @@ def main():
         first=timedelta(minutes=5),
         name="bank_interests",
     )
-
+    # Rappels remboursement : 2x par semaine (toutes les 84h)
+    app.job_queue.run_repeating(
+        remind_loans,
+        interval=timedelta(hours=84),
+        first=timedelta(minutes=10),
+        name="loan_reminders",
+    )
 
     # ── Système de drainage de richesse ──────────────────────────────────────
-    app.add_handler(CommandHandler("shop",            _prison_checked(shop)))
-    app.add_handler(CommandHandler("acheter",         _prison_checked(acheter)))
-    app.add_handler(CommandHandler("inventaire",      _prison_checked(inventaire)))
     app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
     app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
     app.add_handler(CommandHandler("braquage",        _prison_checked(braquage)))
     app.add_handler(CommandHandler("annulerbraquage", _prison_checked(annulerbraquage)))
+    app.add_handler(CommandHandler("crash",   _prison_checked(crash_cmd)))
+    app.add_handler(CommandHandler("cashout", _prison_checked(cashout_cmd)))
+    app.add_handler(CommandHandler("mines",   _prison_checked(mines_cmd)))
+    app.add_handler(CommandHandler("roue",    _prison_checked(roue_cmd)))
+    app.add_handler(CallbackQueryHandler(mines_callback, pattern=r"^mines:"))
     setup_drain_jobs(app)
 
     # ── Loterie Bot ───────────────────────────────────────────────────────────

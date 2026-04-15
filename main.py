@@ -19,7 +19,7 @@ from handlers.family   import (
     setfamilyname, leave, familyphoto,
     request_callback, leave_callback,
 )
-from handlers.tree     import tree, bigtree
+from handlers.tree     import tree
 from handlers.garden   import garden, plant_cmd, harvest
 from handlers.profile  import me, setpic, customize, color_callback, titles
 from handlers.events   import check_anniversaries
@@ -28,7 +28,6 @@ from handlers.economy  import (
     acc, daily, work, pay, richlist,
     blackjack, roulette, slots, des,
 )
-from handlers.race_bet import bet, race_bet_callback
 from handlers.admin    import (
     adminhelp, give, take, setcoins, userinfo,
     ban, unban, resetuser,
@@ -42,21 +41,19 @@ from handlers.bank     import (
     pay_interests, remind_loans,
 )
 from handlers.invest   import market, buy, sell, portfolio
-from handlers.couple   import couple
 from handlers.lottery  import (
     createloto, loto, ticket, tirage, tirage_force, cancelloto,
     setup_lottery_jobs,
 )
 from handlers.crime    import (
     rob, police, bail, bail_judgment, juge, juge_callback,
-    rebet, rebet_callback,
     security, security_callback,
     init_crime_tables,
     _is_in_prison, _get_prison, _fmt,
 )
 from handlers.wealth_drain import (
-    shop, acheter, inventaire, revendre, acceptrevente,
-    impots, alarme, cambrioler, braquage, annulerbraquage,
+    shop, acheter, inventaire,
+    impots, cambrioler, braquage, annulerbraquage,
     init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
 )
 from database.db import AsyncSessionLocal
@@ -229,7 +226,6 @@ def main():
 
     # ── Arbre ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("tree",    _prison_checked(tree)))
-    app.add_handler(CommandHandler("bigtree", _prison_checked(bigtree)))
 
     # ── Jardin ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("garden",  _prison_checked(garden)))
@@ -252,7 +248,6 @@ def main():
     app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
     app.add_handler(CommandHandler("slots",      _prison_checked(slots)))
     app.add_handler(CommandHandler("des",        _prison_checked(des)))
-    app.add_handler(CommandHandler("bet",        _prison_checked(bet)))
 
     # ── Admin (jamais bloqués) ────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",    adminhelp))
@@ -290,7 +285,6 @@ def main():
     app.add_handler(CommandHandler("portfolio", _prison_checked(portfolio)))
 
     # ── Couple ────────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("couple",    _prison_checked(couple)))
 
     # ── Loterie ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("createloto",   _prison_checked(createloto)))
@@ -306,7 +300,6 @@ def main():
     app.add_handler(CommandHandler("bail",          bail))           # exempt : payer pour autrui
     app.add_handler(CommandHandler("bail_judgment", bail_judgment))  # exempt : payer pour autrui
     app.add_handler(CommandHandler("juge",          _prison_checked(juge)))
-    app.add_handler(CommandHandler("rebet",         _prison_checked(rebet)))
     app.add_handler(CommandHandler("security",      _prison_checked(security)))
 
     # ── Événements aléatoires ─────────────────────────────────────────────────
@@ -317,9 +310,7 @@ def main():
     app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
-    app.add_handler(CallbackQueryHandler(race_bet_callback, pattern=r"^rb:"))
     app.add_handler(CallbackQueryHandler(juge_callback,     pattern=r"^juge:"))
-    app.add_handler(CallbackQueryHandler(rebet_callback,    pattern=r"^rebet:"))
     app.add_handler(CallbackQueryHandler(security_callback, pattern=r"^sec:"))
 
     # ── Jobs périodiques ──────────────────────────────────────────────────────
@@ -347,10 +338,7 @@ def main():
     app.add_handler(CommandHandler("shop",            _prison_checked(shop)))
     app.add_handler(CommandHandler("acheter",         _prison_checked(acheter)))
     app.add_handler(CommandHandler("inventaire",      _prison_checked(inventaire)))
-    app.add_handler(CommandHandler("revendre",        _prison_checked(revendre)))
-    app.add_handler(CommandHandler("acceptrevente",   _prison_checked(acceptrevente)))
     app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
-    app.add_handler(CommandHandler("alarme",          _prison_checked(alarme)))
     app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
     app.add_handler(CommandHandler("braquage",        _prison_checked(braquage)))
     app.add_handler(CommandHandler("annulerbraquage", _prison_checked(annulerbraquage)))

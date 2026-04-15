@@ -66,37 +66,3 @@ async def tree(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo=io.BytesIO(img_bytes),
         caption=f"Arbre de {tg_user.first_name}",
     )
-
-
-async def bigtree(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Affiche tous les membres du groupe sous forme de texte."""
-    if update.effective_chat.type not in ("group", "supergroup"):
-        return await update.message.reply_text("❗ Commande de groupe uniquement.")
-
-    async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
-        from database.models import Relationship, User
-        r    = await session.execute(select(Relationship).where(
-            Relationship.group_id == update.effective_chat.id
-        ))
-        rels = list(r.scalars().all())
-
-        seen  = set()
-        lines = ["<b>Arbre du groupe</b>\n"]
-        for rel in rels:
-            pair = tuple(sorted([rel.user_id, rel.related_user_id]))
-            if pair in seen:
-                continue
-            seen.add(pair)
-            u1 = await get_user(session, rel.user_id)
-            u2 = await get_user(session, rel.related_user_id)
-            n1 = u1.first_name if u1 else str(rel.user_id)
-            n2 = u2.first_name if u2 else str(rel.related_user_id)
-            emoji = {"spouse": "💍", "parent": "👨‍👦", "friend": "🤝"}.get(rel.relation_type.value, "•")
-            lines.append(f"{emoji} {n1} ↔ {n2}")
-
-        if len(lines) == 1:
-            lines.append("Aucune relation enregistrée dans ce groupe.")
-
-    from telegram.constants import ParseMode
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

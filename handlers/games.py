@@ -666,6 +666,7 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "level":       1,
         "row_bombs":   _apple_gen_row(1),
         "row_revealed": [False] * APPLE_COLS,
+        "row_picked":  False,   # True dès qu'une case a été jouée sur la ligne courante
         "passed_one":  False,
         "chat_id":     update.effective_chat.id,
         "lock":        asyncio.Lock(),
@@ -727,11 +728,17 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if btn_level != sess["level"]:
             return  # bouton périmé d'un niveau précédent
 
+        # Vérification rapide AVANT le lock — si une case est déjà choisie, on ignore
+        if sess["row_picked"]:
+            return
+
         # Verrou par session — empêche les clics simultanés sur la même ligne
         async with sess["lock"]:
-            if any(sess["row_revealed"]):
+            # Re-vérifier à l'intérieur du lock (double-check pattern)
+            if sess["row_picked"]:
                 return  # une case a déjà été jouée sur cette ligne
 
+            sess["row_picked"]        = True   # bloquer tout clic suivant immédiatement
             sess["row_revealed"][idx] = True
 
             # 💣 BOMBE
@@ -775,6 +782,7 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sess["level"]        = next_level
             sess["row_bombs"]    = _apple_gen_row(next_level)
             sess["row_revealed"] = [False] * APPLE_COLS
+            sess["row_picked"]   = False   # réinitialiser pour la nouvelle ligne
             sess["passed_one"]   = True
 
         # Edit du message EN DEHORS du lock (await ne bloque plus la session)

@@ -543,3 +543,49 @@ async def pay_interests(context):
         await session.commit()
 
     logger.info(f"[BANK] Intérêts versés : {paid_count} comptes, {total_paid:,} $ au total.")
+
+
+# ─── Job : rappels de remboursement (2x par semaine) ─────────────────────────
+
+async def remind_loans(context):
+    """Toutes les 84h : envoie un rappel aux utilisateurs ayant un prêt actif."""
+    now = datetime.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Loan).where(Loan.status == "active")
+        )
+        loans = result.scalars().all()
+
+    for loan in loans:
+        b             = BANKS.get(loan.bank_id, {})
+        overdue       = now > loan.due_at
+        jours_restants = max(0, (loan.due_at - now).days)
+
+        if overdue:
+            texte = (
+                f"⚠️ <b>PRÊT EN RETARD !</b>\n\n"
+                f"Tu as un prêt en retard à la <b>{b.get('name', loan.bank_id)}</b> !\n"
+                f"💸 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n\n"
+                f"Des pénalités de 5% sont appliquées à chaque cycle. "
+                f"Rembourse vite avec /bankrepay {loan.bank_id} [montant] !"
+            )
+        else:
+            texte = (
+                f"🔔 <b>Rappel de prêt</b>\n\n"
+                f"Tu as un prêt actif à la <b>{b.get('name', loan.bank_id)}</b>.\n"
+                f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n"
+                f"📅 Date limite dans : <b>{jours_restants} jour(s)</b>\n\n"
+                f"Utilise /bankrepay {loan.bank_id} [montant] pour rembourser."
+            )
+
+        try:
+            await context.bot.send_message(
+                chat_id=loan.user_id,
+                text=texte,
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.warning(f"[BANK] Impossible d'envoyer le rappel à {loan.user_id} : {e}")
+
+    logger.info(f"[BANK] Rappels de prêt envoyés : {len(loans)} utilisateur(s) notifié(s).")

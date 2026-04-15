@@ -7,12 +7,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def mention(user: User) -> str:
-    """Retourne un lien mention HTML."""
-    name = user.first_name
-    if user.family_name:
+def mention(user) -> str:
+    """Retourne un lien mention HTML. Compatible DB User et Telegram User."""
+    name = user.first_name or "Joueur"
+    # DB User -> family_name ; Telegram User -> last_name
+    if hasattr(user, "family_name") and user.family_name:
         name += f" {user.family_name}"
-    return f'<a href="tg://user?id={user.user_id}">{name}</a>'
+    elif hasattr(user, "last_name") and user.last_name:
+        name += f" {user.last_name}"
+    # DB User -> user_id ; Telegram User -> id
+    uid = getattr(user, "user_id", None) or getattr(user, "id", 0)
+    return f'<a href="tg://user?id={uid}">{name}</a>'
 
 def mention_tg(tg_user: TGUser) -> str:
     return f'<a href="tg://user?id={tg_user.id}">{tg_user.first_name}</a>'

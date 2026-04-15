@@ -44,12 +44,12 @@ HELP_TEXT = """
 /blackjack mise — Blackjack vs bot
 /roulette mise choix — Roulette
 /slots mise — Machine a sous
+/des10000 — Lancer les des (10 essais/jour, gagner 10 000 000 $)
 
 <b>🎮 Jeux</b>
 /crash mise — Mise sur un multiplicateur qui monte... jusqu'au crash !
-/cashout — Encaisser pendant un Crash
-/mines mise — Grille 5x5, evite les mines !
-/roue mise — Roue de Fortune (de x0 a x10 !)
+/apple mise — Apple of Fortune : 10 niveaux, evite les pommes rouges ! (50K - 5M)
+/roue mise — Roue de Fortune : argent, multiplicateurs, surprises !
 
 <b>💸 Braquage</b>
 /cambrioler @joueur — Tenter de voler un joueur

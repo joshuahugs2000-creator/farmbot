@@ -569,26 +569,22 @@ def _apple_gen_row(level: int) -> list:
 
 
 def _apple_keyboard(session: dict) -> InlineKeyboardMarkup:
-    """Clavier de la rangée courante."""
+    """Clavier de la rangée courante.
+    Le niveau est inclus dans callback_data pour invalider automatiquement
+    tous les boutons des niveaux précédents encore présents dans Telegram.
+    """
     level    = session["level"]
     revealed = session["row_revealed"]
     row      = session["row_bombs"]
-    n_bombs  = _apple_bombs(level)
-    safe     = APPLE_COLS - n_bombs
-
-    # Si une case a déjà été jouée sur cette ligne, bloquer toutes les autres
-    line_played = any(revealed)
 
     buttons = []
     for i in range(APPLE_COLS):
         if revealed[i]:
             label = "💣" if row[i] else "🍎"
-            buttons.append(InlineKeyboardButton(label, callback_data=f"apple:done:{i}"))
-        elif line_played:
-            # Case non révélée mais ligne déjà jouée → inactive (⬛ non cliquable)
-            buttons.append(InlineKeyboardButton("⬛", callback_data=f"apple:done:{i}"))
+            buttons.append(InlineKeyboardButton(label, callback_data=f"apple:done:{level}:{i}"))
         else:
-            buttons.append(InlineKeyboardButton("🍏", callback_data=f"apple:pick:{i}"))
+            # apple:pick:NIVEAU:IDX — si le niveau a changé, ce callback sera ignoré
+            buttons.append(InlineKeyboardButton("🍏", callback_data=f"apple:pick:{level}:{i}"))
 
     rows = [buttons]
 
@@ -723,18 +719,18 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Choisir une case ─────────────────────────────────────────────────────
     if action == "pick":
-        idx = int(parts[2])
+        # Format : apple:pick:NIVEAU:IDX
+        # Si le niveau dans le callback != niveau actuel → bouton d'un ancien niveau, ignorer
+        btn_level = int(parts[2])
+        idx       = int(parts[3])
 
-        # Verrou par session — empêche de cliquer plusieurs cases simultanément
+        if btn_level != sess["level"]:
+            return  # bouton périmé d'un niveau précédent
+
+        # Verrou par session — empêche les clics simultanés sur la même ligne
         async with sess["lock"]:
-            if sess["row_revealed"][idx]:
-                return  # case déjà traitée (double clic ou clic parallèle)
-
-            # Vérifier qu'une case n'a pas déjà été résolue sur cette ligne
-            # (si le niveau a changé entre le clic et le traitement)
             if any(sess["row_revealed"]):
-                # Une case a déjà été jouée sur cette rangée, on ignore
-                return
+                return  # une case a déjà été jouée sur cette ligne
 
             sess["row_revealed"][idx] = True
 

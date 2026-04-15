@@ -576,11 +576,17 @@ def _apple_keyboard(session: dict) -> InlineKeyboardMarkup:
     n_bombs  = _apple_bombs(level)
     safe     = APPLE_COLS - n_bombs
 
+    # Si une case a déjà été jouée sur cette ligne, bloquer toutes les autres
+    line_played = any(revealed)
+
     buttons = []
     for i in range(APPLE_COLS):
         if revealed[i]:
             label = "💣" if row[i] else "🍎"
             buttons.append(InlineKeyboardButton(label, callback_data=f"apple:done:{i}"))
+        elif line_played:
+            # Case non révélée mais ligne déjà jouée → inactive (⬛ non cliquable)
+            buttons.append(InlineKeyboardButton("⬛", callback_data=f"apple:done:{i}"))
         else:
             buttons.append(InlineKeyboardButton("🍏", callback_data=f"apple:pick:{i}"))
 

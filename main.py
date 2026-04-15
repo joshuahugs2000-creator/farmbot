@@ -34,7 +34,7 @@ from handlers.admin    import (
     ban, unban, resetuser,
     adminadd, adminremove, adminlist, broadcast,
     liberer, prisonlist, emprisonner,
-    is_admin,
+    is_admin, pause, resume,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -80,6 +80,7 @@ PRISON_EXEMPT_COMMANDS = {
     "adminhelp", "give", "take", "setcoins", "userinfo",
     "ban", "unban", "resetuser", "adminadd", "adminremove",
     "adminlist", "broadcast", "liberer", "prisonlist", "emprisonner",
+    "pause", "resume",
 }
 
 
@@ -177,11 +178,22 @@ async def error_handler(update: object, context):
 
 def _prison_checked(handler_func):
     """
-    Décorateur qui vérifie la prison avant d'exécuter un handler de commande.
+    Décorateur qui vérifie la pause + la prison avant d'exécuter un handler de commande.
     """
     async def wrapper(update: Update, context):
+        # ── Vérification pause ──
+        import handlers.admin as _admin_mod
+        if _admin_mod.BOT_PAUSED:
+            if not await is_admin(update.effective_user.id):
+                await update.message.reply_text(
+                    "⏸️ <b>Le bot est actuellement en pause.</b>\n"
+                    "Revenez plus tard !",
+                    parse_mode="HTML",
+                )
+                return
+        # ── Vérification prison ──
         if await prison_middleware(update, context):
-            return  # Bloqué par la prison
+            return
         return await handler_func(update, context)
     wrapper.__name__ = handler_func.__name__
     return wrapper
@@ -258,6 +270,8 @@ def main():
     app.add_handler(CommandHandler("liberer",        liberer))
     app.add_handler(CommandHandler("prisonlist",     prisonlist))
     app.add_handler(CommandHandler("emprisonner",    emprisonner))
+    app.add_handler(CommandHandler("pause",          pause))
+    app.add_handler(CommandHandler("resume",         resume))
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))

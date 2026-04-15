@@ -417,15 +417,19 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── /des ─────────────────────────────────────────────────────────────────────
 
-DES_MISE    = 50_000
-DES_GAIN    = 10_000_000
-DES_FACES   = {
+DES_MISE       = 50_000
+DES_GAIN       = 10_000_000
+DES_MAX_TRIES  = 10          # essais maximum par jour
+DES_FACES      = {
     1: "1️⃣",  2: "2️⃣",  3: "3️⃣",  4: "4️⃣",  5: "5️⃣",
     6: "6️⃣",  7: "7️⃣",  8: "8️⃣",  9: "9️⃣",  10: "🔟",
     11: "1️⃣1️⃣", 12: "1️⃣2️⃣", 13: "1️⃣3️⃣", 14: "1️⃣4️⃣", 15: "1️⃣5️⃣",
     16: "1️⃣6️⃣", 17: "1️⃣7️⃣", 18: "1️⃣8️⃣", 19: "1️⃣9️⃣", 20: "2️⃣0️⃣",
     21: "2️⃣1️⃣",
 }
+
+# Compteur quotidien : { user_id: {"date": date, "count": int} }
+_des_daily: dict = {}
 
 async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -434,12 +438,23 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player_tg = update.effective_user
     await ensure_user(player_tg)
 
+    # ── Limite quotidienne ─────────────────────────────────────────────────────
+    from datetime import date as _date
+    today = _date.today()
+    rec   = _des_daily.get(player_tg.id)
+    if rec and rec["date"] == today:
+        tries_left = DES_MAX_TRIES - rec["count"]
+    else:
+        tries_left = DES_MAX_TRIES
+
     # Vérifier l'argument
     if not context.args:
         await update.message.reply_text(
             f"🎲 <b>JEU DU DÉ</b>\n\n"
             f"Mise fixe : <b>{_fmt(DES_MISE)} 💰</b>\n"
             f"Si tu trouves le bon nombre (1 à 21) → <b>{_fmt(DES_GAIN)} 💰</b> !\n\n"
+            f"⚠️ Limite : <b>{DES_MAX_TRIES} essais par jour</b>\n"
+            f"Essais restants aujourd'hui : <b>{tries_left}</b>\n\n"
             f"Usage : <code>/des 14</code>",
             parse_mode=ParseMode.HTML
         )
@@ -469,6 +484,23 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Vérifier la limite quotidienne
+        if tries_left <= 0:
+            await update.message.reply_text(
+                f"⛔ Tu as atteint ta limite de <b>{DES_MAX_TRIES} essais</b> pour aujourd'hui !\n"
+                f"Reviens demain pour rejouer. 🎲",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        # Incrémenter le compteur
+        from datetime import date as _date
+        today2 = _date.today()
+        if player_tg.id not in _des_daily or _des_daily[player_tg.id]["date"] != today2:
+            _des_daily[player_tg.id] = {"date": today2, "count": 0}
+        _des_daily[player_tg.id]["count"] += 1
+        tries_after = DES_MAX_TRIES - _des_daily[player_tg.id]["count"]
+
         # Déduire la mise
         player.coins -= DES_MISE
         await session.commit()
@@ -487,7 +519,8 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Ton choix   : {face_choix} <b>{choix}</b>\n"
                 f"Résultat    : {face_resultat} <b>{resultat}</b>\n\n"
                 f"🏆 <b>JACKPOT ! TU AS TROUVÉ !</b>\n"
-                f"💰 <b>+{_fmt(DES_GAIN)} 💰</b> crédités !",
+                f"💰 <b>+{_fmt(DES_GAIN)} 💰</b> crédités !\n\n"
+                f"🎲 Essais restants aujourd'hui : <b>{tries_after}/{DES_MAX_TRIES}</b>",
                 parse_mode=ParseMode.HTML
             )
         else:
@@ -495,6 +528,7 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎲 <b>JEU DU DÉ</b>\n\n"
                 f"Ton choix   : {face_choix} <b>{choix}</b>\n"
                 f"Résultat    : {face_resultat} <b>{resultat}</b>\n\n"
-                f"❌ <b>PERDU !</b> -{_fmt(DES_MISE)} 💰",
+                f"❌ <b>PERDU !</b> -{_fmt(DES_MISE)} 💰\n\n"
+                f"🎲 Essais restants aujourd'hui : <b>{tries_after}/{DES_MAX_TRIES}</b>",
                 parse_mode=ParseMode.HTML
             )

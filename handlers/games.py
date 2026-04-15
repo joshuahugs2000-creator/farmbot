@@ -754,20 +754,23 @@ rebet_sessions: dict = {}
 MIN_REBET = 5000
 
 
-def _rebet_keyboard(chat_id: int, user_id: int) -> InlineKeyboardMarkup:
+def _rebet_keyboard(chat_id: int, user_id: int, gains: int) -> InlineKeyboardMarkup:
+    next_win = gains * 2
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("💰 Récupérer", callback_data=f"rebet:cash:{chat_id}:{user_id}"),
-        InlineKeyboardButton("🎲 Remiser",   callback_data=f"rebet:double:{chat_id}:{user_id}"),
+        InlineKeyboardButton(f"💰 Récupérer {_fmt(gains)} $", callback_data=f"rebet:cash:{chat_id}:{user_id}"),
+        InlineKeyboardButton(f"🎲 Remiser → {_fmt(next_win)} $", callback_data=f"rebet:double:{chat_id}:{user_id}"),
     ]])
 
 
 def _rebet_text(first_name: str, mise_initiale: int, gains: int, round_num: int) -> str:
     multiplier = gains / mise_initiale if mise_initiale else 1
+    next_win = gains * 2
     return (
         f"🎲 <b>REBET — {first_name}</b>\n\n"
         f"🪙 Mise de départ : <b>{_fmt(mise_initiale)} $</b>\n"
         f"📈 Multiplicateur : <b>x{multiplier:.1f}</b>\n"
         f"💵 Gains actuels : <b>{_fmt(gains)} $</b>\n"
+        f"⚡ Prochain gain : <b>{_fmt(next_win)} $</b>\n"
         f"🔄 Tour n°{round_num}\n\n"
         f"Que veux-tu faire ?"
     )
@@ -821,7 +824,7 @@ async def rebet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         _rebet_text(user.first_name, mise, mise, 1),
         parse_mode=ParseMode.HTML,
-        reply_markup=_rebet_keyboard(chat_id, user.id),
+        reply_markup=_rebet_keyboard(chat_id, user.id, mise),
     )
 
 
@@ -882,7 +885,7 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ <b>Gagné !</b> Tes gains doublent !\n\n"
                 + _rebet_text(session_data["first_name"], mise, gains, rnd),
                 parse_mode=ParseMode.HTML,
-                reply_markup=_rebet_keyboard(chat_id, user_id),
+                reply_markup=_rebet_keyboard(chat_id, user_id, gains),
             )
         else:
             # Perdu — tout est perdu

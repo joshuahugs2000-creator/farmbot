@@ -44,17 +44,16 @@ HELP_TEXT = """
 /blackjack mise — Blackjack vs bot
 /roulette mise choix — Roulette
 /slots mise — Machine a sous
-/des 1-21 — Devine le de → 10 000 000 $
 
-<b>🛍 Boutique & Objets</b>
-/shop — Boutique luxe (voiture, villa, yacht, jet...)
-/acheter id — Acheter un objet
-/inventaire — Voir ses objets
-/cambrioler @joueur — Tenter de voler un objet
+<b>🎮 Jeux</b>
+/crash mise — Mise sur un multiplicateur qui monte... jusqu'au crash !
+/cashout — Encaisser pendant un Crash
+/mines mise — Grille 5x5, evite les mines !
+/roue mise — Roue de Fortune (de x0 a x10 !)
+
+<b>💸 Braquage</b>
+/cambrioler @joueur — Tenter de voler un joueur
 /braquage [mise] — Braquage collectif de banque (2-6 joueurs)
-
-<b>💸 Paris</b>
-/rebet mise — Pari quitte ou double (max 100 000 $)
 
 <b>🎟 Loterie</b>
 /createloto prix — Lancer une loterie privee (min 1 000 $)

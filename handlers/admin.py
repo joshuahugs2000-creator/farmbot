@@ -39,6 +39,10 @@ ADMIN_IDS: set[int] = {
 }
 
 
+# ─── État global du bot ───────────────────────────────────────────────────────
+BOT_PAUSED: bool = False
+
+
 def _fmt(n: int) -> str:
     return f"{n:,}".replace(",", " ")
 
@@ -77,7 +81,10 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/adminremove @user — Retirer un admin\n"
         "/adminlist — Liste des admins actuels\n\n"
         "<b>📢 Communication</b>\n"
-        "/broadcast [message] — Message à tous les utilisateurs\n"
+        "/broadcast [message] — Message à tous les utilisateurs\n\n"
+        "<b>⏸️ Contrôle du bot</b>\n"
+        "/pause — Mettre le bot en pause\n"
+        "/resume — Réactiver le bot\n"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -534,4 +541,41 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"📢 Broadcast terminé.\n✅ Envoyé : {sent}\n❌ Échec : {failed}"
+    )
+
+# ─── /pause  /resume ──────────────────────────────────────────────────────────
+
+async def pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin : met le bot en pause (plus aucune commande utilisateur)."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    import handlers.admin as _self
+    if _self.BOT_PAUSED:
+        await update.message.reply_text("⚠️ Le bot est <b>déjà en pause</b>.", parse_mode=ParseMode.HTML)
+        return
+
+    _self.BOT_PAUSED = True
+    await update.message.reply_text(
+        "⏸️ <b>Bot mis en pause.</b>\n\n"
+        "Toutes les commandes utilisateur sont désactivées.\n"
+        "Utilise <code>/resume</code> pour réactiver.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin : réactive le bot."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    import handlers.admin as _self
+    if not _self.BOT_PAUSED:
+        await update.message.reply_text("✅ Le bot est <b>déjà actif</b>.", parse_mode=ParseMode.HTML)
+        return
+
+    _self.BOT_PAUSED = False
+    await update.message.reply_text(
+        "▶️ <b>Bot réactivé !</b>\n\nToutes les commandes sont à nouveau disponibles.",
+        parse_mode=ParseMode.HTML,
     )

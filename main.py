@@ -32,6 +32,7 @@ from handlers.games import (
     crash_cmd, crash_callback,
     apple_cmd, apple_callback,
     roue_cmd,
+    rebet_cmd, rebet_callback,
 )
 from handlers.admin    import (
     adminhelp, give, take, setcoins, userinfo,
@@ -234,10 +235,12 @@ def main():
     app.add_handler(CommandHandler("crash",  _prison_checked(crash_cmd)))
     app.add_handler(CommandHandler("apple",  _prison_checked(apple_cmd)))
     app.add_handler(CommandHandler("roue",   _prison_checked(roue_cmd)))
+    app.add_handler(CommandHandler("rebet",  _prison_checked(rebet_cmd)))
 
     # Callbacks jeux (inline buttons)
     app.add_handler(CallbackQueryHandler(crash_callback,  pattern=r"^crash:"))
     app.add_handler(CallbackQueryHandler(apple_callback,  pattern=r"^apple:"))
+    app.add_handler(CallbackQueryHandler(rebet_callback,  pattern=r"^rebet:"))
 
     # ── Admin (jamais bloqués) ────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",    adminhelp))

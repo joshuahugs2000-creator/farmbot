@@ -38,7 +38,7 @@ from handlers.admin    import (
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
     bankbalance, bankloan, bankrepay, bankloans,
-    pay_interests, remind_loans,
+    pay_interests,
 )
 from handlers.invest   import market, buy, sell, portfolio
 from handlers.lottery  import (
@@ -326,13 +326,7 @@ def main():
         first=timedelta(minutes=5),
         name="bank_interests",
     )
-    # Rappels remboursement : 2x par semaine (toutes les 84h)
-    app.job_queue.run_repeating(
-        remind_loans,
-        interval=timedelta(hours=84),
-        first=timedelta(minutes=10),
-        name="loan_reminders",
-    )
+
 
     # ── Système de drainage de richesse ──────────────────────────────────────
     app.add_handler(CommandHandler("shop",            _prison_checked(shop)))

@@ -29,8 +29,9 @@ from handlers.economy  import (
     blackjack, roulette, slots,
 )
 from handlers.games import (
-    crash_cmd, cashout_cmd,
+    crash_cmd, crash_callback,
     mines_cmd, mines_callback,
+    apple_cmd, apple_callback,
     roue_cmd,
 )
 from handlers.admin    import (
@@ -69,15 +70,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─── Commandes exemptées du blocage prison ────────────────────────────────────
-# Ces commandes restent accessibles même en prison
 PRISON_EXEMPT_COMMANDS = {
     "start",
     "help",
-    # /bail et /bail_judgment sont accessibles pour PAYER la caution de quelqu'un d'autre
-    # mais pas pour se libérer soi-même (géré dans la fonction)
     "bail",
     "bail_judgment",
-    # Les commandes admin restent accessibles pour les admins
     "adminhelp", "give", "take", "setcoins", "userinfo",
     "ban", "unban", "resetuser", "adminadd", "adminremove",
     "adminlist", "broadcast", "liberer", "prisonlist", "emprisonner",
@@ -86,11 +83,6 @@ PRISON_EXEMPT_COMMANDS = {
 
 
 async def prison_middleware(update: Update, context) -> bool:
-    """
-    Middleware global : bloque toutes les commandes si l'utilisateur est en prison.
-    Retourne True si bloqué, False sinon.
-    Appelé AVANT chaque handler de commande.
-    """
     if not update.message or not update.message.text:
         return False
 
@@ -98,22 +90,18 @@ async def prison_middleware(update: Update, context) -> bool:
     if not user:
         return False
 
-    # Extraire la commande (ex: "/daily" → "daily")
     text = update.message.text
     if not text.startswith("/"):
         return False
 
     command = text.split()[0].lstrip("/").split("@")[0].lower()
 
-    # Les commandes exemptées passent toujours
     if command in PRISON_EXEMPT_COMMANDS:
         return False
 
-    # Les admins ne sont jamais bloqués par la prison
     if await is_admin(user.id):
         return False
 
-    # Vérifier si en prison
     try:
         async with AsyncSessionLocal() as session:
             from datetime import datetime
@@ -126,10 +114,8 @@ async def prison_middleware(update: Update, context) -> bool:
             if not prison_row:
                 return False
 
-            from datetime import datetime
             now = datetime.utcnow()
             if now >= prison_row.released_at:
-                # Peine expirée → libérer automatiquement
                 await session.execute(
                     __import__("sqlalchemy").text("DELETE FROM crime_prison WHERE user_id = :uid"),
                     {"uid": user.id}
@@ -137,7 +123,6 @@ async def prison_middleware(update: Update, context) -> bool:
                 await session.commit()
                 return False
 
-            # Bloqué !
             minutes_left = max(0, int((prison_row.released_at - now).total_seconds() / 60))
             h = minutes_left // 60
             m = minutes_left % 60
@@ -178,21 +163,15 @@ async def error_handler(update: object, context):
 
 
 def _prison_checked(handler_func):
-    """
-    Décorateur qui vérifie la pause + la prison avant d'exécuter un handler de commande.
-    """
     async def wrapper(update: Update, context):
-        # ── Vérification pause ──
         import handlers.admin as _admin_mod
         if _admin_mod.BOT_PAUSED:
             if not await is_admin(update.effective_user.id):
                 await update.message.reply_text(
-                    "⏸️ <b>Le bot est actuellement en pause.</b>\n"
-                    "Revenez plus tard !",
+                    "⏸️ <b>Le bot est actuellement en pause.</b>\nRevenez plus tard !",
                     parse_mode="HTML",
                 )
                 return
-        # ── Vérification prison ──
         if await prison_middleware(update, context):
             return
         return await handler_func(update, context)
@@ -252,6 +231,17 @@ def main():
     app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
     app.add_handler(CommandHandler("slots",      _prison_checked(slots)))
 
+    # ── Jeux ─────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("crash",  _prison_checked(crash_cmd)))
+    app.add_handler(CommandHandler("mines",  _prison_checked(mines_cmd)))
+    app.add_handler(CommandHandler("apple",  _prison_checked(apple_cmd)))
+    app.add_handler(CommandHandler("roue",   _prison_checked(roue_cmd)))
+
+    # Callbacks jeux (inline buttons)
+    app.add_handler(CallbackQueryHandler(crash_callback,  pattern=r"^crash:"))
+    app.add_handler(CallbackQueryHandler(mines_callback,  pattern=r"^mines:"))
+    app.add_handler(CallbackQueryHandler(apple_callback,  pattern=r"^apple:"))
+
     # ── Admin (jamais bloqués) ────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",    adminhelp))
     app.add_handler(CommandHandler("give",         give))
@@ -287,8 +277,6 @@ def main():
     app.add_handler(CommandHandler("sell",      _prison_checked(sell)))
     app.add_handler(CommandHandler("portfolio", _prison_checked(portfolio)))
 
-    # ── Couple ────────────────────────────────────────────────────────────────
-
     # ── Loterie ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("createloto",   _prison_checked(createloto)))
     app.add_handler(CommandHandler("loto",         _prison_checked(loto)))
@@ -300,8 +288,8 @@ def main():
     # ── Criminalité ───────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("rob",           _prison_checked(rob)))
     app.add_handler(CommandHandler("police",        _prison_checked(police)))
-    app.add_handler(CommandHandler("bail",          bail))           # exempt : payer pour autrui
-    app.add_handler(CommandHandler("bail_judgment", bail_judgment))  # exempt : payer pour autrui
+    app.add_handler(CommandHandler("bail",          bail))
+    app.add_handler(CommandHandler("bail_judgment", bail_judgment))
     app.add_handler(CommandHandler("juge",          _prison_checked(juge)))
     app.add_handler(CommandHandler("security",      _prison_checked(security)))
 
@@ -309,12 +297,19 @@ def main():
     app.add_handler(CommandHandler("open", _prison_checked(open_chest_cmd)))
     setup_random_events(app)
 
-    # ── Callbacks ─────────────────────────────────────────────────────────────
+    # ── Callbacks famille / profil / crime ───────────────────────────────────
     app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
     app.add_handler(CallbackQueryHandler(juge_callback,     pattern=r"^juge:"))
     app.add_handler(CallbackQueryHandler(security_callback, pattern=r"^sec:"))
+
+    # ── Drainage de richesse ──────────────────────────────────────────────────
+    app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
+    app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
+    app.add_handler(CommandHandler("braquage",        _prison_checked(braquage)))
+    app.add_handler(CommandHandler("annulerbraquage", _prison_checked(annulerbraquage)))
+    setup_drain_jobs(app)
 
     # ── Jobs périodiques ──────────────────────────────────────────────────────
     app.job_queue.run_daily(
@@ -322,32 +317,18 @@ def main():
         time=time(hour=8, minute=0),
         name="anniversary_check",
     )
-    # Intérêts bancaires : toutes les 6h
     app.job_queue.run_repeating(
         pay_interests,
         interval=timedelta(hours=6),
         first=timedelta(minutes=5),
         name="bank_interests",
     )
-    # Rappels remboursement : 2x par semaine (toutes les 84h)
     app.job_queue.run_repeating(
         remind_loans,
         interval=timedelta(hours=84),
         first=timedelta(minutes=10),
         name="loan_reminders",
     )
-
-    # ── Système de drainage de richesse ──────────────────────────────────────
-    app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
-    app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
-    app.add_handler(CommandHandler("braquage",        _prison_checked(braquage)))
-    app.add_handler(CommandHandler("annulerbraquage", _prison_checked(annulerbraquage)))
-    app.add_handler(CommandHandler("crash",   _prison_checked(crash_cmd)))
-    app.add_handler(CommandHandler("cashout", _prison_checked(cashout_cmd)))
-    app.add_handler(CommandHandler("mines",   _prison_checked(mines_cmd)))
-    app.add_handler(CommandHandler("roue",    _prison_checked(roue_cmd)))
-    app.add_handler(CallbackQueryHandler(mines_callback, pattern=r"^mines:"))
-    setup_drain_jobs(app)
 
     # ── Loterie Bot ───────────────────────────────────────────────────────────
     setup_lottery_jobs(app)

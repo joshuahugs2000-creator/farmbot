@@ -333,24 +333,26 @@ APPLE_LEVELS = 10
 APPLE_MIN    = 50_000
 APPLE_MAX    = 5_000_000
 
+# Multiplicateurs ajustés pour la difficulté augmentée
+# Niveaux 1-2 : 3/5 sûres (60%) | Niveaux 3-5 : 2/5 sûres (40%) | Niveaux 6-10 : 1/5 sûre (20%)
 APPLE_MULTS = {
-    1:  1.23,
-    2:  1.52,
-    3:  1.90,
-    4:  2.50,
-    5:  3.35,
-    6:  4.50,
-    7:  6.80,
-    8:  11.00,
-    9:  18.50,
-    10: 349.68,
+    1:  1.50,
+    2:  2.10,
+    3:  3.20,
+    4:  4.80,
+    5:  7.00,
+    6:  12.00,
+    7:  22.00,
+    8:  45.00,
+    9:  100.00,
+    10: 500.00,
 }
 
 def _apple_bombs(level: int) -> int:
-    if level <= 3:  return 1
-    if level <= 6:  return 2
-    if level <= 9:  return 3
-    return 4
+    if level <= 2:  return 2   # 3 sûres / 5
+    if level <= 5:  return 3   # 2 sûres / 5
+    if level <= 8:  return 4   # 1 sûre  / 5
+    return 4                   # Niveaux 9-10 → 4 bombes / 5 (1 seule issue de sortie !)
 
 def _apple_gen_row(level: int) -> list:
     n_bombs = _apple_bombs(level)
@@ -371,7 +373,7 @@ def _apple_keyboard(session: dict) -> InlineKeyboardMarkup:
             label = "🍎" if row[i] else "🍏"
             buttons.append(InlineKeyboardButton(label, callback_data=f"apple:done:{level}:{i}"))
         else:
-            buttons.append(InlineKeyboardButton("🍀", callback_data=f"apple:pick:{level}:{i}"))
+            buttons.append(InlineKeyboardButton("🍏", callback_data=f"apple:pick:{level}:{i}"))
 
     rows = [buttons]
 

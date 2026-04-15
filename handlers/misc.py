@@ -50,6 +50,7 @@ HELP_TEXT = """
 /crash mise — Mise sur un multiplicateur qui monte... jusqu'au crash !
 /apple mise — Apple of Fortune : 10 niveaux, evite les pommes rouges ! (50K - 5M)
 /roue mise — Roue de Fortune : argent, multiplicateurs, surprises !
+/rebet mise — Quitte ou double : récupère ou remise tant que tu oses !
 
 <b>💸 Braquage</b>
 /cambrioler @joueur — Tenter de voler un joueur

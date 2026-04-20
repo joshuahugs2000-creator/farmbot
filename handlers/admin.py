@@ -16,7 +16,7 @@ Commandes :
   /liberer      — libérer un prisonnier (God mode)
   /emprisonner  — mettre quelqu'un en prison (God mode)
   /prisonlist   — voir tous les prisonniers actuels
-  /broadcast    — message à tous les users
+  /broadcast    — message à tous les users ET groupes
 """
 
 import logging
@@ -27,7 +27,7 @@ from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
 from database.db import AsyncSessionLocal, get_user, add_coins
-from database.models import User, BankAccount, Loan, Investment
+from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
 
 logger = logging.getLogger(__name__)
@@ -520,28 +520,71 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await _deny(update)
 
     if not context.args:
-        return await update.message.reply_text("Usage : /broadcast [message]")
+        return await update.message.reply_text(
+            "Usage : /broadcast [message]\n"
+            "Flags optionnels :\n"
+            "  --users-only   → DM uniquement\n"
+            "  --groups-only  → groupes uniquement"
+        )
 
-    msg = " ".join(context.args)
+    raw_args = context.args
+    users_only  = "--users-only"  in raw_args
+    groups_only = "--groups-only" in raw_args
+    msg_parts   = [a for a in raw_args if a not in ("--users-only", "--groups-only")]
+    msg         = " ".join(msg_parts)
+
+    if not msg:
+        return await update.message.reply_text("❌ Le message est vide.")
+
+    broadcast_text = f"📢 <b>Message officiel</b>\n\n{msg}"
+
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(User).where(User.is_banned == False))
-        users  = result.scalars().all()
+        user_rows  = []
+        group_rows = []
 
-    sent, failed = 0, 0
-    for u in users:
+        if not groups_only:
+            res        = await session.execute(select(User).where(User.is_banned == False))
+            user_rows  = res.scalars().all()
+
+        if not users_only:
+            res        = await session.execute(select(GroupSettings))
+            group_rows = res.scalars().all()
+
+    sent_users, failed_users   = 0, 0
+    sent_groups, failed_groups = 0, 0
+
+    # ── DMs ──────────────────────────────────────────────────────────────────
+    for u in user_rows:
         try:
             await context.bot.send_message(
                 chat_id=u.user_id,
-                text=f"📢 <b>Message officiel</b>\n\n{msg}",
+                text=broadcast_text,
                 parse_mode=ParseMode.HTML,
             )
-            sent += 1
+            sent_users += 1
         except Exception:
-            failed += 1
+            failed_users += 1
 
-    await update.message.reply_text(
-        f"📢 Broadcast terminé.\n✅ Envoyé : {sent}\n❌ Échec : {failed}"
-    )
+    # ── Groupes ──────────────────────────────────────────────────────────────
+    for g in group_rows:
+        try:
+            await context.bot.send_message(
+                chat_id=g.group_id,
+                text=broadcast_text,
+                parse_mode=ParseMode.HTML,
+            )
+            sent_groups += 1
+        except Exception:
+            failed_groups += 1
+
+    lines = ["📢 <b>Broadcast terminé.</b>"]
+    if not groups_only:
+        lines.append(f"👤 Users   → ✅ {sent_users}  ❌ {failed_users}")
+    if not users_only:
+        lines.append(f"👥 Groupes → ✅ {sent_groups}  ❌ {failed_groups}")
+    lines.append(f"📊 Total envoyé : {sent_users + sent_groups}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 # ─── /pause  /resume ──────────────────────────────────────────────────────────
 

@@ -1,42 +1,6 @@
 import logging
-import threading
-import urllib.request
 import os
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import time, timedelta
-
-# ─── Serveur HTTP Keep-Alive pour UptimeRobot ────────────────────────────────
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-    def do_HEAD(self):  # ← FIX : UptimeRobot envoie des requêtes HEAD
-        self.send_response(200)
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        pass
-
-def _run_health_server():
-    # PORT dynamique fourni par Render (évite l'erreur 502)
-    port = int(os.environ.get("PORT", 8080))
-    HTTPServer(("0.0.0.0", port), HealthHandler).serve_forever()
-
-def _auto_ping():
-    import time as _time
-    url = os.environ.get("RENDER_EXTERNAL_URL", "https://farmbot-77xl.onrender.com")
-    while True:
-        _time.sleep(180)  # ping toutes les 3 minutes pour plus de sécurité
-        try:
-            urllib.request.urlopen(url, timeout=10)
-        except Exception:
-            pass
-
-threading.Thread(target=_run_health_server, daemon=True).start()
-threading.Thread(target=_auto_ping, daemon=True).start()
-# ─────────────────────────────────────────────────────────────────────────────
 
 from telegram import Update
 from telegram.ext import (
@@ -110,7 +74,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ─── Commandes exemptées du blocage prison ────────────────────────────────────
+# ─── Config Webhook ──────────────────────────────────────────────────────────
+WEBHOOK_URL = "https://farmbot-77xl.onrender.com"
+PORT = int(os.environ.get("PORT", 8080))
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Commandes exemptées du blocage prison ───────────────────────────────────
 PRISON_EXEMPT_COMMANDS = {
     "start",
     "help",
@@ -380,8 +349,15 @@ def main():
     # ── Loterie Bot ───────────────────────────────────────────────────────────
     setup_lottery_jobs(app)
 
-    logger.info("Bot demarre.")
-    app.run_polling(drop_pending_updates=True)
+    logger.info("Bot démarré en mode WEBHOOK.")
+
+    # ── Lancement Webhook ────────────────────────────────────────────────────
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{WEBHOOK_URL}/webhook",
+        url_path="/webhook",
+    )
 
 
 if __name__ == "__main__":

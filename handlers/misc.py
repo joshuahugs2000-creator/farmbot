@@ -46,52 +46,52 @@ HELP_TEXT = """
 /slots mise — Machine a sous
 
 <b>🎮 Jeux</b>
-/crash mise — Mise sur un multiplicateur qui monte... jusqu'au crash !
-/apple mise — Apple of Fortune : 10 niveaux, evite les pommes rouges !
-/roue mise — Roue de Fortune : argent, multiplicateurs, surprises !
-/rebet mise — Quitte ou double : récupère ou remise tant que tu oses !
+/crash mise — Multiplicateur jusqu'au crash !
+/apple mise — Apple of Fortune (50K - 5M)
+/roue mise — Roue de Fortune
+/rebet mise — Quitte ou double
 
 <b>💸 Braquage</b>
-/cambrioler @joueur — Tenter de voler un joueur
-/braquage [mise] — Braquage collectif de banque (2-6 joueurs)
+/cambrioler @joueur — Voler un joueur
+/braquage [mise] — Braquage collectif (2-6 joueurs)
 
 <b>🎟 Loterie</b>
-/createloto prix — Lancer une loterie privee (min 1 000 $)
-/loto — Voir la loterie active du groupe
+/createloto prix — Lancer une loterie (min 1 000 $)
+/loto — Voir la loterie active
 /ticket [nb] — Acheter des tickets
-/tirage — Forcer le tirage (createur ou admin)
-/tirageforce — Forcer le tirage bot (admin)
-/cancelloto — Annuler la loterie et rembourser
+/tirage — Forcer le tirage
+/tirageforce — Forcer le tirage (admin)
+/cancelloto — Annuler la loterie
 
 <b>🏦 Banque</b>
-/banks — Voir les banques disponibles
-/bankopen — Ouvrir un compte bancaire
-/bankdeposit montant — Deposer des coins
-/bankwithdraw montant — Retirer des coins
-/bankbalance — Voir son solde bancaire
+/banks — Banques disponibles
+/bankopen — Ouvrir un compte
+/bankdeposit montant — Deposer
+/bankwithdraw montant — Retirer
+/bankbalance — Solde bancaire
 /bankloan montant — Prendre un pret
-/bankrepay montant — Rembourser un pret
-/bankloans — Voir ses prets actifs
+/bankrepay montant — Rembourser
+/bankloans — Prets actifs
 
 <b>📈 Investissements</b>
 /market — Voir le marche
-/buy actif quantite — Acheter des actions
-/sell actif quantite — Vendre des actions
-/portfolio — Voir son portefeuille
+/buy actif quantite — Acheter
+/sell actif quantite — Vendre
+/portfolio — Portefeuille
 
 <b>💰 Impots</b>
-/impots — Voir son taux d'imposition (preleve chaque jour)
+/impots — Ton taux d'imposition
 
 <b>⛓️ Criminalite</b>
 /rob @pseudo — Voler un joueur
-/police @pseudo — Signaler un voleur recent a la police
-/bail — Payer sa caution pour sortir de prison
-/juge @pseudo — Porter plainte contre un criminel recent
-/security — Acheter une protection contre les vols
+/police @pseudo — Signaler un voleur
+/bail — Payer sa caution
+/juge @pseudo — Porter plainte
+/security — Protection contre les vols
 
 <b>✨ Evenements</b>
-/open — Ouvrir un coffre mystere (si actif)
-⭐ Heure Doree — gains casino x2 (annonce automatique)
+/open — Ouvrir un coffre mystere
+⭐ Heure Doree — gains casino x2
 
 <b>📊 General</b>
 /leaderboard — Top familles
@@ -120,7 +120,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Ajouter au groupe", url=f"https://t.me/{context.bot.username}?startgroup=start")],
         [
-            InlineKeyboardButton("📖 Guide rapide", url="https://t.me/familybot_channel"),
+            InlineKeyboardButton("📖 Guide rapide", url="https://telegra.ph/FarmBot-Guide-des-commandes"),
             InlineKeyboardButton("📢 Canal officiel", url="https://t.me/familybot_channel"),
         ],
         [InlineKeyboardButton("🛠 Contacter le dev", url="https://t.me/yoshider")],

@@ -1,15 +1,16 @@
 import logging
 import os
-import threading
+import asyncio
 from datetime import time, timedelta
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from aiohttp import web
 from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
 )
+from telegram.ext._utils.webhookhandler import WebhookAppClass
 
 from config import BOT_TOKEN
 from database import init_db
@@ -74,11 +75,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ─── Config Webhook ───────────────────────────────────────────────────────────
 WEBHOOK_URL = "https://farmbot-77xl.onrender.com"
 PORT = int(os.environ.get("PORT", 8080))
-HEALTH_PORT = 8081  # port séparé pour UptimeRobot
-# ─────────────────────────────────────────────────────────────────────────────
 
 PRISON_EXEMPT_COMMANDS = {
     "start", "help", "bail", "bail_judgment",
@@ -87,28 +85,6 @@ PRISON_EXEMPT_COMMANDS = {
     "adminlist", "broadcast", "liberer", "prisonlist", "emprisonner",
     "pause", "resume",
 }
-
-
-# ─── Health check server pour UptimeRobot ────────────────────────────────────
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        pass  # silence les logs HTTP
-
-
-def start_health_server():
-    server = HTTPServer(("0.0.0.0", HEALTH_PORT), HealthHandler)
-    logger.info(f"Health server démarré sur port {HEALTH_PORT}")
-    server.serve_forever()
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 async def prison_middleware(update: Update, context) -> bool:
@@ -161,7 +137,7 @@ async def prison_middleware(update: Update, context) -> bool:
         return False
 
 
-async def on_startup(app: Application):
+async def on_startup(application: Application):
     await init_db()
     await init_crime_tables()
     await init_drain_tables()
@@ -197,14 +173,11 @@ def _prison_checked(handler_func):
     return wrapper
 
 
-def main():
-    # ── Démarre le health server dans un thread daemon ────────────────────────
-    t = threading.Thread(target=start_health_server, daemon=True)
-    t.start()
-
+async def main():
     app = (
         Application.builder()
         .token(BOT_TOKEN)
+        .updater(None)  # pas de polling
         .post_init(on_startup)
         .build()
     )
@@ -263,7 +236,6 @@ def main():
     app.add_handler(CommandHandler("cockfight", _prison_checked(cockfight_cmd)))
     app.add_handler(CommandHandler("ppc",       _prison_checked(ppc_cmd)))
 
-    # Callbacks jeux
     app.add_handler(CallbackQueryHandler(crash_callback,      pattern=r"^crash:"))
     app.add_handler(CallbackQueryHandler(apple_callback,      pattern=r"^apple:"))
     app.add_handler(CallbackQueryHandler(rebet_callback,      pattern=r"^rebet:"))
@@ -325,21 +297,21 @@ def main():
     app.add_handler(CommandHandler("open", _prison_checked(open_chest_cmd)))
     setup_random_events(app)
 
-    # ── Callbacks famille / profil / crime ────────────────────────────────────
+    # ── Callbacks ─────────────────────────────────────────────────────────────
     app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
     app.add_handler(CallbackQueryHandler(juge_callback,     pattern=r"^juge:"))
     app.add_handler(CallbackQueryHandler(security_callback, pattern=r"^sec:"))
 
-    # ── Drainage de richesse ──────────────────────────────────────────────────
+    # ── Drainage ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
     app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
     app.add_handler(CommandHandler("braquage",        _prison_checked(braquage)))
     app.add_handler(CommandHandler("annulerbraquage", _prison_checked(annulerbraquage)))
     setup_drain_jobs(app)
 
-    # ── Jobs périodiques ──────────────────────────────────────────────────────
+    # ── Jobs ──────────────────────────────────────────────────────────────────
     app.job_queue.run_daily(
         check_anniversaries,
         time=time(hour=8, minute=0),
@@ -359,16 +331,41 @@ def main():
     )
     setup_lottery_jobs(app)
 
-    logger.info("Bot démarré en mode WEBHOOK.")
+    # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────
+    async def health(request):
+        return web.Response(text="OK", status=200)
 
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{WEBHOOK_URL}/webhook",
-        url_path="/webhook",
-        allowed_updates=Update.ALL_TYPES,
-    )
+    async def telegram_webhook(request):
+        data = await request.json()
+        update = Update.de_json(data, app.bot)
+        await app.process_update(update)
+        return web.Response(text="OK")
+
+    webserver = web.Application()
+    webserver.router.add_get("/", health)
+    webserver.router.add_head("/", health)
+    webserver.router.add_post("/webhook", telegram_webhook)
+
+    # Init + set webhook
+    await app.initialize()
+    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+    await app.start()
+
+    logger.info(f"Bot démarré sur port {PORT} — webhook + health check actifs.")
+
+    runner = web.AppRunner(webserver)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+
+    # Garde le process en vie
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await app.stop()
+        await app.shutdown()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

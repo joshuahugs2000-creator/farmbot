@@ -51,6 +51,10 @@ from handlers.games import (
     roue_cmd,
     rebet_cmd, rebet_callback,
 )
+from handlers.arena import (
+    cockfight_cmd, cockfight_callback,
+    ppc_cmd, ppc_callback,
+)
 from handlers.admin    import (
     adminhelp, give, take, setcoins, userinfo,
     ban, unban, resetuser,
@@ -254,10 +258,16 @@ def main():
     app.add_handler(CommandHandler("roue",   _prison_checked(roue_cmd)))
     app.add_handler(CommandHandler("rebet",  _prison_checked(rebet_cmd)))
 
+    # ── Arène PvP ────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("cockfight", _prison_checked(cockfight_cmd)))
+    app.add_handler(CommandHandler("ppc",       _prison_checked(ppc_cmd)))
+
     # Callbacks jeux (inline buttons)
-    app.add_handler(CallbackQueryHandler(crash_callback,  pattern=r"^crash:"))
-    app.add_handler(CallbackQueryHandler(apple_callback,  pattern=r"^apple:"))
-    app.add_handler(CallbackQueryHandler(rebet_callback,  pattern=r"^rebet:"))
+    app.add_handler(CallbackQueryHandler(crash_callback,      pattern=r"^crash:"))
+    app.add_handler(CallbackQueryHandler(apple_callback,      pattern=r"^apple:"))
+    app.add_handler(CallbackQueryHandler(rebet_callback,      pattern=r"^rebet:"))
+    app.add_handler(CallbackQueryHandler(cockfight_callback,  pattern=r"^cf:"))
+    app.add_handler(CallbackQueryHandler(ppc_callback,        pattern=r"^ppc:"))
 
     # ── Admin (jamais bloqués) ────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",    adminhelp))

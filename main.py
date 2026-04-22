@@ -15,13 +15,15 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 def _run_health_server():
-    HTTPServer(("0.0.0.0", 8080), HealthHandler).serve_forever()
+    # PORT dynamique fourni par Render (évite l'erreur 502)
+    port = int(os.environ.get("PORT", 8080))
+    HTTPServer(("0.0.0.0", port), HealthHandler).serve_forever()
 
 def _auto_ping():
     import time as _time
     url = os.environ.get("RENDER_EXTERNAL_URL", "https://farmbot-77xl.onrender.com")
     while True:
-        _time.sleep(240)
+        _time.sleep(180)  # ping toutes les 3 minutes pour plus de sécurité
         try:
             urllib.request.urlopen(url, timeout=10)
         except Exception:

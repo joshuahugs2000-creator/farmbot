@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import time, timedelta
 
+from aiohttp import web
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -79,12 +80,8 @@ WEBHOOK_URL = "https://farmbot-77xl.onrender.com"
 PORT = int(os.environ.get("PORT", 8080))
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ─── Commandes exemptées du blocage prison ───────────────────────────────────
 PRISON_EXEMPT_COMMANDS = {
-    "start",
-    "help",
-    "bail",
-    "bail_judgment",
+    "start", "help", "bail", "bail_judgment",
     "adminhelp", "give", "take", "setcoins", "userinfo",
     "ban", "unban", "resetuser", "adminadd", "adminremove",
     "adminlist", "broadcast", "liberer", "prisonlist", "emprisonner",
@@ -95,23 +92,17 @@ PRISON_EXEMPT_COMMANDS = {
 async def prison_middleware(update: Update, context) -> bool:
     if not update.message or not update.message.text:
         return False
-
     user = update.effective_user
     if not user:
         return False
-
     text = update.message.text
     if not text.startswith("/"):
         return False
-
     command = text.split()[0].lstrip("/").split("@")[0].lower()
-
     if command in PRISON_EXEMPT_COMMANDS:
         return False
-
     if await is_admin(user.id):
         return False
-
     try:
         async with AsyncSessionLocal() as session:
             from datetime import datetime
@@ -120,10 +111,8 @@ async def prison_middleware(update: Update, context) -> bool:
                 {"uid": user.id}
             )
             prison_row = prison_row_res.fetchone()
-
             if not prison_row:
                 return False
-
             now = datetime.utcnow()
             if now >= prison_row.released_at:
                 await session.execute(
@@ -132,12 +121,10 @@ async def prison_middleware(update: Update, context) -> bool:
                 )
                 await session.commit()
                 return False
-
             minutes_left = max(0, int((prison_row.released_at - now).total_seconds() / 60))
             h = minutes_left // 60
             m = minutes_left % 60
             duration_str = f"{h}h{m:02d}m" if h > 0 else f"{m} minute(s)"
-
             await update.message.reply_text(
                 f"🔒 <b>Tu es en prison !</b>\n\n"
                 f"La commande <code>/{command}</code> n'est pas disponible.\n"
@@ -147,7 +134,6 @@ async def prison_middleware(update: Update, context) -> bool:
                 parse_mode="HTML"
             )
             return True
-
     except Exception as e:
         logger.error(f"Erreur prison_middleware: {e}")
         return False
@@ -251,14 +237,14 @@ def main():
     app.add_handler(CommandHandler("cockfight", _prison_checked(cockfight_cmd)))
     app.add_handler(CommandHandler("ppc",       _prison_checked(ppc_cmd)))
 
-    # Callbacks jeux (inline buttons)
+    # Callbacks jeux
     app.add_handler(CallbackQueryHandler(crash_callback,      pattern=r"^crash:"))
     app.add_handler(CallbackQueryHandler(apple_callback,      pattern=r"^apple:"))
     app.add_handler(CallbackQueryHandler(rebet_callback,      pattern=r"^rebet:"))
     app.add_handler(CallbackQueryHandler(cockfight_callback,  pattern=r"^cf:"))
     app.add_handler(CallbackQueryHandler(ppc_callback,        pattern=r"^ppc:"))
 
-    # ── Admin (jamais bloqués) ────────────────────────────────────────────────
+    # ── Admin ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",    adminhelp))
     app.add_handler(CommandHandler("give",         give))
     app.add_handler(CommandHandler("take",         take))
@@ -277,7 +263,7 @@ def main():
     app.add_handler(CommandHandler("pause",          pause))
     app.add_handler(CommandHandler("resume",         resume))
 
-    # ── Banque ────────────────────────────────────────────────────────────────
+    # ── Banque ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))
     app.add_handler(CommandHandler("bankopen",     _prison_checked(bankopen)))
     app.add_handler(CommandHandler("bankdeposit",  _prison_checked(bankdeposit)))
@@ -345,11 +331,17 @@ def main():
         first=timedelta(minutes=10),
         name="loan_reminders",
     )
-
-    # ── Loterie Bot ───────────────────────────────────────────────────────────
     setup_lottery_jobs(app)
 
     logger.info("Bot démarré en mode WEBHOOK.")
+
+    # ── Route GET / pour UptimeRobot (health check) ───────────────────────────
+    async def health(request):
+        return web.Response(text="OK", status=200)
+
+    aiohttp_app = web.Application()
+    aiohttp_app.router.add_get("/", health)
+    aiohttp_app.router.add_head("/", health)
 
     # ── Lancement Webhook ────────────────────────────────────────────────────
     app.run_webhook(
@@ -357,6 +349,8 @@ def main():
         port=PORT,
         webhook_url=f"{WEBHOOK_URL}/webhook",
         url_path="/webhook",
+        allowed_updates=Update.ALL_TYPES,
+        custom_server=aiohttp_app,
     )
 
 

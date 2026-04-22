@@ -51,6 +51,10 @@ HELP_TEXT = """
 /roue mise — Roue de Fortune
 /rebet mise — Quitte ou double
 
+<b>🥊 Arène PvP</b>
+/cockfight mise — Combat de coqs contre un adversaire
+/ppc mise — Pierre-Papier-Ciseaux contre un adversaire
+
 <b>💸 Braquage</b>
 /cambrioler @joueur — Voler un joueur
 /braquage [mise] — Braquage collectif (2-6 joueurs)
@@ -120,7 +124,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Ajouter au groupe", url=f"https://t.me/{context.bot.username}?startgroup=start")],
         [
-            InlineKeyboardButton("📖 Guide rapide", url="https://telegra.ph/FarmBot--Guide-des-commandes-04-22"),
+            InlineKeyboardButton("📖 Guide rapide", url="https://telegra.ph/FarmBot-Guide-des-commandes"),
             InlineKeyboardButton("📢 Canal officiel", url="https://t.me/familybot_channel"),
         ],
         [InlineKeyboardButton("🛠 Contacter le dev", url="https://t.me/yoshider")],

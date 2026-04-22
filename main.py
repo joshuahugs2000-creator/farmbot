@@ -1,5 +1,7 @@
 import logging
 import threading
+import urllib.request
+import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import time, timedelta
 
@@ -15,7 +17,18 @@ class HealthHandler(BaseHTTPRequestHandler):
 def _run_health_server():
     HTTPServer(("0.0.0.0", 8080), HealthHandler).serve_forever()
 
+def _auto_ping():
+    import time as _time
+    url = os.environ.get("RENDER_EXTERNAL_URL", "https://farmbot-77xl.onrender.com")
+    while True:
+        _time.sleep(240)
+        try:
+            urllib.request.urlopen(url, timeout=10)
+        except Exception:
+            pass
+
 threading.Thread(target=_run_health_server, daemon=True).start()
+threading.Thread(target=_auto_ping, daemon=True).start()
 # ─────────────────────────────────────────────────────────────────────────────
 
 from telegram import Update

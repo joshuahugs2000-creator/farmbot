@@ -343,7 +343,6 @@ async def main():
 
     webserver = web.Application()
     webserver.router.add_get("/", health)
-    webserver.router.add_head("/", health)
     webserver.router.add_post("/webhook", telegram_webhook)
 
     # Init + set webhook

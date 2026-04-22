@@ -1,15 +1,14 @@
 import logging
 import os
+import threading
 from datetime import time, timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from aiohttp import web
 from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    MessageHandler,
-    filters,
 )
 
 from config import BOT_TOKEN
@@ -75,9 +74,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ─── Config Webhook ──────────────────────────────────────────────────────────
+# ─── Config Webhook ───────────────────────────────────────────────────────────
 WEBHOOK_URL = "https://farmbot-77xl.onrender.com"
 PORT = int(os.environ.get("PORT", 8080))
+HEALTH_PORT = 8081  # port séparé pour UptimeRobot
 # ─────────────────────────────────────────────────────────────────────────────
 
 PRISON_EXEMPT_COMMANDS = {
@@ -87,6 +87,28 @@ PRISON_EXEMPT_COMMANDS = {
     "adminlist", "broadcast", "liberer", "prisonlist", "emprisonner",
     "pause", "resume",
 }
+
+
+# ─── Health check server pour UptimeRobot ────────────────────────────────────
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        pass  # silence les logs HTTP
+
+
+def start_health_server():
+    server = HTTPServer(("0.0.0.0", HEALTH_PORT), HealthHandler)
+    logger.info(f"Health server démarré sur port {HEALTH_PORT}")
+    server.serve_forever()
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 async def prison_middleware(update: Update, context) -> bool:
@@ -176,6 +198,10 @@ def _prison_checked(handler_func):
 
 
 def main():
+    # ── Démarre le health server dans un thread daemon ────────────────────────
+    t = threading.Thread(target=start_health_server, daemon=True)
+    t.start()
+
     app = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -185,14 +211,14 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    # ── Général ──────────────────────────────────────────────────────────────
+    # ── Général ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("help",        help_cmd))
     app.add_handler(CommandHandler("leaderboard", _prison_checked(leaderboard)))
     app.add_handler(CommandHandler("mode",        _prison_checked(mode)))
     app.add_handler(CommandHandler("toggle",      _prison_checked(toggle)))
 
-    # ── Famille ──────────────────────────────────────────────────────────────
+    # ── Famille ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("marry",         _prison_checked(marry)))
     app.add_handler(CommandHandler("adopt",         _prison_checked(adopt)))
     app.add_handler(CommandHandler("friend",        _prison_checked(friend)))
@@ -203,21 +229,21 @@ def main():
     app.add_handler(CommandHandler("leave",         _prison_checked(leave)))
     app.add_handler(CommandHandler("familyphoto",   _prison_checked(familyphoto)))
 
-    # ── Arbre ────────────────────────────────────────────────────────────────
+    # ── Arbre ─────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("tree",    _prison_checked(tree)))
 
-    # ── Jardin ───────────────────────────────────────────────────────────────
+    # ── Jardin ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("garden",  _prison_checked(garden)))
     app.add_handler(CommandHandler("plant",   _prison_checked(plant_cmd)))
     app.add_handler(CommandHandler("harvest", _prison_checked(harvest)))
 
-    # ── Profil ───────────────────────────────────────────────────────────────
+    # ── Profil ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("me",        _prison_checked(me)))
     app.add_handler(CommandHandler("setpic",    _prison_checked(setpic)))
     app.add_handler(CommandHandler("customize", _prison_checked(customize)))
     app.add_handler(CommandHandler("titles",    _prison_checked(titles)))
 
-    # ── Économie ─────────────────────────────────────────────────────────────
+    # ── Économie ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("acc",        _prison_checked(acc)))
     app.add_handler(CommandHandler("daily",      _prison_checked(daily)))
     app.add_handler(CommandHandler("work",       _prison_checked(work)))
@@ -227,13 +253,13 @@ def main():
     app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
     app.add_handler(CommandHandler("slots",      _prison_checked(slots)))
 
-    # ── Jeux ─────────────────────────────────────────────────────────────────
+    # ── Jeux ──────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("crash",  _prison_checked(crash_cmd)))
     app.add_handler(CommandHandler("apple",  _prison_checked(apple_cmd)))
     app.add_handler(CommandHandler("roue",   _prison_checked(roue_cmd)))
     app.add_handler(CommandHandler("rebet",  _prison_checked(rebet_cmd)))
 
-    # ── Arène PvP ────────────────────────────────────────────────────────────
+    # ── Arène PvP ─────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("cockfight", _prison_checked(cockfight_cmd)))
     app.add_handler(CommandHandler("ppc",       _prison_checked(ppc_cmd)))
 
@@ -244,7 +270,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cockfight_callback,  pattern=r"^cf:"))
     app.add_handler(CallbackQueryHandler(ppc_callback,        pattern=r"^ppc:"))
 
-    # ── Admin ────────────────────────────────────────────────────────────────
+    # ── Admin ─────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",    adminhelp))
     app.add_handler(CommandHandler("give",         give))
     app.add_handler(CommandHandler("take",         take))
@@ -257,13 +283,13 @@ def main():
     app.add_handler(CommandHandler("adminremove",  adminremove))
     app.add_handler(CommandHandler("adminlist",    adminlist))
     app.add_handler(CommandHandler("broadcast",    broadcast))
-    app.add_handler(CommandHandler("liberer",        liberer))
-    app.add_handler(CommandHandler("prisonlist",     prisonlist))
-    app.add_handler(CommandHandler("emprisonner",    emprisonner))
-    app.add_handler(CommandHandler("pause",          pause))
-    app.add_handler(CommandHandler("resume",         resume))
+    app.add_handler(CommandHandler("liberer",      liberer))
+    app.add_handler(CommandHandler("prisonlist",   prisonlist))
+    app.add_handler(CommandHandler("emprisonner",  emprisonner))
+    app.add_handler(CommandHandler("pause",        pause))
+    app.add_handler(CommandHandler("resume",       resume))
 
-    # ── Banque ───────────────────────────────────────────────────────────────
+    # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))
     app.add_handler(CommandHandler("bankopen",     _prison_checked(bankopen)))
     app.add_handler(CommandHandler("bankdeposit",  _prison_checked(bankdeposit)))
@@ -299,7 +325,7 @@ def main():
     app.add_handler(CommandHandler("open", _prison_checked(open_chest_cmd)))
     setup_random_events(app)
 
-    # ── Callbacks famille / profil / crime ───────────────────────────────────
+    # ── Callbacks famille / profil / crime ────────────────────────────────────
     app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
@@ -335,22 +361,12 @@ def main():
 
     logger.info("Bot démarré en mode WEBHOOK.")
 
-    # ── Route GET / pour UptimeRobot (health check) ───────────────────────────
-    async def health(request):
-        return web.Response(text="OK", status=200)
-
-    aiohttp_app = web.Application()
-    aiohttp_app.router.add_get("/", health)
-    aiohttp_app.router.add_head("/", health)
-
-    # ── Lancement Webhook ────────────────────────────────────────────────────
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=f"{WEBHOOK_URL}/webhook",
         url_path="/webhook",
         allowed_updates=Update.ALL_TYPES,
-        custom_server=aiohttp_app,
     )
 
 

@@ -120,7 +120,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Ajouter au groupe", url=f"https://t.me/{context.bot.username}?startgroup=start")],
         [
-            InlineKeyboardButton("📖 Guide rapide", url="https://telegra.ph/FarmBot-Guide-des-commandes"),
+            InlineKeyboardButton("📖 Guide rapide", url="https://telegra.ph/FarmBot--Guide-des-commandes-04-22"),
             InlineKeyboardButton("📢 Canal officiel", url="https://t.me/familybot_channel"),
         ],
         [InlineKeyboardButton("🛠 Contacter le dev", url="https://t.me/yoshider")],

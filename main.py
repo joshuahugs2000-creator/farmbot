@@ -10,7 +10,6 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
 )
-from telegram.ext._utils.webhookhandler import WebhookAppClass
 
 from config import BOT_TOKEN
 from database import init_db
@@ -74,6 +73,7 @@ from handlers.wealth_drain import (
     impots, cambrioler, braquage, annulerbraquage,
     init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
 )
+from handlers.drames import drame, setdramesesuil
 from database.db import AsyncSessionLocal
 
 logging.basicConfig(
@@ -185,7 +185,7 @@ async def main():
     app = (
         Application.builder()
         .token(BOT_TOKEN)
-        .updater(None)  # pas de polling
+        .updater(None)
         .post_init(on_startup)
         .build()
     )
@@ -252,27 +252,29 @@ async def main():
     app.add_handler(CallbackQueryHandler(market_callback,     pattern=r"^mkt:"))
 
     # ── Admin ─────────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("adminhelp",    adminhelp))
-    app.add_handler(CommandHandler("give",         give))
-    app.add_handler(CommandHandler("take",         take))
-    app.add_handler(CommandHandler("setcoins",     setcoins))
-    app.add_handler(CommandHandler("userinfo",     userinfo))
-    app.add_handler(CommandHandler("ban",          ban))
-    app.add_handler(CommandHandler("unban",        unban))
-    app.add_handler(CommandHandler("resetuser",    resetuser))
-    app.add_handler(CommandHandler("adminadd",     adminadd))
-    app.add_handler(CommandHandler("adminremove",  adminremove))
-    app.add_handler(CommandHandler("adminlist",    adminlist))
-    app.add_handler(CommandHandler("broadcast",    broadcast))
-    app.add_handler(CommandHandler("liberer",      liberer))
-    app.add_handler(CommandHandler("prisonlist",   prisonlist))
-    app.add_handler(CommandHandler("emprisonner",  emprisonner))
-    app.add_handler(CommandHandler("pause",        pause))
-    app.add_handler(CommandHandler("resume",       resume))
-    app.add_handler(CommandHandler("giveportfolio", giveportfolio))
-    app.add_handler(CommandHandler("takeportfolio", takeportfolio))
-    app.add_handler(CommandHandler("marketlist",   marketlist))
-    app.add_handler(CommandHandler("useractivity", useractivity))
+    app.add_handler(CommandHandler("adminhelp",      adminhelp))
+    app.add_handler(CommandHandler("give",           give))
+    app.add_handler(CommandHandler("take",           take))
+    app.add_handler(CommandHandler("setcoins",       setcoins))
+    app.add_handler(CommandHandler("userinfo",       userinfo))
+    app.add_handler(CommandHandler("ban",            ban))
+    app.add_handler(CommandHandler("unban",          unban))
+    app.add_handler(CommandHandler("resetuser",      resetuser))
+    app.add_handler(CommandHandler("adminadd",       adminadd))
+    app.add_handler(CommandHandler("adminremove",    adminremove))
+    app.add_handler(CommandHandler("adminlist",      adminlist))
+    app.add_handler(CommandHandler("broadcast",      broadcast))
+    app.add_handler(CommandHandler("liberer",        liberer))
+    app.add_handler(CommandHandler("prisonlist",     prisonlist))
+    app.add_handler(CommandHandler("emprisonner",    emprisonner))
+    app.add_handler(CommandHandler("pause",          pause))
+    app.add_handler(CommandHandler("resume",         resume))
+    app.add_handler(CommandHandler("giveportfolio",  giveportfolio))
+    app.add_handler(CommandHandler("takeportfolio",  takeportfolio))
+    app.add_handler(CommandHandler("marketlist",     marketlist))
+    app.add_handler(CommandHandler("useractivity",   useractivity))
+    app.add_handler(CommandHandler("drame",          drame))
+    app.add_handler(CommandHandler("setdramesesuil", setdramesesuil))
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))
@@ -311,11 +313,11 @@ async def main():
     setup_random_events(app)
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
-    app.add_handler(CallbackQueryHandler(request_callback,  pattern=r"^req:"))
-    app.add_handler(CallbackQueryHandler(leave_callback,    pattern=r"^leave:"))
-    app.add_handler(CallbackQueryHandler(color_callback,    pattern=r"^color:"))
-    app.add_handler(CallbackQueryHandler(juge_callback,     pattern=r"^juge:"))
-    app.add_handler(CallbackQueryHandler(security_callback, pattern=r"^sec:"))
+    app.add_handler(CallbackQueryHandler(request_callback,   pattern=r"^req:"))
+    app.add_handler(CallbackQueryHandler(leave_callback,     pattern=r"^leave:"))
+    app.add_handler(CallbackQueryHandler(color_callback,     pattern=r"^color:"))
+    app.add_handler(CallbackQueryHandler(juge_callback,      pattern=r"^juge:"))
+    app.add_handler(CallbackQueryHandler(security_callback,  pattern=r"^sec:"))
 
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))
@@ -324,8 +326,8 @@ async def main():
     app.add_handler(CommandHandler("sellitem",  _prison_checked(sellitem)))
     app.add_handler(CommandHandler("shopitems", _prison_checked(shopitems)))
     app.add_handler(CommandHandler("buyitem",   _prison_checked(buyitem)))
-    app.add_handler(CallbackQueryHandler(auction_callback,  pattern=r"^auction:bid:"))
-    app.add_handler(CallbackQueryHandler(auction_callback,  pattern=r"^auction:info:"))
+    app.add_handler(CallbackQueryHandler(auction_callback,   pattern=r"^auction:bid:"))
+    app.add_handler(CallbackQueryHandler(auction_callback,   pattern=r"^auction:info:"))
     app.add_handler(CallbackQueryHandler(expertise_callback, pattern=r"^auction:(sellnow|keep):"))
 
     # ── Drainage ──────────────────────────────────────────────────────────────
@@ -370,7 +372,6 @@ async def main():
     webserver.router.add_get("/", health)
     webserver.router.add_post("/webhook", telegram_webhook)
 
-    # Init + set webhook
     await app.initialize()
     await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
     await app.start()
@@ -382,7 +383,6 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-    # Garde le process en vie
     try:
         await asyncio.Event().wait()
     finally:

@@ -370,13 +370,23 @@ MAX_COINS = 9_000_000_000_000_000_000  # pas de plafond pratique (max BIGINT)
 
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
-    r    = await session.execute(select(User).where(User.user_id == user_id))
-    user = r.scalar_one_or_none()
-    if not user:
-        return 0
-    user.coins = max(0, user.coins + amount)
+    from sqlalchemy import text as _text
+    amount_safe = int(amount)
+    await session.execute(
+        _text("""
+            UPDATE users
+            SET coins = GREATEST(0, coins + CAST(:amt AS BIGINT))
+            WHERE user_id = :uid
+        """),
+        {"amt": amount_safe, "uid": int(user_id)}
+    )
     await session.commit()
-    return user.coins
+    r = await session.execute(
+        _text("SELECT coins FROM users WHERE user_id = :uid"),
+        {"uid": int(user_id)}
+    )
+    row = r.fetchone()
+    return row[0] if row else 0
 
 
 async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount: int) -> str:

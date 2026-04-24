@@ -13,6 +13,14 @@ engine            = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+def _asyncpg_dsn() -> str:
+    """Convertit DATABASE_URL (format SQLAlchemy) en DSN natif asyncpg."""
+    url = DATABASE_URL
+    url = url.replace("postgresql+asyncpg://", "postgresql://")
+    url = url.replace("postgres+asyncpg://", "postgresql://")
+    return url
+
+
 async def init_db():
     """Crée les tables et ajoute les colonnes manquantes (migration douce)."""
     async with engine.begin() as conn:
@@ -371,33 +379,38 @@ MAX_COINS = 9_000_000_000_000_000_000  # max BIGINT PostgreSQL
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
     """
-    Incrémente (ou décrémente) les coins d'un utilisateur.
-
-    Bypass TOTAL de SQLAlchemy : on passe par engine.connect() qui donne
-    une connexion fraîche sans les codecs problématiques.
-    CAST() SQL standard — compatible avec toutes versions SQLAlchemy/asyncpg.
-    Supporte des valeurs bien au-delà de 2^31 (INT4 max).
+    Ajoute (ou retire si négatif) des coins.
+    Utilise asyncpg natif pour supporter les BIGINT > 2^31 sans erreur.
     """
+    import asyncpg
     uid = int(user_id)
     amt = int(amount)
-
-    async with engine.connect() as conn:
+    conn = await asyncpg.connect(_asyncpg_dsn())
+    try:
         await conn.execute(
-            text(
-                "UPDATE users "
-                "SET coins = GREATEST(0, coins + CAST(:amt AS BIGINT)) "
-                "WHERE user_id = CAST(:uid AS BIGINT)"
-            ),
-            {"amt": amt, "uid": uid},
+            f"UPDATE users SET coins = GREATEST(0, coins + {amt}) WHERE user_id = {uid}"
         )
-        result = await conn.execute(
-            text("SELECT coins FROM users WHERE user_id = CAST(:uid AS BIGINT)"),
-            {"uid": uid},
-        )
-        row = result.fetchone()
-        await conn.commit()
+        row = await conn.fetchrow(f"SELECT coins FROM users WHERE user_id = {uid}")
+    finally:
+        await conn.close()
+    return int(row["coins"]) if row else 0
 
-    return row[0] if row else 0
+
+async def set_coins(user_id: int, amount: int) -> int:
+    """
+    Définit le solde exact (pour /setcoins admin).
+    Utilise asyncpg natif — supporte les BIGINT > 2^31.
+    """
+    import asyncpg
+    uid = int(user_id)
+    amt = int(amount)
+    conn = await asyncpg.connect(_asyncpg_dsn())
+    try:
+        await conn.execute(f"UPDATE users SET coins = {amt} WHERE user_id = {uid}")
+        row = await conn.fetchrow(f"SELECT coins FROM users WHERE user_id = {uid}")
+    finally:
+        await conn.close()
+    return int(row["coins"]) if row else 0
 
 
 async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount: int) -> str:

@@ -135,7 +135,7 @@ async def get_family_members(session: AsyncSession, user_id: int) -> List[int]:
     members = set()
     for rel in rels:
         if rel.relation_type == RelationType.FRIEND:
-            continue  # les amis ne font PAS partie de la famille
+            continue
         members.add(rel.user_id)
         members.add(rel.related_user_id)
     members.discard(user_id)
@@ -366,34 +366,41 @@ async def get_anniversaries_today(session: AsyncSession) -> List[Relationship]:
 
 # ─── ECONOMY ──────────────────────────────────────────────────────────────────
 
-MAX_COINS = 9_000_000_000_000_000_000  # pas de plafond pratique (max BIGINT)
+MAX_COINS = 9_000_000_000_000_000_000  # max BIGINT PostgreSQL
 
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
-    # asyncpg peut inférer INT4 pour des valeurs < 2^31.
-    # On force BIGINT via le paramètre typé PostgreSQL $1::BIGINT
-    # en passant par la connexion asyncpg native.
-    from sqlalchemy import text as _text
-    uid    = int(user_id)
-    amt    = int(amount)
+    """
+    CORRECTION DÉFINITIVE du bug NumericValueOutOfRangeError.
 
-    # Approche : SQL brut avec ::BIGINT sur TOUTES les valeurs liées
-    # SQLAlchemy 2 + asyncpg respecte le cast dans la requête elle-même.
-    await session.execute(
-        _text(
-            "UPDATE users "
-            "SET coins = GREATEST(0, coins + (:amt)::BIGINT) "
-            "WHERE user_id = (:uid)::BIGINT"
-        ),
-        {"amt": amt, "uid": uid},
+    Problème racine : SQLAlchemy 2 + asyncpg encode les paramètres nommés
+    (:amt) via un codec interne qui inspecte la valeur Python et lève
+    NumericValueOutOfRangeError si elle dépasse INT4 (2 147 483 647),
+    AVANT même que PostgreSQL reçoive le ::BIGINT.
+
+    Solution : bypasser SQLAlchemy et passer par la connexion asyncpg
+    native avec la syntaxe $N. asyncpg encode alors les int Python
+    nativement en int8 (BIGINT) pour les valeurs > 2^31.
+    """
+    uid = int(user_id)
+    amt = int(amount)
+
+    # Obtenir la connexion asyncpg sous-jacente
+    sa_conn = await session.connection()
+    raw     = await sa_conn.get_raw_connection()
+    conn    = raw.driver_connection  # connexion asyncpg native
+
+    # Syntaxe $N native asyncpg — pas de codec SQLAlchemy intermédiaire
+    await conn.execute(
+        "UPDATE users SET coins = GREATEST(0, coins + $1::bigint) WHERE user_id = $2::bigint",
+        amt,
+        uid,
     )
-    await session.commit()
-    r = await session.execute(
-        _text("SELECT coins FROM users WHERE user_id = (:uid)::BIGINT"),
-        {"uid": uid},
+
+    row = await conn.fetchrow(
+        "SELECT coins FROM users WHERE user_id = $1::bigint", uid
     )
-    row = r.fetchone()
-    return row[0] if row else 0
+    return row["coins"] if row else 0
 
 
 async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount: int) -> str:

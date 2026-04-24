@@ -622,3 +622,352 @@ async def resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "▶️ <b>Bot réactivé !</b>\n\nToutes les commandes sont à nouveau disponibles.",
         parse_mode=ParseMode.HTML,
     )
+
+
+# ─── /giveportfolio ───────────────────────────────────────────────────────────
+
+async def giveportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Admin : ajoute un asset gratuit dans le portfolio d'un joueur.
+    Usage : /giveportfolio @user [asset_id] [quantité]
+    Ex    : /giveportfolio @Jean gold_bar 3
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    target_tg = await parse_target(update, context)
+    if not target_tg or len(context.args) < 2:
+        return await update.message.reply_text(
+            "Usage : /giveportfolio @user [asset_id] [quantité]\n"
+            "Ex : /giveportfolio @Jean gold_bar 3\n\n"
+            "Voir /marketlist pour la liste des asset_id."
+        )
+
+    # Le dernier arg peut être la quantité
+    try:
+        qty = int(context.args[-1])
+        asset_id = context.args[-2].lower()
+    except (ValueError, IndexError):
+        asset_id = context.args[-1].lower()
+        qty = 1
+
+    qty = max(1, min(qty, 9999))
+
+    # Import local pour éviter la circularité
+    from handlers.invest import ASSETS
+    if asset_id not in ASSETS:
+        asset_list = ", ".join(list(ASSETS.keys())[:10]) + "..."
+        return await update.message.reply_text(
+            f"Asset <code>{asset_id}</code> inconnu.\n"
+            f"Exemples : {asset_list}\n"
+            f"Voir /marketlist pour la liste complète.",
+            parse_mode=ParseMode.HTML,
+        )
+
+    a = ASSETS[asset_id]
+    target = await ensure_user(target_tg)
+
+    async with AsyncSessionLocal() as session:
+        inv = Investment(
+            user_id   = target.user_id,
+            asset_id  = asset_id,
+            quantity  = qty,
+            buy_price = 0,   # offert gratuitement — prix d'achat = 0
+        )
+        session.add(inv)
+        await session.commit()
+        inv_id = inv.id
+
+    await update.message.reply_text(
+        f"✅ <b>Portfolio mis à jour !</b>\n\n"
+        f"{a['emoji']} <b>{a['name']}</b> x{qty}\n"
+        f"👤 Joueur : {mention(target)}\n"
+        f"📋 ID position : <code>#{inv_id}</code>\n"
+        f"💸 Prix d'achat enregistré : 0 $ (offert)",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /takeportfolio ───────────────────────────────────────────────────────────
+
+async def takeportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Admin : retire/supprime une position du portfolio d'un joueur.
+    Usage : /takeportfolio [investment_id]
+    Ex    : /takeportfolio 42
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    if not context.args:
+        return await update.message.reply_text(
+            "Usage : /takeportfolio [id_position]\n"
+            "L'ID est visible dans /portfolio du joueur."
+        )
+
+    try:
+        inv_id = int(context.args[0].lstrip("#"))
+    except ValueError:
+        return await update.message.reply_text("ID invalide.")
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Investment).where(Investment.id == inv_id, Investment.status == "active")
+        )
+        inv = result.scalar_one_or_none()
+
+        if not inv:
+            return await update.message.reply_text(
+                f"Position #{inv_id} introuvable ou déjà vendue."
+            )
+
+        from handlers.invest import ASSETS
+        a = ASSETS.get(inv.asset_id, {})
+        owner_id = inv.user_id
+
+        inv.status = "sold"
+        inv.sell_price = 0
+        from datetime import datetime
+        inv.sold_at = datetime.utcnow()
+        await session.commit()
+
+    owner = await get_user(AsyncSessionLocal(), owner_id) if False else None  # juste pour le nom
+    async with AsyncSessionLocal() as session:
+        owner = await get_user(session, owner_id)
+        owner_name = owner.first_name if owner else str(owner_id)
+
+    await update.message.reply_text(
+        f"🗑️ <b>Position supprimée</b>\n\n"
+        f"{a.get('emoji','📊')} <b>{a.get('name', inv.asset_id)}</b> x{inv.quantity}\n"
+        f"👤 Propriétaire : {owner_name}\n"
+        f"📋 ID : <code>#{inv_id}</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /marketlist — liste tous les asset_id (admin) ───────────────────────────
+
+async def marketlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin : affiche tous les asset_id disponibles pour /giveportfolio."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    from handlers.invest import ASSETS, CATEGORIES
+    lines = ["<b>📋 Liste des asset_id disponibles</b>\n"]
+    for cat in CATEGORIES:
+        lines.append(f"<b>── {cat} ──</b>")
+        for kid, a in ASSETS.items():
+            if a["category"] == cat:
+                lines.append(f"  <code>{kid}</code> — {a['name']} (~{_fmt(a['base_price'])} $)")
+        lines.append("")
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── /useractivity ────────────────────────────────────────────────────────────
+
+async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Admin : affiche toutes les actions d'un joueur sur les 4 dernières heures.
+    Usage : /useractivity @user
+    Usage : /useractivity @user 8    (personnaliser la durée en heures)
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    target_tg = await parse_target(update, context)
+    if not target_tg:
+        return await update.message.reply_text("Usage : /useractivity @user [heures]\nEx : /useractivity @Jean 4")
+
+    # Durée optionnelle (dernier arg numérique)
+    hours = 4
+    if context.args:
+        try:
+            hours = int(context.args[-1])
+            hours = max(1, min(hours, 72))
+        except ValueError:
+            pass
+
+    target = await ensure_user(target_tg)
+    uid = target.user_id
+    since = f"NOW() - INTERVAL '{hours} hours'"
+
+    async with AsyncSessionLocal() as session:
+        u = await get_user(session, uid)
+        if not u:
+            return await update.message.reply_text("Utilisateur introuvable.")
+
+        events = []  # liste de (timestamp_str, emoji, description)
+
+        # ── Investissements achetés ──────────────────────────────────────────
+        res = await session.execute(text(f"""
+            SELECT asset_id, quantity, buy_price, bought_at
+            FROM investments
+            WHERE user_id=:uid AND bought_at >= {since}
+            ORDER BY bought_at DESC
+        """), {"uid": uid})
+        for row in res.fetchall():
+            events.append((row.bought_at, "📈", f"Achat /market : {row.asset_id} x{row.quantity} à {_fmt(row.buy_price)} $/u"))
+
+        # ── Investissements vendus ───────────────────────────────────────────
+        res = await session.execute(text(f"""
+            SELECT asset_id, quantity, buy_price, sell_price, sold_at
+            FROM investments
+            WHERE user_id=:uid AND status='sold' AND sold_at >= {since}
+            ORDER BY sold_at DESC
+        """), {"uid": uid})
+        for row in res.fetchall():
+            profit = (row.sell_price - row.buy_price) * row.quantity
+            sign = "+" if profit >= 0 else ""
+            events.append((row.sold_at, "💰", f"Vente /market : {row.asset_id} x{row.quantity} → {sign}{_fmt(profit)} $"))
+
+        # ── Loterie — tickets achetés ────────────────────────────────────────
+        res = await session.execute(text(f"""
+            SELECT lt.created_at, ls.ticket_price, ls.group_id
+            FROM lottery_tickets lt
+            JOIN lottery_sessions ls ON ls.id = lt.session_id
+            WHERE lt.user_id=:uid AND lt.created_at >= {since}
+            ORDER BY lt.created_at DESC
+        """), {"uid": uid})
+        for row in res.fetchall():
+            events.append((row.created_at, "🎟️", f"Ticket loto acheté ({_fmt(row.ticket_price)} $) — groupe {row.group_id}"))
+
+        # ── Paris créés ─────────────────────────────────────────────────────
+        res = await session.execute(text(f"""
+            SELECT amount, description, created_at
+            FROM user_bets
+            WHERE proposer_id=:uid AND created_at >= {since}
+            ORDER BY created_at DESC
+        """), {"uid": uid})
+        for row in res.fetchall():
+            events.append((row.created_at, "🎲", f"Pari créé : {_fmt(row.amount)} $ — \"{row.description[:40]}\""))
+
+        # ── Paris acceptés ──────────────────────────────────────────────────
+        res = await session.execute(text(f"""
+            SELECT amount, description, created_at
+            FROM user_bets
+            WHERE target_id=:uid AND status IN ('active','done') AND created_at >= {since}
+            ORDER BY created_at DESC
+        """), {"uid": uid})
+        for row in res.fetchall():
+            events.append((row.created_at, "🤝", f"Pari accepté : {_fmt(row.amount)} $ — \"{row.description[:40]}\""))
+
+        # ── Dépôts banque ───────────────────────────────────────────────────
+        res = await session.execute(text(f"""
+            SELECT bank_id, balance, opened_at
+            FROM bank_accounts
+            WHERE user_id=:uid AND opened_at >= {since}
+            ORDER BY opened_at DESC
+        """), {"uid": uid})
+        for row in res.fetchall():
+            events.append((row.opened_at, "🏦", f"Compte bancaire ouvert : {row.bank_id}"))
+
+        # ── Prêts bancaires ─────────────────────────────────────────────────
+        res = await session.execute(text(f"""
+            SELECT bank_id, amount, interest_rate, created_at
+            FROM loans
+            WHERE user_id=:uid AND created_at >= {since}
+            ORDER BY created_at DESC
+        """), {"uid": uid})
+        for row in res.fetchall():
+            events.append((row.created_at, "💳", f"Prêt contracté : {_fmt(row.amount)} $ à {row.interest_rate*100:.1f}% — {row.bank_id}"))
+
+        # ── Enchères placées ────────────────────────────────────────────────
+        try:
+            res = await session.execute(text(f"""
+                SELECT ab.amount, ab.placed_at, acs.item_name
+                FROM auction_bids ab
+                JOIN auction_sessions acs ON acs.id = ab.session_id
+                WHERE ab.user_id=:uid AND ab.placed_at >= {since}
+                ORDER BY ab.placed_at DESC
+            """), {"uid": uid})
+            for row in res.fetchall():
+                events.append((row.placed_at, "🔨", f"Enchère : {_fmt(row.amount)} $ sur \"{row.item_name}\""))
+        except Exception:
+            pass  # table pas encore créée
+
+        # ── Objets gagnés aux enchères ───────────────────────────────────────
+        try:
+            res = await session.execute(text(f"""
+                SELECT item_name, paid_price, rarity, acquired_at
+                FROM auction_inventory
+                WHERE user_id=:uid AND acquired_at >= {since}
+                ORDER BY acquired_at DESC
+            """), {"uid": uid})
+            for row in res.fetchall():
+                events.append((row.acquired_at, "🏆", f"Objet gagné : {row.item_name} ({row.rarity}) — payé {_fmt(row.paid_price)} $"))
+        except Exception:
+            pass
+
+        # ── Objets vendus (shopitems) ────────────────────────────────────────
+        try:
+            res = await session.execute(text(f"""
+                SELECT item_name, sale_price, last_fluctuation
+                FROM auction_inventory
+                WHERE user_id!=:uid AND for_sale=FALSE AND last_fluctuation >= {since}
+            """), {"uid": uid})
+            # NOTE: on ne peut pas tracer les ventes passées sans log dédié — on skip
+        except Exception:
+            pass
+
+        # ── Cambriolages ────────────────────────────────────────────────────
+        try:
+            res = await session.execute(text(f"""
+                SELECT target_id, amount, success, created_at
+                FROM cambriolage_log
+                WHERE attacker_id=:uid AND created_at >= {since}
+                ORDER BY created_at DESC
+            """), {"uid": uid})
+            for row in res.fetchall():
+                status = "✅ réussi" if row.success else "❌ échoué"
+                events.append((row.created_at, "🥷", f"Cambriolage {status} : {_fmt(row.amount)} $ sur user {row.target_id}"))
+        except Exception:
+            pass  # table optionnelle
+
+        # ── Prison ──────────────────────────────────────────────────────────
+        try:
+            res = await session.execute(text(f"""
+                SELECT reason, bail_amount, imprisoned_at
+                FROM crime_prison_log
+                WHERE user_id=:uid AND imprisoned_at >= {since}
+                ORDER BY imprisoned_at DESC
+            """), {"uid": uid})
+            for row in res.fetchall():
+                events.append((row.imprisoned_at, "🔒", f"Emprisonné : {row.reason} (caution {_fmt(row.bail_amount)} $)"))
+        except Exception:
+            pass
+
+    # ── Infos de base (daily/work — pas de timestamp précis) ─────────────────
+    if u.last_work:
+        from datetime import timezone
+        lw = u.last_work
+        cutoff = datetime.utcnow() - __import__('datetime').timedelta(hours=hours)
+        if lw >= cutoff:
+            events.append((lw, "💼", f"/work effectué"))
+
+    # ── Trier par date décroissante ───────────────────────────────────────────
+    events.sort(key=lambda x: x[0], reverse=True)
+
+    # ── Construire le message ─────────────────────────────────────────────────
+    name = u.first_name or u.username or str(uid)
+    header = (
+        f"🔍 <b>Activité de {name}</b> — {hours}h\n"
+        f"👤 ID : <code>{uid}</code> | 💰 Solde actuel : {_fmt(u.coins)} $\n"
+        f"─────────────────────────\n"
+    )
+
+    if not events:
+        return await update.message.reply_text(
+            header + "Aucune activité enregistrée sur cette période.",
+            parse_mode=ParseMode.HTML,
+        )
+
+    lines = [header]
+    for ts, emoji, desc in events[:40]:  # max 40 événements
+        time_str = ts.strftime("%H:%M:%S") if ts else "?"
+        lines.append(f"{emoji} <code>{time_str}</code> {desc}")
+
+    if len(events) > 40:
+        lines.append(f"\n<i>… et {len(events) - 40} autres événements.</i>")
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

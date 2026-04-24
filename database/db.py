@@ -371,36 +371,33 @@ MAX_COINS = 9_000_000_000_000_000_000  # max BIGINT PostgreSQL
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
     """
-    CORRECTION DÉFINITIVE du bug NumericValueOutOfRangeError.
+    Incrémente (ou décrémente) les coins d'un utilisateur.
 
-    Problème racine : SQLAlchemy 2 + asyncpg encode les paramètres nommés
-    (:amt) via un codec interne qui inspecte la valeur Python et lève
-    NumericValueOutOfRangeError si elle dépasse INT4 (2 147 483 647),
-    AVANT même que PostgreSQL reçoive le ::BIGINT.
-
-    Solution : bypasser SQLAlchemy et passer par la connexion asyncpg
-    native avec la syntaxe $N. asyncpg encode alors les int Python
-    nativement en int8 (BIGINT) pour les valeurs > 2^31.
+    Bypass TOTAL de SQLAlchemy : on passe par engine.connect() qui donne
+    une connexion fraîche sans les codecs problématiques.
+    CAST() SQL standard — compatible avec toutes versions SQLAlchemy/asyncpg.
+    Supporte des valeurs bien au-delà de 2^31 (INT4 max).
     """
     uid = int(user_id)
     amt = int(amount)
 
-    # Obtenir la connexion asyncpg sous-jacente
-    sa_conn = await session.connection()
-    raw     = await sa_conn.get_raw_connection()
-    conn    = raw.driver_connection  # connexion asyncpg native
+    async with engine.connect() as conn:
+        await conn.execute(
+            text(
+                "UPDATE users "
+                "SET coins = GREATEST(0, coins + CAST(:amt AS BIGINT)) "
+                "WHERE user_id = CAST(:uid AS BIGINT)"
+            ),
+            {"amt": amt, "uid": uid},
+        )
+        result = await conn.execute(
+            text("SELECT coins FROM users WHERE user_id = CAST(:uid AS BIGINT)"),
+            {"uid": uid},
+        )
+        row = result.fetchone()
+        await conn.commit()
 
-    # Syntaxe $N native asyncpg — pas de codec SQLAlchemy intermédiaire
-    await conn.execute(
-        "UPDATE users SET coins = GREATEST(0, coins + $1::bigint) WHERE user_id = $2::bigint",
-        amt,
-        uid,
-    )
-
-    row = await conn.fetchrow(
-        "SELECT coins FROM users WHERE user_id = $1::bigint", uid
-    )
-    return row["coins"] if row else 0
+    return row[0] if row else 0
 
 
 async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount: int) -> str:

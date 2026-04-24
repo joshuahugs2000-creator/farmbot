@@ -370,20 +370,27 @@ MAX_COINS = 9_000_000_000_000_000_000  # pas de plafond pratique (max BIGINT)
 
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
+    # asyncpg peut inférer INT4 pour des valeurs < 2^31.
+    # On force BIGINT via le paramètre typé PostgreSQL $1::BIGINT
+    # en passant par la connexion asyncpg native.
     from sqlalchemy import text as _text
-    amount_safe = int(amount)
+    uid    = int(user_id)
+    amt    = int(amount)
+
+    # Approche : SQL brut avec ::BIGINT sur TOUTES les valeurs liées
+    # SQLAlchemy 2 + asyncpg respecte le cast dans la requête elle-même.
     await session.execute(
-        _text("""
-            UPDATE users
-            SET coins = GREATEST(0, coins + CAST(:amt AS BIGINT))
-            WHERE user_id = :uid
-        """),
-        {"amt": amount_safe, "uid": int(user_id)}
+        _text(
+            "UPDATE users "
+            "SET coins = GREATEST(0, coins + (:amt)::BIGINT) "
+            "WHERE user_id = (:uid)::BIGINT"
+        ),
+        {"amt": amt, "uid": uid},
     )
     await session.commit()
     r = await session.execute(
-        _text("SELECT coins FROM users WHERE user_id = :uid"),
-        {"uid": int(user_id)}
+        _text("SELECT coins FROM users WHERE user_id = (:uid)::BIGINT"),
+        {"uid": uid},
     )
     row = r.fetchone()
     return row[0] if row else 0

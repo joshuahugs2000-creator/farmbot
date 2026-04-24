@@ -33,11 +33,9 @@ from utils.helpers import ensure_user, parse_target, mention
 logger = logging.getLogger(__name__)
 
 # ─── IDs des admins ───────────────────────────────────────────────────────────
-# Ajoute ton ID Telegram ici. Tu peux en mettre plusieurs séparés par des virgules.
 ADMIN_IDS: set[int] = {
-    6227863810,   # ← remplace par ton vrai ID Telegram
+    6227863810,
 }
-
 
 # ─── État global du bot ───────────────────────────────────────────────────────
 BOT_PAUSED: bool = False
@@ -55,13 +53,36 @@ async def _deny(update: Update):
     await update.message.reply_text("⛔ Accès refusé. Commande réservée aux admins.")
 
 
+# ─── Helper BIGINT natif asyncpg ─────────────────────────────────────────────
+
+async def _set_coins_raw(session, user_id: int, amount: int) -> int:
+    """
+    Définit le solde exact d'un utilisateur via asyncpg natif.
+    Contourne le codec SQLAlchemy qui lève NumericValueOutOfRangeError
+    pour les valeurs > 2 147 483 647 (INT4).
+    """
+    uid = int(user_id)
+    amt = int(amount)
+    sa_conn = await session.connection()
+    raw     = await sa_conn.get_raw_connection()
+    conn    = raw.driver_connection  # connexion asyncpg native
+    await conn.execute(
+        "UPDATE users SET coins = $1::bigint WHERE user_id = $2::bigint",
+        amt, uid,
+    )
+    row = await conn.fetchrow(
+        "SELECT coins FROM users WHERE user_id = $1::bigint", uid
+    )
+    return row["coins"] if row else 0
+
+
 # ─── /adminhelp ───────────────────────────────────────────────────────────────
 
 async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    text = (
+    msg = (
         "<b>🛡 Panneau Admin — God Mode</b>\n\n"
         "<b>💰 Gestion argent</b>\n"
         "/give @user montant — Donner des $\n"
@@ -82,11 +103,18 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/adminlist — Liste des admins actuels\n\n"
         "<b>📢 Communication</b>\n"
         "/broadcast [message] — Message à tous les utilisateurs\n\n"
+        "<b>🎭 Drames économiques</b>\n"
+        "/drame scandale @user — Perte % coins\n"
+        "/drame catastrophe @user — Détruit portfolio\n"
+        "/drame fisc @user — Impôts forcés\n"
+        "/drame crise @user — Double peine\n"
+        "/drame info @user — Fortune complète\n"
+        "/setdramesesuil [montant] — Changer le seuil\n\n"
         "<b>⏸️ Contrôle du bot</b>\n"
         "/pause — Mettre le bot en pause\n"
         "/resume — Réactiver le bot\n"
     )
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 
 # ─── /give ────────────────────────────────────────────────────────────────────
@@ -107,6 +135,7 @@ async def give(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target = await ensure_user(target_tg)
     async with AsyncSessionLocal() as session:
+        # add_coins utilise asyncpg natif — supporte les BIGINT
         new_bal = await add_coins(session, target.user_id, amount)
 
     await update.message.reply_text(
@@ -164,11 +193,11 @@ async def setcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u = await get_user(session, target.user_id)
         if not u:
             return await update.message.reply_text("Utilisateur introuvable.")
-        u.coins = amount
-        await session.commit()
+        # ── CORRECTION : bypass ORM → asyncpg natif pour supporter > 2 milliards
+        new_bal = await _set_coins_raw(session, target.user_id, amount)
 
     await update.message.reply_text(
-        f"✅ Solde de {mention(target)} défini à <b>{_fmt(amount)} $</b>",
+        f"✅ Solde de {mention(target)} défini à <b>{_fmt(new_bal)} $</b>",
         parse_mode=ParseMode.HTML,
     )
 
@@ -204,7 +233,6 @@ async def userinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         investments = inv_res.scalars().all()
 
-        # Vérifier si en prison
         prison_res = await session.execute(
             text("SELECT * FROM crime_prison WHERE user_id = :uid"),
             {"uid": u.user_id}
@@ -367,7 +395,6 @@ async def adminlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /liberer ─────────────────────────────────────────────────────────────────
 
 async def liberer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Libère immédiatement un prisonnier (God mode admin)."""
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
@@ -398,26 +425,24 @@ async def liberer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await session.commit()
 
-        await update.message.reply_text(
-            f"🔓 <b>GRÂCE PRÉSIDENTIELLE</b>\n\n"
-            f"{mention(target)} a été libéré(e) par l'admin !\n"
-            f"⏱️ Il restait <b>{minutes_left} minute(s)</b> de peine.\n"
-            f"🆓 Il/Elle est maintenant libre et peut utiliser toutes les commandes.",
-            parse_mode=ParseMode.HTML,
-        )
+    await update.message.reply_text(
+        f"🔓 <b>GRÂCE PRÉSIDENTIELLE</b>\n\n"
+        f"{mention(target)} a été libéré(e) par l'admin !\n"
+        f"⏱️ Il restait <b>{minutes_left} minute(s)</b> de peine.\n"
+        f"🆓 Il/Elle est maintenant libre et peut utiliser toutes les commandes.",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 # ─── /prisonlist ──────────────────────────────────────────────────────────────
 
 async def prisonlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Liste tous les prisonniers actuels (dont la peine n'est pas encore expirée)."""
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
     now = datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
-        # On ne récupère QUE les prisonniers encore actifs
         r = await session.execute(
             text("SELECT * FROM crime_prison WHERE released_at > :now ORDER BY released_at ASC"),
             {"now": now}
@@ -456,7 +481,6 @@ async def prisonlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /emprisonner ─────────────────────────────────────────────────────────────
 
 async def emprisonner(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mettre quelqu'un en prison manuellement (God mode admin)."""
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
@@ -476,16 +500,14 @@ async def emprisonner(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     from datetime import timedelta
     released_at = datetime.utcnow() + timedelta(minutes=duration)
-    bail_amount = duration * 100  # caution = 100$ par minute
+    bail_amount = duration * 100
 
     async with AsyncSessionLocal() as session:
-        # Vérifier si déjà en prison
         r = await session.execute(
             text("SELECT * FROM crime_prison WHERE user_id = :uid"),
             {"uid": target.user_id}
         )
         if r.fetchone():
-            # Mettre à jour la peine existante
             await session.execute(
                 text("""UPDATE crime_prison
                         SET released_at = :rel, bail_amount = :bail, amount_stolen = 0
@@ -553,7 +575,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent_users, failed_users   = 0, 0
     sent_groups, failed_groups = 0, 0
 
-    # ── DMs ──────────────────────────────────────────────────────────────────
     for u in user_rows:
         try:
             await context.bot.send_message(
@@ -565,7 +586,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             failed_users += 1
 
-    # ── Groupes ──────────────────────────────────────────────────────────────
     for g in group_rows:
         try:
             await context.bot.send_message(
@@ -586,10 +606,10 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
+
 # ─── /pause  /resume ──────────────────────────────────────────────────────────
 
 async def pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin : met le bot en pause (plus aucune commande utilisateur)."""
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
@@ -608,7 +628,6 @@ async def pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin : réactive le bot."""
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
@@ -627,11 +646,6 @@ async def resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /giveportfolio ───────────────────────────────────────────────────────────
 
 async def giveportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Admin : ajoute un asset gratuit dans le portfolio d'un joueur.
-    Usage : /giveportfolio @user [asset_id] [quantité]
-    Ex    : /giveportfolio @Jean gold_bar 3
-    """
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
@@ -643,7 +657,6 @@ async def giveportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Voir /marketlist pour la liste des asset_id."
         )
 
-    # Le dernier arg peut être la quantité
     try:
         qty = int(context.args[-1])
         asset_id = context.args[-2].lower()
@@ -653,7 +666,6 @@ async def giveportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     qty = max(1, min(qty, 9999))
 
-    # Import local pour éviter la circularité
     from handlers.invest import ASSETS
     if asset_id not in ASSETS:
         asset_list = ", ".join(list(ASSETS.keys())[:10]) + "..."
@@ -672,7 +684,7 @@ async def giveportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id   = target.user_id,
             asset_id  = asset_id,
             quantity  = qty,
-            buy_price = 0,   # offert gratuitement — prix d'achat = 0
+            buy_price = 0,
         )
         session.add(inv)
         await session.commit()
@@ -691,11 +703,6 @@ async def giveportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /takeportfolio ───────────────────────────────────────────────────────────
 
 async def takeportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Admin : retire/supprime une position du portfolio d'un joueur.
-    Usage : /takeportfolio [investment_id]
-    Ex    : /takeportfolio 42
-    """
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
@@ -727,11 +734,9 @@ async def takeportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         inv.status = "sold"
         inv.sell_price = 0
-        from datetime import datetime
         inv.sold_at = datetime.utcnow()
         await session.commit()
 
-    owner = await get_user(AsyncSessionLocal(), owner_id) if False else None  # juste pour le nom
     async with AsyncSessionLocal() as session:
         owner = await get_user(session, owner_id)
         owner_name = owner.first_name if owner else str(owner_id)
@@ -745,10 +750,9 @@ async def takeportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── /marketlist — liste tous les asset_id (admin) ───────────────────────────
+# ─── /marketlist ─────────────────────────────────────────────────────────────
 
 async def marketlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin : affiche tous les asset_id disponibles pour /giveportfolio."""
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
@@ -767,11 +771,6 @@ async def marketlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /useractivity ────────────────────────────────────────────────────────────
 
 async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Admin : affiche toutes les actions d'un joueur sur les 4 dernières heures.
-    Usage : /useractivity @user
-    Usage : /useractivity @user 8    (personnaliser la durée en heures)
-    """
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
@@ -779,7 +778,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not target_tg:
         return await update.message.reply_text("Usage : /useractivity @user [heures]\nEx : /useractivity @Jean 4")
 
-    # Durée optionnelle (dernier arg numérique)
     hours = 4
     if context.args:
         try:
@@ -797,9 +795,8 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not u:
             return await update.message.reply_text("Utilisateur introuvable.")
 
-        events = []  # liste de (timestamp_str, emoji, description)
+        events = []
 
-        # ── Investissements achetés ──────────────────────────────────────────
         res = await session.execute(text(f"""
             SELECT asset_id, quantity, buy_price, bought_at
             FROM investments
@@ -809,7 +806,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for row in res.fetchall():
             events.append((row.bought_at, "📈", f"Achat /market : {row.asset_id} x{row.quantity} à {_fmt(row.buy_price)} $/u"))
 
-        # ── Investissements vendus ───────────────────────────────────────────
         res = await session.execute(text(f"""
             SELECT asset_id, quantity, buy_price, sell_price, sold_at
             FROM investments
@@ -821,7 +817,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sign = "+" if profit >= 0 else ""
             events.append((row.sold_at, "💰", f"Vente /market : {row.asset_id} x{row.quantity} → {sign}{_fmt(profit)} $"))
 
-        # ── Loterie — tickets achetés ────────────────────────────────────────
         res = await session.execute(text(f"""
             SELECT lt.created_at, ls.ticket_price, ls.group_id
             FROM lottery_tickets lt
@@ -832,7 +827,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for row in res.fetchall():
             events.append((row.created_at, "🎟️", f"Ticket loto acheté ({_fmt(row.ticket_price)} $) — groupe {row.group_id}"))
 
-        # ── Paris créés ─────────────────────────────────────────────────────
         res = await session.execute(text(f"""
             SELECT amount, description, created_at
             FROM user_bets
@@ -842,7 +836,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for row in res.fetchall():
             events.append((row.created_at, "🎲", f"Pari créé : {_fmt(row.amount)} $ — \"{row.description[:40]}\""))
 
-        # ── Paris acceptés ──────────────────────────────────────────────────
         res = await session.execute(text(f"""
             SELECT amount, description, created_at
             FROM user_bets
@@ -852,7 +845,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for row in res.fetchall():
             events.append((row.created_at, "🤝", f"Pari accepté : {_fmt(row.amount)} $ — \"{row.description[:40]}\""))
 
-        # ── Dépôts banque ───────────────────────────────────────────────────
         res = await session.execute(text(f"""
             SELECT bank_id, balance, opened_at
             FROM bank_accounts
@@ -862,7 +854,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for row in res.fetchall():
             events.append((row.opened_at, "🏦", f"Compte bancaire ouvert : {row.bank_id}"))
 
-        # ── Prêts bancaires ─────────────────────────────────────────────────
         res = await session.execute(text(f"""
             SELECT bank_id, amount, interest_rate, created_at
             FROM loans
@@ -872,7 +863,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for row in res.fetchall():
             events.append((row.created_at, "💳", f"Prêt contracté : {_fmt(row.amount)} $ à {row.interest_rate*100:.1f}% — {row.bank_id}"))
 
-        # ── Enchères placées ────────────────────────────────────────────────
         try:
             res = await session.execute(text(f"""
                 SELECT ab.amount, ab.placed_at, acs.item_name
@@ -884,9 +874,8 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for row in res.fetchall():
                 events.append((row.placed_at, "🔨", f"Enchère : {_fmt(row.amount)} $ sur \"{row.item_name}\""))
         except Exception:
-            pass  # table pas encore créée
+            pass
 
-        # ── Objets gagnés aux enchères ───────────────────────────────────────
         try:
             res = await session.execute(text(f"""
                 SELECT item_name, paid_price, rarity, acquired_at
@@ -899,18 +888,6 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        # ── Objets vendus (shopitems) ────────────────────────────────────────
-        try:
-            res = await session.execute(text(f"""
-                SELECT item_name, sale_price, last_fluctuation
-                FROM auction_inventory
-                WHERE user_id!=:uid AND for_sale=FALSE AND last_fluctuation >= {since}
-            """), {"uid": uid})
-            # NOTE: on ne peut pas tracer les ventes passées sans log dédié — on skip
-        except Exception:
-            pass
-
-        # ── Cambriolages ────────────────────────────────────────────────────
         try:
             res = await session.execute(text(f"""
                 SELECT target_id, amount, success, created_at
@@ -922,9 +899,8 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 status = "✅ réussi" if row.success else "❌ échoué"
                 events.append((row.created_at, "🥷", f"Cambriolage {status} : {_fmt(row.amount)} $ sur user {row.target_id}"))
         except Exception:
-            pass  # table optionnelle
+            pass
 
-        # ── Prison ──────────────────────────────────────────────────────────
         try:
             res = await session.execute(text(f"""
                 SELECT reason, bail_amount, imprisoned_at
@@ -937,18 +913,14 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    # ── Infos de base (daily/work — pas de timestamp précis) ─────────────────
     if u.last_work:
-        from datetime import timezone
-        lw = u.last_work
-        cutoff = datetime.utcnow() - __import__('datetime').timedelta(hours=hours)
-        if lw >= cutoff:
-            events.append((lw, "💼", f"/work effectué"))
+        import datetime as _dt
+        cutoff = datetime.utcnow() - _dt.timedelta(hours=hours)
+        if u.last_work >= cutoff:
+            events.append((u.last_work, "💼", "/work effectué"))
 
-    # ── Trier par date décroissante ───────────────────────────────────────────
     events.sort(key=lambda x: x[0], reverse=True)
 
-    # ── Construire le message ─────────────────────────────────────────────────
     name = u.first_name or u.username or str(uid)
     header = (
         f"🔍 <b>Activité de {name}</b> — {hours}h\n"
@@ -963,7 +935,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     lines = [header]
-    for ts, emoji, desc in events[:40]:  # max 40 événements
+    for ts, emoji, desc in events[:40]:
         time_str = ts.strftime("%H:%M:%S") if ts else "?"
         lines.append(f"{emoji} <code>{time_str}</code> {desc}")
 

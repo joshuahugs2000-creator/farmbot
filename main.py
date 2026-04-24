@@ -46,6 +46,8 @@ from handlers.admin    import (
     adminadd, adminremove, adminlist, broadcast,
     liberer, prisonlist, emprisonner,
     is_admin, pause, resume,
+    giveportfolio, takeportfolio, marketlist,
+    useractivity,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -62,6 +64,11 @@ from handlers.crime    import (
     security, security_callback,
     init_crime_tables,
     _is_in_prison, _get_prison, _fmt,
+)
+from handlers.auction import (
+    bid, expertise, expertise_callback, auction_callback,
+    myitems, sellitem, shopitems, buyitem,
+    init_auction_tables, setup_auction_jobs,
 )
 from handlers.wealth_drain import (
     impots, cambrioler, braquage, annulerbraquage,
@@ -142,6 +149,7 @@ async def on_startup(application: Application):
     await init_crime_tables()
     await init_drain_tables()
     await _ensure_cambriolage_cd_table()
+    await init_auction_tables()
     logger.info("Base de données initialisée.")
 
 
@@ -261,6 +269,10 @@ async def main():
     app.add_handler(CommandHandler("emprisonner",  emprisonner))
     app.add_handler(CommandHandler("pause",        pause))
     app.add_handler(CommandHandler("resume",       resume))
+    app.add_handler(CommandHandler("giveportfolio", giveportfolio))
+    app.add_handler(CommandHandler("takeportfolio", takeportfolio))
+    app.add_handler(CommandHandler("marketlist",   marketlist))
+    app.add_handler(CommandHandler("useractivity", useractivity))
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))
@@ -305,6 +317,17 @@ async def main():
     app.add_handler(CallbackQueryHandler(juge_callback,     pattern=r"^juge:"))
     app.add_handler(CallbackQueryHandler(security_callback, pattern=r"^sec:"))
 
+    # ── Enchères ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("bid",       _prison_checked(bid)))
+    app.add_handler(CommandHandler("expertise", _prison_checked(expertise)))
+    app.add_handler(CommandHandler("myitems",   _prison_checked(myitems)))
+    app.add_handler(CommandHandler("sellitem",  _prison_checked(sellitem)))
+    app.add_handler(CommandHandler("shopitems", _prison_checked(shopitems)))
+    app.add_handler(CommandHandler("buyitem",   _prison_checked(buyitem)))
+    app.add_handler(CallbackQueryHandler(auction_callback,  pattern=r"^auction:bid:"))
+    app.add_handler(CallbackQueryHandler(auction_callback,  pattern=r"^auction:info:"))
+    app.add_handler(CallbackQueryHandler(expertise_callback, pattern=r"^auction:(sellnow|keep):"))
+
     # ── Drainage ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
     app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
@@ -331,6 +354,7 @@ async def main():
         name="loan_reminders",
     )
     setup_lottery_jobs(app)
+    setup_auction_jobs(app)
 
     # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────
     async def health(request):

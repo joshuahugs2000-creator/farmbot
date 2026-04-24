@@ -52,7 +52,7 @@ from handlers.bank     import (
     bankbalance, bankloan, bankrepay, bankloans,
     pay_interests, remind_loans,
 )
-from handlers.invest   import market, buy, sell, portfolio
+from handlers.invest   import market, market_callback, buy, sell, portfolio
 from handlers.lottery  import (
     createloto, loto, ticket, tirage, tirage_force, cancelloto,
     setup_lottery_jobs,
@@ -241,6 +241,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(rebet_callback,      pattern=r"^rebet:"))
     app.add_handler(CallbackQueryHandler(cockfight_callback,  pattern=r"^cf:"))
     app.add_handler(CallbackQueryHandler(ppc_callback,        pattern=r"^ppc:"))
+    app.add_handler(CallbackQueryHandler(market_callback,     pattern=r"^mkt:"))
 
     # ── Admin ─────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",    adminhelp))

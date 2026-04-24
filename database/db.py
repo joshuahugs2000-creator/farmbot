@@ -366,7 +366,7 @@ async def get_anniversaries_today(session: AsyncSession) -> List[Relationship]:
 
 # ─── ECONOMY ──────────────────────────────────────────────────────────────────
 
-MAX_COINS = 2_000_000_000  # 2 milliards — plafond absolu
+MAX_COINS = 9_000_000_000_000_000_000  # pas de plafond pratique (max BIGINT)
 
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
@@ -374,7 +374,7 @@ async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
     user = r.scalar_one_or_none()
     if not user:
         return 0
-    user.coins = max(0, min(user.coins + amount, MAX_COINS))
+    user.coins = max(0, user.coins + amount)
     await session.commit()
     return user.coins
 
@@ -389,7 +389,7 @@ async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount
     if sender.coins < amount:
         return "insufficient"
     sender.coins -= amount
-    target.coins = min(target.coins + amount, MAX_COINS)
+    target.coins += amount
     await session.commit()
     return "ok"
 
@@ -579,8 +579,8 @@ async def deduct_for_game(session: AsyncSession, user_id: int, amount: int) -> s
 
 
 async def add_coins_smart(session: AsyncSession, user_id: int, amount: int):
-    """Ajoute les gains toujours sur le compte perso (plafonné à MAX_COINS)."""
+    """Ajoute les gains toujours sur le compte perso (sans plafond)."""
     user = await get_user(session, user_id)
     if user:
-        user.coins = min(user.coins + amount, MAX_COINS)
+        user.coins = user.coins + amount
         await session.commit()

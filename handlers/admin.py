@@ -26,7 +26,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
-from database.db import AsyncSessionLocal, get_user, add_coins
+from database.db import AsyncSessionLocal, get_user, add_coins, set_coins
 from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
 
@@ -57,23 +57,9 @@ async def _deny(update: Update):
 
 async def _set_coins_raw(session, user_id: int, amount: int) -> int:
     """
-    Définit le solde exact d'un utilisateur via asyncpg natif.
-    Contourne le codec SQLAlchemy qui lève NumericValueOutOfRangeError
-    pour les valeurs > 2 147 483 647 (INT4).
+    Définit le solde exact via set_coins() (asyncpg natif, supporte BIGINT).
     """
-    uid = int(user_id)
-    amt = int(amount)
-    sa_conn = await session.connection()
-    raw     = await sa_conn.get_raw_connection()
-    conn    = raw.driver_connection  # connexion asyncpg native
-    await conn.execute(
-        "UPDATE users SET coins = $1::bigint WHERE user_id = $2::bigint",
-        amt, uid,
-    )
-    row = await conn.fetchrow(
-        "SELECT coins FROM users WHERE user_id = $1::bigint", uid
-    )
-    return row["coins"] if row else 0
+    return await set_coins(user_id, amount)
 
 
 # ─── /adminhelp ───────────────────────────────────────────────────────────────

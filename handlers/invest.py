@@ -472,49 +472,73 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /sell ────────────────────────────────────────────────────────────────────
 
 def _sell_outcome(asset: dict, buy_price: int, current_price: int) -> tuple:
+    """
+    Taux resserrés — les gains sont modestes, les pertes fréquentes et parfois dévastatrices.
+
+    safe    : gain faible, perte fréquente, jamais de ruine
+    medium  : gains plafonnés, pertes lourdes possibles 1/4 du temps
+    high    : gros gains rares (20%), pertes massives fréquentes (40%)
+    extreme : jackpot ultra-rare (8%), ruine très probable (45%)
+    """
     risk = asset["risk"]
+
     if risk == "safe":
+        # 40% petit gain | 25% neutre | 25% perte légère | 10% perte sérieuse
         r = random.random()
-        if r < 0.70:
-            mult, label = random.uniform(1.02, 1.15), "📈 Gain modeste"
-        elif r < 0.90:
-            mult, label = 1.0, "➡️ Neutre"
-        else:
-            mult, label = random.uniform(0.85, 0.98), "📉 Légère perte"
-    elif risk == "medium":
-        r = random.random()
-        if r < 0.50:
-            mult, label = random.uniform(1.05, 1.30), "📈 Bon gain"
+        if r < 0.40:
+            mult, label = random.uniform(1.01, 1.08), "📈 Petit gain"
         elif r < 0.65:
-            mult, label = 1.0, "➡️ Neutre"
+            mult, label = random.uniform(0.97, 1.00), "➡️ Quasi neutre"
         elif r < 0.90:
-            mult, label = random.uniform(0.80, 0.95), "📉 Perte modérée"
+            mult, label = random.uniform(0.80, 0.96), "📉 Légère perte"
         else:
-            mult, label = random.uniform(0.50, 0.75), "📉📉 Perte lourde"
-    elif risk == "high":
+            mult, label = random.uniform(0.55, 0.79), "📉📉 Perte sérieuse"
+
+    elif risk == "medium":
+        # 30% gain modéré | 15% neutre | 30% perte modérée | 15% perte lourde | 10% désastre
         r = random.random()
         if r < 0.30:
-            mult, label = random.uniform(1.20, 2.00), "🚀 Gros gain !"
-        elif r < 0.50:
-            mult, label = random.uniform(1.05, 1.20), "📈 Bon gain"
-        elif r < 0.70:
-            mult, label = 1.0, "➡️ Neutre"
+            mult, label = random.uniform(1.05, 1.25), "📈 Gain correct"
+        elif r < 0.45:
+            mult, label = random.uniform(0.98, 1.04), "➡️ Neutre"
+        elif r < 0.75:
+            mult, label = random.uniform(0.70, 0.97), "📉 Perte modérée"
         elif r < 0.90:
-            mult, label = random.uniform(0.50, 0.85), "📉 Perte significative"
+            mult, label = random.uniform(0.40, 0.69), "📉📉 Perte lourde"
         else:
-            mult, label = random.uniform(0.10, 0.40), "💀 Grosse perte !"
-    else:  # extreme
+            mult, label = random.uniform(0.10, 0.39), "💀 Désastre financier !"
+
+    elif risk == "high":
+        # 10% gros gain | 10% gain correct | 15% neutre | 30% perte lourde | 20% désastre | 15% ruine
         r = random.random()
-        if r < 0.15:
-            mult, label = random.uniform(5.0, 15.0), "🎰 JACKPOT !!!"
+        if r < 0.10:
+            mult, label = random.uniform(1.30, 1.80), "🚀 Gros gain !"
+        elif r < 0.20:
+            mult, label = random.uniform(1.05, 1.29), "📈 Gain correct"
         elif r < 0.35:
-            mult, label = random.uniform(1.50, 5.0), "🚀🚀 Gain énorme !"
-        elif r < 0.50:
-            mult, label = random.uniform(1.05, 1.50), "📈 Gain correct"
+            mult, label = random.uniform(0.95, 1.04), "➡️ Neutre"
         elif r < 0.65:
-            mult, label = random.uniform(0.70, 0.99), "📉 Légère perte"
+            mult, label = random.uniform(0.50, 0.94), "📉 Perte lourde"
         elif r < 0.85:
-            mult, label = random.uniform(0.20, 0.60), "💀 Perte massive !"
+            mult, label = random.uniform(0.15, 0.49), "💀 Désastre !"
+        else:
+            mult, label = random.uniform(0.01, 0.14), "☠️ Quasi ruine totale !"
+
+    else:  # extreme
+        # 5% jackpot | 8% énorme | 12% gain | 15% neutre | 25% perte lourde | 20% désastre | 15% ruine totale
+        r = random.random()
+        if r < 0.05:
+            mult, label = random.uniform(4.0, 10.0), "🎰 JACKPOT !!!"
+        elif r < 0.13:
+            mult, label = random.uniform(1.80, 3.99), "🚀🚀 Gain énorme !"
+        elif r < 0.25:
+            mult, label = random.uniform(1.05, 1.79), "📈 Bon gain"
+        elif r < 0.40:
+            mult, label = random.uniform(0.90, 1.04), "➡️ Neutre"
+        elif r < 0.65:
+            mult, label = random.uniform(0.40, 0.89), "📉 Perte lourde"
+        elif r < 0.85:
+            mult, label = random.uniform(0.05, 0.39), "💀 Désastre total !"
         else:
             mult, label = 0.0, "☠️ RUINE TOTALE !"
 
@@ -562,7 +586,7 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         u = await get_user(session, user.user_id)
         from database.db import MAX_COINS
-        u.coins = min(u.coins + total_received, MAX_COINS)
+        u.coins = u.coins + total_received
         await session.commit()
         new_wallet = u.coins
 

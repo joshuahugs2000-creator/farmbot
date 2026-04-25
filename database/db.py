@@ -29,6 +29,7 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily  VARCHAR(20)  DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_work   TIMESTAMP    DEFAULT NULL",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS coins       BIGINT       DEFAULT 10000",
+            "ALTER TABLE users ALTER COLUMN coins TYPE BIGINT USING coins::BIGINT",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned   BOOLEAN      NOT NULL DEFAULT FALSE",
             "UPDATE users SET coins = 10000 WHERE coins < 10000",
             """CREATE TABLE IF NOT EXISTS couple_accounts (

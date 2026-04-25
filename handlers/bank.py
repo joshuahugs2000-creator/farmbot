@@ -213,11 +213,11 @@ async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("Solde insuffisant !")
 
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": amount, "uid": user.user_id}
         )
         await session.execute(
-            text("UPDATE bank_accounts SET balance = balance::bigint + :amt::bigint WHERE id = :aid"),
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) + CAST(:amt AS BIGINT) WHERE id = :aid"),
             {"amt": amount, "aid": acc.id}
         )
         await session.commit()
@@ -270,11 +270,11 @@ async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         u = await get_user(session, user.user_id)
         await session.execute(
-            text("UPDATE bank_accounts SET balance = balance::bigint - :amt::bigint WHERE id = :aid"),
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) - CAST(:amt AS BIGINT) WHERE id = :aid"),
             {"amt": amount, "aid": acc.id}
         )
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": amount, "uid": user.user_id}
         )
         await session.commit()
@@ -410,7 +410,7 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         u = await get_user(session, user.user_id)
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": amount, "uid": user.user_id}
         )
         await session.commit()
@@ -467,7 +467,7 @@ async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         pay_amount = min(amount, loan.remaining)
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": pay_amount, "uid": user.user_id}
         )
         loan.remaining -= pay_amount
@@ -555,7 +555,7 @@ async def pay_interests(context):
                 u = await get_user(session, loan.user_id)
                 if u:
                     await session.execute(
-                        text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+                        text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                         {"amt": loan.remaining, "uid": loan.user_id}
                     )
                     loan.remaining = 0

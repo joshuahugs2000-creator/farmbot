@@ -1,10 +1,8 @@
 """
-Génère une image PNG de l'arbre généalogique avec Pillow.
-Layout :
-    Row 0  →  Parents
-    Row 1  →  User  +  Époux/se
-    Row 2  →  Enfants
-    Côté   →  Amis (colonne à droite)
+Arbre généalogique avec vraies photos de profil Telegram.
+- Si photo dispo → affichée en carré arrondi
+- Sinon → avatar coloré avec initiale
+- Taille décroissante par génération
 """
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -12,135 +10,221 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-from config import PROFILE_COLORS
 import io, os
 
-W, H      = 900, 600
-NODE_W    = 140
-NODE_H    = 50
-RADIUS    = 10
-PAD       = 20
-BG_COLOR  = (18, 18, 30)
-LINE_COLOR = (100, 100, 140)
-TEXT_COLOR = (240, 240, 255)
+BG_COLOR   = (173, 216, 230)
+LINE_COLOR = (80,  80,  120)
+TEXT_COLOR = (40,  40,   80)
+WHITE      = (255, 255, 255)
+
+AVATAR_SIZES = [80, 68, 56, 46]
+NAME_SIZES   = [13, 12, 11, 10]
+GEN_GAP      = 115
 
 COLOR_MAP = {
-    "blue":   (52,  152, 219),
-    "green":  (46,  204, 113),
-    "red":    (231, 76,  60),
-    "purple": (155, 89,  182),
-    "orange": (230, 126, 34),
-    "pink":   (253, 121, 168),
-    "gold":   (241, 196, 15),
-    "teal":   (26,  188, 156),
+    "blue":   (70,  130, 180),
+    "green":  (60,  179, 113),
+    "red":    (220,  80,  60),
+    "purple": (148,  80, 180),
+    "orange": (220, 120,  40),
+    "pink":   (240, 100, 150),
+    "gold":   (200, 170,  30),
+    "teal":   (40,  180, 160),
 }
 
-FONT_SM = FONT_LG = FONT_XS = None
+_FONT_CACHE = {}
 
-def _load_fonts():
-    global FONT_SM, FONT_LG, FONT_XS
-    if FONT_SM is not None:
-        return
+def _get_font(size):
+    if size in _FONT_CACHE:
+        return _FONT_CACHE[size]
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ]
+    path = next((p for p in candidates if os.path.exists(p)), None)
     try:
-        candidates = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-        ]
-        path = next((p for p in candidates if os.path.exists(p)), None)
-        if path:
-            FONT_SM = ImageFont.truetype(path, 13)
-            FONT_LG = ImageFont.truetype(path, 16)
-            FONT_XS = ImageFont.truetype(path, 11)
-        else:
-            FONT_SM = FONT_LG = FONT_XS = ImageFont.load_default()
+        f = ImageFont.truetype(path, size) if path else ImageFont.load_default()
     except Exception:
-        FONT_SM = FONT_LG = FONT_XS = ImageFont.load_default()
+        f = ImageFont.load_default()
+    _FONT_CACHE[size] = f
+    return f
 
 
-def _node_color(profile_color: str) -> tuple:
-    return COLOR_MAP.get(profile_color, (52, 152, 219))
+def _apply_round_mask(img, size, radius_ratio=6):
+    """Applique un masque carré arrondi."""
+    mask = Image.new("L", (size, size), 0)
+    d = ImageDraw.Draw(mask)
+    d.rounded_rectangle([0, 0, size-1, size-1], radius=size//radius_ratio, fill=255)
+    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    src = img.convert("RGBA").resize((size, size), Image.LANCZOS)
+    out.paste(src, mask=mask)
+    # Contour blanc
+    border = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(border)
+    bw = max(2, size // 22)
+    bd.rounded_rectangle([bw//2, bw//2, size-1-bw//2, size-1-bw//2],
+                         radius=size//radius_ratio, outline=WHITE, width=bw)
+    out = Image.alpha_composite(out, border)
+    return out
 
 
-def _draw_node(draw, x: int, y: int, label: str, subtitle: str, color: tuple):
-    draw.rounded_rectangle([x+3, y+3, x+NODE_W+3, y+NODE_H+3],
-                            radius=RADIUS, fill=(10, 10, 20))
-    draw.rounded_rectangle([x, y, x+NODE_W, y+NODE_H],
-                            radius=RADIUS, fill=color)
-    draw.text((x + NODE_W//2, y + 14), label,
-              font=FONT_SM, fill=TEXT_COLOR, anchor="mm")
-    if subtitle:
-        draw.text((x + NODE_W//2, y + 36), subtitle,
-                  font=FONT_XS, fill=(220, 220, 255), anchor="mm")
+def _make_avatar_from_photo(photo_bytes, size):
+    """Charge une vraie photo et l'adapte."""
+    try:
+        img = Image.open(io.BytesIO(photo_bytes))
+        # Crop carré centré
+        w, h = img.size
+        s = min(w, h)
+        left = (w - s) // 2
+        top  = (h - s) // 2
+        img  = img.crop((left, top, left + s, top + s))
+        return _apply_round_mask(img, size)
+    except Exception:
+        return None
 
 
-def _center_x(col: int, total_cols: int) -> int:
-    available = W - 200
-    col_w     = available // max(total_cols, 1)
-    return PAD + col * col_w + (col_w - NODE_W) // 2
-
-
-def render_tree(members: dict) -> bytes:
-    if not PIL_AVAILABLE:
-        raise RuntimeError("Pillow n'est pas installé sur ce serveur.")
-
-    _load_fonts()
-
-    img  = Image.new("RGB", (W, H), BG_COLOR)
+def _make_avatar_initiale(name, profile_color, size):
+    """Avatar coloré avec initiale si pas de photo."""
+    color = COLOR_MAP.get(profile_color, (70, 130, 180))
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=color)
+    initial = name[0].upper() if name else "?"
+    font = _get_font(max(10, size // 3))
+    bbox = draw.textbbox((0, 0), initial, font=font)
+    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+    draw.text(((size-tw)//2, (size-th)//2 - 1), initial, font=font, fill=WHITE)
+    return _apply_round_mask(img, size)
 
-    draw.text((W//2, 22), "Arbre Genealogique", font=FONT_LG,
-              fill=(200, 200, 255), anchor="mm")
 
-    positions = {}
+def _draw_member(canvas, draw, cx, cy, node, gen):
+    size = AVATAR_SIZES[min(gen, 3)]
+    ns   = NAME_SIZES[min(gen, 3)]
 
-    def draw_node_at(cx: int, cy: int, info: dict, key: str):
-        x = cx - NODE_W // 2
-        y = cy - NODE_H // 2
-        _draw_node(draw, x, y, info["name"], info.get("title", ""),
-                   _node_color(info.get("color", "blue")))
-        positions[key] = (cx, cy)
+    # Choisir avatar : vraie photo ou initiale
+    photo_bytes = node.get("photo")
+    if photo_bytes:
+        av = _make_avatar_from_photo(photo_bytes, size)
+    else:
+        av = None
+    if av is None:
+        av = _make_avatar_initiale(node["name"], node.get("color", "blue"), size)
 
-    parents = members.get("parents") or []
-    for i, p in enumerate(parents[:4]):
-        cx = _center_x(i, max(len(parents), 1))
-        draw_node_at(cx + NODE_W//2, 90, p, f"parent_{i}")
+    x, y = cx - size//2, cy
+    canvas.paste(av, (x, y), av)
 
-    user_cx = W // 2 - (NODE_W // 2 + 20 if members.get("spouse") else 0)
-    draw_node_at(user_cx, 230, members["user"], "user")
+    # Nom sous l'avatar
+    name = node["name"][:14]
+    font = _get_font(ns)
+    bbox = draw.textbbox((0, 0), name, font=font)
+    tw   = bbox[2] - bbox[0]
+    draw.text((cx - tw//2, y + size + 3), name, font=font, fill=TEXT_COLOR)
+    return (cx, y, y + size)
 
-    if members.get("spouse"):
-        spouse_cx = user_cx + NODE_W + 40
-        draw_node_at(spouse_cx, 230, members["spouse"], "spouse")
-        draw.line([(user_cx, 230), (spouse_cx, 230)],
-                  fill=(241, 196, 15), width=3)
 
-    for i in range(len(parents[:4])):
-        key = f"parent_{i}"
-        if key in positions:
-            draw.line([positions[key], (user_cx, 230)],
-                      fill=LINE_COLOR, width=2)
+def _line(draw, x1, y1, x2, y2):
+    draw.line([(x1, y1), (x2, y2)], fill=LINE_COLOR, width=2)
 
+
+def render_tree(members):
+    if not PIL_AVAILABLE:
+        raise RuntimeError("Pillow n'est pas installe.")
+
+    parents  = members.get("parents")  or []
+    user     = members["user"]
+    spouse   = members.get("spouse")
     children = members.get("children") or []
-    for i, c in enumerate(children[:5]):
-        cx       = _center_x(i, max(len(children), 1))
-        child_cx = cx + NODE_W // 2
-        draw_node_at(child_cx, 390, c, f"child_{i}")
-        draw.line([(user_cx, 230 + NODE_H//2), (child_cx, 390 - NODE_H//2)],
-                  fill=LINE_COLOR, width=2)
+    friends  = members.get("friends")  or []
 
-    friends  = members.get("friends") or []
-    friend_x = W - NODE_W - PAD
-    draw.text((friend_x + NODE_W//2, 50), "Amis",
-              font=FONT_XS, fill=(180, 180, 220), anchor="mm")
-    for i, f in enumerate(friends[:6]):
-        fy = 75 + i * (NODE_H + 12)
-        _draw_node(draw, friend_x, fy, f["name"], f.get("title", ""),
-                   _node_color(f.get("color", "teal")))
-        draw.line([(friend_x, fy + NODE_H//2), (user_cx, 230)],
-                  fill=(80, 80, 120), width=1)
+    gens = []
+    if parents:
+        gens.append(parents)
+    gens.append([user] + ([spouse] if spouse else []))
+    if children:
+        gens.append(children)
+
+    friend_w  = 110 if friends else 0
+    HPAD      = 60
+    NODE_SLOT = 115
+    max_n     = max(len(g) for g in gens)
+    content_w = max(max_n * NODE_SLOT, 320)
+    W = content_w + HPAD * 2 + friend_w
+    H = 60 + len(gens) * (AVATAR_SIZES[0] + 28 + GEN_GAP) + 50
+    W = max(W, 500)
+    H = max(H, 380)
+
+    canvas = Image.new("RGBA", (W, H), BG_COLOR + (255,))
+    draw   = ImageDraw.Draw(canvas)
+
+    # Titre
+    tfont = _get_font(18)
+    title = f"Arbre de {user['name']}"
+    bbox  = draw.textbbox((0, 0), title, font=tfont)
+    tw    = bbox[2] - bbox[0]
+    draw.text(((W - friend_w - tw)//2, 14), title, font=tfont, fill=(100, 60, 180))
+
+    zone_w  = W - friend_w - HPAD * 2
+    title_h = 50
+
+    rows = []
+    for gi, gnodes in enumerate(gens):
+        gen_idx = min(gi + (1 if parents else 2), 3)
+        n       = len(gnodes)
+        slot_w  = max(zone_w // max(n, 1), NODE_SLOT)
+        total_w = slot_w * n
+        sx      = HPAD + (zone_w - total_w)//2 + slot_w//2
+        y_top   = title_h + gi * (AVATAR_SIZES[0] + 28 + GEN_GAP)
+        row = []
+        for ni, node in enumerate(gnodes):
+            cx  = sx + ni * slot_w
+            pos = _draw_member(canvas, draw, cx, y_top, node, gen_idx)
+            row.append(pos)
+        rows.append(row)
+
+    # Lignes parents → user
+    if len(rows) >= 2 and parents:
+        pr = rows[0]
+        ur = rows[1]
+        py = pr[0][2] + 10
+        if len(pr) > 1:
+            _line(draw, pr[0][0], py, pr[-1][0], py)
+        pmid_x = (pr[0][0] + pr[-1][0])//2
+        umid_x = (ur[0][0] + ur[-1][0])//2 if len(ur) > 1 else ur[0][0]
+        _line(draw, pmid_x, py, umid_x, ur[0][1])
+
+    # Lignes user+conjoint → enfants
+    ur_idx = 1 if parents else 0
+    if ur_idx < len(rows):
+        ur = rows[ur_idx]
+        if len(ur) == 2:
+            uy = ur[0][1] + (ur[0][2] - ur[0][1])//2
+            _line(draw, ur[0][0], uy, ur[1][0], uy)
+        cr_idx = ur_idx + 1
+        if cr_idx < len(rows):
+            cr     = rows[cr_idx]
+            join_x = (ur[0][0] + ur[-1][0])//2
+            join_y = ur[0][2] + 8
+            top_y  = cr[0][1]
+            mid_y  = (join_y + top_y)//2
+            _line(draw, join_x, join_y, join_x, mid_y)
+            if len(cr) > 1:
+                _line(draw, cr[0][0], mid_y, cr[-1][0], mid_y)
+            for cx, ctop, _ in cr:
+                _line(draw, cx, mid_y, cx, ctop)
+
+    # Amis colonne droite
+    if friends and friend_w:
+        fxc  = W - friend_w//2
+        ffnt = _get_font(11)
+        bbox = draw.textbbox((0, 0), "Amis", font=ffnt)
+        draw.text((fxc - (bbox[2]-bbox[0])//2, title_h + 5), "Amis",
+                  font=ffnt, fill=(100, 100, 160))
+        for i, f in enumerate(friends[:8]):
+            _draw_member(canvas, draw, fxc, title_h + 28 + i * 60, f, 3)
 
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
     buf.seek(0)
     return buf.read()

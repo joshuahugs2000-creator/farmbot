@@ -37,10 +37,13 @@ _FONT_CACHE = {}
 def _get_font(size):
     if size in _FONT_CACHE:
         return _FONT_CACHE[size]
+    # NotoSansCJK en priorité → supporte japonais, coréen, chinois, cyrillique, arabe, etc.
     candidates = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     ]
     path = next((p for p in candidates if os.path.exists(p)), None)

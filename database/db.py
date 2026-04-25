@@ -381,7 +381,7 @@ MAX_COINS = 9_000_000_000_000_000_000  # max BIGINT PostgreSQL
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
     """
     Ajoute (ou retire si négatif) des coins.
-    Utilise asyncpg natif pour supporter les BIGINT > 2^31 sans erreur.
+    Cast explicite BIGINT pour éviter NumericValueOutOfRangeError asyncpg.
     """
     import asyncpg
     uid = int(user_id)
@@ -389,9 +389,9 @@ async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
         await conn.execute(
-            f"UPDATE users SET coins = GREATEST(0, coins + {amt}) WHERE user_id = {uid}"
+            f"UPDATE users SET coins = GREATEST(0::bigint, coins::bigint + {amt}::bigint) WHERE user_id = {uid}::bigint"
         )
-        row = await conn.fetchrow(f"SELECT coins FROM users WHERE user_id = {uid}")
+        row = await conn.fetchrow(f"SELECT coins FROM users WHERE user_id = {uid}::bigint")
     finally:
         await conn.close()
     return int(row["coins"]) if row else 0
@@ -400,15 +400,15 @@ async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
 async def set_coins(user_id: int, amount: int) -> int:
     """
     Définit le solde exact (pour /setcoins admin).
-    Utilise asyncpg natif — supporte les BIGINT > 2^31.
+    Cast explicite BIGINT pour éviter NumericValueOutOfRangeError asyncpg.
     """
     import asyncpg
     uid = int(user_id)
     amt = int(amount)
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
-        await conn.execute(f"UPDATE users SET coins = {amt} WHERE user_id = {uid}")
-        row = await conn.fetchrow(f"SELECT coins FROM users WHERE user_id = {uid}")
+        await conn.execute(f"UPDATE users SET coins = {amt}::bigint WHERE user_id = {uid}::bigint")
+        row = await conn.fetchrow(f"SELECT coins FROM users WHERE user_id = {uid}::bigint")
     finally:
         await conn.close()
     return int(row["coins"]) if row else 0

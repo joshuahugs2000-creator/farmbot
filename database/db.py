@@ -382,7 +382,7 @@ MAX_COINS = 9_000_000_000_000_000_000  # max BIGINT PostgreSQL
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
     """
     Ajoute (ou retire si négatif) des coins.
-    Cast explicite BIGINT pour éviter NumericValueOutOfRangeError asyncpg.
+    Utilise des paramètres $1/$2 pour forcer le type BIGINT côté asyncpg.
     """
     import asyncpg
     uid = int(user_id)
@@ -390,9 +390,12 @@ async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
         await conn.execute(
-            f"UPDATE users SET coins = GREATEST(0::bigint, coins::bigint + {amt}::bigint) WHERE user_id = {uid}::bigint"
+            "UPDATE users SET coins = GREATEST(0::bigint, coins::bigint + $1::bigint) WHERE user_id = $2::bigint",
+            amt, uid
         )
-        row = await conn.fetchrow(f"SELECT coins FROM users WHERE user_id = {uid}::bigint")
+        row = await conn.fetchrow(
+            "SELECT coins FROM users WHERE user_id = $1::bigint", uid
+        )
     finally:
         await conn.close()
     return int(row["coins"]) if row else 0
@@ -401,15 +404,20 @@ async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
 async def set_coins(user_id: int, amount: int) -> int:
     """
     Définit le solde exact (pour /setcoins admin).
-    Cast explicite BIGINT pour éviter NumericValueOutOfRangeError asyncpg.
+    Utilise des paramètres $1/$2 pour forcer le type BIGINT côté asyncpg.
     """
     import asyncpg
     uid = int(user_id)
     amt = int(amount)
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
-        await conn.execute(f"UPDATE users SET coins = {amt}::bigint WHERE user_id = {uid}::bigint")
-        row = await conn.fetchrow(f"SELECT coins FROM users WHERE user_id = {uid}::bigint")
+        await conn.execute(
+            "UPDATE users SET coins = $1::bigint WHERE user_id = $2::bigint",
+            amt, uid
+        )
+        row = await conn.fetchrow(
+            "SELECT coins FROM users WHERE user_id = $1::bigint", uid
+        )
     finally:
         await conn.close()
     return int(row["coins"]) if row else 0

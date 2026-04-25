@@ -268,7 +268,7 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
             actual_stolen = min(amount, robber.coins)  # le voleur rend ce qu'il peut
             # Le voleur perd l'argent, la victime est intacte (net 0)
             await session.execute(
-                text("UPDATE users SET coins = GREATEST(0::bigint, coins::bigint - :amt::bigint) WHERE user_id = :uid"),
+                text("UPDATE users SET coins = GREATEST(CAST(0 AS BIGINT), CAST(coins AS BIGINT) - CAST(:amt AS BIGINT)) WHERE user_id = :uid"),
                 {"amt": actual_stolen, "uid": robber.user_id}
             )
             await session.commit()
@@ -407,11 +407,11 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
             refund_msg = ""
             if victim:
                 await session.execute(
-                    text("UPDATE users SET coins = GREATEST(0::bigint, coins::bigint - :amt::bigint) WHERE user_id = :uid"),
+                    text("UPDATE users SET coins = GREATEST(CAST(0 AS BIGINT), CAST(coins AS BIGINT) - CAST(:amt AS BIGINT)) WHERE user_id = :uid"),
                     {"amt": amount, "uid": suspect.user_id}
                 )
                 await session.execute(
-                    text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                    text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                     {"amt": amount, "uid": victim_id}
                 )
                 await session.commit()
@@ -510,7 +510,7 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Payer la caution
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": bail_amount, "uid": payer.user_id}
         )
 
@@ -906,7 +906,7 @@ async def bail_judgment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": bail_amount, "uid": payer.user_id}
         )
 
@@ -981,7 +981,7 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Déduire la mise
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": bet_amount, "uid": player.user_id}
         )
         await session.commit()
@@ -1067,7 +1067,7 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if action == "take":
             # Récupérer les gains
             await session.execute(
-                text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                 {"amt": pot, "uid": player_id}
             )
             await session.execute(
@@ -1214,7 +1214,7 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Acheter directement
             await session.execute(
-                text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+                text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                 {"amt": chosen["price"], "uid": player_tg.id}
             )
             await session.execute(
@@ -1268,7 +1268,7 @@ async def security_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": chosen["price"], "uid": player_id}
         )
         await session.execute(

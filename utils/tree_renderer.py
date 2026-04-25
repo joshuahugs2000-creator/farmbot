@@ -132,11 +132,6 @@ def _draw_member(canvas, draw, cx, cy, node, gen):
          _make_avatar_initiale(node["name"], node.get("color", "blue"), size)
     x, y = cx - size//2, cy
     canvas.paste(av, (x, y), av)
-    name = node["name"][:16]
-    font = _get_font(ns)
-    bbox = draw.textbbox((0, 0), name, font=font)
-    tw   = bbox[2] - bbox[0]
-    draw.text((cx - tw//2, y + size + 3), name, font=font, fill=TEXT_COLOR)
     return (cx, y, y + size)
 
 
@@ -174,11 +169,7 @@ def render_tree(members):
     canvas = Image.new("RGBA", (W, H), BG_COLOR + (255,))
     draw   = ImageDraw.Draw(canvas)
 
-    tfont = _get_font(18)
-    title = f"Arbre de {user['name']}"
-    bbox  = draw.textbbox((0, 0), title, font=tfont)
-    tw    = bbox[2] - bbox[0]
-    draw.text(((W - friend_w - tw)//2, 14), title, font=tfont, fill=(100, 60, 180))
+
 
     zone_w  = W - friend_w - HPAD * 2
     title_h = 50
@@ -226,10 +217,6 @@ def render_tree(members):
 
     if friends and friend_w:
         fxc  = W - friend_w//2
-        ffnt = _get_font(11)
-        bbox = draw.textbbox((0, 0), "Amis", font=ffnt)
-        draw.text((fxc - (bbox[2]-bbox[0])//2, title_h + 5), "Amis",
-                  font=ffnt, fill=(100, 100, 160))
         for i, f in enumerate(friends[:8]):
             _draw_member(canvas, draw, fxc, title_h + 28 + i * 60, f, 3)
 

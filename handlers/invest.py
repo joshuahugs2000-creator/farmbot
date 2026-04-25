@@ -445,7 +445,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": total, "uid": user.user_id}
         )
         inv = Investment(
@@ -589,7 +589,7 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         u = await get_user(session, user.user_id)
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": total_received, "uid": user.user_id}
         )
         await session.commit()

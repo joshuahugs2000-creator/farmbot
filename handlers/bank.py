@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from database.db import AsyncSessionLocal, get_user, add_coins
 from database.models import BankAccount, Loan
@@ -39,9 +39,9 @@ BANKS = {
         "emoji":         "🥉",
         "desc":          "Banque populaire, accessible à tous",
         "min_deposit":   1_000,
-        "max_deposit":   500_000,
+        "max_deposit":   9_000_000_000_000_000_000,
         "interest_rate": 0.005,    # 0.5% toutes les 6h → ~2%/jour
-        "max_loan":      100_000,
+        "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.08,     # 8% d'intérêt sur le prêt
         "loan_days":     7,
     },
@@ -51,9 +51,9 @@ BANKS = {
         "emoji":         "🥈",
         "desc":          "Pour les épargnants sérieux",
         "min_deposit":   10_000,
-        "max_deposit":   2_000_000,
+        "max_deposit":   9_000_000_000_000_000_000,
         "interest_rate": 0.008,    # 0.8% → ~3.2%/jour
-        "max_loan":      500_000,
+        "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.06,
         "loan_days":     14,
     },
@@ -63,9 +63,9 @@ BANKS = {
         "emoji":         "🥇",
         "desc":          "Banque des investisseurs fortunés",
         "min_deposit":   100_000,
-        "max_deposit":   10_000_000,
+        "max_deposit":   9_000_000_000_000_000_000,
         "interest_rate": 0.012,    # 1.2% → ~4.8%/jour
-        "max_loan":      2_000_000,
+        "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.05,
         "loan_days":     21,
     },
@@ -75,9 +75,9 @@ BANKS = {
         "emoji":         "💠",
         "desc":          "Réservée aux élites financières",
         "min_deposit":   500_000,
-        "max_deposit":   50_000_000,
+        "max_deposit":   9_000_000_000_000_000_000,
         "interest_rate": 0.018,    # 1.8% → ~7.2%/jour
-        "max_loan":      10_000_000,
+        "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.04,
         "loan_days":     30,
     },
@@ -87,9 +87,9 @@ BANKS = {
         "emoji":         "💎",
         "desc":          "La banque des milliardaires",
         "min_deposit":   2_000_000,
-        "max_deposit":   999_999_999_999,
+        "max_deposit":   9_000_000_000_000_000_000,
         "interest_rate": 0.025,    # 2.5% → ~10%/jour
-        "max_loan":      50_000_000,
+        "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.03,
         "loan_days":     60,
     },
@@ -212,11 +212,17 @@ async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not u or u.coins < amount:
             return await update.message.reply_text("Solde insuffisant !")
 
-        u.coins     -= amount
-        acc.balance += amount
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": amount, "uid": user.user_id}
+        )
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = balance::bigint + :amt::bigint WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
+        )
         await session.commit()
-        new_wallet  = u.coins
-        new_balance = acc.balance
+        new_wallet  = u.coins - amount
+        new_balance = acc.balance + amount
 
     await update.message.reply_text(
         f"🏦 Dépôt effectué à la <b>{b['name']}</b>\n"
@@ -263,11 +269,17 @@ async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         u = await get_user(session, user.user_id)
-        acc.balance -= amount
-        u.coins     += amount
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = balance::bigint - :amt::bigint WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
+        )
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+            {"amt": amount, "uid": user.user_id}
+        )
         await session.commit()
-        new_wallet  = u.coins
-        new_balance = acc.balance
+        new_wallet  = u.coins + amount
+        new_balance = acc.balance - amount
 
     await update.message.reply_text(
         f"🏦 Retrait effectué de la <b>{b['name']}</b>\n"
@@ -397,9 +409,12 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.add(loan)
 
         u = await get_user(session, user.user_id)
-        u.coins += amount
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+            {"amt": amount, "uid": user.user_id}
+        )
         await session.commit()
-        new_balance = u.coins
+        new_balance = u.coins + amount
 
     await update.message.reply_text(
         f"💳 <b>Prêt accordé par la {b['name']}</b>\n\n"
@@ -451,7 +466,10 @@ async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("Solde insuffisant !")
 
         pay_amount = min(amount, loan.remaining)
-        u.coins        -= pay_amount
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": pay_amount, "uid": user.user_id}
+        )
         loan.remaining -= pay_amount
 
         if loan.remaining <= 0:
@@ -461,7 +479,7 @@ async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_extra   = f"\n💳 Reste à rembourser : {_fmt(loan.remaining)} $"
 
         await session.commit()
-        new_wallet = u.coins
+        new_wallet = u.coins - pay_amount
 
     await update.message.reply_text(
         f"🏦 Remboursement à la <b>{b['name']}</b>\n"
@@ -536,7 +554,10 @@ async def pay_interests(context):
                 loan.remaining += penalty
                 u = await get_user(session, loan.user_id)
                 if u:
-                    u.coins -= loan.remaining  # peut passer négatif
+                    await session.execute(
+                        text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+                        {"amt": loan.remaining, "uid": loan.user_id}
+                    )
                     loan.remaining = 0
                     loan.status = "paid"
 

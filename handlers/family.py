@@ -9,6 +9,7 @@ from database.db import (
     create_request, get_request, delete_request, process_inheritance, compute_title,
 )
 from database.models import RelationType, RequestType
+from sqlalchemy import text
 from utils.helpers import mention, mention_tg, is_group, parse_target, ensure_user
 from config import MOODS
 
@@ -233,9 +234,10 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Cadeau de mariage aleatoire (500 - 8000 coins chacun)
             gift = random.randint(500, 8_000)
             for uid in (req.from_user_id, req.to_user_id):
-                u = await get_user(session, uid)
-                if u:
-                    u.coins += gift
+                await session.execute(
+                    text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                    {"amt": gift, "uid": uid}
+                )
             await session.commit()
 
             relation_type = "married"

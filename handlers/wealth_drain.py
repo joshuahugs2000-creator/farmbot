@@ -193,7 +193,10 @@ async def acheter(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML
             )
 
-        u.coins -= prix
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": prix, "uid": user.user_id}
+        )
 
         await session.execute(text("""
             INSERT INTO shop_items (owner_id, group_id, item_id)
@@ -517,7 +520,10 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"❌ Pas assez de coins. Mise : {_fmt(stake)} $"
                 )
 
-            u.coins -= stake
+            await session.execute(
+                text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+                {"amt": stake, "uid": user.user_id}
+            )
             await session.execute(text("""
                 INSERT INTO heist_members (heist_id, user_id, stake)
                 VALUES (:hid, :uid, :stake)
@@ -553,7 +559,10 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not u or u.coins < stake:
             return await update.message.reply_text(f"❌ Pas assez de coins.")
 
-        u.coins -= stake
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": stake, "uid": user.user_id}
+        )
         r = await session.execute(text("""
             INSERT INTO heist_sessions (group_id, leader_id, pot)
             VALUES (:gid, :uid, :stake)

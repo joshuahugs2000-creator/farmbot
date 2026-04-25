@@ -194,7 +194,7 @@ async def acheter(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": prix, "uid": user.user_id}
         )
 
@@ -521,7 +521,7 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
             await session.execute(
-                text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+                text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                 {"amt": stake, "uid": user.user_id}
             )
             await session.execute(text("""
@@ -560,7 +560,7 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text(f"❌ Pas assez de coins.")
 
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": stake, "uid": user.user_id}
         )
         r = await session.execute(text("""

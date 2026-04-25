@@ -9,6 +9,7 @@ import io, os, glob, subprocess
 BG_COLOR   = (173, 216, 230)
 LINE_COLOR = (80,  80,  120)
 TEXT_COLOR = (40,  40,   80)
+LABEL_COLOR = (100, 60, 180)
 WHITE      = (255, 255, 255)
 
 AVATAR_SIZES = [80, 68, 56, 46]
@@ -31,13 +32,11 @@ _FONT_PATH  = None
 
 
 def _find_font():
-    # 1. Police dans fonts/ du projet
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for name in ["NotoSansCJK-Regular.ttc", "NotoSans-Regular.ttf", "DejaVuSans-Bold.ttf"]:
         p = os.path.join(base, "fonts", name)
         if os.path.exists(p):
             return p
-    # 2. Chemins système standards
     for p in [
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
@@ -47,7 +46,6 @@ def _find_font():
     ]:
         if os.path.exists(p):
             return p
-    # 3. /nix/store (Render NixOS)
     for pat in [
         "/nix/store/*/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/nix/store/*/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
@@ -59,7 +57,6 @@ def _find_font():
         m = glob.glob(pat, recursive=True)
         if m:
             return m[0]
-    # 4. fc-list
     try:
         out = subprocess.check_output(["fc-list", "--format=%{file}\n"], timeout=5).decode()
         for line in out.splitlines():
@@ -83,6 +80,17 @@ def _get_font(size):
         f = ImageFont.load_default()
     _FONT_CACHE[size] = f
     return f
+
+
+def _draw_label(draw, cx, cy, text, size=12, color=LABEL_COLOR):
+    font = _get_font(size)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    # Petit fond blanc semi-transparent pour lisibilité
+    pad = 4
+    draw.rectangle([cx - tw//2 - pad, cy - 1, cx + tw//2 + pad, cy + (bbox[3]-bbox[1]) + 2],
+                   fill=(255, 255, 255, 160))
+    draw.text((cx - tw//2, cy), text, font=font, fill=color)
 
 
 def _apply_round_mask(img, size):
@@ -126,7 +134,6 @@ def _make_avatar_initiale(name, profile_color, size):
 
 def _draw_member(canvas, draw, cx, cy, node, gen):
     size = AVATAR_SIZES[min(gen, 3)]
-    ns   = NAME_SIZES[min(gen, 3)]
     photo_bytes = node.get("photo")
     av = (_make_avatar_from_photo(photo_bytes, size) if photo_bytes else None) or \
          _make_avatar_initiale(node["name"], node.get("color", "blue"), size)
@@ -150,11 +157,15 @@ def render_tree(members):
     friends  = members.get("friends")  or []
 
     gens = []
+    gen_labels = []  # label affiché à gauche de chaque rangée
     if parents:
         gens.append(parents)
+        gen_labels.append("Parents")
     gens.append([user] + ([spouse] if spouse else []))
+    gen_labels.append(None)  # pas de label pour la rangée principale
     if children:
         gens.append(children)
+        gen_labels.append("Enfants")
 
     friend_w  = 115 if friends else 0
     HPAD      = 60
@@ -169,10 +180,8 @@ def render_tree(members):
     canvas = Image.new("RGBA", (W, H), BG_COLOR + (255,))
     draw   = ImageDraw.Draw(canvas)
 
-
-
     zone_w  = W - friend_w - HPAD * 2
-    title_h = 50
+    title_h = 20
     rows    = []
 
     for gi, gnodes in enumerate(gens):
@@ -182,12 +191,21 @@ def render_tree(members):
         total_w = slot_w * n
         sx      = HPAD + (zone_w - total_w)//2 + slot_w//2
         y_top   = title_h + gi * (AVATAR_SIZES[0] + 28 + GEN_GAP)
-        row     = []
+
+        # Label de relation au-dessus de la rangée
+        label = gen_labels[gi]
+        if label:
+            label_y = y_top - 18
+            mid_x   = HPAD + zone_w // 2
+            _draw_label(draw, mid_x, label_y, label, size=13, color=(100, 60, 180))
+
+        row = []
         for ni, node in enumerate(gnodes):
             pos = _draw_member(canvas, draw, sx + ni * slot_w, y_top, node, gen_idx)
             row.append(pos)
         rows.append(row)
 
+    # Lignes parent → user
     if len(rows) >= 2 and parents:
         pr, ur = rows[0], rows[1]
         py = pr[0][2] + 10
@@ -197,12 +215,17 @@ def render_tree(members):
         umid = (ur[0][0] + ur[-1][0])//2 if len(ur) > 1 else ur[0][0]
         _line(draw, pmid, py, umid, ur[0][1])
 
+    # Ligne époux + label "Marié(e)"
     ur_idx = 1 if parents else 0
     if ur_idx < len(rows):
         ur = rows[ur_idx]
         if len(ur) == 2:
             uy = ur[0][1] + (ur[0][2] - ur[0][1])//2
             _line(draw, ur[0][0], uy, ur[1][0], uy)
+            mid_x = (ur[0][0] + ur[1][0]) // 2
+            _draw_label(draw, mid_x, uy - 10, "Marié(e)", size=11, color=(180, 60, 120))
+
+        # Lignes user → enfants
         cr_idx = ur_idx + 1
         if cr_idx < len(rows):
             cr     = rows[cr_idx]
@@ -212,13 +235,15 @@ def render_tree(members):
             _line(draw, join_x, join_y, join_x, mid_y)
             if len(cr) > 1:
                 _line(draw, cr[0][0], mid_y, cr[-1][0], mid_y)
-            for cx, ctop, _ in cr:
-                _line(draw, cx, mid_y, cx, ctop)
+            for cx2, ctop, _ in cr:
+                _line(draw, cx2, mid_y, cx2, ctop)
 
+    # Colonne Amis
     if friends and friend_w:
-        fxc  = W - friend_w//2
+        fxc = W - friend_w//2
+        _draw_label(draw, fxc, title_h + 2, "Amis", size=13, color=(60, 100, 180))
         for i, f in enumerate(friends[:8]):
-            _draw_member(canvas, draw, fxc, title_h + 28 + i * 60, f, 3)
+            _draw_member(canvas, draw, fxc, title_h + 24 + i * 60, f, 3)
 
     buf = io.BytesIO()
     canvas.convert("RGB").save(buf, format="PNG", optimize=True)

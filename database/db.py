@@ -25,44 +25,47 @@ async def init_db():
     """Crée les tables et ajoute les colonnes manquantes (migration douce)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        migrations = [
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily  VARCHAR(20)  DEFAULT NULL",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_work   TIMESTAMP    DEFAULT NULL",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS coins       BIGINT       DEFAULT 10000",
-            "ALTER TABLE users ALTER COLUMN coins TYPE BIGINT USING coins::BIGINT",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned   BOOLEAN      NOT NULL DEFAULT FALSE",
-            "UPDATE users SET coins = 10000 WHERE coins < 10000",
-            """CREATE TABLE IF NOT EXISTS couple_accounts (
-                id         SERIAL PRIMARY KEY,
-                user1_id   BIGINT REFERENCES users(user_id),
-                user2_id   BIGINT REFERENCES users(user_id),
-                balance    BIGINT DEFAULT 0,
-                created_at TIMESTAMP DEFAULT NOW()
-            )""",
-            """CREATE TABLE IF NOT EXISTS lottery_sessions (
-                id           SERIAL PRIMARY KEY,
-                group_id     BIGINT NOT NULL,
-                creator_id   BIGINT,
-                ticket_price BIGINT NOT NULL,
-                loto_type    VARCHAR(10) NOT NULL DEFAULT 'private',
-                status       VARCHAR(10) NOT NULL DEFAULT 'active',
-                winner_id    BIGINT,
-                pot          BIGINT DEFAULT 0,
-                created_at   TIMESTAMP DEFAULT NOW(),
-                drawn_at     TIMESTAMP
-            )""",
-            """CREATE TABLE IF NOT EXISTS lottery_tickets (
-                id         SERIAL PRIMARY KEY,
-                session_id INTEGER REFERENCES lottery_sessions(id),
-                user_id    BIGINT REFERENCES users(user_id),
-                created_at TIMESTAMP DEFAULT NOW()
-            )""",
-        ]
-        for sql in migrations:
-            try:
+
+    migrations = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily  VARCHAR(20)  DEFAULT NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_work   TIMESTAMP    DEFAULT NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS coins       BIGINT       DEFAULT 10000",
+        "ALTER TABLE users ALTER COLUMN coins TYPE BIGINT USING coins::BIGINT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned   BOOLEAN      NOT NULL DEFAULT FALSE",
+        "UPDATE users SET coins = 10000 WHERE coins IS NULL OR coins < 10000",
+        """CREATE TABLE IF NOT EXISTS couple_accounts (
+            id         SERIAL PRIMARY KEY,
+            user1_id   BIGINT REFERENCES users(user_id),
+            user2_id   BIGINT REFERENCES users(user_id),
+            balance    BIGINT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS lottery_sessions (
+            id           SERIAL PRIMARY KEY,
+            group_id     BIGINT NOT NULL,
+            creator_id   BIGINT,
+            ticket_price BIGINT NOT NULL,
+            loto_type    VARCHAR(10) NOT NULL DEFAULT 'private',
+            status       VARCHAR(10) NOT NULL DEFAULT 'active',
+            winner_id    BIGINT,
+            pot          BIGINT DEFAULT 0,
+            created_at   TIMESTAMP DEFAULT NOW(),
+            drawn_at     TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS lottery_tickets (
+            id         SERIAL PRIMARY KEY,
+            session_id INTEGER REFERENCES lottery_sessions(id),
+            user_id    BIGINT REFERENCES users(user_id),
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
+    ]
+    # Chaque migration dans sa propre transaction pour éviter les rollbacks en cascade
+    for sql in migrations:
+        try:
+            async with engine.begin() as conn:
                 await conn.execute(text(sql))
-            except Exception:
-                pass
+        except Exception:
+            pass
 
 
 # ─── USERS ───────────────────────────────────────────────────────────────────

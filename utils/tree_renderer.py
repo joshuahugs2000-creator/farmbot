@@ -1,16 +1,10 @@
-"""
-Arbre généalogique avec vraies photos de profil Telegram.
-- Si photo dispo → affichée en carré arrondi
-- Sinon → avatar coloré avec initiale
-- Taille décroissante par génération
-"""
 try:
     from PIL import Image, ImageDraw, ImageFont
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
 
-import io, os
+import io, os, glob, subprocess
 
 BG_COLOR   = (173, 216, 230)
 LINE_COLOR = (80,  80,  120)
@@ -33,63 +27,91 @@ COLOR_MAP = {
 }
 
 _FONT_CACHE = {}
+_FONT_PATH  = None
+
+
+def _find_font():
+    # 1. Police dans fonts/ du projet
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for name in ["NotoSansCJK-Regular.ttc", "NotoSans-Regular.ttf", "DejaVuSans-Bold.ttf"]:
+        p = os.path.join(base, "fonts", name)
+        if os.path.exists(p):
+            return p
+    # 2. Chemins système standards
+    for p in [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]:
+        if os.path.exists(p):
+            return p
+    # 3. /nix/store (Render NixOS)
+    for pat in [
+        "/nix/store/*/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/nix/store/*/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/nix/store/*/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/nix/store/*/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/nix/store/*/share/fonts/**/*.ttc",
+        "/nix/store/*/share/fonts/**/*.ttf",
+    ]:
+        m = glob.glob(pat, recursive=True)
+        if m:
+            return m[0]
+    # 4. fc-list
+    try:
+        out = subprocess.check_output(["fc-list", "--format=%{file}\n"], timeout=5).decode()
+        for line in out.splitlines():
+            line = line.strip()
+            if line and os.path.exists(line):
+                return line
+    except Exception:
+        pass
+    return None
+
 
 def _get_font(size):
+    global _FONT_PATH
     if size in _FONT_CACHE:
         return _FONT_CACHE[size]
-    # NotoSansCJK en priorité → supporte japonais, coréen, chinois, cyrillique, arabe, etc.
-    candidates = [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/noto/NotoSansCJK-Bold.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    ]
-    path = next((p for p in candidates if os.path.exists(p)), None)
+    if _FONT_PATH is None:
+        _FONT_PATH = _find_font()
     try:
-        f = ImageFont.truetype(path, size) if path else ImageFont.load_default()
+        f = ImageFont.truetype(_FONT_PATH, size) if _FONT_PATH else ImageFont.load_default()
     except Exception:
         f = ImageFont.load_default()
     _FONT_CACHE[size] = f
     return f
 
 
-def _apply_round_mask(img, size, radius_ratio=6):
-    """Applique un masque carré arrondi."""
+def _apply_round_mask(img, size):
     mask = Image.new("L", (size, size), 0)
     d = ImageDraw.Draw(mask)
-    d.rounded_rectangle([0, 0, size-1, size-1], radius=size//radius_ratio, fill=255)
+    d.rounded_rectangle([0, 0, size-1, size-1], radius=size//6, fill=255)
     out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     src = img.convert("RGBA").resize((size, size), Image.LANCZOS)
     out.paste(src, mask=mask)
-    # Contour blanc
     border = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     bd = ImageDraw.Draw(border)
     bw = max(2, size // 22)
     bd.rounded_rectangle([bw//2, bw//2, size-1-bw//2, size-1-bw//2],
-                         radius=size//radius_ratio, outline=WHITE, width=bw)
-    out = Image.alpha_composite(out, border)
-    return out
+                         radius=size//6, outline=WHITE, width=bw)
+    return Image.alpha_composite(out, border)
 
 
 def _make_avatar_from_photo(photo_bytes, size):
-    """Charge une vraie photo et l'adapte."""
     try:
         img = Image.open(io.BytesIO(photo_bytes))
-        # Crop carré centré
         w, h = img.size
         s = min(w, h)
-        left = (w - s) // 2
-        top  = (h - s) // 2
-        img  = img.crop((left, top, left + s, top + s))
+        img = img.crop(((w-s)//2, (h-s)//2, (w-s)//2+s, (h-s)//2+s))
         return _apply_round_mask(img, size)
     except Exception:
         return None
 
 
 def _make_avatar_initiale(name, profile_color, size):
-    """Avatar coloré avec initiale si pas de photo."""
     color = COLOR_MAP.get(profile_color, (70, 130, 180))
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -105,21 +127,12 @@ def _make_avatar_initiale(name, profile_color, size):
 def _draw_member(canvas, draw, cx, cy, node, gen):
     size = AVATAR_SIZES[min(gen, 3)]
     ns   = NAME_SIZES[min(gen, 3)]
-
-    # Choisir avatar : vraie photo ou initiale
     photo_bytes = node.get("photo")
-    if photo_bytes:
-        av = _make_avatar_from_photo(photo_bytes, size)
-    else:
-        av = None
-    if av is None:
-        av = _make_avatar_initiale(node["name"], node.get("color", "blue"), size)
-
+    av = (_make_avatar_from_photo(photo_bytes, size) if photo_bytes else None) or \
+         _make_avatar_initiale(node["name"], node.get("color", "blue"), size)
     x, y = cx - size//2, cy
     canvas.paste(av, (x, y), av)
-
-    # Nom sous l'avatar
-    name = node["name"][:14]
+    name = node["name"][:16]
     font = _get_font(ns)
     bbox = draw.textbbox((0, 0), name, font=font)
     tw   = bbox[2] - bbox[0]
@@ -148,7 +161,7 @@ def render_tree(members):
     if children:
         gens.append(children)
 
-    friend_w  = 110 if friends else 0
+    friend_w  = 115 if friends else 0
     HPAD      = 60
     NODE_SLOT = 115
     max_n     = max(len(g) for g in gens)
@@ -161,7 +174,6 @@ def render_tree(members):
     canvas = Image.new("RGBA", (W, H), BG_COLOR + (255,))
     draw   = ImageDraw.Draw(canvas)
 
-    # Titre
     tfont = _get_font(18)
     title = f"Arbre de {user['name']}"
     bbox  = draw.textbbox((0, 0), title, font=tfont)
@@ -170,8 +182,8 @@ def render_tree(members):
 
     zone_w  = W - friend_w - HPAD * 2
     title_h = 50
+    rows    = []
 
-    rows = []
     for gi, gnodes in enumerate(gens):
         gen_idx = min(gi + (1 if parents else 2), 3)
         n       = len(gnodes)
@@ -179,25 +191,21 @@ def render_tree(members):
         total_w = slot_w * n
         sx      = HPAD + (zone_w - total_w)//2 + slot_w//2
         y_top   = title_h + gi * (AVATAR_SIZES[0] + 28 + GEN_GAP)
-        row = []
+        row     = []
         for ni, node in enumerate(gnodes):
-            cx  = sx + ni * slot_w
-            pos = _draw_member(canvas, draw, cx, y_top, node, gen_idx)
+            pos = _draw_member(canvas, draw, sx + ni * slot_w, y_top, node, gen_idx)
             row.append(pos)
         rows.append(row)
 
-    # Lignes parents → user
     if len(rows) >= 2 and parents:
-        pr = rows[0]
-        ur = rows[1]
+        pr, ur = rows[0], rows[1]
         py = pr[0][2] + 10
         if len(pr) > 1:
             _line(draw, pr[0][0], py, pr[-1][0], py)
-        pmid_x = (pr[0][0] + pr[-1][0])//2
-        umid_x = (ur[0][0] + ur[-1][0])//2 if len(ur) > 1 else ur[0][0]
-        _line(draw, pmid_x, py, umid_x, ur[0][1])
+        pmid = (pr[0][0] + pr[-1][0])//2
+        umid = (ur[0][0] + ur[-1][0])//2 if len(ur) > 1 else ur[0][0]
+        _line(draw, pmid, py, umid, ur[0][1])
 
-    # Lignes user+conjoint → enfants
     ur_idx = 1 if parents else 0
     if ur_idx < len(rows):
         ur = rows[ur_idx]
@@ -209,15 +217,13 @@ def render_tree(members):
             cr     = rows[cr_idx]
             join_x = (ur[0][0] + ur[-1][0])//2
             join_y = ur[0][2] + 8
-            top_y  = cr[0][1]
-            mid_y  = (join_y + top_y)//2
+            mid_y  = (join_y + cr[0][1])//2
             _line(draw, join_x, join_y, join_x, mid_y)
             if len(cr) > 1:
                 _line(draw, cr[0][0], mid_y, cr[-1][0], mid_y)
             for cx, ctop, _ in cr:
                 _line(draw, cx, mid_y, cx, ctop)
 
-    # Amis colonne droite
     if friends and friend_w:
         fxc  = W - friend_w//2
         ffnt = _get_font(11)

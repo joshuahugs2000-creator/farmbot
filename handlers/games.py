@@ -331,7 +331,7 @@ apple_sessions: dict = {}
 APPLE_COLS   = 5
 APPLE_LEVELS = 10
 APPLE_MIN    = 50_000
-APPLE_MAX    = 5_000_000
+APPLE_MAX    = 9_000_000_000_000_000_000  # pas de plafond (max BIGINT PostgreSQL)
 
 # Multiplicateurs ajustés pour la difficulté augmentée
 # Niveaux 1-2 : 3/5 sûres (60%) | Niveaux 3-5 : 2/5 sûres (40%) | Niveaux 6-10 : 1/5 sûre (20%)
@@ -421,7 +421,7 @@ def _apple_status(session: dict) -> str:
 
 
 async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/apple <mise> — Apple of Fortune (50 000 $ – 5 000 000 $)"""
+    """/apple <mise> — Apple of Fortune (mise libre)"""
     user = update.effective_user
     await ensure_user(user)
 
@@ -437,7 +437,7 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🍏 Pomme verte = tu passes au niveau suivant\n"
             "🍎 Pomme rouge = BOOM, tu perds tout !\n"
             "Les pièges augmentent à chaque palier.\n\n"
-            f"<b>Mises :</b> {_fmt(APPLE_MIN)} $ – {_fmt(APPLE_MAX)} $\n\n"
+            f"<b>Mise minimum :</b> {_fmt(APPLE_MIN)} $\n\n"
             f"<b>Table des gains :</b>\n{table}\n\n"
             "Usage : <code>/apple &lt;mise&gt;</code>\n"
             "Ex : <code>/apple 100000</code>",
@@ -452,10 +452,6 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mise < APPLE_MIN:
         return await update.message.reply_text(
             f"❌ Mise minimum : <b>{_fmt(APPLE_MIN)} $</b>", parse_mode=ParseMode.HTML
-        )
-    if mise > APPLE_MAX:
-        return await update.message.reply_text(
-            f"❌ Mise maximum : <b>{_fmt(APPLE_MAX)} $</b>", parse_mode=ParseMode.HTML
         )
 
     if user.id in apple_sessions:

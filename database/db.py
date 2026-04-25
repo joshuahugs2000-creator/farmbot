@@ -250,7 +250,7 @@ async def harvest_plant(session: AsyncSession, garden_id: int) -> int:
     value = PLANT_TYPES.get(g.plant_type, {}).get("value", 0)
     if value > 0:
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": value, "uid": g.user_id}
         )
     await session.commit()
@@ -316,7 +316,7 @@ async def process_inheritance(session: AsyncSession, user_id: int) -> dict:
         coins_each = total // len(family_ids)
         for fid in family_ids:
             await session.execute(
-                text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                 {"amt": coins_each, "uid": fid}
             )
         r2 = await session.execute(
@@ -390,11 +390,11 @@ async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
         await conn.execute(
-            "UPDATE users SET coins = GREATEST(0::bigint, coins::bigint + $1::bigint) WHERE user_id = $2::bigint",
+            "UPDATE users SET coins = GREATEST(0, coins + $1) WHERE user_id = $2",
             amt, uid
         )
         row = await conn.fetchrow(
-            "SELECT coins FROM users WHERE user_id = $1::bigint", uid
+            "SELECT coins FROM users WHERE user_id = $1", uid
         )
     finally:
         await conn.close()
@@ -412,11 +412,11 @@ async def set_coins(user_id: int, amount: int) -> int:
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
         await conn.execute(
-            "UPDATE users SET coins = $1::bigint WHERE user_id = $2::bigint",
+            "UPDATE users SET coins = $1 WHERE user_id = $2",
             amt, uid
         )
         row = await conn.fetchrow(
-            "SELECT coins FROM users WHERE user_id = $1::bigint", uid
+            "SELECT coins FROM users WHERE user_id = $1", uid
         )
     finally:
         await conn.close()
@@ -436,23 +436,23 @@ async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
         row = await conn.fetchrow(
-            "SELECT coins FROM users WHERE user_id = $1::bigint", uid_from
+            "SELECT coins FROM users WHERE user_id = $1", uid_from
         )
         if not row:
             return "not_found"
         row2 = await conn.fetchrow(
-            "SELECT coins FROM users WHERE user_id = $1::bigint", uid_to
+            "SELECT coins FROM users WHERE user_id = $1", uid_to
         )
         if not row2:
             return "not_found"
         if int(row["coins"]) < amt:
             return "insufficient"
         await conn.execute(
-            "UPDATE users SET coins = coins::bigint - $1::bigint WHERE user_id = $2::bigint",
+            "UPDATE users SET coins = coins - $1 WHERE user_id = $2",
             amt, uid_from
         )
         await conn.execute(
-            "UPDATE users SET coins = coins::bigint + $1::bigint WHERE user_id = $2::bigint",
+            "UPDATE users SET coins = coins + $1 WHERE user_id = $2",
             amt, uid_to
         )
     finally:
@@ -471,7 +471,7 @@ async def claim_daily(session: AsyncSession, user_id: int) -> dict:
         return {"status": "already"}
     amount          = random.randint(500, 3_000)
     await session.execute(
-        text("UPDATE users SET coins = coins::bigint + :amt::bigint, last_daily = :ld WHERE user_id = :uid"),
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT), last_daily = :ld WHERE user_id = :uid"),
         {"amt": amount, "ld": now_key, "uid": user_id}
     )
     await session.commit()
@@ -490,7 +490,7 @@ async def claim_work(session: AsyncSession, user_id: int) -> dict:
         return {"status": "cooldown", "wait_min": wait}
     amount         = random.randint(200, 2_000)
     await session.execute(
-        text("UPDATE users SET coins = coins::bigint + :amt::bigint, last_work = :lw WHERE user_id = :uid"),
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT), last_work = :lw WHERE user_id = :uid"),
         {"amt": amount, "lw": now, "uid": user_id}
     )
     await session.commit()
@@ -506,7 +506,7 @@ async def create_bet(session: AsyncSession, proposer_id: int, group_id: int,
     if not u or u.coins < amount:
         return None
     await session.execute(
-        text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
         {"amt": amount, "uid": proposer_id}
     )
     bet = UserBet(
@@ -539,7 +539,7 @@ async def accept_bet(session: AsyncSession, bet_id: int, acceptor_id: int) -> st
     if not u or u.coins < bet.amount:
         return "insufficient"
     await session.execute(
-        text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
         {"amt": bet.amount, "uid": acceptor_id}
     )
     bet.target_id = acceptor_id
@@ -563,7 +563,7 @@ async def resolve_bet(session: AsyncSession, bet_id: int, winner_id: int, resolv
     winner = r2.scalar_one_or_none()
     if winner:
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": bet.amount * 2, "uid": winner_id}
         )
     bet.status    = "done"
@@ -604,7 +604,7 @@ async def couple_deposit(session: AsyncSession, user_id: int, amount: int) -> st
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
         row = await conn.fetchrow(
-            "SELECT coins FROM users WHERE user_id = $1::bigint", uid
+            "SELECT coins FROM users WHERE user_id = $1", uid
         )
         if not row:
             return "not_found"
@@ -614,7 +614,7 @@ async def couple_deposit(session: AsyncSession, user_id: int, amount: int) -> st
         acc_row = await conn.fetchrow(
             """
             SELECT id, balance FROM couple_accounts
-            WHERE user1_id = $1::bigint OR user2_id = $1::bigint
+            WHERE user1_id = $1 OR user2_id = $1
             LIMIT 1
             """,
             uid,
@@ -622,11 +622,11 @@ async def couple_deposit(session: AsyncSession, user_id: int, amount: int) -> st
         if not acc_row:
             return "no_account"
         await conn.execute(
-            "UPDATE users SET coins = coins::bigint - $1::bigint WHERE user_id = $2::bigint",
+            "UPDATE users SET coins = coins - $1 WHERE user_id = $2",
             amt, uid,
         )
         await conn.execute(
-            "UPDATE couple_accounts SET balance = balance::bigint + $1::bigint WHERE id = $2",
+            "UPDATE couple_accounts SET balance = balance + $1 WHERE id = $2",
             amt, acc_row["id"],
         )
     finally:
@@ -647,7 +647,7 @@ async def couple_withdraw(session: AsyncSession, user_id: int, amount: int) -> s
         acc_row = await conn.fetchrow(
             """
             SELECT id, balance FROM couple_accounts
-            WHERE user1_id = $1::bigint OR user2_id = $1::bigint
+            WHERE user1_id = $1 OR user2_id = $1
             LIMIT 1
             """,
             uid,
@@ -657,16 +657,16 @@ async def couple_withdraw(session: AsyncSession, user_id: int, amount: int) -> s
         if int(acc_row["balance"]) < amt:
             return "insufficient"
         user_row = await conn.fetchrow(
-            "SELECT user_id FROM users WHERE user_id = $1::bigint", uid
+            "SELECT user_id FROM users WHERE user_id = $1", uid
         )
         if not user_row:
             return "not_found"
         await conn.execute(
-            "UPDATE couple_accounts SET balance = balance::bigint - $1::bigint WHERE id = $2",
+            "UPDATE couple_accounts SET balance = balance - $1 WHERE id = $2",
             amt, acc_row["id"],
         )
         await conn.execute(
-            "UPDATE users SET coins = coins::bigint + $1::bigint WHERE user_id = $2::bigint",
+            "UPDATE users SET coins = coins + $1 WHERE user_id = $2",
             amt, uid,
         )
     finally:
@@ -687,7 +687,7 @@ async def dissolve_couple_account(session: AsyncSession, user1_id: int, user2_id
         acc_row = await conn.fetchrow(
             """
             SELECT id, balance FROM couple_accounts
-            WHERE user1_id = $1::bigint OR user2_id = $1::bigint
+            WHERE user1_id = $1 OR user2_id = $1
             LIMIT 1
             """,
             uid1,
@@ -697,7 +697,7 @@ async def dissolve_couple_account(session: AsyncSession, user1_id: int, user2_id
         share = int(acc_row["balance"]) // 2
         for uid in (uid1, uid2):
             await conn.execute(
-                "UPDATE users SET coins = coins::bigint + $1::bigint WHERE user_id = $2::bigint",
+                "UPDATE users SET coins = coins + $1 WHERE user_id = $2",
                 share, uid,
             )
         await conn.execute(
@@ -720,13 +720,13 @@ async def deduct_for_game(session: AsyncSession, user_id: int, amount: int) -> s
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
         row = await conn.fetchrow(
-            "SELECT coins FROM users WHERE user_id = $1::bigint", uid
+            "SELECT coins FROM users WHERE user_id = $1", uid
         )
         if not row:
             return "insufficient"
         if int(row["coins"]) >= amt:
             await conn.execute(
-                "UPDATE users SET coins = coins::bigint - $1::bigint WHERE user_id = $2::bigint",
+                "UPDATE users SET coins = coins - $1 WHERE user_id = $2",
                 amt, uid,
             )
             return "perso"
@@ -734,14 +734,14 @@ async def deduct_for_game(session: AsyncSession, user_id: int, amount: int) -> s
         acc_row = await conn.fetchrow(
             """
             SELECT id, balance FROM couple_accounts
-            WHERE user1_id = $1::bigint OR user2_id = $1::bigint
+            WHERE user1_id = $1 OR user2_id = $1
             LIMIT 1
             """,
             uid,
         )
         if acc_row and int(acc_row["balance"]) >= amt:
             await conn.execute(
-                "UPDATE couple_accounts SET balance = balance::bigint - $1::bigint WHERE id = $2",
+                "UPDATE couple_accounts SET balance = balance - $1 WHERE id = $2",
                 amt, acc_row["id"],
             )
             return "couple"
@@ -761,7 +761,7 @@ async def add_coins_smart(session: AsyncSession, user_id: int, amount: int):
     conn = await asyncpg.connect(_asyncpg_dsn())
     try:
         await conn.execute(
-            "UPDATE users SET coins = coins::bigint + $1::bigint WHERE user_id = $2::bigint",
+            "UPDATE users SET coins = coins + $1 WHERE user_id = $2",
             amt, uid,
         )
     finally:

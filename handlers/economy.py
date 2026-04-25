@@ -24,6 +24,7 @@ from database.db import (
     add_coins, transfer_coins, claim_daily, claim_work,
     deduct_for_game, add_coins_smart,
 )
+from sqlalchemy import text
 from utils.helpers import ensure_user, parse_target, mention
 from handlers.crime import _is_in_prison, _get_prison
 
@@ -502,7 +503,10 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tries_after = DES_MAX_TRIES - _des_daily[player_tg.id]["count"]
 
         # Déduire la mise
-        player.coins -= DES_MISE
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": DES_MISE, "uid": player_tg.id}
+        )
         await session.commit()
 
         # Lancer le dé
@@ -512,7 +516,10 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if resultat == choix:
             # GAGNÉ
-            player.coins += DES_GAIN
+            await session.execute(
+                text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                {"amt": DES_GAIN, "uid": player_tg.id}
+            )
             await session.commit()
             await update.message.reply_text(
                 f"🎲 <b>JEU DU DÉ</b>\n\n"

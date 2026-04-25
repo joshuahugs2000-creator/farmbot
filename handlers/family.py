@@ -235,7 +235,7 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gift = random.randint(500, 8_000)
             for uid in (req.from_user_id, req.to_user_id):
                 await session.execute(
-                    text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                    text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                     {"amt": gift, "uid": uid}
                 )
             await session.commit()

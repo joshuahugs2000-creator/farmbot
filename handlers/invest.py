@@ -14,7 +14,7 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from database.db import AsyncSessionLocal, get_user, add_coins
 from database.models import Investment
@@ -444,7 +444,10 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Solde insuffisant ! Il te faut {_fmt(total)} $ pour acheter {qty}x {a['name']}."
             )
 
-        u.coins -= total
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": total, "uid": user.user_id}
+        )
         inv = Investment(
             user_id=user.user_id,
             asset_id=asset_id,
@@ -454,7 +457,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.add(inv)
         await session.commit()
         inv_id = inv.id
-        new_wallet = u.coins
+        new_wallet = u.coins - total
 
     await update.message.reply_text(
         f"✅ <b>Achat effectué !</b>\n\n"
@@ -585,10 +588,12 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         inv.sold_at = datetime.utcnow()
 
         u = await get_user(session, user.user_id)
-        from database.db import MAX_COINS
-        u.coins = u.coins + total_received
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+            {"amt": total_received, "uid": user.user_id}
+        )
         await session.commit()
-        new_wallet = u.coins
+        new_wallet = u.coins + total_received
 
     profit_str = f"+{_fmt(profit)} $" if profit >= 0 else f"-{_fmt(abs(profit))} $"
     profit_emoji = "🟢" if profit > 0 else ("🔴" if profit < 0 else "⚪")

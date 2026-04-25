@@ -504,7 +504,7 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Déduire la mise
         await session.execute(
-            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": DES_MISE, "uid": player_tg.id}
         )
         await session.commit()
@@ -517,7 +517,7 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if resultat == choix:
             # GAGNÉ
             await session.execute(
-                text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                 {"amt": DES_GAIN, "uid": player_tg.id}
             )
             await session.commit()

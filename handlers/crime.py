@@ -266,12 +266,11 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # On enlève l'argent au voleur ET à la victime — le voleur prend le risque
             # mais l'argent est immédiatement restitué à la victime
             actual_stolen = min(amount, robber.coins)  # le voleur rend ce qu'il peut
-            victim.coins  -= amount           # la victime perd temporairement
-            victim.coins  += amount           # ... mais récupère immédiatement
-            # En réalité : le voleur perd le montant qu'il tentait de voler
-            robber.coins  -= actual_stolen
-            # Et la victime est remboursée (son solde net = 0 changement, le voleur paie)
-            # Pour rendre ça intéressant : le voleur perd l'argent, la victime est intacte
+            # Le voleur perd l'argent, la victime est intacte (net 0)
+            await session.execute(
+                text("UPDATE users SET coins = GREATEST(0::bigint, coins::bigint - :amt::bigint) WHERE user_id = :uid"),
+                {"amt": actual_stolen, "uid": robber.user_id}
+            )
             await session.commit()
 
             # Logger le vol (réussi mais pénalisé)
@@ -407,8 +406,14 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
             victim = await get_user(session, victim_id)
             refund_msg = ""
             if victim:
-                suspect.coins = max(0, suspect.coins - amount)
-                victim.coins += amount
+                await session.execute(
+                    text("UPDATE users SET coins = GREATEST(0::bigint, coins::bigint - :amt::bigint) WHERE user_id = :uid"),
+                    {"amt": amount, "uid": suspect.user_id}
+                )
+                await session.execute(
+                    text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                    {"amt": amount, "uid": victim_id}
+                )
                 await session.commit()
                 refund_msg = f"💸 Les <b>{_fmt(amount)} 💰</b> volés ont été restitués à {mention(victim)}.\n"
             else:
@@ -504,7 +509,10 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Payer la caution
-        payer.coins -= bail_amount
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": bail_amount, "uid": payer.user_id}
+        )
 
         # Libérer le prisonnier
         await session.execute(
@@ -897,7 +905,10 @@ async def bail_judgment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        payer.coins -= bail_amount
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": bail_amount, "uid": payer.user_id}
+        )
 
         # Libérer
         await session.execute(
@@ -958,14 +969,6 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ La mise minimum est <b>1 💰</b>.", parse_mode=ParseMode.HTML)
             return
 
-        if bet_amount > 100_000:
-            await update.message.reply_text(
-                f"❌ La mise maximum au /rebet est <b>100 000 💰</b>.\n"
-                f"Tu as tenté de miser <b>{_fmt(bet_amount)} 💰</b>.",
-                parse_mode=ParseMode.HTML
-            )
-            return
-
         player = await get_user(session, player_tg.id)
         if player.coins < bet_amount:
             await update.message.reply_text(
@@ -977,7 +980,10 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Déduire la mise
-        player.coins -= bet_amount
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": bet_amount, "uid": player.user_id}
+        )
         await session.commit()
 
         # Lancer le round 1
@@ -1060,7 +1066,10 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if action == "take":
             # Récupérer les gains
-            player.coins += pot
+            await session.execute(
+                text("UPDATE users SET coins = coins::bigint + :amt::bigint WHERE user_id = :uid"),
+                {"amt": pot, "uid": player_id}
+            )
             await session.execute(
                 text("DELETE FROM crime_rebet WHERE user_id = :uid"),
                 {"uid": player_id}
@@ -1204,7 +1213,10 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             # Acheter directement
-            player.coins -= chosen["price"]
+            await session.execute(
+                text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+                {"amt": chosen["price"], "uid": player_tg.id}
+            )
             await session.execute(
                 text("""INSERT INTO crime_security (user_id, agency_id)
                         VALUES (:uid, :aid)
@@ -1218,7 +1230,7 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Agence : <b>{chosen['name']}</b>\n"
                 f"Protection : <b>{int(chosen['protection'] * 100)}%</b>\n"
                 f"💸 <b>{_fmt(chosen['price'])} 💰</b> débités.\n"
-                f"Solde restant : <b>{_fmt(player.coins)} 💰</b>",
+                f"Solde restant : <b>{_fmt(player.coins - chosen['price'])} 💰</b>",
                 parse_mode=ParseMode.HTML
             )
         else:
@@ -1255,7 +1267,10 @@ async def security_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        player.coins -= chosen["price"]
+        await session.execute(
+            text("UPDATE users SET coins = coins::bigint - :amt::bigint WHERE user_id = :uid"),
+            {"amt": chosen["price"], "uid": player_id}
+        )
         await session.execute(
             text("""INSERT INTO crime_security (user_id, agency_id)
                     VALUES (:uid, :aid)

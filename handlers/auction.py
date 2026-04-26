@@ -34,20 +34,41 @@ logger = logging.getLogger(__name__)
 
 ITEMS = [
     # (item_id, nom, emoji, rareté, valeur_min, valeur_max, mise_départ)
-    ("chaussette_perdue",  "Chaussette Perdue",       "🧦", "camelote",   0,          500,          100),
-    ("tasse_ebrechee",     "Tasse Ébréchée",          "🍵", "camelote",   0,          1_000,        200),
-    ("carte_pokemon_fake", "Carte Pokémon Fake",      "🃏", "camelote",   0,          2_000,        500),
-    ("pierre_rare",        "Pierre 'Rare'",           "🪨", "commun",     500,        10_000,       2_000),
-    ("montre_cassee",      "Montre Cassée de Luxe",   "⌚", "commun",     1_000,      25_000,       5_000),
-    ("tableau_douteux",    "Tableau Douteux",         "🖼️", "commun",    5_000,      50_000,       10_000),
-    ("violon_ancien",      "Vieux Violon",            "🎻", "rare",       20_000,     200_000,      40_000),
-    ("bague_or",           "Bague en Or",             "💍", "rare",       50_000,     500_000,      80_000),
-    ("crypto_cle",         "Clé USB Crypto Oubliée",  "🔑", "rare",       10_000,     1_000_000,    100_000),
-    ("diamant_brut",       "Diamant Brut",            "💎", "épique",     200_000,    5_000_000,    500_000),
-    ("tableau_celebre",    "Tableau Célèbre Volé",    "🎨", "épique",     500_000,    20_000_000,   2_000_000),
-    ("medaille_olympic",   "Médaille Olympique",      "🏅", "épique",     1_000_000,  50_000_000,   5_000_000),
-    ("artefact_alien",     "Artefact Alien",          "👽", "légendaire", 10_000_000, 500_000_000,  50_000_000),
-    ("etoile_morte",       "Fragment d'Étoile Morte", "⭐", "légendaire", 100_000_000, 2_000_000_000, 200_000_000),
+    # ── Camelote ──
+    ("chaussette_perdue",   "Chaussette Perdue",          "🧦", "camelote",    0,            500,           100),
+    ("tasse_ebrechee",      "Tasse Ébréchée",             "🍵", "camelote",    0,            1_000,         200),
+    ("carte_pokemon_fake",  "Carte Pokémon Fake",         "🃏", "camelote",    0,            2_000,         500),
+    ("bougie_fondue",       "Bougie à Moitié Fondue",     "🕯️","camelote",    0,            800,           150),
+    ("stylo_vide",          "Stylo Sans Encre",           "🖊️","camelote",    0,            300,           50),
+    ("parapluie_casse",     "Parapluie Cassé",            "☂️","camelote",    0,            1_500,         300),
+    # ── Commun ──
+    ("pierre_rare",         "Pierre 'Rare'",              "🪨", "commun",      500,          10_000,        2_000),
+    ("montre_cassee",       "Montre Cassée de Luxe",      "⌚", "commun",      1_000,        25_000,        5_000),
+    ("tableau_douteux",     "Tableau Douteux",            "🖼️","commun",      5_000,        50_000,        10_000),
+    ("livre_ancien",        "Livre Ancien Illisible",     "📖", "commun",      2_000,        30_000,        6_000),
+    ("vase_fissure",        "Vase de Chine Fissuré",      "🏺", "commun",      3_000,        40_000,        8_000),
+    ("boussole_rouilee",    "Boussole Rouillée",          "🧭", "commun",      1_500,        20_000,        4_000),
+    # ── Rare ──
+    ("violon_ancien",       "Vieux Violon",               "🎻", "rare",        20_000,       200_000,       40_000),
+    ("bague_or",            "Bague en Or",                "💍", "rare",        50_000,       500_000,       80_000),
+    ("crypto_cle",          "Clé USB Crypto Oubliée",     "🔑", "rare",        10_000,       1_000_000,     100_000),
+    ("epee_medievale",      "Épée Médiévale",             "⚔️","rare",        30_000,       300_000,       60_000),
+    ("parchemin_magique",   "Parchemin Mystérieux",       "📜", "rare",        25_000,       250_000,       50_000),
+    ("telescope_antique",   "Télescope Antique",          "🔭", "rare",        40_000,       400_000,       70_000),
+    ("masque_venitien",     "Masque Vénitien d'Époque",   "🎭", "rare",        15_000,       180_000,       35_000),
+    # ── Épique ──
+    ("diamant_brut",        "Diamant Brut",               "💎", "épique",      200_000,      5_000_000,     500_000),
+    ("tableau_celebre",     "Tableau Célèbre Volé",       "🎨", "épique",      500_000,      20_000_000,    2_000_000),
+    ("medaille_olympic",    "Médaille Olympique",         "🏅", "épique",      1_000_000,    50_000_000,    5_000_000),
+    ("coffre_tresor",       "Coffre au Trésor Scellé",    "🪙", "épique",      800_000,      30_000_000,    3_000_000),
+    ("drone_militaire",     "Drone Militaire Volé",       "🚁", "épique",      600_000,      25_000_000,    2_500_000),
+    ("couronne_royale",     "Couronne Royale",            "👑", "épique",      1_500_000,    80_000_000,    8_000_000),
+    # ── Légendaire ──
+    ("artefact_alien",      "Artefact Alien",             "👽", "légendaire",  10_000_000,   500_000_000,   50_000_000),
+    ("etoile_morte",        "Fragment d'Étoile Morte",    "⭐", "légendaire",  100_000_000,  2_000_000_000, 200_000_000),
+    ("saint_graal",         "Le Saint Graal",             "🏆", "légendaire",  50_000_000,   1_000_000_000, 100_000_000),
+    ("larme_dragon",        "Larme de Dragon",            "🐉", "légendaire",  30_000_000,   800_000_000,   80_000_000),
+    ("source_code_ia",      "Code Source d'une IA Secrète","🤖","légendaire",  200_000_000,  5_000_000_000, 500_000_000),
 ]
 
 RARITY_EMOJI = {
@@ -77,6 +98,7 @@ def _random_item():
 # ─── INIT TABLES ──────────────────────────────────────────────────────────────
 
 async def init_auction_tables():
+    # Chaque table dans sa propre transaction pour éviter les rollbacks silencieux
     async with AsyncSessionLocal() as session:
         await session.execute(text("""
             CREATE TABLE IF NOT EXISTS auction_sessions (
@@ -97,6 +119,9 @@ async def init_auction_tables():
                 ends_at      TIMESTAMP NOT NULL
             )
         """))
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
         await session.execute(text("""
             CREATE TABLE IF NOT EXISTS auction_inventory (
                 id           SERIAL PRIMARY KEY,
@@ -114,6 +139,7 @@ async def init_auction_tables():
             )
         """))
         await session.commit()
+
     logger.info("Tables auction initialisées.")
 
 # ─── LANCEMENT D'UNE ENCHÈRE ──────────────────────────────────────────────────
@@ -148,7 +174,32 @@ async def _launch_auction(context: ContextTypes.DEFAULT_TYPE, group_id: int):
         await session.commit()
 
     rarity_icon = RARITY_EMOJI.get(rarity, "⚪")
+
+    # Vérifier si c'est la 1ère enchère de ce groupe
+    async with AsyncSessionLocal() as session:
+        res_count = await session.execute(text(
+            "SELECT COUNT(*) FROM auction_sessions WHERE group_id = :gid"
+        ), {"gid": group_id})
+        total_auctions = res_count.fetchone()[0]
+
+    if total_auctions <= 1:
+        intro = (
+            "📢 <b>NOUVEAU — SYSTÈME D'ENCHÈRES !</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🎯 Comment ça marche :\n"
+            "• Des objets apparaissent 2x/jour\n"
+            "• Enchéris avec <b>/bid [montant]</b>\n"
+            "• Le plus offrant remporte l'objet\n"
+            "• L'ancien leader est toujours remboursé\n"
+            "• Découvre la valeur avec <b>/expertise</b>\n"
+            "• Revends tes objets avec <b>/sellitem</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        )
+    else:
+        intro = ""
+
     text_msg = (
+        f"{intro}"
         f"🔨 <b>ENCHÈRE EN COURS !</b>\n\n"
         f"{item_emoji} <b>{item_name}</b>\n"
         f"{rarity_icon} Rareté : <b>{rarity.capitalize()}</b>\n\n"
@@ -159,8 +210,8 @@ async def _launch_auction(context: ContextTypes.DEFAULT_TYPE, group_id: int):
     )
 
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"📊 Infos", callback_data=f"auction:info:{auction_id}"),
-        InlineKeyboardButton(f"⚡ Enchérir vite !", callback_data=f"auction:bid:{auction_id}"),
+        InlineKeyboardButton("📊 Infos", callback_data=f"auction:info:{auction_id}"),
+        InlineKeyboardButton("⚡ Enchérir vite !", callback_data=f"auction:bid:{auction_id}"),
     ]])
 
     try:
@@ -324,7 +375,7 @@ async def bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Vérifier le solde
-        db_user = await get_user(user.id)
+        db_user = await get_user(session, user.id)
         if not db_user or db_user.coins < amount:
             await update.message.reply_text("❌ Pas assez de coins !")
             return
@@ -629,7 +680,7 @@ async def buyitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Tu ne peux pas acheter ton propre objet !")
             return
 
-        buyer = await get_user(user.id)
+        buyer = await get_user(session, user.id)
         if not buyer or buyer.coins < item.sale_price:
             await update.message.reply_text(
                 f"❌ Tu n'as pas assez de coins ! Il te faut <b>{_fmt(item.sale_price)}</b>.",

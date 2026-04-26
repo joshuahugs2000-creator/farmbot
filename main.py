@@ -74,6 +74,8 @@ from handlers.wealth_drain import (
     init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
 )
 from handlers.drames import drame, setdramesesuil
+from handlers.article import article_cmd
+from handlers.journal import init_journal_table, setup_journal_jobs
 from database.db import AsyncSessionLocal
 
 logging.basicConfig(
@@ -146,6 +148,7 @@ async def prison_middleware(update: Update, context) -> bool:
 
 async def on_startup(application: Application):
     await init_db()
+    await init_journal_table()
     await init_crime_tables()
     await init_drain_tables()
     await _ensure_cambriolage_cd_table()
@@ -274,6 +277,7 @@ async def main():
     app.add_handler(CommandHandler("marketlist",     marketlist))
     app.add_handler(CommandHandler("useractivity",   useractivity))
     app.add_handler(CommandHandler("drame",          drame))
+    app.add_handler(CommandHandler("article",        article_cmd))
     app.add_handler(CommandHandler("setdramesesuil", setdramesesuil))
 
     # ── Banque ────────────────────────────────────────────────────────────────
@@ -357,6 +361,7 @@ async def main():
     )
     setup_lottery_jobs(app)
     setup_auction_jobs(app)
+    setup_journal_jobs(app)
 
     # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────
     async def health(request):

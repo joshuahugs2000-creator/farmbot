@@ -102,7 +102,13 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/article hasard — Article sur un joueur aléatoire\n\n"
         "<b>⏸️ Contrôle du bot</b>\n"
         "/pause — Mettre le bot en pause\n"
-        "/resume — Réactiver le bot\n"
+        "/resume — Réactiver le bot\n\n"
+        "<b>🎡 Mood de la roue</b>\n"
+        "/facile — Roue généreuse\n"
+        "/normal — Roue neutre\n"
+        "/difficile — Roue méchante\n"
+        "/moodauto — Retour aléatoire\n"
+        "/setmood — Voir le mood actuel\n"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 

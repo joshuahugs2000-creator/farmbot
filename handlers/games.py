@@ -675,38 +675,41 @@ def _current_mood() -> tuple[str, tuple]:
     return mood_key, MOODS[mood_key]
 
 
-async def setmood_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/setmood <mood|auto> — Force le mood de la roue (admin seulement)."""
+async def _set_mood_direct(update: Update, mood_key):
     import handlers.games as _self
     from handlers.admin import is_admin
     if not await is_admin(update.effective_user.id):
         return await update.message.reply_text("❌ Réservé aux admins.")
+    _self._MOOD_OVERRIDE = mood_key
+    if mood_key is None:
+        await update.message.reply_text("🎲 Roue remise en mode <b>aléatoire</b>.", parse_mode="HTML")
+    else:
+        _, (_, _, label) = _current_mood()
+        await update.message.reply_text(f"✅ {label}", parse_mode="HTML")
 
-    moods_list = ", ".join(MOODS.keys())
-    if not context.args:
-        mood_key, (_, _, label) = _current_mood()
-        override_info = f"🔒 Forcé : <b>{_self._MOOD_OVERRIDE}</b>" if _self._MOOD_OVERRIDE else "🎲 Aléatoire"
-        return await update.message.reply_text(
-            f"🎡 <b>Mood actuel :</b> {label}\n{override_info}\n\n"
-            f"Usage : <code>/setmood &lt;mood&gt;</code> ou <code>/setmood auto</code>\n"
-            f"Moods disponibles : <code>{moods_list}</code>",
-            parse_mode="HTML"
-        )
+async def mood_facile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _set_mood_direct(update, "facile")
 
-    arg = context.args[0].lower()
-    if arg == "auto":
-        _self._MOOD_OVERRIDE = None
-        return await update.message.reply_text("✅ Mood remis en <b>aléatoire</b>.", parse_mode="HTML")
+async def mood_normal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _set_mood_direct(update, "normal")
 
-    if arg not in MOODS:
-        return await update.message.reply_text(
-            f"❌ Mood inconnu. Choisis parmi : <code>{moods_list}</code>", parse_mode="HTML"
-        )
+async def mood_difficile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _set_mood_direct(update, "mechant")
 
-    _self._MOOD_OVERRIDE = arg
+async def mood_auto_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _set_mood_direct(update, None)
+
+async def setmood_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import handlers.games as _self
+    from handlers.admin import is_admin
+    if not await is_admin(update.effective_user.id):
+        return await update.message.reply_text("❌ Réservé aux admins.")
     _, (_, _, label) = _current_mood()
+    override_info = f"🔒 Forcé : <b>{_self._MOOD_OVERRIDE}</b>" if _self._MOOD_OVERRIDE else "🎲 Aléatoire"
     await update.message.reply_text(
-        f"✅ Mood forcé à <b>{arg}</b> : {label}", parse_mode="HTML"
+        f"🎡 <b>Mood actuel :</b> {label}\n{override_info}\n\n"
+        f"Commandes : /facile · /normal · /difficile · /moodauto",
+        parse_mode="HTML"
     )
 
 

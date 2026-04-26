@@ -29,6 +29,7 @@ from sqlalchemy import select, text
 from database.db import AsyncSessionLocal, get_user, add_coins, set_coins
 from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +72,10 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "<b>🛡 Panneau Admin — God Mode</b>\n\n"
         "<b>💰 Gestion argent</b>\n"
-        "/give @user montant — Donner des $\n"
-        "/take @user montant — Retirer des $\n"
+        "/give @user montant — Donner des {CURRENCY}
+"
+        "/take @user montant — Retirer des {CURRENCY}
+"
         "/setcoins @user montant — Définir le solde exact\n\n"
         "<b>⛓️ Gestion prison</b>\n"
         "/emprisonner @user durée — Mettre quelqu'un en prison\n"
@@ -90,7 +93,8 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>📢 Communication</b>\n"
         "/broadcast [message] — Message à tous les utilisateurs\n\n"
         "<b>🎭 Drames économiques</b>\n"
-        "/drame scandale @user — Perte % coins\n"
+        "/drame scandale @user — Perte % {CURRENCY}
+"
         "/drame catastrophe @user — Détruit portfolio\n"
         "/drame fisc @user — Impôts forcés\n"
         "/drame crise @user — Double peine\n"
@@ -128,8 +132,8 @@ async def give(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_bal = await add_coins(session, target.user_id, amount)
 
     await update.message.reply_text(
-        f"✅ <b>+{_fmt(amount)} $</b> donnés à {mention(target)}\n"
-        f"Nouveau solde : {_fmt(new_bal)} $",
+        f"✅ <b>+{_fmt(amount)} {CURRENCY}</b> donnés à {mention(target)}\n"
+        f"Nouveau solde : {_fmt(new_bal)} {CURRENCY}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -155,8 +159,8 @@ async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_bal = await add_coins(session, target.user_id, -amount)
 
     await update.message.reply_text(
-        f"✅ <b>-{_fmt(amount)} $</b> retirés à {mention(target)}\n"
-        f"Nouveau solde : {_fmt(new_bal)} $",
+        f"✅ <b>-{_fmt(amount)} {CURRENCY}</b> retirés à {mention(target)}\n"
+        f"Nouveau solde : {_fmt(new_bal)} {CURRENCY}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -186,7 +190,7 @@ async def setcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_bal = await _set_coins_raw(session, target.user_id, amount)
 
     await update.message.reply_text(
-        f"✅ Solde de {mention(target)} défini à <b>{_fmt(new_bal)} $</b>",
+        f"✅ Solde de {mention(target)} défini à <b>{_fmt(new_bal)} {CURRENCY}</b>",
         parse_mode=ParseMode.HTML,
     )
 
@@ -240,16 +244,16 @@ async def userinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             h = mins // 60
             m = mins % 60
             dur = f"{h}h{m:02d}m" if h > 0 else f"{m}m"
-            prison_str = f"\n🔒 EN PRISON — libération dans {dur} | caution : {_fmt(prison_row.bail_amount)} $"
+            prison_str = f"\n🔒 EN PRISON — libération dans {dur} | caution : {_fmt(prison_row.bail_amount)} {CURRENCY}"
 
     lines = [
         f"<b>👤 Infos — {u.first_name}{banned_str}</b>",
         "",
         f"🆔 ID Telegram  : <code>{u.user_id}</code>",
         f"📛 Username     : @{u.username or '—'}",
-        f"💰 Solde wallet : {_fmt(u.coins)} $",
-        f"🏦 En banque    : {_fmt(total_banked)} $",
-        f"💳 Dettes       : {_fmt(total_debt)} $",
+        f"💰 Solde wallet : {_fmt(u.coins)} {CURRENCY}",
+        f"🏦 En banque    : {_fmt(total_banked)} {CURRENCY}",
+        f"💳 Dettes       : {_fmt(total_debt)} {CURRENCY}",
         f"📈 Investiss.   : {len(investments)} actifs",
         f"⭐ Karma        : {u.karma}",
         f"👨‍👩‍👧 Famille     : {u.family_name or '—'}",
@@ -454,7 +458,7 @@ async def prisonlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             lines.append(
                 f"👤 <b>{name}</b> (<code>{row.user_id}</code>)\n"
-                f"   💰 Vol : {_fmt(row.amount_stolen)} $  |  🔓 Caution : {_fmt(row.bail_amount)} $\n"
+                f"   💰 Vol : {_fmt(row.amount_stolen)} {CURRENCY}  |  🔓 Caution : {_fmt(row.bail_amount)} {CURRENCY}\n"
                 f"   ⏳ Libération dans : <b>{duration_str}</b>\n"
             )
 
@@ -751,7 +755,7 @@ async def marketlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"<b>── {cat} ──</b>")
         for kid, a in ASSETS.items():
             if a["category"] == cat:
-                lines.append(f"  <code>{kid}</code> — {a['name']} (~{_fmt(a['base_price'])} $)")
+                lines.append(f"  <code>{kid}</code> — {a['name']} (~{_fmt(a['base_price'])} {CURRENCY})")
         lines.append("")
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
@@ -804,7 +808,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for row in res.fetchall():
             profit = (row.sell_price - row.buy_price) * row.quantity
             sign = "+" if profit >= 0 else ""
-            events.append((row.sold_at, "💰", f"Vente /market : {row.asset_id} x{row.quantity} → {sign}{_fmt(profit)} $"))
+            events.append((row.sold_at, "💰", f"Vente /market : {row.asset_id} x{row.quantity} → {sign}{_fmt(profit)} {CURRENCY}"))
 
         res = await session.execute(text(f"""
             SELECT lt.created_at, ls.ticket_price, ls.group_id
@@ -814,7 +818,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ORDER BY lt.created_at DESC
         """), {"uid": uid})
         for row in res.fetchall():
-            events.append((row.created_at, "🎟️", f"Ticket loto acheté ({_fmt(row.ticket_price)} $) — groupe {row.group_id}"))
+            events.append((row.created_at, "🎟️", f"Ticket loto acheté ({_fmt(row.ticket_price)} {CURRENCY}) — groupe {row.group_id}"))
 
         res = await session.execute(text(f"""
             SELECT amount, description, created_at
@@ -823,7 +827,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ORDER BY created_at DESC
         """), {"uid": uid})
         for row in res.fetchall():
-            events.append((row.created_at, "🎲", f"Pari créé : {_fmt(row.amount)} $ — \"{row.description[:40]}\""))
+            events.append((row.created_at, "🎲", f"Pari créé : {_fmt(row.amount)} {CURRENCY} — \"{row.description[:40]}\""))
 
         res = await session.execute(text(f"""
             SELECT amount, description, created_at
@@ -832,7 +836,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ORDER BY created_at DESC
         """), {"uid": uid})
         for row in res.fetchall():
-            events.append((row.created_at, "🤝", f"Pari accepté : {_fmt(row.amount)} $ — \"{row.description[:40]}\""))
+            events.append((row.created_at, "🤝", f"Pari accepté : {_fmt(row.amount)} {CURRENCY} — \"{row.description[:40]}\""))
 
         res = await session.execute(text(f"""
             SELECT bank_id, balance, opened_at
@@ -850,7 +854,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ORDER BY created_at DESC
         """), {"uid": uid})
         for row in res.fetchall():
-            events.append((row.created_at, "💳", f"Prêt contracté : {_fmt(row.amount)} $ à {row.interest_rate*100:.1f}% — {row.bank_id}"))
+            events.append((row.created_at, "💳", f"Prêt contracté : {_fmt(row.amount)} {CURRENCY} à {row.interest_rate*100:.1f}% — {row.bank_id}"))
 
         try:
             res = await session.execute(text(f"""
@@ -861,7 +865,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ORDER BY ab.placed_at DESC
             """), {"uid": uid})
             for row in res.fetchall():
-                events.append((row.placed_at, "🔨", f"Enchère : {_fmt(row.amount)} $ sur \"{row.item_name}\""))
+                events.append((row.placed_at, "🔨", f"Enchère : {_fmt(row.amount)} {CURRENCY} sur \"{row.item_name}\""))
         except Exception:
             pass
 
@@ -873,7 +877,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ORDER BY acquired_at DESC
             """), {"uid": uid})
             for row in res.fetchall():
-                events.append((row.acquired_at, "🏆", f"Objet gagné : {row.item_name} ({row.rarity}) — payé {_fmt(row.paid_price)} $"))
+                events.append((row.acquired_at, "🏆", f"Objet gagné : {row.item_name} ({row.rarity}) — payé {_fmt(row.paid_price)} {CURRENCY}"))
         except Exception:
             pass
 
@@ -886,7 +890,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """), {"uid": uid})
             for row in res.fetchall():
                 status = "✅ réussi" if row.success else "❌ échoué"
-                events.append((row.created_at, "🥷", f"Cambriolage {status} : {_fmt(row.amount)} $ sur user {row.target_id}"))
+                events.append((row.created_at, "🥷", f"Cambriolage {status} : {_fmt(row.amount)} {CURRENCY} sur user {row.target_id}"))
         except Exception:
             pass
 
@@ -898,7 +902,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ORDER BY imprisoned_at DESC
             """), {"uid": uid})
             for row in res.fetchall():
-                events.append((row.imprisoned_at, "🔒", f"Emprisonné : {row.reason} (caution {_fmt(row.bail_amount)} $)"))
+                events.append((row.imprisoned_at, "🔒", f"Emprisonné : {row.reason} (caution {_fmt(row.bail_amount)} {CURRENCY})"))
         except Exception:
             pass
 
@@ -913,7 +917,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = u.first_name or u.username or str(uid)
     header = (
         f"🔍 <b>Activité de {name}</b> — {hours}h\n"
-        f"👤 ID : <code>{uid}</code> | 💰 Solde actuel : {_fmt(u.coins)} $\n"
+        f"👤 ID : <code>{uid}</code> | 💰 Solde actuel : {_fmt(u.coins)} {CURRENCY}\n"
         f"─────────────────────────\n"
     )
 

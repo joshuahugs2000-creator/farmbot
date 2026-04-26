@@ -12,6 +12,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from handlers.journal import log_event
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import select, text

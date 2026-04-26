@@ -629,16 +629,73 @@ WHEEL_SEGMENTS = [
 ]
 
 
+# ─── SYSTÈME DE MOOD ─────────────────────────────────────────────────────────
+# Le mood change à chaque heure. La seed est basée sur la date+heure
+# + un salt aléatoire fixé au démarrage du process → imprévisible mais stable
+# sur toute la durée d'une heure.
+
+import os as _os
+_MOOD_SALT = int.from_bytes(_os.urandom(4), "big")
+
+MOODS = {
+    # mood         : (multiplicateur_malchance, multiplicateur_chance, label_affichage)
+    "tres_mechant" : (3.5, 0.2, "😈 La roue est TRÈS MÉCHANTE ce soir..."),
+    "mechant"      : (2.0, 0.5, "😤 La roue est de mauvaise humeur."),
+    "normal"       : (1.0, 1.0, "😐 La roue est neutre."),
+    "facile"       : (0.5, 2.0, "😊 La roue est généreuse !"),
+    "tres_facile"  : (0.2, 3.5, "🤑 La roue est EN FEU ce soir !"),
+}
+
+# Probabilités d'apparition de chaque mood par heure
+MOOD_WEIGHTS = {
+    "tres_mechant" : 20,
+    "mechant"      : 25,
+    "normal"       : 30,
+    "facile"       : 15,
+    "tres_facile"  : 10,
+}
+
+
+def _current_mood() -> tuple[str, tuple]:
+    """Retourne (mood_key, mood_data) pour l'heure courante."""
+    from datetime import datetime
+    now   = datetime.utcnow()
+    seed  = now.year * 1000000 + now.month * 10000 + now.day * 100 + now.hour
+    seed  = (seed ^ _MOOD_SALT) & 0xFFFFFFFF
+    rng   = random.Random(seed)
+    keys  = list(MOOD_WEIGHTS.keys())
+    weights = [MOOD_WEIGHTS[k] for k in keys]
+    mood_key = rng.choices(keys, weights=weights, k=1)[0]
+    return mood_key, MOODS[mood_key]
+
+
 def _spin_wheel() -> tuple:
-    """Retourne (label, type, valeur)."""
-    total = sum(s[3] for s in WHEEL_SEGMENTS)
+    """Retourne (label, type, valeur) en tenant compte du mood actuel."""
+    _, (bad_mult, good_mult, _) = _current_mood()
+
+    # Recalculer les poids selon le mood
+    adjusted = []
+    for label, kind, val, weight in WHEEL_SEGMENTS:
+        if kind == "ruine" or (kind == "mult" and isinstance(val, float) and val < 1.0):
+            # Case de malchance → amplifiée si méchant
+            new_w = max(1, int(weight * bad_mult))
+        elif kind in ("mult", "fixed") and (
+            (kind == "fixed") or (isinstance(val, float) and val >= 1.5)
+        ):
+            # Case de chance → amplifiée si facile
+            new_w = max(1, int(weight * good_mult))
+        else:
+            new_w = weight
+        adjusted.append((label, kind, val, new_w))
+
+    total = sum(s[3] for s in adjusted)
     r     = random.uniform(0, total)
     cum   = 0
-    for label, kind, val, weight in WHEEL_SEGMENTS:
-        cum += weight
+    for label, kind, val, w in adjusted:
+        cum += w
         if r <= cum:
             return label, kind, val
-    last = WHEEL_SEGMENTS[-1]
+    last = adjusted[-1]
     return last[0], last[1], last[2]
 
 
@@ -718,12 +775,15 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         await _add_coins(session, user.id, -mise)
 
+    # Mood actuel
+    mood_key, (_, _, mood_label) = _current_mood()
+
     # Calculer le résultat AVANT l'animation pour éviter tout blocage
     label, kind, val = _spin_wheel()
     result_text, gain = _wheel_result_text(mention(user), mise, label, kind, val)
 
     animation_frames = [
-        "🎡 <b>La roue est lancée...</b>",
+        f"🎡 <b>La roue est lancée...</b>\n<i>{mood_label}</i>",
         "🎡 ⠋ <i>Elle tourne à pleine vitesse !</i>",
         "🎡 ⠙ <i>Ça s'emballe...</i>",
         "🎡 ⠹ <i>La roue ralentit...</i>",

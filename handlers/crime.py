@@ -263,47 +263,43 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group_id = update.effective_chat.id
 
         if success:
-            # ── Vol réussi ──────────────────────────────────────────────────
-            # On enlève l'argent au voleur ET à la victime — le voleur prend le risque
-            # mais l'argent est immédiatement restitué à la victime
-            actual_stolen = min(amount, robber.coins)  # le voleur rend ce qu'il peut
-            # Le voleur perd l'argent, la victime est intacte (net 0)
+            # ── Vol réussi — le voleur s'échappe avec le butin ──────────────
+            # Retirer les coins de la victime
             await session.execute(
                 text("UPDATE users SET coins = GREATEST(CAST(0 AS BIGINT), CAST(coins AS BIGINT) - CAST(:amt AS BIGINT)) WHERE user_id = :uid"),
-                {"amt": actual_stolen, "uid": robber.user_id}
+                {"amt": amount, "uid": victim.user_id}
             )
-            await session.commit()
+            # Donner les coins au voleur
+            await session.execute(
+                text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+                {"amt": amount, "uid": robber.user_id}
+            )
 
-            # Logger le vol (réussi mais pénalisé)
+            # Logger le vol réussi
             await session.execute(
                 text("""INSERT INTO crime_rob_log (robber_id, victim_id, group_id, amount, success)
                         VALUES (:rid, :vid, :gid, :amt, TRUE)"""),
                 {"rid": robber_tg.id, "vid": target_tg.id, "gid": group_id, "amt": amount}
             )
-
-            # Emprisonner le voleur même en cas de succès
-            bail = amount * 2
-            released_at = datetime.utcnow() + timedelta(minutes=_prison_duration(amount))
-
-            await session.execute(
-                text("""INSERT INTO crime_prison (user_id, group_id, amount_stolen, bail_amount, released_at)
-                        VALUES (:uid, :gid, :amt, :bail, :rel)
-                        ON CONFLICT (user_id) DO UPDATE
-                        SET group_id=:gid, amount_stolen=:amt, bail_amount=:bail, released_at=:rel"""),
-                {"uid": robber_tg.id, "gid": group_id, "amt": amount,
-                 "bail": bail, "rel": released_at}
-            )
             await session.commit()
 
-            minutes_prison = int((released_at - datetime.utcnow()).total_seconds() / 60)
+            # Scénario aléatoire de fuite
+            fuites = [
+                "s'est éclipsé dans l'ombre avant que quiconque réagisse",
+                "a disparu dans la foule introuvable",
+                "a pris la fuite à toute vitesse",
+                "a utilisé une sortie secrète",
+                "s'est fondu dans la nature sans laisser de trace",
+            ]
+            import random as _r
+            fuite = _r.choice(fuites)
 
             await update.message.reply_text(
-                f"🚔 <b>{robber_tg.first_name}</b> s'est fait pincer en flagrant délit !\n\n"
-                f"Il tentait de voler <b>{_fmt(amount)} 💰</b> à {mention(victim)}.\n"
-                f"💸 <b>{_fmt(actual_stolen)} 💰</b> ont été saisis et restitués à la victime.\n\n"
-                f"🔒 En prison pour <b>{minutes_prison} minutes</b>.\n"
-                f"💸 Caution : <b>{_fmt(bail)} 💰</b> (payable par quelqu'un d'autre)\n\n"
-                f"⛔ Toutes les commandes du bot sont bloquées jusqu'à libération.",
+                f"🦹 <b>VOL RÉUSSI !</b>\n\n"
+                f"💰 <b>{robber_tg.first_name}</b> a volé <b>{_fmt(amount)} $</b> à {mention(victim)} !\n\n"
+                f"🏃 Il {fuite}.\n\n"
+                f"😤 {mention(victim)} : <i>-{_fmt(amount)} $</i>\n"
+                f"😈 {robber_tg.first_name} : <i>+{_fmt(amount)} $</i>",
                 parse_mode=ParseMode.HTML
             )
         else:

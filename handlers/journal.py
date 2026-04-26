@@ -64,12 +64,12 @@ OUTROS = [
     "📺 <i>Restez connectés pour la suite des événements.</i>",
     "🎙️ <i>Notre équipe reste mobilisée. Bonne soirée.</i>",
     "📡 <i>Retrouvez-nous demain pour un nouveau bulletin.</i>",
-    "🔴 <i>La rédaction vous souhaite une bonne soirée.</i>",
+    "🔴 <i>La rédaction Family Bot News ❤️ vous souhaite une bonne soirée.</i>",
     "🎬 <i>C'est tout pour aujourd'hui. À demain !</i>",
 ]
 
 EVENT_TEMPLATES = {
-    "marriage":     ("💍", "{a} et {b} se sont <b>mariés</b> aujourd'hui ! La rédaction leur souhaite beaucoup de bonheur."),
+    "marriage":     ("💍", "{a} et {b} se sont <b>mariés</b> aujourd'hui ! La rédaction Family Bot News ❤️ leur souhaite beaucoup de bonheur."),
     "divorce":      ("💔", "<b>{a}</b> et <b>{b}</b> ont divorcé. Une page se tourne..."),
     "adoption":     ("👶", "<b>{a}</b> a officiellement adopté <b>{b}</b>. Bienvenue dans la famille !"),
     "disown":       ("🚪", "<b>{a}</b> a désavoué <b>{b}</b>. La famille, c'est compliqué."),
@@ -180,6 +180,7 @@ def _build_journal(events: list[dict], stats: dict, today: date) -> str:
     )
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append(outro)
+    lines.append("<i>📡 Family Bot News ❤️ — Votre source exclusive</i>")
 
     return "\n".join(lines)
 

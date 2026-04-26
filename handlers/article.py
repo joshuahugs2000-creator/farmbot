@@ -11,7 +11,8 @@ from database.models import (
     User, BankAccount, Loan, Investment, Relationship,
     RelationType, CoupleAccount
 )
-from utils.helpers import ensure_user, parse_target, mention, is_admin
+from utils.helpers import ensure_user, parse_target, mention
+from handlers.admin import is_admin
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "llama3-8b-8192"

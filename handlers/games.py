@@ -54,12 +54,12 @@ def _lobby_text(chat_id: int, seconds_left: int) -> str:
     lines = []
     total = 0
     for d in players.values():
-        lines.append(f"  • {d['first_name']} — <b>{_fmt(d['mise'])} $</b>")
+        lines.append(f"  • {d['first_name']} — <b>{_fmt(d['mise'])} {CURRENCY}</b>")
         total += d["mise"]
     body = "\n".join(lines) if lines else "  En attente de joueurs..."
     return (
         f"🚀 <b>CRASH — Phase de mise</b>\n\n"
-        f"👥 <b>{len(players)} joueur(s)</b>  |  Pot : <b>{_fmt(total)} $</b>\n\n"
+        f"👥 <b>{len(players)} joueur(s)</b>  |  Pot : <b>{_fmt(total)} {CURRENCY}</b>\n\n"
         f"{body}\n\n"
         f"⏳ Démarrage dans <b>{seconds_left}s</b>\n"
         f"Rejoins : <code>/crash &lt;mise&gt;</code>"
@@ -74,10 +74,10 @@ def _running_text(chat_id: int, multiplier: float) -> str:
             gain   = int(d["mise"] * d["cashout_mult"])
             profit = gain - d["mise"]
             sign   = f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit)
-            lines.append(f"✅ {d['first_name']} — x{d['cashout_mult']:.2f}  →  <b>{sign} $</b>")
+            lines.append(f"✅ {d['first_name']} — x{d['cashout_mult']:.2f}  →  <b>{sign} {CURRENCY}</b>")
         else:
             potential = int(d["mise"] * multiplier)
-            lines.append(f"⏳ {d['first_name']} — {_fmt(d['mise'])} $  →  <i>{_fmt(potential)} $</i>")
+            lines.append(f"⏳ {d['first_name']} — {_fmt(d['mise'])} {CURRENCY}  →  <i>{_fmt(potential)} {CURRENCY}</i>")
     body = "\n".join(lines) if lines else "—"
     return (
         f"🚀 <b>CRASH EN COURS</b>\n\n"
@@ -100,9 +100,9 @@ def _result_text(chat_id: int, crash_point: float) -> str:
         if d["cashed_out"]:
             gain   = int(d["mise"] * d["cashout_mult"])
             profit = gain - d["mise"]
-            winners.append(f"✅ {d['first_name']} — x{d['cashout_mult']:.2f}  →  <b>+{_fmt(profit)} $</b>")
+            winners.append(f"✅ {d['first_name']} — x{d['cashout_mult']:.2f}  →  <b>+{_fmt(profit)} {CURRENCY}</b>")
         else:
-            losers.append(f"💀 {d['first_name']}  →  <b>-{_fmt(d['mise'])} $</b>")
+            losers.append(f"💀 {d['first_name']}  →  <b>-{_fmt(d['mise'])} {CURRENCY}</b>")
     body = "\n".join(winners + losers) or "—"
     return (
         f"💥 <b>CRASH à x{crash_point:.2f} !</b>\n\n"
@@ -155,7 +155,7 @@ async def crash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         balance = await _get_balance(session, user.id)
         if balance < mise:
             return await update.message.reply_text(
-                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} $</b>",
+                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} {CURRENCY}</b>",
                 parse_mode=ParseMode.HTML
             )
         await _add_coins(session, user.id, -mise)
@@ -187,7 +187,7 @@ async def crash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
         await update.message.reply_text(
-            f"✅ {mention(user)} rejoint le crash avec <b>{_fmt(mise)} $</b> !",
+            f"✅ {mention(user)} rejoint le crash avec <b>{_fmt(mise)} {CURRENCY}</b> !",
             parse_mode=ParseMode.HTML
         )
 
@@ -306,7 +306,7 @@ async def crash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     sign = f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit)
     await query.answer(
-        f"💰 Cash Out à x{mult:.2f} ! Gain : {_fmt(gain)} $ ({sign} $)",
+        f"💰 Cash Out à x{mult:.2f} ! Gain : {_fmt(gain)} {CURRENCY} ({sign} {CURRENCY})",
         show_alert=True
     )
 
@@ -381,7 +381,7 @@ def _apple_keyboard(session: dict) -> InlineKeyboardMarkup:
         mult = APPLE_MULTS.get(session["level"] - 1, 1.0)
         gain = int(session["mise"] * mult)
         rows.append([InlineKeyboardButton(
-            f"💰 Encaisser x{mult:.2f} → {_fmt(gain)} $",
+            f"💰 Encaisser x{mult:.2f} → {_fmt(gain)} {CURRENCY}",
             callback_data="apple:cashout"
         )])
 
@@ -406,7 +406,7 @@ def _apple_status(session: dict) -> str:
         f"🍏 <b>APPLE OF FORTUNE</b>",
         f"━━━━━━━━━━━━━━━━━━━━",
         f"📊 Niveau  <b>{level} / {APPLE_LEVELS}</b>",
-        f"💵 Mise    <b>{_fmt(session['mise'])} $</b>",
+        f"💵 Mise    <b>{_fmt(session['mise'])} {CURRENCY}</b>",
         f"",
         f"Risque ligne  {bar}",
         f"🍎 Pommes rouges (pièges) : <b>{n_bombs}</b>",
@@ -415,7 +415,7 @@ def _apple_status(session: dict) -> str:
         f"🎯 Multiplicateur si tu passes : <b>x{mult_next}</b>",
     ]
     if level > 1:
-        lines.append(f"💰 Encaisser maintenant : <b>{_fmt(cashout_gain)} $</b>")
+        lines.append(f"💰 Encaisser maintenant : <b>{_fmt(cashout_gain)} {CURRENCY}</b>")
     lines.append(f"\n👇 <b>Choisis une pomme !</b>")
     return "\n".join(lines)
 
@@ -437,7 +437,7 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🍏 Pomme verte = tu passes au niveau suivant\n"
             "🍎 Pomme rouge = BOOM, tu perds tout !\n"
             "Les pièges augmentent à chaque palier.\n\n"
-            f"<b>Mise minimum :</b> {_fmt(APPLE_MIN)} $\n\n"
+            f"<b>Mise minimum :</b> {_fmt(APPLE_MIN)} {CURRENCY}\n\n"
             f"<b>Table des gains :</b>\n{table}\n\n"
             "Usage : <code>/apple &lt;mise&gt;</code>\n"
             "Ex : <code>/apple 100000</code>",
@@ -451,7 +451,7 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if mise < APPLE_MIN:
         return await update.message.reply_text(
-            f"❌ Mise minimum : <b>{_fmt(APPLE_MIN)} $</b>", parse_mode=ParseMode.HTML
+            f"❌ Mise minimum : <b>{_fmt(APPLE_MIN)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
         )
 
     if user.id in apple_sessions:
@@ -461,7 +461,7 @@ async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         balance = await _get_balance(session, user.id)
         if balance < mise:
             return await update.message.reply_text(
-                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} $</b>", parse_mode=ParseMode.HTML
+                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
             )
         await _add_coins(session, user.id, -mise)
 
@@ -514,7 +514,7 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"Niveau atteint : <b>{sess['level'] - 1} / {APPLE_LEVELS}</b>\n"
             f"Multiplicateur : <b>x{mult:.2f}</b>\n"
-            f"Gain : <b>{_fmt(gain)} $</b>  (<b>+{_fmt(profit)} $</b>)\n\n"
+            f"Gain : <b>{_fmt(gain)} {CURRENCY}</b>  (<b>+{_fmt(profit)} {CURRENCY}</b>)\n\n"
             "Bien joué, tu as su t'arrêter ! 🍏",
             parse_mode=ParseMode.HTML
         )
@@ -552,7 +552,7 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"🍎 <b>POMME EMPOISONNÉE !</b>\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
                     f"Niveau {sess['level']} — Case {idx + 1} était un piège !\n\n"
-                    f"💸 Tu as perdu <b>{_fmt(sess['mise'])} $</b>\n\n"
+                    f"💸 Tu as perdu <b>{_fmt(sess['mise'])} {CURRENCY}</b>\n\n"
                     "Retente ta chance avec /apple 🍏",
                     parse_mode=ParseMode.HTML,
                     reply_markup=keyboard
@@ -572,7 +572,7 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"🏆 <b>VICTOIRE ABSOLUE !</b>\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
                     f"Tu as gravi les <b>{APPLE_LEVELS} niveaux</b> !\n"
-                    f"x{mult:.2f}  →  <b>{_fmt(gain_now)} $</b> 🎉🍏",
+                    f"x{mult:.2f}  →  <b>{_fmt(gain_now)} {CURRENCY}</b> 🎉🍏",
                     parse_mode=ParseMode.HTML
                 )
                 return
@@ -635,6 +635,7 @@ WHEEL_SEGMENTS = [
 # sur toute la durée d'une heure.
 
 import os as _os
+from config import CURRENCY
 _MOOD_SALT = int.from_bytes(_os.urandom(4), "big")
 
 MOODS = {
@@ -656,8 +657,13 @@ MOOD_WEIGHTS = {
 }
 
 
+_MOOD_OVERRIDE: str | None = None  # None = aléatoire, sinon clé forcée par admin
+
+
 def _current_mood() -> tuple[str, tuple]:
     """Retourne (mood_key, mood_data) pour l'heure courante."""
+    if _MOOD_OVERRIDE and _MOOD_OVERRIDE in MOODS:
+        return _MOOD_OVERRIDE, MOODS[_MOOD_OVERRIDE]
     from datetime import datetime
     now   = datetime.utcnow()
     seed  = now.year * 1000000 + now.month * 10000 + now.day * 100 + now.hour
@@ -667,6 +673,41 @@ def _current_mood() -> tuple[str, tuple]:
     weights = [MOOD_WEIGHTS[k] for k in keys]
     mood_key = rng.choices(keys, weights=weights, k=1)[0]
     return mood_key, MOODS[mood_key]
+
+
+async def setmood_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/setmood <mood|auto> — Force le mood de la roue (admin seulement)."""
+    import handlers.games as _self
+    from handlers.admin import is_admin
+    if not await is_admin(update.effective_user.id):
+        return await update.message.reply_text("❌ Réservé aux admins.")
+
+    moods_list = ", ".join(MOODS.keys())
+    if not context.args:
+        mood_key, (_, _, label) = _current_mood()
+        override_info = f"🔒 Forcé : <b>{_self._MOOD_OVERRIDE}</b>" if _self._MOOD_OVERRIDE else "🎲 Aléatoire"
+        return await update.message.reply_text(
+            f"🎡 <b>Mood actuel :</b> {label}\n{override_info}\n\n"
+            f"Usage : <code>/setmood &lt;mood&gt;</code> ou <code>/setmood auto</code>\n"
+            f"Moods disponibles : <code>{moods_list}</code>",
+            parse_mode="HTML"
+        )
+
+    arg = context.args[0].lower()
+    if arg == "auto":
+        _self._MOOD_OVERRIDE = None
+        return await update.message.reply_text("✅ Mood remis en <b>aléatoire</b>.", parse_mode="HTML")
+
+    if arg not in MOODS:
+        return await update.message.reply_text(
+            f"❌ Mood inconnu. Choisis parmi : <code>{moods_list}</code>", parse_mode="HTML"
+        )
+
+    _self._MOOD_OVERRIDE = arg
+    _, (_, _, label) = _current_mood()
+    await update.message.reply_text(
+        f"✅ Mood forcé à <b>{arg}</b> : {label}", parse_mode="HTML"
+    )
 
 
 def _spin_wheel() -> tuple:
@@ -732,9 +773,9 @@ def _wheel_result_text(user_mention: str, mise: int, label: str, kind: str, val)
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🎡 Vous êtes tombé sur : <b>{label}</b>\n\n"
         f"👤 {user_mention}\n\n"
-        f"💵 Mise de départ : <b>{mise_str} $</b>\n"
-        f"🏆 Vos revenus sont : <b>{gain_str} $</b>\n"
-        f"{profit_icon} Bilan net : <b>{profit_str} $</b>"
+        f"💵 Mise de départ : <b>{mise_str} {CURRENCY}</b>\n"
+        f"🏆 Vos revenus sont : <b>{gain_str} {CURRENCY}</b>\n"
+        f"{profit_icon} Bilan net : <b>{profit_str} {CURRENCY}</b>"
     )
     return text, gain
 
@@ -771,7 +812,7 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         balance = await _get_balance(session, user.id)
         if balance < mise:
             return await update.message.reply_text(
-                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} $</b>", parse_mode=ParseMode.HTML
+                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
             )
         await _add_coins(session, user.id, -mise)
 
@@ -830,8 +871,8 @@ MIN_REBET = 5000
 def _rebet_keyboard(chat_id: int, user_id: int, gains: int) -> InlineKeyboardMarkup:
     next_win = gains * 2
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"💰 Récupérer {_fmt(gains)} $", callback_data=f"rebet:cash:{chat_id}:{user_id}"),
-        InlineKeyboardButton(f"🎲 Remiser → {_fmt(next_win)} $", callback_data=f"rebet:double:{chat_id}:{user_id}"),
+        InlineKeyboardButton(f"💰 Récupérer {_fmt(gains)} {CURRENCY}", callback_data=f"rebet:cash:{chat_id}:{user_id}"),
+        InlineKeyboardButton(f"🎲 Remiser → {_fmt(next_win)} {CURRENCY}", callback_data=f"rebet:double:{chat_id}:{user_id}"),
     ]])
 
 
@@ -840,10 +881,10 @@ def _rebet_text(first_name: str, mise_initiale: int, gains: int, round_num: int)
     next_win = gains * 2
     return (
         f"🎲 <b>REBET — {first_name}</b>\n\n"
-        f"🪙 Mise de départ : <b>{_fmt(mise_initiale)} $</b>\n"
+        f"🪙 Mise de départ : <b>{_fmt(mise_initiale)} {CURRENCY}</b>\n"
         f"📈 Multiplicateur : <b>x{multiplier:.1f}</b>\n"
-        f"💵 Gains actuels : <b>{_fmt(gains)} $</b>\n"
-        f"⚡ Prochain gain : <b>{_fmt(next_win)} $</b>\n"
+        f"💵 Gains actuels : <b>{_fmt(gains)} {CURRENCY}</b>\n"
+        f"⚡ Prochain gain : <b>{_fmt(next_win)} {CURRENCY}</b>\n"
         f"🔄 Tour n°{round_num}\n\n"
         f"Que veux-tu faire ?"
     )
@@ -856,7 +897,7 @@ async def rebet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         return await update.message.reply_text(
             f"Usage : <code>/rebet &lt;mise&gt;</code>\n"
-            f"Mise minimum : <b>{_fmt(MIN_REBET)} $</b>\n\n"
+            f"Mise minimum : <b>{_fmt(MIN_REBET)} {CURRENCY}</b>\n\n"
             "🎲 Quitte ou double — récupère ou remise !",
             parse_mode=ParseMode.HTML
         )
@@ -868,7 +909,7 @@ async def rebet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if mise < MIN_REBET:
         return await update.message.reply_text(
-            f"❌ Mise minimum : <b>{_fmt(MIN_REBET)} $</b>", parse_mode=ParseMode.HTML
+            f"❌ Mise minimum : <b>{_fmt(MIN_REBET)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
         )
 
     chat_id = update.effective_chat.id
@@ -880,7 +921,7 @@ async def rebet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with AsyncSessionLocal() as session:
             bal = await _get_balance(session, user.id)
         return await update.message.reply_text(
-            f"❌ Solde insuffisant. Tu as <b>{_fmt(bal)} $</b>", parse_mode=ParseMode.HTML
+            f"❌ Solde insuffisant. Tu as <b>{_fmt(bal)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
         )
 
     # Initialiser la session
@@ -936,9 +977,9 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sign   = f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit)
         await query.edit_message_text(
             f"💰 <b>Gains récupérés !</b>\n\n"
-            f"🪙 Mise de départ : <b>{_fmt(mise)} $</b>\n"
-            f"✅ Gains encaissés : <b>{_fmt(gains)} $</b>\n"
-            f"📊 Profit net : <b>{sign} $</b>\n"
+            f"🪙 Mise de départ : <b>{_fmt(mise)} {CURRENCY}</b>\n"
+            f"✅ Gains encaissés : <b>{_fmt(gains)} {CURRENCY}</b>\n"
+            f"📊 Profit net : <b>{sign} {CURRENCY}</b>\n"
             f"🔄 Tours joués : <b>{rnd}</b>",
             parse_mode=ParseMode.HTML,
         )
@@ -968,7 +1009,7 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await query.edit_message_text(
                 f"💥 <b>PERDU !</b>\n\n"
-                f"🪙 Mise de départ : <b>{_fmt(mise)} $</b>\n"
+                f"🪙 Mise de départ : <b>{_fmt(mise)} {CURRENCY}</b>\n"
                 f"❌ Tu perds tout !\n"
                 f"🔄 Tours joués : <b>{rnd}</b>\n\n"
                 f"<i>Trop gourmand... 😅</i>",

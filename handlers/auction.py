@@ -27,6 +27,7 @@ from sqlalchemy import text
 
 from database.db import AsyncSessionLocal, get_user, add_coins
 from utils.helpers import ensure_user
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,7 @@ async def _launch_auction(context: ContextTypes.DEFAULT_TYPE, group_id: int):
         f"🔨 <b>ENCHÈRE EN COURS !</b>\n\n"
         f"{item_emoji} <b>{item_name}</b>\n"
         f"{rarity_icon} Rareté : <b>{rarity.capitalize()}</b>\n\n"
-        f"💰 Mise de départ : <b>{_fmt(start_price)} coins</b>\n"
+        f"💰 Mise de départ : <b>{_fmt(start_price)} {CURRENCY}</b>\n"
         f"❓ Valeur réelle : <b>???</b> (révélée après acquisition)\n\n"
         f"⏳ Enchère ouverte <b>10 minutes</b> !\n"
         f"👇 Enchérir avec <b>/bid [montant]</b>"
@@ -277,7 +278,7 @@ async def _close_auction(context: ContextTypes.DEFAULT_TYPE):
             f"🏆 <b>Enchère terminée !</b>\n\n"
             f"{auction.item_emoji} <b>{auction.item_name}</b>\n"
             f"🥇 Gagnant : <b>{auction.leader_name}</b>\n"
-            f"💰 Prix payé : <b>{_fmt(auction.current_bid)} coins</b>\n\n"
+            f"💰 Prix payé : <b>{_fmt(auction.current_bid)} {CURRENCY}</b>\n\n"
             f"👉 Utilise <b>/expertise</b> pour révéler la vraie valeur !"
         )
     else:
@@ -359,7 +360,7 @@ async def bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         min_bid = max(auction.current_bid + 1, int(auction.current_bid * 1.05))
         if amount < min_bid:
             await update.message.reply_text(
-                f"❌ L'enchère minimale est de <b>{_fmt(min_bid)} coins</b> "
+                f"❌ L'enchère minimale est de <b>{_fmt(min_bid)} {CURRENCY}</b> "
                 f"(+5% sur la mise actuelle).",
                 parse_mode=ParseMode.HTML
             )
@@ -368,7 +369,7 @@ async def bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Vérifier le solde
         db_user = await get_user(session, user.id)
         if not db_user or db_user.coins < amount:
-            await update.message.reply_text("❌ Pas assez de coins !")
+            await update.message.reply_text("❌ Pas assez de $ !")
             return
 
         # Rembourser l'ancien leader
@@ -397,7 +398,7 @@ async def bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ <b>Enchère placée !</b>\n\n"
         f"{auction.item_emoji} <b>{auction.item_name}</b>\n"
-        f"💰 Ton offre : <b>{_fmt(amount)} coins</b>\n"
+        f"💰 Ton offre : <b>{_fmt(amount)} {CURRENCY}</b>\n"
         f"⏳ Temps restant : ~{time_left} minute(s)\n\n"
         f"{'🔔 Lancien leader a été remboursé.' if old_leader and old_leader != user.id else ''}",
         parse_mode=ParseMode.HTML
@@ -432,7 +433,7 @@ async def auction_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{auction.item_emoji} <b>{auction.item_name}</b>\n"
             f"{rarity_icon} Rareté : <b>{auction.rarity.capitalize()}</b>\n"
             f"📊 Statut : {status}\n"
-            f"💰 Mise actuelle : <b>{_fmt(auction.current_bid)} coins</b>\n"
+            f"💰 Mise actuelle : <b>{_fmt(auction.current_bid)} {CURRENCY}</b>\n"
             f"👑 Leader : <b>{auction.leader_name or 'Personne'}</b>\n"
             f"⏳ Temps restant : ~{time_left} min"
         )
@@ -441,7 +442,7 @@ async def auction_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "bid":
         await query.answer(
             f"Utilise /bid [montant] pour enchérir !\n"
-            f"Mise actuelle : {_fmt(auction.current_bid)} coins",
+            f"Mise actuelle : {_fmt(auction.current_bid)} {CURRENCY}",
             show_alert=True
         )
 
@@ -490,7 +491,7 @@ async def expertise(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔍 <b>EXPERTISE</b>\n\n"
         f"{item.item_emoji} <b>{item.item_name}</b>\n"
         f"{rarity_icon} Rareté : <b>{item.rarity.capitalize()}</b>\n\n"
-        f"💎 Valeur réelle : <b>{_fmt(item.true_value)} coins</b>\n\n"
+        f"💎 Valeur réelle : <b>{_fmt(item.true_value)} {CURRENCY}</b>\n\n"
         f"{verdict}\n\n"
         f"Tu peux maintenant le vendre avec <code>/sellitem {item.id} [prix]</code>",
         parse_mode=ParseMode.HTML
@@ -526,7 +527,7 @@ async def expertise_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await session.commit()
 
     await query.edit_message_text(
-        f"💰 Vendu ! Tu as reçu <b>{_fmt(item.true_value)} coins</b>.",
+        f"💰 Vendu ! Tu as reçu <b>{_fmt(item.true_value)} {CURRENCY}</b>.",
         parse_mode=ParseMode.HTML
     )
 
@@ -602,7 +603,7 @@ async def sellitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"✅ {item.item_emoji} <b>{item.item_name}</b> mis en vente pour "
-        f"<b>{_fmt(price)} coins</b> !\n"
+        f"<b>{_fmt(price)} {CURRENCY}</b> !\n"
         f"Les autres joueurs peuvent l'acheter avec <code>/buyitem {item_id}</code>",
         parse_mode=ParseMode.HTML
     )
@@ -674,7 +675,7 @@ async def buyitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buyer = await get_user(session, user.id)
         if not buyer or buyer.coins < item.sale_price:
             await update.message.reply_text(
-                f"❌ Tu n'as pas assez de coins ! Il te faut <b>{_fmt(item.sale_price)}</b>.",
+                f"❌ Tu n'as pas assez de {CURRENCY} ! Il te faut <b>{_fmt(item.sale_price)}</b>.",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -695,7 +696,7 @@ async def buyitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"✅ Tu as acheté {item.item_emoji} <b>{item.item_name}</b> pour "
-        f"<b>{_fmt(item.sale_price)} coins</b> !",
+        f"<b>{_fmt(item.sale_price)} {CURRENCY}</b> !",
         parse_mode=ParseMode.HTML
     )
 
@@ -703,7 +704,7 @@ async def buyitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=item.user_id,
             text=f"💰 Ton objet {item.item_emoji} <b>{item.item_name}</b> a été vendu pour "
-                 f"<b>{_fmt(item.sale_price)} coins</b> !",
+                 f"<b>{_fmt(item.sale_price)} {CURRENCY}</b> !",
             parse_mode=ParseMode.HTML
         )
     except Exception:

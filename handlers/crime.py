@@ -22,6 +22,7 @@ from database.db import (
 )
 from database.models import User
 from utils.helpers import ensure_user, parse_target, mention
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -296,10 +297,10 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await update.message.reply_text(
                 f"🦹 <b>VOL RÉUSSI !</b>\n\n"
-                f"💰 <b>{robber_tg.first_name}</b> a volé <b>{_fmt(amount)} $</b> à {mention(victim)} !\n\n"
+                f"💰 <b>{robber_tg.first_name}</b> a volé <b>{_fmt(amount)} {CURRENCY}</b> à {mention(victim)} !\n\n"
                 f"🏃 Il {fuite}.\n\n"
-                f"😤 {mention(victim)} : <i>-{_fmt(amount)} $</i>\n"
-                f"😈 {robber_tg.first_name} : <i>+{_fmt(amount)} $</i>",
+                f"😤 {mention(victim)} : <i>-{_fmt(amount)} {CURRENCY}</i>\n"
+                f"😈 {robber_tg.first_name} : <i>+{_fmt(amount)} {CURRENCY}</i>",
                 parse_mode=ParseMode.HTML
             )
         else:

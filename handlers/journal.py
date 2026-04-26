@@ -11,6 +11,7 @@ from telegram.constants import ParseMode
 from database.db import AsyncSessionLocal
 from database.models import GroupSettings, User
 from sqlalchemy import select
+from config import CURRENCY
 
 # ─── ENREGISTREMENT D'ÉVÉNEMENTS ─────────────────────────────────────────────
 
@@ -73,18 +74,18 @@ EVENT_TEMPLATES = {
     "divorce":      ("💔", "<b>{a}</b> et <b>{b}</b> ont divorcé. Une page se tourne..."),
     "adoption":     ("👶", "<b>{a}</b> a officiellement adopté <b>{b}</b>. Bienvenue dans la famille !"),
     "disown":       ("🚪", "<b>{a}</b> a désavoué <b>{b}</b>. La famille, c'est compliqué."),
-    "drame_scandale": ("💋", "SCANDALE — <b>{victim}</b> a perdu <b>{amount}</b> coins suite à une affaire explosive !"),
-    "drame_fisc":   ("🏛️", "FISC — <b>{victim}</b> a été taxé de <b>{amount}</b> coins. L'État reprend ses droits."),
+    "drame_scandale": ("💋", "SCANDALE — <b>{victim}</b> a perdu <b>{amount}</b> $ suite à une affaire explosive !"),
+    "drame_fisc":   ("🏛️", "FISC — <b>{victim}</b> a été taxé de <b>{amount}</b> $. L'État reprend ses droits."),
     "drame_catastrophe": ("🌊", "CATASTROPHE — Le portefeuille de <b>{victim}</b> a été dévasté. {nb} position(s) anéanties."),
-    "drame_crise":  ("📉", "CRISE — <b>{victim}</b> a tout perdu ou presque : <b>{amount}</b> coins partis en fumée."),
-    "rob_success":  ("🔫", "CRIME — <b>{robber}</b> a volé <b>{amount}</b> coins à <b>{victim}</b> ! La police enquête."),
+    "drame_crise":  ("📉", "CRISE — <b>{victim}</b> a tout perdu ou presque : <b>{amount}</b> $ partis en fumée."),
+    "rob_success":  ("🔫", "CRIME — <b>{robber}</b> a volé <b>{amount}</b> $ à <b>{victim}</b> ! La police enquête."),
     "prison":       ("⛓️", "<b>{user}</b> a été arrêté et envoyé en prison. Durée : {duration} min."),
-    "casino_big_win": ("🎰", "CASINO — <b>{user}</b> a décroché la mise : <b>{amount}</b> coins gagnés !"),
-    "lottery_win":  ("🎟️", "LOTERIE — <b>{winner}</b> remporte le jackpot de <b>{amount}</b> coins !"),
-    "richlist_1":   ("👑", "AU SOMMET — <b>{user}</b> trône en tête du classement avec <b>{amount}</b> coins."),
-    "big_transfer": ("💸", "TRANSFERT — <b>{from_user}</b> a envoyé <b>{amount}</b> coins à <b>{to_user}</b>. Généreux !"),
-    "heist_success":("🏦", "BRAQUAGE — <b>{leader}</b> a mené un braquage réussi ! Butin : <b>{amount}</b> coins."),
-    "auction_win":  ("🔨", "ENCHÈRES — <b>{winner}</b> a remporté <b>{item}</b> pour <b>{amount}</b> coins !"),
+    "casino_big_win": ("🎰", "CASINO — <b>{user}</b> a décroché la mise : <b>{amount}</b> $ gagnés !"),
+    "lottery_win":  ("🎟️", "LOTERIE — <b>{winner}</b> remporte le jackpot de <b>{amount}</b> $ !"),
+    "richlist_1":   ("👑", "AU SOMMET — <b>{user}</b> trône en tête du classement avec <b>{amount}</b> $."),
+    "big_transfer": ("💸", "TRANSFERT — <b>{from_user}</b> a envoyé <b>{amount}</b> $ à <b>{to_user}</b>. Généreux !"),
+    "heist_success":("🏦", "BRAQUAGE — <b>{leader}</b> a mené un braquage réussi ! Butin : <b>{amount}</b> $."),
+    "auction_win":  ("🔨", "ENCHÈRES — <b>{winner}</b> a remporté <b>{item}</b> pour <b>{amount}</b> $ !"),
 }
 
 
@@ -174,7 +175,7 @@ def _build_journal(events: list[dict], stats: dict, today: date) -> str:
 
     # Stats du jour
     lines.append(
-        f"👑 <b>Leader actuel :</b> {stats['top_name']} — {_fmt(stats['top_coins'])} coins\n"
+        f"👑 <b>Leader actuel :</b> {stats['top_name']} — {_fmt(stats['top_coins'])} {CURRENCY}\n"
         f"👥 <b>Joueurs actifs :</b> {stats['nb_players']}\n"
         f"📊 <b>Événements aujourd'hui :</b> {len(events)}"
     )

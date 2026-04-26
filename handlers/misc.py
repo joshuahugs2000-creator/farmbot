@@ -4,6 +4,7 @@ from telegram.constants import ParseMode
 
 from database.db import AsyncSessionLocal, get_settings, get_leaderboard, compute_title, get_user
 from utils.helpers import ensure_user, mention
+from config import CURRENCY
 
 
 HELP_TEXT = """
@@ -38,7 +39,7 @@ HELP_TEXT = """
 /acc — Voir ton compte
 /daily — Bonus quotidien
 /work — Travailler (cooldown 8h)
-/pay @joueur montant — Envoyer des coins
+/pay @joueur montant — Envoyer des $
 /richlist — Top 10 des plus riches
 
 <b>🎲 Casino</b>

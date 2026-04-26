@@ -72,10 +72,8 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "<b>🛡 Panneau Admin — God Mode</b>\n\n"
         "<b>💰 Gestion argent</b>\n"
-        "/give @user montant — Donner des {CURRENCY}
-"
-        "/take @user montant — Retirer des {CURRENCY}
-"
+        "/give @user montant — Donner des $\n"
+        "/take @user montant — Retirer des $\n"
         "/setcoins @user montant — Définir le solde exact\n\n"
         "<b>⛓️ Gestion prison</b>\n"
         "/emprisonner @user durée — Mettre quelqu'un en prison\n"
@@ -93,8 +91,7 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>📢 Communication</b>\n"
         "/broadcast [message] — Message à tous les utilisateurs\n\n"
         "<b>🎭 Drames économiques</b>\n"
-        "/drame scandale @user — Perte % {CURRENCY}
-"
+        "/drame scandale @user — Perte % $\n"
         "/drame catastrophe @user — Détruit portfolio\n"
         "/drame fisc @user — Impôts forcés\n"
         "/drame crise @user — Double peine\n"

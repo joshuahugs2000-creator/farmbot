@@ -2,14 +2,14 @@
 Système de drames économiques — FarmBot
 
 Commandes admin uniquement :
-  /drame scandale @user [seuil]     — Scandale médiatique (perte % coins)
+  /drame scandale @user [seuil]     — Scandale médiatique (perte % $)
   /drame catastrophe @user [seuil]  — Catastrophe naturelle (perte portfolio)
   /drame fisc @user [seuil]         — Contrôle fiscal (impôts forcés massifs)
   /drame crise @user [seuil]        — Crise économique (perte coins + portfolio)
   /drame info @user                 — Voir la fortune actuelle d'un joueur
   /setdramesesuil [montant]         — Définir le seuil global (défaut : 100M)
 
-Le seuil est le minimum de coins pour être ciblé.
+Le seuil est le minimum de $ pour être ciblé.
 Si le joueur est en dessous du seuil, le drame est annulé.
 """
 
@@ -28,6 +28,7 @@ from database.models import GroupSettings, User
 from sqlalchemy import select
 from handlers.admin import is_admin, _deny
 from utils.helpers import parse_target, mention
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ async def setdramesesuil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
         await update.message.reply_text(
-            f"📊 Seuil actuel : <b>{_fmt(DRAME_SEUIL)} coins</b>\n\n"
+            f"📊 Seuil actuel : <b>{_fmt(DRAME_SEUIL)} {CURRENCY}</b>\n\n"
             f"Usage : <code>/setdramesesuil [montant]</code>\n"
             f"Exemple : <code>/setdramesesuil 500000000</code> (500M)",
             parse_mode=ParseMode.HTML
@@ -119,7 +120,7 @@ async def setdramesesuil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     DRAME_SEUIL = new_seuil
     await update.message.reply_text(
-        f"✅ Seuil des drames mis à jour : <b>{_fmt(DRAME_SEUIL)} coins</b>",
+        f"✅ Seuil des drames mis à jour : <b>{_fmt(DRAME_SEUIL)} {CURRENCY}</b>",
         parse_mode=ParseMode.HTML
     )
 
@@ -170,9 +171,9 @@ async def _get_target_info(update, context):
     if fortune_totale < seuil:
         await update.message.reply_text(
             f"⚠️ <b>{db_user.first_name}</b> n'atteint pas le seuil !\n"
-            f"💰 Coins : <b>{_fmt(db_user.coins)}</b> | 🏦 Banques : <b>{_fmt(bank_total)}</b>\n"
-            f"📊 Fortune totale : <b>{_fmt(fortune_totale)} coins</b>\n"
-            f"📊 Seuil requis : <b>{_fmt(seuil)} coins</b>\n\n"
+            f"💰 {CURRENCY} : <b>{_fmt(db_user.coins)}</b> | 🏦 Banques : <b>{_fmt(bank_total)}</b>\n"
+            f"📊 Fortune totale : <b>{_fmt(fortune_totale)} {CURRENCY}</b>\n"
+            f"📊 Seuil requis : <b>{_fmt(seuil)} {CURRENCY}</b>\n\n"
             f"Utilise <code>/setdramesesuil [montant]</code> pour ajuster le seuil.",
             parse_mode=ParseMode.HTML
         )
@@ -183,7 +184,7 @@ async def _get_target_info(update, context):
 async def _deduct_coins(user_id: int, percent: int) -> tuple[int, int]:
     """Retire X% de la fortune totale (coins + banques). Retourne (montant_perdu, nouveau_solde_coins)."""
     async with AsyncSessionLocal() as session:
-        # Récupérer coins
+        # Récupérer $
         res = await session.execute(
             text("SELECT coins FROM users WHERE user_id = :uid"), {"uid": user_id}
         )
@@ -201,7 +202,7 @@ async def _deduct_coins(user_id: int, percent: int) -> tuple[int, int]:
         fortune_totale = coins + bank_total
         perte_totale = int(fortune_totale * percent / 100)
 
-        # D'abord on prend sur les coins
+        # D'abord on prend sur les $
         perte_coins = min(coins, perte_totale)
         nouveau_coins = max(0, coins - perte_coins)
         reste_a_prendre = perte_totale - perte_coins
@@ -298,8 +299,8 @@ async def _drame_scandale(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👤 Victime : <b>{db_user.first_name}</b>\n"
         f"📰 {desc}\n\n"
         f"📉 Perte : <b>{percent}%</b> de sa fortune\n"
-        f"💸 Montant perdu : <b>{_fmt(perte)} coins</b>\n"
-        f"💰 Solde restant : <b>{_fmt(nouveau)} coins</b>\n\n"
+        f"💸 Montant perdu : <b>{_fmt(perte)} {CURRENCY}</b>\n"
+        f"💰 Solde restant : <b>{_fmt(nouveau)} {CURRENCY}</b>\n\n"
         f"😱 <i>La réputation coûte cher...</i>"
     )
     await update.message.reply_text(msg_scandale, parse_mode=ParseMode.HTML)
@@ -325,9 +326,9 @@ async def _drame_catastrophe(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"{emoji} <b>CATASTROPHE NATURELLE !</b>\n\n"
             f"👤 Victime : <b>{db_user.first_name}</b>\n"
             f"🌍 {desc}\n\n"
-            f"📊 Pas de portfolio — pertes directes sur les coins\n"
-            f"💸 Montant perdu : <b>{_fmt(perte)} coins</b>\n"
-            f"💰 Solde restant : <b>{_fmt(nouveau)} coins</b>\n\n"
+            f"📊 Pas de portfolio — pertes directes sur les {CURRENCY}\n"
+            f"💸 Montant perdu : <b>{_fmt(perte)} {CURRENCY}</b>\n"
+            f"💰 Solde restant : <b>{_fmt(nouveau)} {CURRENCY}</b>\n\n"
             f"😰 <i>La nature est impitoyable...</i>"
         )
         await update.message.reply_text(msg_catast, parse_mode=ParseMode.HTML)
@@ -338,7 +339,7 @@ async def _drame_catastrophe(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"👤 Victime : <b>{db_user.first_name}</b>\n"
             f"🌍 {desc}\n\n"
             f"📊 <b>{nb_positions} position(s)</b> détruites dans son portfolio\n"
-            f"💸 Valeur anéantie : <b>~{_fmt(valeur_detruite)} coins</b>\n\n"
+            f"💸 Valeur anéantie : <b>~{_fmt(valeur_detruite)} {CURRENCY}</b>\n\n"
             f"😰 <i>La nature est impitoyable...</i>"
         )
         await update.message.reply_text(msg_catast, parse_mode=ParseMode.HTML)
@@ -360,8 +361,8 @@ async def _drame_fisc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👤 Contribuable : <b>{db_user.first_name}</b>\n"
         f"📋 {desc}\n\n"
         f"🏛️ Taux d'imposition forcé : <b>{percent}%</b>\n"
-        f"💸 Impôts prélevés : <b>{_fmt(perte)} coins</b>\n"
-        f"💰 Solde restant : <b>{_fmt(nouveau)} coins</b>\n\n"
+        f"💸 Impôts prélevés : <b>{_fmt(perte)} {CURRENCY}</b>\n"
+        f"💰 Solde restant : <b>{_fmt(nouveau)} {CURRENCY}</b>\n\n"
         f"⚖️ <i>Nul n'est au-dessus des lois fiscales.</i>"
     )
     await update.message.reply_text(msg_fisc, parse_mode=ParseMode.HTML)
@@ -387,8 +388,8 @@ async def _drame_crise(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👤 Victime : <b>{db_user.first_name}</b>\n"
         f"📉 {desc}\n\n"
         f"<b>Dégâts totaux :</b>\n"
-        f"💸 Coins perdus ({percent_coins}%) : <b>{_fmt(perte_coins)} coins</b>\n"
-        f"💰 Solde restant : <b>{_fmt(nouveau_solde)} coins</b>\n"
+        f"💸 {CURRENCY} perdus ({percent_coins}%) : <b>{_fmt(perte_coins)} {CURRENCY}</b>\n"
+        f"💰 Solde restant : <b>{_fmt(nouveau_solde)} {CURRENCY}</b>\n"
     )
     if nb_positions > 0:
         msg += (
@@ -433,11 +434,11 @@ async def _drame_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"🔍 <b>Fiche financière — {db_user.first_name}</b>\n\n"
-        f"💰 Coins en poche : <b>{_fmt(db_user.coins)}</b>\n"
+        f"💰 {CURRENCY} en poche : <b>{_fmt(db_user.coins)}</b>\n"
         f"🏦 En banque : <b>{_fmt(bank_balance)}</b>\n"
         f"📊 Portfolio ({nb_positions} positions) : <b>~{_fmt(valeur_portfolio)}</b>\n"
         f"━━━━━━━━━━━━━━━━\n"
-        f"🏆 Fortune totale : <b>{_fmt(total)} coins</b>\n\n"
+        f"🏆 Fortune totale : <b>{_fmt(total)} {CURRENCY}</b>\n\n"
         f"📊 Seuil drames : <b>{_fmt(DRAME_SEUIL)}</b>\n"
         f"🎯 Statut : {eligible}",
         parse_mode=ParseMode.HTML
@@ -461,13 +462,13 @@ async def drame(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🎭 <b>Système de Drames</b>\n\n"
             "<b>Types disponibles :</b>\n"
-            "💋 <code>/drame scandale @user</code> — Scandale médiatique (15-70% coins)\n"
+            "💋 <code>/drame scandale @user</code> — Scandale médiatique (15-70% $)\n"
             "🌊 <code>/drame catastrophe @user</code> — Catastrophe naturelle (portfolio)\n"
-            "🏛️ <code>/drame fisc @user</code> — Contrôle fiscal (20-75% coins)\n"
+            "🏛️ <code>/drame fisc @user</code> — Contrôle fiscal (20-75% $)\n"
             "📉 <code>/drame crise @user</code> — Crise économique (coins + portfolio)\n"
             "🔍 <code>/drame info @user</code> — Voir la fortune du joueur\n\n"
             "<b>Seuil actuel :</b> <code>/setdramesesuil</code> → "
-            f"<b>{_fmt(DRAME_SEUIL)} coins</b>\n\n"
+            f"<b>{_fmt(DRAME_SEUIL)} {CURRENCY}</b>\n\n"
             "💡 <i>Ajoute un montant pour un seuil ponctuel :\n"
             "/drame fisc @user 500000000</i>",
             parse_mode=ParseMode.HTML

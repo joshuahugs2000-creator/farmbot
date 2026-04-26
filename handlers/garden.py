@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 from database.db import AsyncSessionLocal, get_garden, plant, harvest_plant, get_settings, get_user
 from database.models import Garden
 from utils.helpers import ensure_user, is_group
-from config import PLANT_TYPES, GARDEN_SLOTS
+from config import PLANT_TYPES, GARDEN_SLOTS, CURRENCY
 
 
 def _plant_status(g: Garden) -> str:
@@ -33,7 +33,7 @@ async def garden(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u      = await get_user(session, user.user_id)
         coins  = u.coins if u else 0
 
-    lines = [f"Jardin de {update.effective_user.first_name}  $ : {coins:,}\n"]
+    lines = [f"Jardin de {update.effective_user.first_name}  {CURRENCY} : {coins:,}\n"]
     for slot_i in range(GARDEN_SLOTS):
         g = next((p for p in plants if p.slot == slot_i), None)
         if g:
@@ -79,7 +79,7 @@ async def plant_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins  = (info["grow_time"] % 3600) // 60
     await update.message.reply_text(
         f"{info['emoji']} {plant_type} plante dans le slot {slot+1} !\n"
-        f"Pret dans {hours}h{mins:02d}m — Valeur : {info['value']} $"
+        f"Pret dans {hours}h{mins:02d}m — Valeur : {info['value']} {CURRENCY}"
     )
 
 
@@ -113,8 +113,8 @@ async def harvest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for g in ready:
             coins = await harvest_plant(session, g.id)
             total += coins
-            lines.append(f"  {PLANT_TYPES[g.plant_type]['emoji']} {g.plant_type} → +{coins:,} $")
+            lines.append(f"  {PLANT_TYPES[g.plant_type]['emoji']} {g.plant_type} → +{coins:,} {CURRENCY}")
 
     await update.message.reply_text(
-        "Recolte terminee !\n" + "\n".join(lines) + f"\nTotal : {total:,} $"
+        "Recolte terminee !\n" + "\n".join(lines) + f"\nTotal : {total:,} {CURRENCY}"
     )

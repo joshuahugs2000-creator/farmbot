@@ -29,6 +29,7 @@ from database.db import AsyncSessionLocal, get_user
 from database.models import LotterySession, LotteryTicket
 from utils.helpers import ensure_user, is_group, mention
 from handlers.admin import is_admin
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +102,10 @@ def _loto_summary(loto: LotterySession, total: int, participants: int, my_ticket
     jackpot   = int(loto.pot * BOT_WIN_SHARE)
     lines = [
         f"🎰 <b>Loterie active</b> — {loto_type}",
-        f"🏷️ Prix du ticket  : <b>{loto.ticket_price:,} $</b>",
+        f"🏷️ Prix du ticket  : <b>{loto.ticket_price:,} {CURRENCY}</b>",
         f"🎟️ Tickets vendus  : <b>{total}</b>",
         f"👥 Participants    : <b>{participants}</b>",
-        f"💰 Jackpot (80 %) : <b>{jackpot:,} $</b>",
+        f"💰 Jackpot (80 %) : <b>{jackpot:,} {CURRENCY}</b>",
     ]
     if my_tickets:
         lines.append(f"🃏 Tes tickets     : <b>{my_tickets}</b>")
@@ -124,7 +125,7 @@ async def createloto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
         return await update.message.reply_text(
-            f"Usage : /createloto <prix>\nPrix minimum : {MIN_TICKET_PRICE:,} $"
+            f"Usage : /createloto <prix>\nPrix minimum : {MIN_TICKET_PRICE:,} {CURRENCY}"
         )
 
     try:
@@ -134,7 +135,7 @@ async def createloto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if price < MIN_TICKET_PRICE:
         return await update.message.reply_text(
-            f"❌ Prix minimum : {MIN_TICKET_PRICE:,} $"
+            f"❌ Prix minimum : {MIN_TICKET_PRICE:,} {CURRENCY}"
         )
 
     user     = await ensure_user(update.effective_user)
@@ -160,7 +161,7 @@ async def createloto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"🎰 {mention(user)} a lancé une <b>Loterie Privée</b> !\n"
-        f"🏷️ Prix d'un ticket : <b>{price:,} $</b>\n"
+        f"🏷️ Prix d'un ticket : <b>{price:,} {CURRENCY}</b>\n"
         f"🎟️ Achetez vos tickets : /ticket [nb]\n"
         f"⚡ Le créateur peut forcer le tirage avec /tirage.",
         parse_mode=ParseMode.HTML,
@@ -234,8 +235,8 @@ async def ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not u or u.coins < total_cost:
             have = u.coins if u else 0
             return await update.message.reply_text(
-                f"❌ Pas assez de coins.\n"
-                f"Coût : {total_cost:,} $ | Solde : {have:,} $"
+                f"❌ Pas assez de {CURRENCY}.\n"
+                f"Coût : {total_cost:,} {CURRENCY} | Solde : {have:,} {CURRENCY}"
             )
 
         u.coins          -= total_cost
@@ -251,7 +252,7 @@ async def ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🎟️ {mention(user)} a acheté <b>{nb}</b> ticket(s) !\n"
         f"Tu en as maintenant <b>{already + nb}</b>.\n"
-        f"💰 Jackpot actuel : <b>{jackpot:,} $</b>\n"
+        f"💰 Jackpot actuel : <b>{jackpot:,} {CURRENCY}</b>\n"
         f"🎰 Bonne chance !",
         parse_mode=ParseMode.HTML,
     )
@@ -361,9 +362,9 @@ async def _send_result(bot, group_id: int, result: dict | None):
             f"🎉 <b>TIRAGE DE LA LOTERIE !</b>\n\n"
             f"🎟️ Tickets vendus   : <b>{result['total_tickets']}</b>\n"
             f"👥 Participants     : <b>{result['participants']}</b>\n"
-            f"💸 Cagnotte totale  : <b>{result['pot']:,} $</b>\n\n"
+            f"💸 Cagnotte totale  : <b>{result['pot']:,} {CURRENCY}</b>\n\n"
             f"🏆 GAGNANT : <a href='tg://user?id={uid}'>{name}</a>\n"
-            f"💰 Gain             : <b>{result['prize']:,} $</b>"
+            f"💰 Gain             : <b>{result['prize']:,} {CURRENCY}</b>"
         ),
         parse_mode=ParseMode.HTML,
     )

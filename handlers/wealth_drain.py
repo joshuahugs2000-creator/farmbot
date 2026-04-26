@@ -32,6 +32,7 @@ from sqlalchemy import select, text
 
 from database.db import AsyncSessionLocal, get_user, add_coins
 from utils.helpers import ensure_user, parse_target, mention
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ CATALOGUE = {
     "yacht":      ("Yacht",             "🛥️",  15_000_000, "Pour naviguer avec style."),
     "jet":        ("Jet privé",         "✈️",  40_000_000, "Voyages en classe supérieure."),
     "garde":      ("Garde du corps",    "🕵️",  500_000,    "Réduit les risques de cambriolage."),
-    "coffre":     ("Coffre-fort",       "🔐",  1_000_000,  "Protège 10% de tes coins en cas de cambriolage."),
+    "coffre":     ("Coffre-fort",       "🔐",  1_000_000,  "Protège 10% de tes $ en cas de cambriolage."),
     "montre":     ("Montre de luxe",    "⌚",  3_000_000,  "Bling-bling."),
     "jet_ski":    ("Jet-ski",           "🌊",  1_500_000,  "Pour les week-ends."),
     "casino":     ("Casino privé",      "🎰",  25_000_000, "Le summum du luxe."),
@@ -124,7 +125,7 @@ TAX_BRACKETS = [
 
 
 def _compute_tax(coins: int) -> int:
-    """Calcule l'impôt journalier sur les coins en main."""
+    """Calcule l'impôt journalier sur les $ en main."""
     if coins <= 0:
         return 0
     tax = 0
@@ -152,7 +153,7 @@ def _tax_rate_display(coins: int) -> str:
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["🏪 <b>Boutique Luxe</b> — objets non-revendables au bot\n"]
     for item_id, (nom, emoji, prix, desc) in CATALOGUE.items():
-        lines.append(f"{emoji} <b>{nom}</b> — <code>{_fmt(prix)} $</code>")
+        lines.append(f"{emoji} <b>{nom}</b> — <code>{_fmt(prix)} {CURRENCY}</code>")
         lines.append(f"   ↳ {desc}")
         lines.append(f"   ➡️ <code>/acheter {item_id}</code>\n")
     lines.append("📦 Pour vendre un objet entre joueurs : <code>/revendre &lt;id&gt; @joueur &lt;prix&gt;</code>")
@@ -188,8 +189,8 @@ async def acheter(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not u or u.coins < prix:
             solde = u.coins if u else 0
             return await update.message.reply_text(
-                f"❌ Pas assez de coins.\n"
-                f"Prix : <b>{_fmt(prix)} $</b> | Ton solde : <b>{_fmt(solde)} $</b>",
+                f"❌ Pas assez de {CURRENCY}.\n"
+                f"Prix : <b>{_fmt(prix)} {CURRENCY}</b> | Ton solde : <b>{_fmt(solde)} {CURRENCY}</b>",
                 parse_mode=ParseMode.HTML
             )
 
@@ -206,7 +207,7 @@ async def acheter(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
 
     await update.message.reply_text(
-        f"{emoji} {mention(user)} a acheté <b>{nom}</b> pour <b>{_fmt(prix)} $</b> !\n"
+        f"{emoji} {mention(user)} a acheté <b>{nom}</b> pour <b>{_fmt(prix)} {CURRENCY}</b> !\n"
         f"💸 Cette somme quitte l'économie.",
         parse_mode=ParseMode.HTML
     )
@@ -243,7 +244,7 @@ async def inventaire(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for row_id, iid in rows:
         if iid in CATALOGUE:
             nom, emoji, prix, _ = CATALOGUE[iid]
-            lines.append(f"  {emoji} <b>{nom}</b> (#{row_id}) — acheté {_fmt(prix)} $")
+            lines.append(f"  {emoji} <b>{nom}</b> (#{row_id}) — acheté {_fmt(prix)} {CURRENCY}")
     lines.append("\n💬 Pour vendre : <code>/revendre &lt;#id&gt; @joueur &lt;prix&gt;</code>")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
@@ -267,9 +268,9 @@ async def impots(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [
         "🏛️ <b>Impôts — Estimation quotidienne</b>\n",
-        f"💰 Coins en main : <b>{_fmt(coins)} $</b>",
+        f"💰 Coins en main : <b>{_fmt(coins)} {CURRENCY}</b>",
         f"📊 Tranche : <b>{taux}</b>",
-        f"💸 Taxe du jour : <b>{_fmt(tax)} $</b>",
+        f"💸 Taxe du jour : <b>{_fmt(tax)} {CURRENCY}</b>",
         "",
         "📋 <b>Tranches d'imposition :</b>",
         "  &lt; 1M $      → 0%",
@@ -309,7 +310,7 @@ async def job_collect_taxes(context: ContextTypes.DEFAULT_TYPE):
 
         await session.commit()
 
-    logger.info(f"[IMPÔTS] {total_players} joueurs taxés — {total_collected:,} $ collectés et retirés de l'économie.")
+    logger.info(f"[IMPÔTS] {total_players} joueurs taxés — {total_collected:,} {CURRENCY} collectés et retirés de l'économie.")
 
     # Annonce dans tous les groupes actifs
     from database.models import GroupSettings
@@ -323,7 +324,7 @@ async def job_collect_taxes(context: ContextTypes.DEFAULT_TYPE):
                 text=(
                     f"🏛️ <b>COLLECTE DES IMPÔTS</b>\n\n"
                     f"👥 Joueurs taxés : <b>{total_players}</b>\n"
-                    f"💸 Total retiré de l'économie : <b>{_fmt(total_collected)} $</b>\n\n"
+                    f"💸 Total retiré de l'économie : <b>{_fmt(total_collected)} {CURRENCY}</b>\n\n"
                     f"Utilisez /impots pour voir votre taux.\n"
                     f"💡 Déposez à la banque pour réduire votre base imposable !"
                 ),
@@ -495,7 +496,7 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if deja:
                 return await update.message.reply_text(
                     f"⚠️ Tu participes déjà au braquage en cours !\n"
-                    f"👥 {nb} membre(s) — 🏦 Butin potentiel : <b>{_fmt(int(pot * HEIST_BANK_MULTIPLIER))} $</b>",
+                    f"👥 {nb} membre(s) — 🏦 Butin potentiel : <b>{_fmt(int(pot * HEIST_BANK_MULTIPLIER))} {CURRENCY}</b>",
                     parse_mode=ParseMode.HTML
                 )
 
@@ -511,13 +512,13 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     assert stake >= HEIST_MIN_STAKE
                 except (ValueError, AssertionError):
                     return await update.message.reply_text(
-                        f"❌ Mise minimale : {_fmt(HEIST_MIN_STAKE)} $"
+                        f"❌ Mise minimale : {_fmt(HEIST_MIN_STAKE)} {CURRENCY}"
                     )
 
             u = await get_user(session, user.user_id)
             if not u or u.coins < stake:
                 return await update.message.reply_text(
-                    f"❌ Pas assez de coins. Mise : {_fmt(stake)} $"
+                    f"❌ Pas assez de {CURRENCY}. Mise : {_fmt(stake)} {CURRENCY}"
                 )
 
             await session.execute(
@@ -537,8 +538,8 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_pot = pot + stake
             prob    = int(HEIST_SUCCESS_TABLE.get(new_nb, 0.80) * 100)
             return await update.message.reply_text(
-                f"🦹 {mention(user)} a rejoint le braquage ! (mise : {_fmt(stake)} $)\n"
-                f"👥 Équipe : <b>{new_nb}</b> | 💰 Butin potentiel : <b>{_fmt(int(new_pot * HEIST_BANK_MULTIPLIER))} $</b>\n"
+                f"🦹 {mention(user)} a rejoint le braquage ! (mise : {_fmt(stake)} {CURRENCY})\n"
+                f"👥 Équipe : <b>{new_nb}</b> | 💰 Butin potentiel : <b>{_fmt(int(new_pot * HEIST_BANK_MULTIPLIER))} {CURRENCY}</b>\n"
                 f"🎲 Probabilité de succès : <b>{prob}%</b>",
                 parse_mode=ParseMode.HTML
             )
@@ -551,13 +552,13 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 assert stake >= HEIST_MIN_STAKE
             except (ValueError, AssertionError):
                 return await update.message.reply_text(
-                    f"❌ Mise minimale : {_fmt(HEIST_MIN_STAKE)} $\n"
+                    f"❌ Mise minimale : {_fmt(HEIST_MIN_STAKE)} {CURRENCY}\n"
                     f"Usage : /braquage [mise]"
                 )
 
         u = await get_user(session, user.user_id)
         if not u or u.coins < stake:
-            return await update.message.reply_text(f"❌ Pas assez de coins.")
+            return await update.message.reply_text(f"❌ Pas assez de {CURRENCY}.")
 
         await session.execute(
             text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
@@ -586,7 +587,7 @@ async def braquage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🏦 <b>BRAQUAGE EN PRÉPARATION !</b>\n\n"
         f"👑 Chef : {mention(user)}\n"
-        f"💰 Mise chef : <b>{_fmt(stake)} $</b>\n\n"
+        f"💰 Mise chef : <b>{_fmt(stake)} {CURRENCY}</b>\n\n"
         f"⏳ Vous avez <b>3 minutes</b> pour rejoindre !\n"
         f"➡️ Tape <code>/braquage [mise]</code> pour participer.\n"
         f"🎯 Plus on est nombreux, plus on a de chances !",
@@ -674,7 +675,7 @@ async def _launch_heist(context: ContextTypes.DEFAULT_TYPE):
             await session.commit()
 
             parts_txt = "\n".join(
-                f"  💰 {nom} : +{_fmt(int(butin * (stake/pot)))} $"
+                f"  💰 {nom} : +{_fmt(int(butin * (stake/pot)))} {CURRENCY}"
                 for _, stake, nom in members
             )
             await context.bot.send_message(
@@ -683,7 +684,7 @@ async def _launch_heist(context: ContextTypes.DEFAULT_TYPE):
                     f"🏦💥 <b>BRAQUAGE RÉUSSI !</b>\n\n"
                     f"👥 Équipe ({nb}) : {noms}\n"
                     f"🎲 Probabilité : {int(prob*100)}%\n\n"
-                    f"💵 Butin total : <b>{_fmt(butin)} $</b> (x{HEIST_BANK_MULTIPLIER} la mise)\n\n"
+                    f"💵 Butin total : <b>{_fmt(butin)} {CURRENCY}</b> (x{HEIST_BANK_MULTIPLIER} la mise)\n\n"
                     f"{parts_txt}"
                 ),
                 parse_mode=ParseMode.HTML,
@@ -697,7 +698,7 @@ async def _launch_heist(context: ContextTypes.DEFAULT_TYPE):
                     f"🚔 <b>BRAQUAGE RATÉ !</b>\n\n"
                     f"👥 Équipe ({nb}) : {noms}\n"
                     f"🎲 Probabilité : {int(prob*100)}%\n\n"
-                    f"💸 <b>{_fmt(pot)} $</b> confisqués par la police !\n"
+                    f"💸 <b>{_fmt(pot)} {CURRENCY}</b> confisqués par la police !\n"
                     f"😭 Personne n'est remboursé."
                 ),
                 parse_mode=ParseMode.HTML,

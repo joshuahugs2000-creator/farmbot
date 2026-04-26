@@ -12,7 +12,7 @@ from database.db import (
 from database.models import RelationType, RequestType
 from sqlalchemy import text
 from utils.helpers import mention, mention_tg, is_group, parse_target, ensure_user
-from config import MOODS
+from config import MOODS, CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +244,7 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             relation_type = "married"
             text = (f"💒 {mention(sender)} et {mention(target)} sont maintenant maries ! 🎉\n"
                     f"Felicitations a la famille {sender.family_name or ''} !\n"
-                    f"💝 Cadeau de mariage : <b>{gift:,} $</b> chacun !")
+                    f"💝 Cadeau de mariage : <b>{gift:,} {CURRENCY}</b> chacun !")
 
         elif req_type_str == "adopt":
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.PARENT, req.group_id)
@@ -365,7 +365,7 @@ async def leave_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     members_count = len(result.get("members", []))
     await query.edit_message_text(
         f"Adieu !\n"
-        f"{result['coins_each']:,} $ transmis a chacun des {members_count} membres."
+        f"{result['coins_each']:,} {CURRENCY} transmis a chacun des {members_count} membres."
     )
 
 

@@ -13,6 +13,7 @@ from database.models import (
 )
 from utils.helpers import ensure_user, parse_target, mention
 from handlers.admin import is_admin
+from config import CURRENCY
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "llama3-8b-8192"
@@ -149,7 +150,7 @@ def _build_prompt(data: dict) -> str:
     banques_desc = ""
     if data.get("bank_details"):
         banques_desc = ", ".join(
-            f"{b['bank']} ({_fmt(b['balance'])} coins)"
+            f"{b['bank']} ({_fmt(b['balance'])} {CURRENCY})"
             for b in data["bank_details"][:3]
         )
     else:
@@ -164,11 +165,11 @@ Ne mets pas de balises HTML. Commence par un titre accrocheur en majuscules.
 
 DONNÉES DU JOUEUR :
 - Nom : {data['name']} (@{data['username']})
-- Coins en poche : {_fmt(data['coins'])} coins
-- Total banques : {_fmt(data['bank_total'])} coins ({data['bank_count']} compte(s)) — {banques_desc}
-- Compte commun couple : {_fmt(data['couple_account'])} coins
-- Dettes actives : {_fmt(data['loans_total'])} coins
-- FORTUNE TOTALE : {_fmt(data['fortune_totale'])} coins
+- $ en poche : {_fmt(data['coins'])} $
+- Total banques : {_fmt(data['bank_total'])} $ ({data['bank_count']} compte(s)) — {banques_desc}
+- Compte commun couple : {_fmt(data['couple_account'])} $
+- Dettes actives : {_fmt(data['loans_total'])} $
+- FORTUNE TOTALE : {_fmt(data['fortune_totale'])} $
 - Rang dans le classement : #{data['rank']} sur {data['total_players']} joueurs
 - {portfolio_desc}
 - Situation familiale : {', '.join(famille) if famille else 'célibataire, sans famille connue'}

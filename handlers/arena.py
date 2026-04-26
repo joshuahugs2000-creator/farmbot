@@ -193,7 +193,7 @@ async def cockfight_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mise = int(args[0])
     if mise < 1000:
-        return await update.message.reply_text("❌ Mise minimum : <b>1 000 {CURRENCY}</b>", parse_mode=ParseMode.HTML)
+        return await update.message.reply_text("❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML)
 
     await ensure_user(user)
     async with AsyncSessionLocal() as session:
@@ -491,7 +491,7 @@ async def ppc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Indique une mise ! Ex : <code>/ppc @joueur 5000</code>", parse_mode=ParseMode.HTML)
 
     if mise < 1000:
-        return await update.message.reply_text("❌ Mise minimum : <b>1 000 {CURRENCY}</b>", parse_mode=ParseMode.HTML)
+        return await update.message.reply_text("❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML)
 
     # Vérifier soldes
     await ensure_user(user)

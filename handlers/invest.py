@@ -19,6 +19,7 @@ from sqlalchemy import select, text
 from database.db import AsyncSessionLocal, get_user, add_coins
 from database.models import Investment
 from utils.helpers import ensure_user
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -364,7 +365,7 @@ def _build_market_text_and_keyboard(cat_index: int, page: int) -> tuple:
         lines.append(
             f"{a['emoji']} <b>{asset_id}</b>  {_risk_emoji(a['risk'])}\n"
             f"  {a['desc']}\n"
-            f"  Prix : ~<b>{_fmt(price)} $</b>\n"
+            f"  Prix : ~<b>{_fmt(price)} {CURRENCY}</b>\n"
         )
     lines.append("✏️ <code>/buy [asset] [qté]</code> pour acheter.")
 
@@ -441,7 +442,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u = await get_user(session, user.user_id)
         if not u or u.coins < total:
             return await update.message.reply_text(
-                f"Solde insuffisant ! Il te faut {_fmt(total)} $ pour acheter {qty}x {a['name']}."
+                f"Solde insuffisant ! Il te faut {_fmt(total)} {CURRENCY} pour acheter {qty}x {a['name']}."
             )
 
         await session.execute(
@@ -462,11 +463,11 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ <b>Achat effectué !</b>\n\n"
         f"{a['emoji']} {a['name']} x{qty}\n"
-        f"💰 Prix unitaire : {_fmt(unit_price)} $\n"
-        f"💸 Total investi : {_fmt(total)} $\n"
+        f"💰 Prix unitaire : {_fmt(unit_price)} {CURRENCY}\n"
+        f"💸 Total investi : {_fmt(total)} {CURRENCY}\n"
         f"Risque : {_risk_emoji(a['risk'])} {a['risk'].upper()}\n\n"
         f"📋 ID position : <code>#{inv_id}</code>\n"
-        f"👛 Portefeuille : {_fmt(new_wallet)} $\n\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} {CURRENCY}\n\n"
         f"Utilisez /sell {inv_id} pour vendre.",
         parse_mode=ParseMode.HTML,
     )
@@ -595,17 +596,17 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
         new_wallet = u.coins + total_received
 
-    profit_str = f"+{_fmt(profit)} $" if profit >= 0 else f"-{_fmt(abs(profit))} $"
+    profit_str = f"+{_fmt(profit)} {CURRENCY}" if profit >= 0 else f"-{_fmt(abs(profit))} {CURRENCY}"
     profit_emoji = "🟢" if profit > 0 else ("🔴" if profit < 0 else "⚪")
 
     await update.message.reply_text(
         f"💼 <b>Position vendue</b>\n\n"
         f"{a['emoji']} {a['name']} x{inv.quantity}\n"
         f"📊 Résultat : <b>{outcome_label}</b>\n\n"
-        f"💵 Investi   : {_fmt(total_invested)} $\n"
-        f"💰 Reçu      : {_fmt(total_received)} $\n"
+        f"💵 Investi   : {_fmt(total_invested)} {CURRENCY}\n"
+        f"💰 Reçu      : {_fmt(total_received)} {CURRENCY}\n"
         f"{profit_emoji} Profit/Perte : <b>{profit_str}</b>\n\n"
-        f"👛 Portefeuille : {_fmt(new_wallet)} $",
+        f"👛 Portefeuille : {_fmt(new_wallet)} {CURRENCY}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -645,8 +646,8 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         lines.append(
             f"{a.get('emoji', '📊')} <b>#{inv.id} {a.get('name', inv.asset_id)}</b> x{inv.quantity}\n"
-            f"  └ Acheté : {_fmt(inv.buy_price)} $ | Actuel : ~{_fmt(cur)} $\n"
-            f"  └ P&L : {pnl_e} {pnl_str} $   — /sell {inv.id}\n"
+            f"  └ Acheté : {_fmt(inv.buy_price)} {CURRENCY} | Actuel : ~{_fmt(cur)} {CURRENCY}\n"
+            f"  └ P&L : {pnl_e} {pnl_str} {CURRENCY}   — /sell {inv.id}\n"
         )
         total_invested += invest
         total_current += cur_val
@@ -655,9 +656,9 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pnl_str = f"+{_fmt(total_pnl)}" if total_pnl >= 0 else f"-{_fmt(abs(total_pnl))}"
     pnl_e = "🟢" if total_pnl >= 0 else "🔴"
 
-    lines.append(f"\n💼 Total investi : {_fmt(total_invested)} $")
-    lines.append(f"📊 Valeur actuelle : ~{_fmt(total_current)} $")
-    lines.append(f"{pnl_e} P&L total : <b>{pnl_str} $</b>")
-    lines.append(f"👛 Portefeuille : {_fmt(u.coins if u else 0)} $")
+    lines.append(f"\n💼 Total investi : {_fmt(total_invested)} {CURRENCY}")
+    lines.append(f"📊 Valeur actuelle : ~{_fmt(total_current)} {CURRENCY}")
+    lines.append(f"{pnl_e} P&L total : <b>{pnl_str} {CURRENCY}</b>")
+    lines.append(f"👛 Portefeuille : {_fmt(u.coins if u else 0)} {CURRENCY}")
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

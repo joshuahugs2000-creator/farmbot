@@ -27,6 +27,7 @@ from sqlalchemy import select, text
 from database.db import AsyncSessionLocal, get_user, add_coins
 from database.models import BankAccount, Loan
 from utils.helpers import ensure_user
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +114,9 @@ async def banks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(
             f"{b['emoji']} <b>{b['name']}</b>  (Rang {b['rank']}/5)\n"
             f"  └ {b['desc']}\n"
-            f"  └ Dépôt min : {_fmt(b['min_deposit'])} $ · Max : {_fmt(b['max_deposit'])} $\n"
+            f"  └ Dépôt min : {_fmt(b['min_deposit'])} {CURRENCY} · Max : {_fmt(b['max_deposit'])} {CURRENCY}\n"
             f"  └ Intérêts  : +{b['interest_rate']*100:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
-            f"  └ Prêt max  : {_fmt(b['max_loan'])} $  (taux {b['loan_rate']*100:.0f}%)\n"
+            f"  └ Prêt max  : {_fmt(b['max_loan'])} {CURRENCY}  (taux {b['loan_rate']*100:.0f}%)\n"
         )
     lines.append("Utilisez /bankopen [banque] pour ouvrir un compte.")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
@@ -159,7 +160,7 @@ async def bankopen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     b = BANKS[bank_id]
     await update.message.reply_text(
         f"✅ Compte ouvert à la <b>{b['name']}</b> !\n"
-        f"Dépôt minimum : {_fmt(b['min_deposit'])} $\n"
+        f"Dépôt minimum : {_fmt(b['min_deposit'])} {CURRENCY}\n"
         f"Intérêts : +{b['interest_rate']*100:.1f}% toutes les {INTEREST_INTERVAL_HOURS}h\n\n"
         f"Utilisez /bankdeposit {bank_id} [montant] pour alimenter votre compte.",
         parse_mode=ParseMode.HTML,
@@ -187,7 +188,7 @@ async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if amount < b["min_deposit"]:
         return await update.message.reply_text(
-            f"Dépôt minimum pour la {b['name']} : {_fmt(b['min_deposit'])} $"
+            f"Dépôt minimum pour la {b['name']} : {_fmt(b['min_deposit'])} {CURRENCY}"
         )
 
     async with AsyncSessionLocal() as session:
@@ -205,7 +206,7 @@ async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if acc.balance + amount > b["max_deposit"]:
             return await update.message.reply_text(
-                f"Dépôt maximum atteint ({_fmt(b['max_deposit'])} $)."
+                f"Dépôt maximum atteint ({_fmt(b['max_deposit'])} {CURRENCY})."
             )
 
         u = await get_user(session, user.user_id)
@@ -226,9 +227,9 @@ async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"🏦 Dépôt effectué à la <b>{b['name']}</b>\n"
-        f"💰 Déposé   : +{_fmt(amount)} $\n"
-        f"📊 En banque : {_fmt(new_balance)} $\n"
-        f"👛 Portefeuille : {_fmt(new_wallet)} $",
+        f"💰 Déposé   : +{_fmt(amount)} {CURRENCY}\n"
+        f"📊 En banque : {_fmt(new_balance)} {CURRENCY}\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} {CURRENCY}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -265,7 +266,7 @@ async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if acc.balance < amount:
             return await update.message.reply_text(
-                f"Solde bancaire insuffisant ! Tu as {_fmt(acc.balance)} $ dans cette banque."
+                f"Solde bancaire insuffisant ! Tu as {_fmt(acc.balance)} {CURRENCY} dans cette banque."
             )
 
         u = await get_user(session, user.user_id)
@@ -283,9 +284,9 @@ async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"🏦 Retrait effectué de la <b>{b['name']}</b>\n"
-        f"💸 Retiré    : {_fmt(amount)} $\n"
-        f"📊 En banque : {_fmt(new_balance)} $\n"
-        f"👛 Portefeuille : {_fmt(new_wallet)} $",
+        f"💸 Retiré    : {_fmt(amount)} {CURRENCY}\n"
+        f"📊 En banque : {_fmt(new_balance)} {CURRENCY}\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} {CURRENCY}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -313,13 +314,13 @@ async def bankbalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rate = b.get("interest_rate", 0) * 100
         lines.append(
             f"{b.get('emoji','🏦')} <b>{b.get('name', acc.bank_id)}</b>\n"
-            f"  └ Solde : {_fmt(acc.balance)} $\n"
+            f"  └ Solde : {_fmt(acc.balance)} {CURRENCY}\n"
             f"  └ Taux  : +{rate:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
         )
         total += acc.balance
 
-    lines.append(f"\n💼 Total en banque : <b>{_fmt(total)} $</b>")
-    lines.append(f"👛 Portefeuille     : {_fmt(u.coins if u else 0)} $")
+    lines.append(f"\n💼 Total en banque : <b>{_fmt(total)} {CURRENCY}</b>")
+    lines.append(f"👛 Portefeuille     : {_fmt(u.coins if u else 0)} {CURRENCY}")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -344,7 +345,7 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if amount > b["max_loan"]:
         return await update.message.reply_text(
-            f"Prêt maximum pour la {b['name']} : {_fmt(b['max_loan'])} $"
+            f"Prêt maximum pour la {b['name']} : {_fmt(b['max_loan'])} {CURRENCY}"
         )
 
     async with AsyncSessionLocal() as session:
@@ -374,7 +375,7 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text(
                 f"❌ <b>Prêt refusé.</b>\n\n"
                 f"Tu as déjà un prêt actif à la <b>{b_existing.get('name', any_existing_loan.bank_id)}</b> !\n"
-                f"💳 Reste à rembourser : <b>{_fmt(any_existing_loan.remaining)} $</b>\n\n"
+                f"💳 Reste à rembourser : <b>{_fmt(any_existing_loan.remaining)} {CURRENCY}</b>\n\n"
                 f"Tu dois rembourser entièrement avant de pouvoir emprunter à nouveau.\n"
                 f"Utilise : /bankrepay {any_existing_loan.bank_id} [montant]",
                 parse_mode=ParseMode.HTML,
@@ -386,10 +387,10 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if total_in_bank < required_collateral:
             return await update.message.reply_text(
                 f"❌ <b>Garantie insuffisante.</b>\n\n"
-                f"Pour emprunter <b>{_fmt(amount)} $</b>, tu dois avoir au minimum "
-                f"<b>{_fmt(required_collateral)} $</b> (25%) dans ton compte à la {b['name']}.\n\n"
-                f"💰 Ton solde actuel dans cette banque : <b>{_fmt(total_in_bank)} $</b>\n"
-                f"📉 Il te manque : <b>{_fmt(required_collateral - total_in_bank)} $</b>\n\n"
+                f"Pour emprunter <b>{_fmt(amount)} {CURRENCY}</b>, tu dois avoir au minimum "
+                f"<b>{_fmt(required_collateral)} {CURRENCY}</b> (25%) dans ton compte à la {b['name']}.\n\n"
+                f"💰 Ton solde actuel dans cette banque : <b>{_fmt(total_in_bank)} {CURRENCY}</b>\n"
+                f"📉 Il te manque : <b>{_fmt(required_collateral - total_in_bank)} {CURRENCY}</b>\n\n"
                 f"Dépose d'abord via /bankdeposit {bank_id} [montant].",
                 parse_mode=ParseMode.HTML,
             )
@@ -418,13 +419,13 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"💳 <b>Prêt accordé par la {b['name']}</b>\n\n"
-        f"💰 Montant emprunté : {_fmt(amount)} $\n"
-        f"📈 Intérêts ({b['loan_rate']*100:.0f}%) : {_fmt(interest)} $\n"
-        f"💸 Total à rembourser : <b>{_fmt(total_due)} $</b>\n"
+        f"💰 Montant emprunté : {_fmt(amount)} {CURRENCY}\n"
+        f"📈 Intérêts ({b['loan_rate']*100:.0f}%) : {_fmt(interest)} {CURRENCY}\n"
+        f"💸 Total à rembourser : <b>{_fmt(total_due)} {CURRENCY}</b>\n"
         f"📅 Date limite : {due_at.strftime('%d/%m/%Y')}\n\n"
         f"⚠️ Si tu ne rembourses pas avant la date limite, la somme sera déduite "
         f"de ton compte (solde négatif possible).\n\n"
-        f"👛 Nouveau solde : {_fmt(new_balance)} $\n"
+        f"👛 Nouveau solde : {_fmt(new_balance)} {CURRENCY}\n"
         f"Utilisez /bankrepay {bank_id} [montant] pour rembourser.",
         parse_mode=ParseMode.HTML,
     )
@@ -476,15 +477,15 @@ async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             loan.status = "paid"
             msg_extra   = "\n✅ <b>Prêt entièrement remboursé !</b>"
         else:
-            msg_extra   = f"\n💳 Reste à rembourser : {_fmt(loan.remaining)} $"
+            msg_extra   = f"\n💳 Reste à rembourser : {_fmt(loan.remaining)} {CURRENCY}"
 
         await session.commit()
         new_wallet = u.coins - pay_amount
 
     await update.message.reply_text(
         f"🏦 Remboursement à la <b>{b['name']}</b>\n"
-        f"💸 Payé : {_fmt(pay_amount)} $\n"
-        f"👛 Portefeuille : {_fmt(new_wallet)} $"
+        f"💸 Payé : {_fmt(pay_amount)} {CURRENCY}\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} {CURRENCY}"
         + msg_extra,
         parse_mode=ParseMode.HTML,
     )
@@ -510,12 +511,12 @@ async def bankloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
         overdue = " ⚠️ EN RETARD" if datetime.utcnow() > loan.due_at else ""
         lines.append(
             f"{b.get('emoji','🏦')} <b>{b.get('name', loan.bank_id)}</b>{overdue}\n"
-            f"  └ Reste à payer : {_fmt(loan.remaining)} $\n"
+            f"  └ Reste à payer : {_fmt(loan.remaining)} {CURRENCY}\n"
             f"  └ Date limite   : {loan.due_at.strftime('%d/%m/%Y')}\n"
         )
         total_debt += loan.remaining
 
-    lines.append(f"\n💸 Dette totale : <b>{_fmt(total_debt)} $</b>")
+    lines.append(f"\n💸 Dette totale : <b>{_fmt(total_debt)} {CURRENCY}</b>")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -563,7 +564,7 @@ async def pay_interests(context):
 
         await session.commit()
 
-    logger.info(f"[BANK] Intérêts versés : {paid_count} comptes, {total_paid:,} $ au total.")
+    logger.info(f"[BANK] Intérêts versés : {paid_count} comptes, {total_paid:,} {CURRENCY} au total.")
 
 
 # ─── Job : rappels de remboursement (2x par semaine) ─────────────────────────
@@ -587,7 +588,7 @@ async def remind_loans(context):
             texte = (
                 f"⚠️ <b>PRÊT EN RETARD !</b>\n\n"
                 f"Tu as un prêt en retard à la <b>{b.get('name', loan.bank_id)}</b> !\n"
-                f"💸 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n\n"
+                f"💸 Reste à rembourser : <b>{_fmt(loan.remaining)} {CURRENCY}</b>\n\n"
                 f"Des pénalités de 5% sont appliquées à chaque cycle. "
                 f"Rembourse vite avec /bankrepay {loan.bank_id} [montant] !"
             )
@@ -595,7 +596,7 @@ async def remind_loans(context):
             texte = (
                 f"🔔 <b>Rappel de prêt</b>\n\n"
                 f"Tu as un prêt actif à la <b>{b.get('name', loan.bank_id)}</b>.\n"
-                f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} $</b>\n"
+                f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} {CURRENCY}</b>\n"
                 f"📅 Date limite dans : <b>{jours_restants} jour(s)</b>\n\n"
                 f"Utilise /bankrepay {loan.bank_id} [montant] pour rembourser."
             )

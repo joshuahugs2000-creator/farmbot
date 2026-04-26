@@ -4,7 +4,7 @@ from telegram.constants import ParseMode
 
 from database.db import AsyncSessionLocal, get_user, upsert_user, compute_title, get_family_members
 from utils.helpers import ensure_user
-from config import PROFILE_COLORS, TITLES
+from config import PROFILE_COLORS, TITLES, CURRENCY
 
 
 async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -28,7 +28,7 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏠 Famille  : {u.family_name or '—'}" if u else "",
         f"👨‍👩‍👧 Membres  : {size}",
         f"⭐ Karma    : {u.karma if u else 0}",
-        f"💰 $ : {u.coins if u else 0}",
+        f"💰 {CURRENCY} : {u.coins if u else 0}",
         f"{color_dot} Couleur   : {u.profile_color if u else 'blue'}",
     ]
 

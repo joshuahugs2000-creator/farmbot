@@ -28,6 +28,7 @@ from database.db import (
 from sqlalchemy import text
 from utils.helpers import ensure_user, parse_target, mention
 from handlers.crime import _is_in_prison, _get_prison
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ async def acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"💳 Compte de <b>{target_name}</b>\n"
         f"━━━━━━━━━━━━━━━━━\n"
-        f"💰 Solde : <b>{_fmt(coins)} $</b>\n"
+        f"💰 Solde : <b>{_fmt(coins)} {CURRENCY}</b>\n"
         f"━━━━━━━━━━━━━━━━━"
         f"{footer}",
         parse_mode="HTML",
@@ -87,8 +88,8 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif result["status"] == "ok":
         await update.message.reply_text(
             f"🎁 Bonus quotidien recu !\n"
-            f"💰 +{_fmt(result['amount'])} $\n"
-            f"Solde : {_fmt(result['balance'])} $"
+            f"💰 +{_fmt(result['amount'])} {CURRENCY}\n"
+            f"Solde : {_fmt(result['balance'])} {CURRENCY}"
         )
     else:
         await update.message.reply_text("Erreur. Fais /start d'abord.")
@@ -121,8 +122,8 @@ async def work(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job_desc, _, _ = random.choice(JOBS)
         await update.message.reply_text(
             f"{job_desc}\n"
-            f"💰 +{_fmt(result['amount'])} $\n"
-            f"Solde : {_fmt(result['balance'])} $"
+            f"💰 +{_fmt(result['amount'])} {CURRENCY}\n"
+            f"Solde : {_fmt(result['balance'])} {CURRENCY}"
         )
     else:
         await update.message.reply_text("Erreur. Fais /start d'abord.")
@@ -152,12 +153,12 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = await transfer_coins(session, sender.user_id, target.user_id, amount)
 
     if result == "insufficient":
-        await update.message.reply_text(f"Solde insuffisant ! Il te faut {_fmt(amount)} $.")
+        await update.message.reply_text(f"Solde insuffisant ! Il te faut {_fmt(amount)} {CURRENCY}.")
     elif result == "not_found":
         await update.message.reply_text("Utilisateur introuvable.")
     else:
         await update.message.reply_text(
-            f"💸 {mention(sender)} a envoye {_fmt(amount)} $ a {mention(target)} !",
+            f"💸 {mention(sender)} a envoye {_fmt(amount)} {CURRENCY} a {mention(target)} !",
             parse_mode=ParseMode.HTML,
         )
 
@@ -172,7 +173,7 @@ async def richlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines  = ["💰 Classement des plus riches\n"]
     for i, u in enumerate(top):
         medal = medals[i] if i < 3 else f"{i+1}."
-        lines.append(f"{medal} {u.first_name} — {_fmt(u.coins)} $")
+        lines.append(f"{medal} {u.first_name} — {_fmt(u.coins)} {CURRENCY}")
 
     await update.message.reply_text("\n".join(lines))
 
@@ -261,9 +262,9 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if result == "win":
                 await add_coins_smart(session, user.user_id, mise * 2)
-                msg = f"✅ Tu gagnes {_fmt(mise)} $ !"
+                msg = f"✅ Tu gagnes {_fmt(mise)} {CURRENCY} !"
             else:
-                msg = f"❌ Tu perds {_fmt(mise)} $."
+                msg = f"❌ Tu perds {_fmt(mise)} {CURRENCY}."
 
             u2      = await get_user(session, user.user_id)
             new_bal = u2.coins if u2 else 0
@@ -273,7 +274,7 @@ async def blackjack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Toi    : {_show_hand(player)} = {pv}\n"
         f"Dealer : {_show_hand(dealer)} = {dv}\n\n"
         f"{msg}{source_msg}\n"
-        f"Solde : {_fmt(new_bal)} $"
+        f"Solde : {_fmt(new_bal)} {CURRENCY}"
     )
 
 
@@ -333,9 +334,9 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if win:
             gain = mise * (mult - 1)
             await add_coins_smart(session, user.user_id, gain + mise)
-            msg  = f"✅ Gagne ! +{_fmt(gain)} $"
+            msg  = f"✅ Gagne ! +{_fmt(gain)} {CURRENCY}"
         else:
-            msg  = f"❌ Perdu. -{_fmt(mise)} $"
+            msg  = f"❌ Perdu. -{_fmt(mise)} {CURRENCY}"
         u2      = await get_user(session, user.user_id)
         new_bal = u2.coins if u2 else 0
 
@@ -343,9 +344,9 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🎡 ROULETTE\n"
         f"Numero : {numero} {color_emoji}\n"
-        f"Ton pari : {choix} ({_fmt(mise)} $)\n\n"
+        f"Ton pari : {choix} ({_fmt(mise)} {CURRENCY})\n\n"
         f"{msg}{source_msg}\n"
-        f"Solde : {_fmt(new_bal)} $"
+        f"Solde : {_fmt(new_bal)} {CURRENCY}"
     )
 
 
@@ -382,14 +383,14 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s    = reels[0]
         mult = {"💎": 50, "7️⃣": 30, "⭐": 15, "🍇": 8, "🍊": 5, "🍋": 3, "🍒": 2}.get(s, 2)
         gain = mise * mult
-        msg  = f"🎰 JACKPOT ! x{mult} — +{_fmt(gain)} $ !"
+        msg  = f"🎰 JACKPOT ! x{mult} — +{_fmt(gain)} {CURRENCY} !"
         delta = gain
     elif reels[0] == reels[1] or reels[1] == reels[2]:
         gain  = mise // 2
-        msg   = f"Deux identiques ! +{_fmt(gain)} $."
+        msg   = f"Deux identiques ! +{_fmt(gain)} {CURRENCY}."
         delta = gain
     else:
-        msg   = f"Rien. -{_fmt(mise)} $."
+        msg   = f"Rien. -{_fmt(mise)} {CURRENCY}."
         delta = -mise
 
     async with AsyncSessionLocal() as session:
@@ -412,7 +413,7 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎰 SLOTS\n"
         f"[ {reels[0]} | {reels[1]} | {reels[2]} ]\n\n"
         f"{msg}{source_msg}\n"
-        f"Solde : {_fmt(new_bal)} $"
+        f"Solde : {_fmt(new_bal)} {CURRENCY}"
     )
 
 

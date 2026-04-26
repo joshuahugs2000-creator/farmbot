@@ -11,6 +11,7 @@ from telegram.ext import Application, ContextTypes
 
 from database.db import AsyncSessionLocal, add_coins
 from utils.helpers import ensure_user
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ async def _spawn_chest(context: ContextTypes.DEFAULT_TYPE):
         chat_id=group_id,
         text=(
             "🎁 <b>Un coffre mystère est apparu !</b>\n\n"
-            f"Il contient <b>{fmt} $</b>\n\n"
+            f"Il contient <b>{fmt} {CURRENCY}</b>\n\n"
             "Le premier à taper /open le remporte !\n"
             "⏳ Disparaît dans 60 secondes…"
         ),
@@ -97,8 +98,8 @@ async def open_chest_cmd(update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"🎉 <b>{update.effective_user.first_name}</b> a ouvert le coffre mystère !\n"
-        f"💰 Gain : <b>{fmt_amount} $</b>\n"
-        f"Solde : {fmt_bal} $",
+        f"💰 Gain : <b>{fmt_amount} {CURRENCY}</b>\n"
+        f"Solde : {fmt_bal} {CURRENCY}",
         parse_mode="HTML",
     )
 

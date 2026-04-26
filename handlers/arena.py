@@ -23,6 +23,7 @@ from database.db import AsyncSessionLocal, get_user, deduct_for_game, add_coins_
 from utils.helpers import ensure_user, parse_target, mention
 
 import sqlalchemy as sa
+from config import CURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,8 @@ def _cockfight_lobby_text(session: dict, seconds_left: int) -> str:
     total1 = sum(bets1.values())
     total2 = sum(bets2.values())
 
-    lines1 = [f"  • {n} — <b>{_fmt(m)} $</b>" for n, m in bets1.items()] or ["  <i>Aucun parieur</i>"]
-    lines2 = [f"  • {n} — <b>{_fmt(m)} $</b>" for n, m in bets2.items()] or ["  <i>Aucun parieur</i>"]
+    lines1 = [f"  • {n} — <b>{_fmt(m)} {CURRENCY}</b>" for n, m in bets1.items()] or ["  <i>Aucun parieur</i>"]
+    lines2 = [f"  • {n} — <b>{_fmt(m)} {CURRENCY}</b>" for n, m in bets2.items()] or ["  <i>Aucun parieur</i>"]
 
     return (
         f"🐔 <b>COMBAT DE COQS — Phase de paris</b>\n"
@@ -95,10 +96,10 @@ def _cockfight_lobby_text(session: dict, seconds_left: int) -> str:
         f"{coq1['emoji']} <b>{coq1['nom']}</b>\n{_coq_stats(coq1)}\n\n"
         f"{coq2['emoji']} <b>{coq2['nom']}</b>\n{_coq_stats(coq2)}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💰 Mise du combat : <b>{_fmt(mise)} $</b>\n\n"
-        f"🏟️ <b>Parieurs sur {coq1['nom']} ({_fmt(total1)} $)</b>\n"
+        f"💰 Mise du combat : <b>{_fmt(mise)} {CURRENCY}</b>\n\n"
+        f"🏟️ <b>Parieurs sur {coq1['nom']} ({_fmt(total1)} {CURRENCY})</b>\n"
         + "\n".join(lines1) + "\n\n"
-        f"🏟️ <b>Parieurs sur {coq2['nom']} ({_fmt(total2)} $)</b>\n"
+        f"🏟️ <b>Parieurs sur {coq2['nom']} ({_fmt(total2)} {CURRENCY})</b>\n"
         + "\n".join(lines2) + "\n\n"
         f"⏳ Combat dans <b>{seconds_left}s</b> — Place tes paris !"
     )
@@ -192,14 +193,14 @@ async def cockfight_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mise = int(args[0])
     if mise < 1000:
-        return await update.message.reply_text("❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML)
+        return await update.message.reply_text("❌ Mise minimum : <b>1 000 {CURRENCY}</b>", parse_mode=ParseMode.HTML)
 
     await ensure_user(user)
     async with AsyncSessionLocal() as session:
         bal = await _get_balance(session, user.id)
         if bal < mise:
             return await update.message.reply_text(
-                f"❌ Solde insuffisant ! Tu as <b>{_fmt(bal)} $</b>", parse_mode=ParseMode.HTML
+                f"❌ Solde insuffisant ! Tu as <b>{_fmt(bal)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
             )
         await _deduct_coins(session, user.id, mise)
 
@@ -298,13 +299,13 @@ async def _cockfight_resolve(context, chat_id: int, tg_chat_id: int):
     if bets_winners:
         paris_result += f"\n\n🏆 <b>Parieurs gagnants :</b>\n"
         for name, m in (s["bets1"] if winner_num == 1 else s["bets2"]).items():
-            paris_result += f"  ✅ {name} — mise {_fmt(m)} $\n"
+            paris_result += f"  ✅ {name} — mise {_fmt(m)} {CURRENCY}\n"
     if (s["bets2"] if winner_num == 1 else s["bets1"]):
         paris_result += f"\n💸 <b>Parieurs perdants :</b>\n"
         for name, m in (s["bets2"] if winner_num == 1 else s["bets1"]).items():
-            paris_result += f"  ❌ {name} — {_fmt(m)} $ perdus\n"
+            paris_result += f"  ❌ {name} — {_fmt(m)} {CURRENCY} perdus\n"
 
-    org_result = f"✅ +{_fmt(int(mise * 0.8))} $" if winner_num == 1 else f"❌ -{_fmt(mise)} $"
+    org_result = f"✅ +{_fmt(int(mise * 0.8))} {CURRENCY}" if winner_num == 1 else f"❌ -{_fmt(mise)} {CURRENCY}"
 
     result_text = (
         f"🐔 <b>COMBAT TERMINÉ !</b>\n"
@@ -355,7 +356,7 @@ async def cockfight_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     async with AsyncSessionLocal() as session:
         bal = await _get_balance(session, user.id)
         if bal < bet_amount:
-            return await query.answer(f"❌ Il te faut au moins {_fmt(bet_amount)} $ pour parier !", show_alert=True)
+            return await query.answer(f"❌ Il te faut au moins {_fmt(bet_amount)} {CURRENCY} pour parier !", show_alert=True)
         await _deduct_coins(session, user.id, bet_amount)
 
     coq_cible = s["coq1"] if coq_num == 1 else s["coq2"]
@@ -367,7 +368,7 @@ async def cockfight_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         s["bets2"][user.first_name] = bet_amount
         s["bets2_ids"][user.id] = bet_amount
 
-    await query.answer(f"✅ Tu as parié {_fmt(bet_amount)} $ sur {coq_cible['nom']} !", show_alert=True)
+    await query.answer(f"✅ Tu as parié {_fmt(bet_amount)} {CURRENCY} sur {coq_cible['nom']} !", show_alert=True)
 
     # Mise à jour du message
     try:
@@ -408,19 +409,19 @@ def _ppc_lobby_text(s: dict, seconds_left: int) -> str:
     j1_status = "✅ Prêt" if s["j1_choice"] else "⏳ En attente..."
     j2_status = "✅ Prêt" if s["j2_choice"] else "⏳ En attente..."
 
-    lines1 = [f"  • {n} — {_fmt(m)} $" for n, m in bets1.items()] or ["  <i>Aucun parieur</i>"]
-    lines2 = [f"  • {n} — {_fmt(m)} $" for n, m in bets2.items()] or ["  <i>Aucun parieur</i>"]
+    lines1 = [f"  • {n} — {_fmt(m)} {CURRENCY}" for n, m in bets1.items()] or ["  <i>Aucun parieur</i>"]
+    lines2 = [f"  • {n} — {_fmt(m)} {CURRENCY}" for n, m in bets2.items()] or ["  <i>Aucun parieur</i>"]
 
     return (
         f"✂️ <b>PIERRE PAPIER CISEAUX — Duel</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🔴 <b>{j1_name}</b> — {j1_status}\n"
         f"🔵 <b>{j2_name}</b> — {j2_status}\n\n"
-        f"💰 Mise : <b>{_fmt(mise)} $</b>\n"
+        f"💰 Mise : <b>{_fmt(mise)} {CURRENCY}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📣 <b>Parieurs sur {j1_name} ({_fmt(total1)} $)</b>\n"
+        f"📣 <b>Parieurs sur {j1_name} ({_fmt(total1)} {CURRENCY})</b>\n"
         + "\n".join(lines1) + "\n\n"
-        f"📣 <b>Parieurs sur {j2_name} ({_fmt(total2)} $)</b>\n"
+        f"📣 <b>Parieurs sur {j2_name} ({_fmt(total2)} {CURRENCY})</b>\n"
         + "\n".join(lines2) + "\n\n"
         f"⏳ Révélation dans <b>{seconds_left}s</b>"
     )
@@ -490,7 +491,7 @@ async def ppc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Indique une mise ! Ex : <code>/ppc @joueur 5000</code>", parse_mode=ParseMode.HTML)
 
     if mise < 1000:
-        return await update.message.reply_text("❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML)
+        return await update.message.reply_text("❌ Mise minimum : <b>1 000 {CURRENCY}</b>", parse_mode=ParseMode.HTML)
 
     # Vérifier soldes
     await ensure_user(user)
@@ -501,9 +502,9 @@ async def ppc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bal2 = await _get_balance(session, target_tg.id)
 
         if bal1 < mise:
-            return await update.message.reply_text(f"❌ {user.first_name} n'a pas assez de coins !")
+            return await update.message.reply_text(f"❌ {user.first_name} n'a pas assez de {CURRENCY} !")
         if bal2 < mise:
-            return await update.message.reply_text(f"❌ {target_tg.first_name} n'a pas assez de coins !")
+            return await update.message.reply_text(f"❌ {target_tg.first_name} n'a pas assez de {CURRENCY} !")
 
         await _deduct_coins(session, user.id, mise)
         await _deduct_coins(session, target_tg.id, mise)
@@ -639,18 +640,18 @@ async def _ppc_resolve(context, chat_id: int, tg_chat_id: int):
         if bets_w:
             paris_txt += "\n🏆 <b>Parieurs gagnants :</b>\n"
             for name, m in bets_w.items():
-                paris_txt += f"  ✅ {name} — {_fmt(m)} $ misés\n"
+                paris_txt += f"  ✅ {name} — {_fmt(m)} {CURRENCY} misés\n"
         if bets_l:
             paris_txt += "\n💸 <b>Parieurs perdants :</b>\n"
             for name, m in bets_l.items():
-                paris_txt += f"  ❌ {name} — {_fmt(m)} $ perdus\n"
+                paris_txt += f"  ❌ {name} — {_fmt(m)} {CURRENCY} perdus\n"
 
         outcome = (
             f"🏆 <b>VICTOIRE DE {w_name.upper()} !</b>\n\n"
             f"🔴 {j1_name} : {e1} <b>{c1.upper()}</b>\n"
             f"🔵 {j2_name} : {e2} <b>{c2.upper()}</b>\n\n"
             f"⚔️ {w_choice.upper()} bat {l_choice.upper()} !\n"
-            f"💰 {w_name} remporte <b>{_fmt(mise * 2)} $</b> !"
+            f"💰 {w_name} remporte <b>{_fmt(mise * 2)} {CURRENCY}</b> !"
             f"{paris_txt}"
         )
 
@@ -729,7 +730,7 @@ async def ppc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with AsyncSessionLocal() as session:
             bal = await _get_balance(session, user.id)
             if bal < bet_amount:
-                return await query.answer(f"❌ Il te faut {_fmt(bet_amount)} $ pour parier !", show_alert=True)
+                return await query.answer(f"❌ Il te faut {_fmt(bet_amount)} {CURRENCY} pour parier !", show_alert=True)
             await _deduct_coins(session, user.id, bet_amount)
 
         cible_name = s["j1_name"] if joueur_num == 1 else s["j2_name"]
@@ -741,7 +742,7 @@ async def ppc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             s["bets2"][user.first_name] = bet_amount
             s["bets2_ids"][user.id] = bet_amount
 
-        await query.answer(f"✅ {_fmt(bet_amount)} $ pariés sur {cible_name} !", show_alert=True)
+        await query.answer(f"✅ {_fmt(bet_amount)} {CURRENCY} pariés sur {cible_name} !", show_alert=True)
 
         try:
             await query.edit_message_text(
@@ -814,18 +815,18 @@ async def _ppc_resolve_direct(context, chat_id: int, tg_chat_id: int, s: dict):
         if bets_w:
             paris_txt += "\n🏆 <b>Parieurs gagnants :</b>\n"
             for name, m in bets_w.items():
-                paris_txt += f"  ✅ {name} — {_fmt(m)} $ misés\n"
+                paris_txt += f"  ✅ {name} — {_fmt(m)} {CURRENCY} misés\n"
         if bets_l:
             paris_txt += "\n💸 <b>Parieurs perdants :</b>\n"
             for name, m in bets_l.items():
-                paris_txt += f"  ❌ {name} — {_fmt(m)} $ perdus\n"
+                paris_txt += f"  ❌ {name} — {_fmt(m)} {CURRENCY} perdus\n"
 
         outcome = (
             f"🏆 <b>VICTOIRE DE {w_name.upper()} !</b>\n\n"
             f"🔴 {j1_name} : {e1} <b>{c1.upper()}</b>\n"
             f"🔵 {j2_name} : {e2} <b>{c2.upper()}</b>\n\n"
             f"⚔️ {w_choice.upper()} bat {l_choice.upper()} !\n"
-            f"💰 {w_name} remporte <b>{_fmt(mise * 2)} $</b> !"
+            f"💰 {w_name} remporte <b>{_fmt(mise * 2)} {CURRENCY}</b> !"
             f"{paris_txt}"
         )
 

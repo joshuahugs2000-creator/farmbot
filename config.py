@@ -51,3 +51,5 @@ MOODS = [
 ]
 
 INHERITANCE_SHARE = 0.8  # 80 % des coins transmis à la famille
+
+CURRENCY = "$"  # Symbole de la monnaie affiché aux joueurs

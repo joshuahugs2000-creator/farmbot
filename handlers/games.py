@@ -675,9 +675,9 @@ def _wheel_result_text(user_mention: str, mise: int, label: str, kind: str, val)
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🎡 Vous êtes tombé sur : <b>{label}</b>\n\n"
         f"👤 {user_mention}\n\n"
-        f"💵 Mise de départ : <b>{mise_str} coins</b>\n"
-        f"🏆 Vos revenus sont : <b>{gain_str} coins</b>\n"
-        f"{profit_icon} Bilan net : <b>{profit_str} coins</b>"
+        f"💵 Mise de départ : <b>{mise_str} $</b>\n"
+        f"🏆 Vos revenus sont : <b>{gain_str} $</b>\n"
+        f"{profit_icon} Bilan net : <b>{profit_str} $</b>"
     )
     return text, gain
 

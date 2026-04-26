@@ -605,22 +605,27 @@ async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ──────────────────────────────────────────────────────────────────────────────
 
 WHEEL_SEGMENTS = [
-    # label                    type      valeur       poids
-    ("💀 Ruine totale",       "ruine",   0,             4),
-    ("😭 x0.1",               "mult",    0.1,           6),
-    ("😞 x0.3",               "mult",    0.3,           8),
-    ("🔄 IDEM",               "idem",    0,            12),
-    ("😐 x0.5",               "mult",    0.5,          10),
-    ("💵 +100 000 $",         "fixed",   100_000,       8),
-    ("🙂 x0.8",               "mult",    0.8,          10),
-    ("💰 x1.5",               "mult",    1.5,          15),
-    ("💵 +500 000 $",         "fixed",   500_000,       5),
-    ("🤑 x2.0",               "mult",    2.0,          10),
-    ("🎯 x3.0",               "mult",    3.0,           7),
-    ("💵 +1 000 000 $",       "fixed",   1_000_000,     3),
-    ("⭐ x5.0",               "mult",    5.0,           4),
-    ("🔥 x10.0",              "mult",    10.0,          2),
-    ("💎 JACKPOT x25.0",      "mult",    25.0,          1),
+    # label                         type      valeur       poids
+    ("💀 Ruine totale",            "ruine",   0,            6),   # +2
+    ("☠️ Malédiction x0.1",       "mult",    0.1,          10),  # +4
+    ("😭 x0.2",                    "mult",    0.2,           9),  # nouveau
+    ("😞 x0.3",                    "mult",    0.3,          10),  # +2
+    ("💸 x0.4",                    "mult",    0.4,           9),  # nouveau
+    ("😐 x0.5",                    "mult",    0.5,           9),  # -1
+    ("🔄 IDEM",                    "idem",    0,            10),  # -2
+    ("🙂 x0.8",                    "mult",    0.8,           9),
+    ("💵 +50 000 $",               "fixed",   50_000,        6),  # nouveau
+    ("💰 x1.2",                    "mult",    1.2,           8),  # nouveau
+    ("💵 +200 000 $",              "fixed",   200_000,       6),
+    ("💰 x1.5",                    "mult",    1.5,          10),
+    ("🎁 +500 000 $",              "fixed",   500_000,       4),
+    ("🤑 x2.0",                    "mult",    2.0,           7),
+    ("🎯 x3.0",                    "mult",    3.0,           5),
+    ("💵 +1 000 000 $",            "fixed",   1_000_000,     3),
+    ("⭐ x5.0",                    "mult",    5.0,           3),
+    ("🔥 x10.0",                   "mult",    10.0,          2),
+    ("🌟 MÉGA CHANCE x15.0",       "mult",    15.0,          1),
+    ("💎 JACKPOT x25.0",           "mult",    25.0,          1),
 ]
 
 
@@ -664,14 +669,15 @@ def _wheel_result_text(user_mention: str, mise: int, label: str, kind: str, val)
     gain_str   = _fmt(gain)
     profit_str = (f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit))
 
+    profit_icon = "📈" if profit >= 0 else "📉"
     text = (
         f"{emoji} <b>{title}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎡 Résultat : <b>{label}</b>\n\n"
-        f"{user_mention}\n"
-        f"💵 Mise     : <b>{mise_str} $</b>\n"
-        f"🏆 Gain     : <b>{gain_str} $</b>\n"
-        f"{'📈' if profit >= 0 else '📉'} Résultat   : <b>{profit_str} $</b>"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎡 Vous êtes tombé sur : <b>{label}</b>\n\n"
+        f"👤 {user_mention}\n\n"
+        f"💵 Mise de départ : <b>{mise_str} coins</b>\n"
+        f"🏆 Vos revenus sont : <b>{gain_str} coins</b>\n"
+        f"{profit_icon} Bilan net : <b>{profit_str} coins</b>"
     )
     return text, gain
 
@@ -712,32 +718,38 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         await _add_coins(session, user.id, -mise)
 
+    # Calculer le résultat AVANT l'animation pour éviter tout blocage
+    label, kind, val = _spin_wheel()
+    result_text, gain = _wheel_result_text(mention(user), mise, label, kind, val)
+
     animation_frames = [
-        "🎡 La roue tourne...",
-        "🎡 ⠋ En cours...",
-        "🎡 ⠙ Tourne encore...",
-        "🎡 ⠹ Ralentit...",
-        "🎡 ⠸ Ça ralentit...",
-        "🎡 ⠼ Presque arrêtée...",
-        "🎡 ⠴ Stop imminent...",
-        "🎡 ⠦ Et c'est...",
+        "🎡 <b>La roue est lancée...</b>",
+        "🎡 ⠋ <i>Elle tourne à pleine vitesse !</i>",
+        "🎡 ⠙ <i>Ça s'emballe...</i>",
+        "🎡 ⠹ <i>La roue ralentit...</i>",
+        "🎡 ⠸ <i>Encore un tour...</i>",
+        "🎡 ⠼ <i>Presque là...</i>",
+        "🎡 ⠴ <i>Elle s'arrête...</i>",
+        f"🎡 ⠦ <i>Vous êtes tombé sur... <b>{label}</b> !</i>",
     ]
 
-    msg = await update.message.reply_text(animation_frames[0])
+    msg = await update.message.reply_text(animation_frames[0], parse_mode=ParseMode.HTML)
     for frame in animation_frames[1:]:
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.6)
         try:
-            await msg.edit_text(frame)
+            await msg.edit_text(frame, parse_mode=ParseMode.HTML)
         except Exception:
             pass
 
-    label, kind, val = _spin_wheel()
-    result_text, gain = _wheel_result_text(mention(user), mise, label, kind, val)
+    await asyncio.sleep(0.8)
 
     async with AsyncSessionLocal() as session:
         await _add_coins(session, user.id, gain)
 
-    await msg.edit_text(result_text, parse_mode=ParseMode.HTML)
+    try:
+        await msg.edit_text(result_text, parse_mode=ParseMode.HTML)
+    except Exception:
+        await update.message.reply_text(result_text, parse_mode=ParseMode.HTML)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

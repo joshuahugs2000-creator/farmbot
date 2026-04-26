@@ -1,5 +1,6 @@
 import io, random, logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from handlers.journal import log_event
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 

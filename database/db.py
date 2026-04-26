@@ -383,7 +383,7 @@ MAX_COINS = 9_000_000_000_000_000_000  # max BIGINT PostgreSQL
 
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
-    """Ajoute (ou retire si négatif) des coins. F-strings pour éviter l'inférence de type asyncpg."""
+    """Ajoute (ou retire si négatif) des $. F-strings pour éviter l'inférence de type asyncpg."""
     import asyncpg
     uid = int(user_id)
     amt = int(amount)
@@ -419,7 +419,7 @@ async def set_coins(user_id: int, amount: int) -> int:
 
 
 async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount: int) -> str:
-    """Transfère des coins. F-strings pour éviter l'inférence de type asyncpg."""
+    """Transfère des $. F-strings pour éviter l'inférence de type asyncpg."""
     import asyncpg
     uid_from = int(from_id)
     uid_to   = int(to_id)

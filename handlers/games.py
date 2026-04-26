@@ -790,7 +790,6 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎡 ⠸ <i>Encore un tour...</i>",
         "🎡 ⠼ <i>Presque là...</i>",
         "🎡 ⠴ <i>Elle s'arrête...</i>",
-        f"🎡 ⠦ <i>Vous êtes tombé sur... <b>{label}</b> !</i>",
     ]
 
     msg = await update.message.reply_text(animation_frames[0], parse_mode=ParseMode.HTML)
@@ -803,13 +802,19 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await asyncio.sleep(0.8)
 
+    # Créditer les gains AVANT d'afficher le verdict
     async with AsyncSessionLocal() as session:
         await _add_coins(session, user.id, gain)
 
+    # Afficher le verdict — toujours en reply_text pour éviter le blocage
+    await asyncio.sleep(0.4)
+    await update.message.reply_text(result_text, parse_mode=ParseMode.HTML)
+
+    # Supprimer le message d'animation
     try:
-        await msg.edit_text(result_text, parse_mode=ParseMode.HTML)
+        await msg.delete()
     except Exception:
-        await update.message.reply_text(result_text, parse_mode=ParseMode.HTML)
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

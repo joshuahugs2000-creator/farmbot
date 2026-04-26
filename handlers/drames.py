@@ -143,7 +143,8 @@ async def _get_target_info(update, context):
         except ValueError:
             pass
 
-    db_user = await get_user(target.id)
+    async with AsyncSessionLocal() as _sess:
+        db_user = await get_user(_sess, target.id)
     if not db_user:
         await update.message.reply_text("❌ Ce joueur n'existe pas en base de données.")
         return None, None
@@ -322,7 +323,8 @@ async def _drame_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Cible introuvable.")
         return
 
-    db_user = await get_user(target.id)
+    async with AsyncSessionLocal() as _sess:
+        db_user = await get_user(_sess, target.id)
     if not db_user:
         await update.message.reply_text("❌ Joueur introuvable en base.")
         return

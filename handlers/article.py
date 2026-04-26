@@ -281,7 +281,7 @@ async def article_cmd(update, context):
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{article}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>📡 Reportage exclusif — Rédaction FarmBot News</i>"
+        f"<i>📡 Reportage exclusif — Rédaction Family Bot News ❤️</i>"
     )
 
     try:

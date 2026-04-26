@@ -23,6 +23,8 @@ from telegram.constants import ParseMode
 from sqlalchemy import text
 
 from database.db import AsyncSessionLocal, get_user
+from database.models import GroupSettings, User
+from sqlalchemy import select
 from handlers.admin import is_admin, _deny
 from utils.helpers import parse_target, mention
 
@@ -250,6 +252,35 @@ async def _destroy_portfolio(user_id: int, percent: int) -> tuple[int, int]:
 
     return valeur_detruite, n_detruire
 
+
+async def _notify_victim(context, db_user, message: str):
+    """Envoie le message du drame à la victime en DM + dans tous les groupes."""
+    # DM à la victime
+    try:
+        await context.bot.send_message(
+            chat_id=db_user.user_id,
+            text=message,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+
+    # Tous les groupes où le bot est actif
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(GroupSettings))
+        groups = res.scalars().all()
+
+    for g in groups:
+        try:
+            await context.bot.send_message(
+                chat_id=g.group_id,
+                text=message,
+                parse_mode=ParseMode.HTML
+            )
+        except Exception:
+            pass
+
+
 # ─── /drame scandale ──────────────────────────────────────────────────────────
 
 async def _drame_scandale(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -261,16 +292,17 @@ async def _drame_scandale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     percent = random.randint(pmin, pmax)
     perte, nouveau = await _deduct_coins(db_user.user_id, percent)
 
-    await update.message.reply_text(
+    msg_scandale = (
         f"{emoji} <b>SCANDALE MÉDIATIQUE !</b>\n\n"
         f"👤 Victime : <b>{db_user.first_name}</b>\n"
         f"📰 {desc}\n\n"
         f"📉 Perte : <b>{percent}%</b> de sa fortune\n"
         f"💸 Montant perdu : <b>{_fmt(perte)} coins</b>\n"
         f"💰 Solde restant : <b>{_fmt(nouveau)} coins</b>\n\n"
-        f"😱 <i>La réputation coûte cher...</i>",
-        parse_mode=ParseMode.HTML
+        f"😱 <i>La réputation coûte cher...</i>"
     )
+    await update.message.reply_text(msg_scandale, parse_mode=ParseMode.HTML)
+    await _notify_victim(context, db_user, msg_scandale)
 
 # ─── /drame catastrophe ───────────────────────────────────────────────────────
 
@@ -287,26 +319,28 @@ async def _drame_catastrophe(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if nb_positions == 0:
         # Pas de portfolio → perte de coins à la place
         perte, nouveau = await _deduct_coins(db_user.user_id, percent)
-        await update.message.reply_text(
+        msg_catast = (
             f"{emoji} <b>CATASTROPHE NATURELLE !</b>\n\n"
             f"👤 Victime : <b>{db_user.first_name}</b>\n"
             f"🌍 {desc}\n\n"
             f"📊 Pas de portfolio — pertes directes sur les coins\n"
             f"💸 Montant perdu : <b>{_fmt(perte)} coins</b>\n"
             f"💰 Solde restant : <b>{_fmt(nouveau)} coins</b>\n\n"
-            f"😰 <i>La nature est impitoyable...</i>",
-            parse_mode=ParseMode.HTML
+            f"😰 <i>La nature est impitoyable...</i>"
         )
+        await update.message.reply_text(msg_catast, parse_mode=ParseMode.HTML)
+        await _notify_victim(context, db_user, msg_catast)
     else:
-        await update.message.reply_text(
+        msg_catast = (
             f"{emoji} <b>CATASTROPHE NATURELLE !</b>\n\n"
             f"👤 Victime : <b>{db_user.first_name}</b>\n"
             f"🌍 {desc}\n\n"
             f"📊 <b>{nb_positions} position(s)</b> détruites dans son portfolio\n"
             f"💸 Valeur anéantie : <b>~{_fmt(valeur_detruite)} coins</b>\n\n"
-            f"😰 <i>La nature est impitoyable...</i>",
-            parse_mode=ParseMode.HTML
+            f"😰 <i>La nature est impitoyable...</i>"
         )
+        await update.message.reply_text(msg_catast, parse_mode=ParseMode.HTML)
+        await _notify_victim(context, db_user, msg_catast)
 
 # ─── /drame fisc ──────────────────────────────────────────────────────────────
 
@@ -319,16 +353,17 @@ async def _drame_fisc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     percent = random.randint(pmin, pmax)
     perte, nouveau = await _deduct_coins(db_user.user_id, percent)
 
-    await update.message.reply_text(
+    msg_fisc = (
         f"{emoji} <b>CONTRÔLE FISCAL !</b>\n\n"
         f"👤 Contribuable : <b>{db_user.first_name}</b>\n"
         f"📋 {desc}\n\n"
         f"🏛️ Taux d'imposition forcé : <b>{percent}%</b>\n"
         f"💸 Impôts prélevés : <b>{_fmt(perte)} coins</b>\n"
         f"💰 Solde restant : <b>{_fmt(nouveau)} coins</b>\n\n"
-        f"⚖️ <i>Nul n'est au-dessus des lois fiscales.</i>",
-        parse_mode=ParseMode.HTML
+        f"⚖️ <i>Nul n'est au-dessus des lois fiscales.</i>"
     )
+    await update.message.reply_text(msg_fisc, parse_mode=ParseMode.HTML)
+    await _notify_victim(context, db_user, msg_fisc)
 
 # ─── /drame crise ─────────────────────────────────────────────────────────────
 
@@ -360,6 +395,7 @@ async def _drame_crise(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += f"\n🌍 <i>Les crises ne préviennent pas...</i>"
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    await _notify_victim(context, db_user, msg)
 
 # ─── /drame info ──────────────────────────────────────────────────────────────
 

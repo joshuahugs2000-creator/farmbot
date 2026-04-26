@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 
 from telegram import Update
+from handlers.journal import log_event
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import text
@@ -303,6 +304,7 @@ async def _drame_scandale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg_scandale, parse_mode=ParseMode.HTML)
     await _notify_victim(context, db_user, msg_scandale)
+    await log_event('drame_scandale', victim=db_user.first_name, amount=_fmt(perte))
 
 # ─── /drame catastrophe ───────────────────────────────────────────────────────
 
@@ -364,6 +366,7 @@ async def _drame_fisc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg_fisc, parse_mode=ParseMode.HTML)
     await _notify_victim(context, db_user, msg_fisc)
+    await log_event('drame_fisc', victim=db_user.first_name, amount=_fmt(perte))
 
 # ─── /drame crise ─────────────────────────────────────────────────────────────
 

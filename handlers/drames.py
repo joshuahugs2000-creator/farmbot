@@ -122,8 +122,19 @@ async def setdramesesuil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── HELPERS INTERNES ─────────────────────────────────────────────────────────
 
+async def _get_bank_total(user_id: int) -> int:
+    """Retourne le total de tous les comptes bancaires du joueur."""
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            text("SELECT COALESCE(SUM(balance), 0) FROM bank_accounts WHERE user_id = :uid"),
+            {"uid": user_id}
+        )
+        row = res.fetchone()
+        return int(row[0]) if row else 0
+
+
 async def _get_target_info(update, context):
-    """Résout la cible et vérifie le seuil. Retourne (db_user, seuil_effectif) ou (None, None)."""
+    """Résout la cible et vérifie le seuil (coins + banques). Retourne (db_user, seuil_effectif) ou (None, None)."""
     target = await parse_target(update, context)
     if not target:
         await update.message.reply_text(
@@ -149,10 +160,15 @@ async def _get_target_info(update, context):
         await update.message.reply_text("❌ Ce joueur n'existe pas en base de données.")
         return None, None
 
-    if db_user.coins < seuil:
+    # Fortune totale = coins + banques
+    bank_total = await _get_bank_total(db_user.user_id)
+    fortune_totale = db_user.coins + bank_total
+
+    if fortune_totale < seuil:
         await update.message.reply_text(
             f"⚠️ <b>{db_user.first_name}</b> n'atteint pas le seuil !\n"
-            f"💰 Sa fortune : <b>{_fmt(db_user.coins)} coins</b>\n"
+            f"💰 Coins : <b>{_fmt(db_user.coins)}</b> | 🏦 Banques : <b>{_fmt(bank_total)}</b>\n"
+            f"📊 Fortune totale : <b>{_fmt(fortune_totale)} coins</b>\n"
             f"📊 Seuil requis : <b>{_fmt(seuil)} coins</b>\n\n"
             f"Utilise <code>/setdramesesuil [montant]</code> pour ajuster le seuil.",
             parse_mode=ParseMode.HTML
@@ -162,21 +178,51 @@ async def _get_target_info(update, context):
     return db_user, seuil
 
 async def _deduct_coins(user_id: int, percent: int) -> tuple[int, int]:
-    """Retire X% des coins. Retourne (montant_perdu, nouveau_solde)."""
+    """Retire X% de la fortune totale (coins + banques). Retourne (montant_perdu, nouveau_solde_coins)."""
     async with AsyncSessionLocal() as session:
+        # Récupérer coins
         res = await session.execute(
             text("SELECT coins FROM users WHERE user_id = :uid"), {"uid": user_id}
         )
         row = res.fetchone()
-        coins = row[0] if row else 0
-        perte = int(coins * percent / 100)
-        nouveau = max(0, coins - perte)
+        coins = int(row[0]) if row else 0
+
+        # Récupérer comptes bancaires
+        res2 = await session.execute(
+            text("SELECT id, balance FROM bank_accounts WHERE user_id = :uid AND balance > 0"),
+            {"uid": user_id}
+        )
+        bank_rows = res2.fetchall()
+        bank_total = sum(int(r[1]) for r in bank_rows)
+
+        fortune_totale = coins + bank_total
+        perte_totale = int(fortune_totale * percent / 100)
+
+        # D'abord on prend sur les coins
+        perte_coins = min(coins, perte_totale)
+        nouveau_coins = max(0, coins - perte_coins)
+        reste_a_prendre = perte_totale - perte_coins
+
         await session.execute(
             text("UPDATE users SET coins = :c WHERE user_id = :uid"),
-            {"c": nouveau, "uid": user_id}
+            {"c": nouveau_coins, "uid": user_id}
         )
+
+        # Si reste, on prend sur les banques proportionnellement
+        if reste_a_prendre > 0 and bank_total > 0:
+            for bank_id, balance in bank_rows:
+                balance = int(balance)
+                if balance <= 0:
+                    continue
+                part = int(balance * reste_a_prendre / bank_total)
+                nouveau_bank = max(0, balance - part)
+                await session.execute(
+                    text("UPDATE bank_accounts SET balance = :b WHERE id = :id"),
+                    {"b": nouveau_bank, "id": bank_id}
+                )
+
         await session.commit()
-    return perte, nouveau
+    return perte_totale, nouveau_coins
 
 async def _destroy_portfolio(user_id: int, percent: int) -> tuple[int, int]:
     """Détruit X% de la valeur du portfolio (supprime des positions actives).

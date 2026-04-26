@@ -224,3 +224,16 @@ def setup_journal_jobs(app):
         time=dtime(hour=19, minute=0),
         name="daily_journal",
     )
+
+
+# ─── /testjournal (admin) ─────────────────────────────────────────────────────
+
+async def testjournal_cmd(update, context):
+    """Force l'envoi du journal maintenant — commande admin."""
+    from handlers.admin import is_admin
+    if not await is_admin(update.effective_user.id):
+        return await update.message.reply_text("❌ Réservé aux admins.")
+
+    await update.message.reply_text("📡 Envoi du journal en cours...")
+    await post_daily_journal(context)
+    await update.message.reply_text("✅ Journal envoyé dans tous les groupes.")

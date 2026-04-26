@@ -75,7 +75,7 @@ from handlers.wealth_drain import (
 )
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
-from handlers.journal import init_journal_table, setup_journal_jobs
+from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal
 
 logging.basicConfig(
@@ -362,6 +362,7 @@ async def main():
     setup_lottery_jobs(app)
     setup_auction_jobs(app)
     setup_journal_jobs(app)
+    app.add_handler(CommandHandler("testjournal", testjournal_cmd))
 
     # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────
     async def health(request):

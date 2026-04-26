@@ -161,7 +161,7 @@ async def error_handler(update: object, context):
     if isinstance(update, Update) and update.message:
         try:
             await update.message.reply_text(
-                f"Erreur interne : {type(context.error).__name__}: {context.error}"
+                "⚠️ Une erreur s'est produite. Réessaie dans quelques instants."
             )
         except Exception:
             pass

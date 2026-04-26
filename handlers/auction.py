@@ -294,20 +294,11 @@ async def _close_auction(context: ContextTypes.DEFAULT_TYPE):
 # ─── JOB AUTOMATIQUE ──────────────────────────────────────────────────────────
 
 async def _auction_job(context: ContextTypes.DEFAULT_TYPE):
-    """Déclenche des enchères dans tous les groupes actifs."""
+    """Déclenche des enchères dans tous les groupes enregistrés."""
     async with AsyncSessionLocal() as session:
-        # Groupes actifs dans les dernières 48h
-        res = await session.execute(text("""
-            SELECT DISTINCT group_id FROM user_bets
-            WHERE created_at > NOW() - INTERVAL '48 hours'
-            UNION
-            SELECT DISTINCT group_id FROM gardens
-            WHERE planted_at > NOW() - INTERVAL '48 hours'
-            UNION
-            SELECT DISTINCT group_id FROM auction_sessions
-            WHERE started_at > NOW() - INTERVAL '7 days'
-            LIMIT 50
-        """))
+        res = await session.execute(text(
+            "SELECT DISTINCT group_id FROM group_settings"
+        ))
         groups = [row[0] for row in res.fetchall()]
 
     for group_id in groups:

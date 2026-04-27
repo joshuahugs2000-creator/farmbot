@@ -89,7 +89,8 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/adminadd @user — Ajouter un admin\n"
         "/adminremove @user — Retirer un admin\n"
         "/adminlist — Liste des admins actuels\n"
-        "/userlist — Liste de tous les utilisateurs enregistrés\n\n"
+        "/userlist — Liste de tous les utilisateurs enregistrés\n"
+        "/enquete @user — Rapport d'enquête complet (triche, fortune, activité)\n\n"
         "<b>📢 Communication</b>\n"
         "/broadcast [message] — Message à tous les utilisateurs\n\n"
         "<b>🎭 Drames économiques</b>\n"
@@ -980,3 +981,255 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"\n<i>… et {len(events) - 40} autres événements.</i>")
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── /enquete ────────────────────────────────────────────────────────────────
+
+SEUIL_COINS_SUSPECT = 1_000_000_000  # 1 milliard
+
+
+async def enquete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Rapport d'enquête complet sur un utilisateur.
+    Usage : /enquete @username  OU en réponse à un message
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    target_tg = await parse_target(update, context)
+    if not target_tg:
+        return await update.message.reply_text(
+            "Usage : /enquete @username\nOu utilise la commande en réponse au message d'un utilisateur."
+        )
+
+    target = await ensure_user(target_tg)
+    uid = target.user_id
+
+    async with AsyncSessionLocal() as session:
+        u = await get_user(session, uid)
+        if not u:
+            return await update.message.reply_text("❌ Utilisateur introuvable en base.")
+
+        # ── Banque ────────────────────────────────────────────────────────────
+        bank_res = await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid)
+        )
+        accounts = bank_res.scalars().all()
+        total_banked = sum(a.balance for a in accounts)
+
+        # ── Prêts ─────────────────────────────────────────────────────────────
+        loan_res = await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == "active")
+        )
+        loans = loan_res.scalars().all()
+        total_debt = sum(l.remaining for l in loans)
+
+        # ── Investissements ───────────────────────────────────────────────────
+        inv_res = await session.execute(
+            select(Investment).where(Investment.user_id == uid, Investment.status == "active")
+        )
+        investments = inv_res.scalars().all()
+        total_invest = sum(
+            i.buy_price * i.quantity for i in investments
+        )
+
+        # ── Compte commun ─────────────────────────────────────────────────────
+        couple_row = await session.execute(
+            text("SELECT balance FROM couple_accounts WHERE user1_id=:uid OR user2_id=:uid LIMIT 1"),
+            {"uid": uid}
+        )
+        couple_bal = couple_row.fetchone()
+        compte_commun = couple_bal[0] if couple_bal else 0
+
+        # ── Relations ─────────────────────────────────────────────────────────
+        from database.models import Relationship, RelationType
+        rel_res = await session.execute(
+            select(Relationship).where(
+                (Relationship.user_id == uid) | (Relationship.related_user_id == uid)
+            )
+        )
+        all_rels = rel_res.scalars().all()
+        spouse_ids   = []
+        children_ids = []
+        friend_ids   = []
+        for r in all_rels:
+            other = r.related_user_id if r.user_id == uid else r.user_id
+            if r.relation_type == RelationType.SPOUSE:
+                spouse_ids.append(other)
+            elif r.relation_type == RelationType.PARENT:
+                children_ids.append(other)
+            elif r.relation_type == RelationType.FRIEND:
+                friend_ids.append(other)
+
+        # ── Prison ────────────────────────────────────────────────────────────
+        prison_res = await session.execute(
+            text("SELECT * FROM crime_prison WHERE user_id=:uid"),
+            {"uid": uid}
+        )
+        prison_row = prison_res.fetchone()
+
+        # ── Bets ──────────────────────────────────────────────────────────────
+        bets_prop = await session.execute(
+            text("SELECT COUNT(*) FROM user_bets WHERE proposer_id=:uid"),
+            {"uid": uid}
+        )
+        bets_acc = await session.execute(
+            text("SELECT COUNT(*) FROM user_bets WHERE target_id=:uid AND status IN ('active','done')"),
+            {"uid": uid}
+        )
+        bets_won = await session.execute(
+            text("SELECT COUNT(*) FROM user_bets WHERE winner_id=:uid AND status='done'"),
+            {"uid": uid}
+        )
+        nb_prop = bets_prop.scalar() or 0
+        nb_acc  = bets_acc.scalar() or 0
+        nb_won  = bets_won.scalar() or 0
+
+        # Montant total gagné via bets
+        bets_gain = await session.execute(
+            text("""
+                SELECT COALESCE(SUM(amount)*2, 0)
+                FROM user_bets
+                WHERE winner_id=:uid AND status='done'
+            """),
+            {"uid": uid}
+        )
+        total_bet_gain = bets_gain.scalar() or 0
+
+        # ── Loterie ───────────────────────────────────────────────────────────
+        loto_tickets = await session.execute(
+            text("SELECT COUNT(*) FROM lottery_tickets WHERE user_id=:uid"),
+            {"uid": uid}
+        )
+        loto_wins = await session.execute(
+            text("SELECT COUNT(*) FROM lottery_sessions WHERE winner_id=:uid"),
+            {"uid": uid}
+        )
+        nb_tickets = loto_tickets.scalar() or 0
+        nb_loto_wins = loto_wins.scalar() or 0
+
+        # ── Cambriolage ───────────────────────────────────────────────────────
+        try:
+            camb_res = await session.execute(
+                text("""
+                    SELECT COUNT(*) as total,
+                           SUM(CASE WHEN success THEN 1 ELSE 0 END) as success,
+                           COALESCE(SUM(amount), 0) as total_stolen
+                    FROM cambriolage_log WHERE attacker_id=:uid
+                """),
+                {"uid": uid}
+            )
+            camb = camb_res.fetchone()
+            nb_camb = camb[0] or 0
+            nb_camb_ok = camb[1] or 0
+            total_stolen = camb[2] or 0
+        except Exception:
+            nb_camb = nb_camb_ok = total_stolen = 0
+
+        # ── Crimes (rob) ──────────────────────────────────────────────────────
+        try:
+            rob_res = await session.execute(
+                text("""
+                    SELECT COUNT(*) as total,
+                           COALESCE(SUM(amount_stolen), 0) as stolen
+                    FROM crime_prison_log WHERE user_id=:uid
+                """),
+                {"uid": uid}
+            )
+            rob = rob_res.fetchone()
+            nb_rob = rob[0] or 0
+            rob_total = rob[1] or 0
+        except Exception:
+            nb_rob = rob_total = 0
+
+    # ─── Calcul du patrimoine total ───────────────────────────────────────────
+    fortune_totale = u.coins + total_banked + total_invest + compte_commun
+
+    # ─── Détection des signaux suspects ──────────────────────────────────────
+    alertes = []
+
+    if fortune_totale > SEUIL_COINS_SUSPECT:
+        alertes.append(f"💰 Fortune totale anormalement élevée : {_fmt(fortune_totale)} {CURRENCY}")
+
+    if nb_prop + nb_acc > 0:
+        win_rate = int(nb_won / (nb_prop + nb_acc) * 100)
+        if win_rate >= 80 and nb_won >= 3:
+            alertes.append(f"🎲 Taux de victoire aux bets suspect : {win_rate}% ({nb_won}/{nb_prop + nb_acc})")
+
+    if total_bet_gain > 500_000_000:
+        alertes.append(f"🎲 Gains totaux bets : {_fmt(total_bet_gain)} {CURRENCY} (très élevé)")
+
+    if nb_loto_wins >= 3:
+        alertes.append(f"🎟️ A gagné la loterie {nb_loto_wins} fois")
+
+    if nb_camb > 0 and nb_camb_ok / nb_camb >= 0.9 and nb_camb >= 5:
+        alertes.append(f"🥷 Taux de réussite cambriolage suspect : {nb_camb_ok}/{nb_camb}")
+
+    if total_stolen > 500_000_000:
+        alertes.append(f"🥷 Total volé par cambriolage : {_fmt(total_stolen)} {CURRENCY}")
+
+    # ─── Construction du rapport ──────────────────────────────────────────────
+    prison_str = "Non"
+    if prison_row:
+        now = datetime.utcnow()
+        if now < prison_row.released_at:
+            mins = max(0, int((prison_row.released_at - now).total_seconds() / 60))
+            prison_str = f"Oui — libération dans {mins} min"
+
+    username_str = f"@{u.username}" if u.username else "—"
+    inscrit_str  = u.created_at.strftime("%d/%m/%Y à %H:%M") if u.created_at else "—"
+    daily_str    = u.last_daily or "jamais"
+    work_str     = u.last_work.strftime("%d/%m/%Y %H:%M") if u.last_work else "jamais"
+    banned_str   = "🚫 OUI" if u.is_banned else "Non"
+
+    rapport = [
+        f"🔍 <b>ENQUÊTE — {u.first_name} {username_str}</b>",
+        f"🆔 ID : <code>{uid}</code>",
+        f"📅 Inscription : {inscrit_str}",
+        f"🚫 Banni : {banned_str}",
+        f"🔒 En prison : {prison_str}",
+        "",
+        "<b>💰 PATRIMOINE</b>",
+        f"  Wallet       : {_fmt(u.coins)} {CURRENCY}",
+        f"  Banque       : {_fmt(total_banked)} {CURRENCY}",
+        f"  Investiss.   : {_fmt(total_invest)} {CURRENCY}",
+        f"  Compte commun: {_fmt(compte_commun)} {CURRENCY}",
+        f"  Dettes        : -{_fmt(total_debt)} {CURRENCY}",
+        f"  <b>TOTAL NET     : {_fmt(fortune_totale)} {CURRENCY}</b>",
+        "",
+        "<b>👨‍👩‍👧 RELATIONS</b>",
+        f"  Conjoint(s)  : {len(spouse_ids)}",
+        f"  Enfants/Parents: {len(children_ids)}",
+        f"  Amis         : {len(friend_ids)}",
+        f"  Nom de famille: {u.family_name or '—'}",
+        "",
+        "<b>🎲 PARIS (BETS)</b>",
+        f"  Créés   : {nb_prop}  |  Acceptés : {nb_acc}",
+        f"  Gagnés  : {nb_won}  |  Gains total : {_fmt(total_bet_gain)} {CURRENCY}",
+        "",
+        "<b>🎟️ LOTERIE</b>",
+        f"  Tickets achetés : {nb_tickets}  |  Victoires : {nb_loto_wins}",
+        "",
+        "<b>🥷 CRIMINALITÉ</b>",
+        f"  Cambriolages    : {nb_camb_ok}/{nb_camb} réussis — {_fmt(total_stolen)} {CURRENCY} volés",
+        f"  Emprisonné (log): {nb_rob} fois",
+        "",
+        "<b>⏱️ DERNIÈRE ACTIVITÉ</b>",
+        f"  /daily : {daily_str}",
+        f"  /work  : {work_str}",
+        f"  Karma  : {u.karma}",
+    ]
+
+    if alertes:
+        rapport.append("")
+        rapport.append("⚠️ <b>SIGNAUX SUSPECTS</b>")
+        for a in alertes:
+            rapport.append(f"  🔴 {a}")
+    else:
+        rapport.append("")
+        rapport.append("✅ <b>Aucun signal suspect détecté.</b>")
+
+    rapport.append("")
+    rapport.append(f"<i>Rapport généré le {datetime.utcnow().strftime('%d/%m/%Y à %H:%M')} UTC</i>")
+
+    await update.message.reply_text("\n".join(rapport), parse_mode=ParseMode.HTML)

@@ -411,7 +411,7 @@ async def userlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines = []
         for u in chunk:
             if u.username:
-                ref = f"@{u.username}"
+                ref = f"@{u.username} ({u.first_name})"
             else:
                 ref = f"<a href='tg://user?id={u.user_id}'>{u.first_name}</a>"
             banned = " 🚫" if u.is_banned else ""

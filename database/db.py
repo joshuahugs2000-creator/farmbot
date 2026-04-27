@@ -710,3 +710,11 @@ async def add_coins_smart(session: AsyncSession, user_id: int, amount: int):
         )
     finally:
         await conn.close()
+
+
+# ─── LISTE DE TOUS LES UTILISATEURS ──────────────────────────────────────────
+
+async def get_all_users(session: AsyncSession) -> List[User]:
+    """Retourne tous les utilisateurs enregistrés (ayant utilisé au moins une commande)."""
+    r = await session.execute(select(User).order_by(User.created_at.asc()))
+    return list(r.scalars().all())

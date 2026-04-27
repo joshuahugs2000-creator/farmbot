@@ -13,6 +13,7 @@ Commandes :
   /adminadd     — ajouter un admin
   /adminremove  — retirer un admin
   /adminlist    — liste des admins
+  /userlist     — liste de tous les utilisateurs enregistrés
   /liberer      — libérer un prisonnier (God mode)
   /emprisonner  — mettre quelqu'un en prison (God mode)
   /prisonlist   — voir tous les prisonniers actuels
@@ -26,7 +27,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
-from database.db import AsyncSessionLocal, get_user, add_coins, set_coins
+from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users
 from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
 from config import CURRENCY
@@ -87,7 +88,8 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>⚙️ Gestion admins</b>\n"
         "/adminadd @user — Ajouter un admin\n"
         "/adminremove @user — Retirer un admin\n"
-        "/adminlist — Liste des admins actuels\n\n"
+        "/adminlist — Liste des admins actuels\n"
+        "/userlist — Liste de tous les utilisateurs enregistrés\n\n"
         "<b>📢 Communication</b>\n"
         "/broadcast [message] — Message à tous les utilisateurs\n\n"
         "<b>🎭 Drames économiques</b>\n"
@@ -386,6 +388,45 @@ async def adminlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>🛡 Admins actifs ({len(ADMIN_IDS)})</b>\n{ids}",
         parse_mode=ParseMode.HTML,
     )
+
+
+# ─── /userlist ────────────────────────────────────────────────────────────────
+
+async def userlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Liste tous les utilisateurs enregistrés dans la base (ayant utilisé /acc ou toute autre commande)."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    async with AsyncSessionLocal() as session:
+        users = await get_all_users(session)
+
+    if not users:
+        return await update.message.reply_text("Aucun utilisateur enregistré.")
+
+    # On construit la liste par blocs de 50 max pour ne pas dépasser la limite Telegram
+    CHUNK = 50
+    chunks = [users[i:i + CHUNK] for i in range(0, len(users), CHUNK)]
+
+    for idx, chunk in enumerate(chunks):
+        lines = []
+        for u in chunk:
+            if u.username:
+                ref = f"@{u.username}"
+            else:
+                ref = f"<a href='tg://user?id={u.user_id}'>{u.first_name}</a>"
+            banned = " 🚫" if u.is_banned else ""
+            lines.append(f"• {ref} — <code>{u.user_id}</code>{banned}")
+
+        header = (
+            f"<b>👥 Utilisateurs enregistrés ({len(users)} total)</b>\n"
+            if idx == 0
+            else f"<b>👥 (suite {idx + 1}/{len(chunks)})</b>\n"
+        )
+        await update.message.reply_text(
+            header + "\n".join(lines),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
 
 
 # ─── /liberer ─────────────────────────────────────────────────────────────────

@@ -49,6 +49,7 @@ from handlers.admin    import (
     is_admin, pause, resume,
     giveportfolio, takeportfolio, marketlist,
     useractivity,
+    enquete,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -94,7 +95,7 @@ PRISON_EXEMPT_COMMANDS = {
     "adminhelp", "give", "take", "setcoins", "userinfo",
     "ban", "unban", "resetuser", "adminadd", "adminremove",
     "adminlist", "userlist", "broadcast", "liberer", "prisonlist", "emprisonner",
-    "pause", "resume",
+    "pause", "resume", "enquete",
 }
 
 
@@ -284,6 +285,7 @@ async def main():
     app.add_handler(CommandHandler("takeportfolio",  takeportfolio))
     app.add_handler(CommandHandler("marketlist",     marketlist))
     app.add_handler(CommandHandler("useractivity",   useractivity))
+    app.add_handler(CommandHandler("enquete",        enquete))
     app.add_handler(CommandHandler("drame",          drame))
     app.add_handler(CommandHandler("article",        article_cmd))
     app.add_handler(CommandHandler("setdramesesuil", setdramesesuil))

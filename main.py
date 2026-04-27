@@ -44,7 +44,7 @@ from handlers.arena import (
 from handlers.admin    import (
     adminhelp, give, take, setcoins, userinfo,
     ban, unban, resetuser,
-    adminadd, adminremove, adminlist, broadcast,
+    adminadd, adminremove, adminlist, userlist, broadcast,
     liberer, prisonlist, emprisonner,
     is_admin, pause, resume,
     giveportfolio, takeportfolio, marketlist,
@@ -93,7 +93,7 @@ PRISON_EXEMPT_COMMANDS = {
     "start", "help", "bail", "bail_judgment",
     "adminhelp", "give", "take", "setcoins", "userinfo",
     "ban", "unban", "resetuser", "adminadd", "adminremove",
-    "adminlist", "broadcast", "liberer", "prisonlist", "emprisonner",
+    "adminlist", "userlist", "broadcast", "liberer", "prisonlist", "emprisonner",
     "pause", "resume",
 }
 
@@ -273,6 +273,7 @@ async def main():
     app.add_handler(CommandHandler("adminadd",       adminadd))
     app.add_handler(CommandHandler("adminremove",    adminremove))
     app.add_handler(CommandHandler("adminlist",      adminlist))
+    app.add_handler(CommandHandler("userlist",       userlist))
     app.add_handler(CommandHandler("broadcast",      broadcast))
     app.add_handler(CommandHandler("liberer",        liberer))
     app.add_handler(CommandHandler("prisonlist",     prisonlist))

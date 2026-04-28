@@ -27,7 +27,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
-from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users, get_richlist
+from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users
 from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
 from config import CURRENCY
@@ -1240,23 +1240,38 @@ async def enquete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /richlista ───────────────────────────────────────────────────────────────
 
 async def richlista(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Top 10 des plus riches — vue admin avec @username et ID."""
+    """Top 10 des plus riches (coins + banques) — vue admin avec @username et ID."""
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
     async with AsyncSessionLocal() as session:
-        top = await get_richlist(session, 10)
+        # Récupérer tous les users avec leur fortune coins + banques en une seule requête
+        result = await session.execute(
+            text("""
+                SELECT u.user_id, u.first_name, u.username, u.coins,
+                       COALESCE(SUM(b.balance), 0) AS bank_total,
+                       u.coins + COALESCE(SUM(b.balance), 0) AS fortune_totale
+                FROM users u
+                LEFT JOIN bank_accounts b ON b.user_id = u.user_id
+                GROUP BY u.user_id, u.first_name, u.username, u.coins
+                ORDER BY fortune_totale DESC
+                LIMIT 10
+            """)
+        )
+        top = result.fetchall()
 
     medals = ["🥇", "🥈", "🥉"]
     lines = ["👑 <b>TOP 10 — CLASSEMENT DES PLUS RICHES</b>\n"]
 
-    for i, u in enumerate(top):
+    for i, row in enumerate(top):
         medal = medals[i] if i < 3 else f"{i + 1}."
-        username_str = f"@{u.username}" if u.username else "<i>sans @</i>"
+        username_str = f"@{row.username}" if row.username else "<i>sans @</i>"
         lines.append(
-            f"{medal} <b>{u.first_name}</b>\n"
-            f"   └ {username_str} | ID: <code>{u.user_id}</code>\n"
-            f"   └ 💰 {_fmt(u.coins)} {CURRENCY}"
+            f"{medal} <b>{row.first_name}</b>\n"
+            f"   └ {username_str} | ID: <code>{row.user_id}</code>\n"
+            f"   └ 💵 Liquide: {_fmt(row.coins)} {CURRENCY}\n"
+            f"   └ 🏦 Banques: {_fmt(int(row.bank_total))} {CURRENCY}\n"
+            f"   └ 💰 Total:   {_fmt(int(row.fortune_totale))} {CURRENCY}"
         )
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

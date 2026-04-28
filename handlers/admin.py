@@ -27,7 +27,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
-from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users
+from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users, get_richlist
 from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
 from config import CURRENCY
@@ -94,12 +94,14 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>📢 Communication</b>\n"
         "/broadcast [message] — Message à tous les utilisateurs\n\n"
         "<b>🎭 Drames économiques</b>\n"
-        "/drame scandale @user — Perte % $\n"
-        "/drame catastrophe @user — Détruit portfolio\n"
-        "/drame fisc @user — Impôts forcés\n"
-        "/drame crise @user — Double peine\n"
-        "/drame info @user — Fortune complète\n"
+        "/drame scandale @user|ID — Perte % $\n"
+        "/drame catastrophe @user|ID — Détruit portfolio\n"
+        "/drame fisc @user|ID — Impôts forcés\n"
+        "/drame crise @user|ID — Double peine\n"
+        "/drame info @user|ID — Fortune complète\n"
         "/setdramesesuil [montant] — Changer le seuil\n\n"
+        "<b>👑 Classements</b>\n"
+        "/richlista — Top 10 riches avec @, ID et fortune\n\n"
         "📰 <b>Articles :</b>\n"
         "/article @user — Générer un article sur un joueur\n"
         "/article hasard — Article sur un joueur aléatoire\n\n"
@@ -1233,3 +1235,28 @@ async def enquete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rapport.append(f"<i>Rapport généré le {datetime.utcnow().strftime('%d/%m/%Y à %H:%M')} UTC</i>")
 
     await update.message.reply_text("\n".join(rapport), parse_mode=ParseMode.HTML)
+
+
+# ─── /richlista ───────────────────────────────────────────────────────────────
+
+async def richlista(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Top 10 des plus riches — vue admin avec @username et ID."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    async with AsyncSessionLocal() as session:
+        top = await get_richlist(session, 10)
+
+    medals = ["🥇", "🥈", "🥉"]
+    lines = ["👑 <b>TOP 10 — CLASSEMENT DES PLUS RICHES</b>\n"]
+
+    for i, u in enumerate(top):
+        medal = medals[i] if i < 3 else f"{i + 1}."
+        username_str = f"@{u.username}" if u.username else "<i>sans @</i>"
+        lines.append(
+            f"{medal} <b>{u.first_name}</b>\n"
+            f"   └ {username_str} | ID: <code>{u.user_id}</code>\n"
+            f"   └ 💰 {_fmt(u.coins)} {CURRENCY}"
+        )
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

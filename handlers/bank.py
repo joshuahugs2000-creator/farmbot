@@ -41,9 +41,9 @@ BANKS = {
         "desc":          "Banque populaire, accessible à tous",
         "min_deposit":   1_000,
         "max_deposit":   9_000_000_000_000_000_000,
-        "interest_rate": 0.005,    # 0.5% toutes les 6h → ~2%/jour
+        "interest_rate": 0.0,      # Intérêts supprimés
         "max_loan":      9_000_000_000_000_000_000,
-        "loan_rate":     0.08,     # 8% d'intérêt sur le prêt
+        "loan_rate":     0.08,
         "loan_days":     7,
     },
     "silver": {
@@ -53,7 +53,7 @@ BANKS = {
         "desc":          "Pour les épargnants sérieux",
         "min_deposit":   10_000,
         "max_deposit":   9_000_000_000_000_000_000,
-        "interest_rate": 0.008,    # 0.8% → ~3.2%/jour
+        "interest_rate": 0.0,      # Intérêts supprimés
         "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.06,
         "loan_days":     14,
@@ -65,7 +65,7 @@ BANKS = {
         "desc":          "Banque des investisseurs fortunés",
         "min_deposit":   100_000,
         "max_deposit":   9_000_000_000_000_000_000,
-        "interest_rate": 0.012,    # 1.2% → ~4.8%/jour
+        "interest_rate": 0.0,      # Intérêts supprimés
         "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.05,
         "loan_days":     21,
@@ -77,7 +77,7 @@ BANKS = {
         "desc":          "Réservée aux élites financières",
         "min_deposit":   500_000,
         "max_deposit":   9_000_000_000_000_000_000,
-        "interest_rate": 0.018,    # 1.8% → ~7.2%/jour
+        "interest_rate": 0.0,      # Intérêts supprimés
         "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.04,
         "loan_days":     30,
@@ -89,7 +89,7 @@ BANKS = {
         "desc":          "La banque des milliardaires",
         "min_deposit":   2_000_000,
         "max_deposit":   9_000_000_000_000_000_000,
-        "interest_rate": 0.025,    # 2.5% → ~10%/jour
+        "interest_rate": 0.0,      # Intérêts supprimés
         "max_loan":      9_000_000_000_000_000_000,
         "loan_rate":     0.03,
         "loan_days":     60,

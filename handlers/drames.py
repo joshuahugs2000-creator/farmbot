@@ -469,8 +469,9 @@ async def drame(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔍 <code>/drame info @user</code> — Voir la fortune du joueur\n\n"
             "<b>Seuil actuel :</b> <code>/setdramesesuil</code> → "
             f"<b>{_fmt(DRAME_SEUIL)} {CURRENCY}</b>\n\n"
-            "💡 <i>Ajoute un montant pour un seuil ponctuel :\n"
-            "/drame fisc @user 500000000</i>",
+            "💡 <i>Plusieurs cibles possibles :\n"
+            "/drame fisc @user1 @user2 @user3\n"
+            "/drame scandale @user 500000000 (seuil ponctuel)</i>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -484,6 +485,34 @@ async def drame(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Retirer le premier arg pour que parse_target fonctionne sur la mention
-    context.args = context.args[1:]
-    await SOUS_COMMANDES[sous_cmd](update, context)
+    # Args restants après le sous-cmd (ex: ["@user1", "@user2", "500000000"])
+    remaining = context.args[1:]
+
+    # Séparer les cibles (mentions/IDs) des éventuels args numériques (seuil)
+    target_args = []
+    extra_args = []
+    for arg in remaining:
+        stripped = arg.strip()
+        if stripped.startswith("@") or stripped.lstrip("-").isdigit():
+            target_args.append(arg)
+        else:
+            extra_args.append(arg)
+
+    # Si pas de cible explicite → comportement original (reply ou entité du message)
+    if not target_args:
+        context.args = remaining
+        await SOUS_COMMANDES[sous_cmd](update, context)
+        return
+
+    # Multi-cibles : on itère sur chaque mention/ID
+    nb_targets = len(target_args)
+    if nb_targets > 1:
+        await update.message.reply_text(
+            f"🎭 <b>Drame en masse — {nb_targets} cibles</b>",
+            parse_mode=ParseMode.HTML
+        )
+
+    for target_arg in target_args:
+        # On passe uniquement cette cible + les args extra (seuil éventuel)
+        context.args = [target_arg] + extra_args
+        await SOUS_COMMANDES[sous_cmd](update, context)

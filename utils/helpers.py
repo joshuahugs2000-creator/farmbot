@@ -41,8 +41,29 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     - la réponse à un message
     - une entité text_mention
     - un @username résolu via la DB
+    - un ID numérique brut (ex: /drame scandale 123456789)
     """
     msg = update.message
+
+    # 0. ID numérique brut dans les args
+    args = context.args or []
+    for arg in args:
+        stripped = arg.strip()
+        if stripped.lstrip("-").isdigit():
+            uid = int(stripped)
+            async with _db.AsyncSessionLocal() as session:
+                db_user = await _db.get_user(session, uid)
+            if db_user:
+                class _FakeUserById:
+                    def __init__(self, u):
+                        self.id         = u.user_id
+                        self.first_name = u.first_name
+                        self.username   = u.username
+                        self.is_bot     = False
+                logger.info(f"[parse_target] ID brut → {uid}")
+                return _FakeUserById(db_user)
+            logger.info(f"[parse_target] ID {uid} introuvable en DB")
+            return None
 
     # 1. Réponse à un message
     if msg.reply_to_message:

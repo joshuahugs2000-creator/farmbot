@@ -35,7 +35,7 @@ from handlers.games import (
     roue_cmd,
     rebet_cmd, rebet_callback,
     setmood_cmd,
-    mood_facile_cmd, mood_normal_cmd, mood_difficile_cmd, mood_auto_cmd,
+    mood_facile_cmd, mood_normal_cmd, mood_difficile_cmd, mood_impitoyable_cmd, mood_auto_cmd,
 )
 from handlers.arena import (
     cockfight_cmd, cockfight_callback,
@@ -76,6 +76,7 @@ from handlers.auction import (
 from handlers.wealth_drain import (
     impots, cambrioler, braquage, annulerbraquage,
     init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
+    job_tax_top10, job_tax_top30,
 )
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
@@ -245,11 +246,12 @@ async def main():
     app.add_handler(CommandHandler("crash",  _prison_checked(crash_cmd)))
     app.add_handler(CommandHandler("apple",  _prison_checked(apple_cmd)))
     app.add_handler(CommandHandler("roue",     _prison_checked(roue_cmd)))
-    app.add_handler(CommandHandler("setmood",   setmood_cmd))
-    app.add_handler(CommandHandler("facile",    mood_facile_cmd))
-    app.add_handler(CommandHandler("normal",    mood_normal_cmd))
-    app.add_handler(CommandHandler("difficile", mood_difficile_cmd))
-    app.add_handler(CommandHandler("moodauto",  mood_auto_cmd))
+    app.add_handler(CommandHandler("setmood",      setmood_cmd))
+    app.add_handler(CommandHandler("facile",       mood_facile_cmd))
+    app.add_handler(CommandHandler("normal",       mood_normal_cmd))
+    app.add_handler(CommandHandler("difficile",    mood_difficile_cmd))
+    app.add_handler(CommandHandler("impitoyable",  mood_impitoyable_cmd))
+    app.add_handler(CommandHandler("moodauto",     mood_auto_cmd))
     app.add_handler(CommandHandler("rebet",  _prison_checked(rebet_cmd)))
 
     # ── Arène PvP ─────────────────────────────────────────────────────────────

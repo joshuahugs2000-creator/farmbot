@@ -639,16 +639,18 @@ from config import CURRENCY
 _MOOD_SALT = int.from_bytes(_os.urandom(4), "big")
 
 MOODS = {
-    # mood         : (multiplicateur_malchance, multiplicateur_chance, label_affichage)
-    "tres_mechant" : (3.5, 0.2, "😈 La roue est TRÈS MÉCHANTE ce soir..."),
-    "mechant"      : (2.0, 0.5, "😤 La roue est de mauvaise humeur."),
-    "normal"       : (1.0, 1.0, "😐 La roue est neutre."),
-    "facile"       : (0.5, 2.0, "😊 La roue est généreuse !"),
-    "tres_facile"  : (0.2, 3.5, "🤑 La roue est EN FEU ce soir !"),
+    # mood            : (multiplicateur_malchance, multiplicateur_chance, label_affichage)
+    "impitoyable"  : (8.0, 0.05, "💀 Mode IMPITOYABLE — La roue veut ta ruine."),
+    "tres_mechant" : (3.5, 0.2,  "😈 La roue est TRÈS MÉCHANTE ce soir..."),
+    "mechant"      : (2.0, 0.5,  "😤 La roue est de mauvaise humeur."),
+    "normal"       : (1.0, 1.0,  "😐 La roue est neutre."),
+    "facile"       : (0.5, 2.0,  "😊 La roue est généreuse !"),
+    "tres_facile"  : (0.2, 3.5,  "🤑 La roue est EN FEU ce soir !"),
 }
 
 # Probabilités d'apparition de chaque mood par heure
 MOOD_WEIGHTS = {
+    "impitoyable"  : 0,   # jamais aléatoire — admin only
     "tres_mechant" : 20,
     "mechant"      : 25,
     "normal"       : 30,
@@ -696,6 +698,9 @@ async def mood_normal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mood_difficile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _set_mood_direct(update, "mechant")
 
+async def mood_impitoyable_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _set_mood_direct(update, "impitoyable")
+
 async def mood_auto_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _set_mood_direct(update, None)
 
@@ -708,7 +713,7 @@ async def setmood_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     override_info = f"🔒 Forcé : <b>{_self._MOOD_OVERRIDE}</b>" if _self._MOOD_OVERRIDE else "🎲 Aléatoire"
     await update.message.reply_text(
         f"🎡 <b>Mood actuel :</b> {label}\n{override_info}\n\n"
-        f"Commandes : /facile · /normal · /difficile · /moodauto",
+        f"Commandes : /facile · /normal · /difficile · /impitoyable · /moodauto",
         parse_mode="HTML"
     )
 

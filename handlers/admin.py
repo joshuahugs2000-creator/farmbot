@@ -112,6 +112,7 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/facile — Roue généreuse\n"
         "/normal — Roue neutre\n"
         "/difficile — Roue méchante\n"
+        "/impitoyable — Roue DESTRUCTION TOTALE 💀\n"
         "/moodauto — Retour aléatoire\n"
         "/setmood — Voir le mood actuel\n"
     )

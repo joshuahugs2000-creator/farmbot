@@ -114,18 +114,47 @@ CATALOGUE = {
     "manoir":     ("Manoir",            "🏰",  50_000_000, "Plus grand que la villa."),
 }
 
-# Taux d'imposition par tranche (sur les coins EN MAIN uniquement)
+# ══════════════════════════════════════════════════════════════════
+# NOUVEAU SYSTÈME FISCAL — Taxation agressive top 30
+# ══════════════════════════════════════════════════════════════════
+
+# Taux de base (appliqué 1x/jour à 12h sur le liquide)
 TAX_BRACKETS = [
-    (1_000_000,   0.00),   # < 1M : 0%
-    (5_000_000,   0.02),   # 1M–5M : 2%
-    (20_000_000,  0.05),   # 5M–20M : 5%
-    (100_000_000, 0.10),   # 20M–100M : 10%
-    (float("inf"),0.18),   # > 100M : 18%
+    (1_000_000,         0.00),
+    (5_000_000,         0.02),
+    (20_000_000,        0.05),
+    (100_000_000,       0.10),
+    (1_000_000_000,     0.18),
+    (float("inf"),      0.28),
+]
+
+# Taxation spéciale top 10 — 4x par jour (toutes les 6h) sur fortune totale
+TOP10_TAX_RATE     = 0.12
+TOP10_TAX_INTERVAL = 6   # heures
+
+# Taxation top 11–30 — 1x/jour supplémentaire sur fortune totale
+TOP30_TAX_RATE = 0.06
+
+TOP10_MESSAGES = [
+    "🏛️ Le gouvernement a décidé de te ponctionner davantage. Bienvenue dans le club des ultra-riches.",
+    "💼 L'État a les yeux sur toi. Ton empire attire trop l'attention.",
+    "⚖️ La justice fiscale frappe. Nul n'échappe au fisc.",
+    "🎯 Ta fortune fait de toi une cible prioritaire du Trésor Public.",
+    "🔍 Les inspecteurs des impôts ont audité tes comptes. Résultat : salé.",
+    "📊 Trop de richesse tue la richesse. L'État rééquilibre la balance.",
+    "🦅 L'aigle fiscal t'a repéré. Impossible de te cacher à ce niveau.",
+]
+
+TOP30_MESSAGES = [
+    "📋 Avis d'imposition reçu. Le top 30 paie sa part.",
+    "🏦 Le fisc te rappelle à l'ordre.",
+    "💸 Taxe de solidarité prélevée.",
+    "📬 L'enveloppe bleue est arrivée. C'est l'heure de payer.",
 ]
 
 
 def _compute_tax(coins: int) -> int:
-    """Calcule l'impôt journalier sur les $ en main."""
+    """Calcule l'impôt journalier de base sur les coins en main."""
     if coins <= 0:
         return 0
     tax = 0
@@ -144,6 +173,21 @@ def _tax_rate_display(coins: int) -> str:
         if coins < limit:
             return f"{rate*100:.0f}%"
     return f"{TAX_BRACKETS[-1][1]*100:.0f}%"
+
+
+async def _get_top30_fortunes(session) -> list:
+    """Retourne les 30 plus grandes fortunes (liquide + banque)."""
+    rows = (await session.execute(text("""
+        SELECT u.user_id, u.first_name, u.coins,
+               COALESCE(SUM(b.balance), 0) AS bank_total,
+               u.coins + COALESCE(SUM(b.balance), 0) AS fortune_totale
+        FROM users u
+        LEFT JOIN bank_accounts b ON b.user_id = u.user_id
+        GROUP BY u.user_id, u.first_name, u.coins
+        ORDER BY fortune_totale DESC
+        LIMIT 30
+    """))).fetchall()
+    return rows
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -255,7 +299,7 @@ async def inventaire(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def impots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user    = await ensure_user(update.effective_user)
+    user = await ensure_user(update.effective_user)
 
     async with AsyncSessionLocal() as session:
         u = await get_user(session, user.user_id)
@@ -263,24 +307,70 @@ async def impots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("Compte introuvable.")
         coins = u.coins
 
-    tax      = _compute_tax(coins)
+        # Fortune totale (liquide + banque)
+        bank_res = (await session.execute(text(
+            "SELECT COALESCE(SUM(balance), 0) FROM bank_accounts WHERE user_id = :uid"
+        ), {"uid": user.user_id})).scalar()
+        fortune_totale = coins + int(bank_res or 0)
+
+        # Rang dans le classement
+        rank_res = (await session.execute(text("""
+            SELECT COUNT(*) + 1 FROM (
+                SELECT u2.user_id,
+                       u2.coins + COALESCE(SUM(b2.balance), 0) AS fortune
+                FROM users u2
+                LEFT JOIN bank_accounts b2 ON b2.user_id = u2.user_id
+                GROUP BY u2.user_id, u2.coins
+            ) sub
+            WHERE sub.fortune > :fortune
+        """), {"fortune": fortune_totale})).scalar()
+        rank = int(rank_res or 1)
+
+    tax_base = _compute_tax(coins)
     taux     = _tax_rate_display(coins)
 
+    # Calcul des taxes spéciales selon le rang
+    if rank <= 10:
+        tax_speciale_par_cycle = int(fortune_totale * TOP10_TAX_RATE)
+        tax_speciale_jour      = tax_speciale_par_cycle * 4
+        rang_label = f"🔥 TOP {rank} — Taxation maximale"
+        extra = (
+            f"\n⚡ <b>Taxation top 10 :</b>\n"
+            f"  └ {int(TOP10_TAX_RATE*100)}% de ta fortune toutes les 6h\n"
+            f"  └ Par cycle : <b>-{_fmt(tax_speciale_par_cycle)} {CURRENCY}</b>\n"
+            f"  └ Par jour (x4) : <b>-{_fmt(tax_speciale_jour)} {CURRENCY}</b>\n"
+        )
+    elif rank <= 30:
+        tax_speciale_jour = int(fortune_totale * TOP30_TAX_RATE)
+        rang_label = f"📋 TOP {rank} — Taxe de solidarité"
+        extra = (
+            f"\n📋 <b>Taxe top 30 :</b>\n"
+            f"  └ {int(TOP30_TAX_RATE*100)}% de ta fortune 1x/jour\n"
+            f"  └ Par jour : <b>-{_fmt(tax_speciale_jour)} {CURRENCY}</b>\n"
+        )
+    else:
+        rang_label = f"🏅 Rang #{rank} — Régime standard"
+        extra = ""
+
     lines = [
-        "🏛️ <b>Impôts — Estimation quotidienne</b>\n",
-        f"💰 Coins en main : <b>{_fmt(coins)} {CURRENCY}</b>",
-        f"📊 Tranche : <b>{taux}</b>",
-        f"💸 Taxe du jour : <b>{_fmt(tax)} {CURRENCY}</b>",
-        "",
-        "📋 <b>Tranches d'imposition :</b>",
-        "  &lt; 1M $      → 0%",
-        "  1M – 5M $   → 2%",
-        "  5M – 20M $  → 5%",
-        "  20M – 100M $→ 10%",
-        "  &gt; 100M $   → 18%",
-        "",
-        "⏰ Les impôts sont prélevés chaque jour à <b>12h00 GMT</b>.",
-        "💡 Astuce : dépose à la banque ou achète des objets en boutique !",
+        f"🏛️ <b>Impôts — Ton bilan fiscal</b>\n",
+        f"🏆 {rang_label}",
+        f"💰 Liquide : <b>{_fmt(coins)} {CURRENCY}</b>",
+        f"🏦 Banques : <b>{_fmt(int(bank_res or 0))} {CURRENCY}</b>",
+        f"💼 Fortune totale : <b>{_fmt(fortune_totale)} {CURRENCY}</b>\n",
+        f"📊 Impôt de base (liquide, 1x/jour) :",
+        f"  └ Tranche : {taux} → <b>-{_fmt(tax_base)} {CURRENCY}/jour</b>",
+        extra,
+        "📋 <b>Tranches de base :</b>",
+        "  &lt; 1M $       → 0%",
+        "  1M – 5M $    → 2%",
+        "  5M – 20M $   → 5%",
+        "  20M – 100M $ → 10%",
+        "  100M – 1B $  → 18%",
+        "  &gt; 1B $       → 28%",
+        "\n⏰ Impôts de base : <b>12h00 UTC</b>",
+        "⚡ Taxation top 10 : <b>toutes les 6h</b>",
+        "📋 Taxation top 30 : <b>18h00 UTC</b>",
     ]
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
@@ -290,33 +380,29 @@ async def impots(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════════════════════
 
 async def job_collect_taxes(context: ContextTypes.DEFAULT_TYPE):
-    """Prélève les impôts sur tous les utilisateurs chaque jour à 12h00 GMT."""
+    """Prélève les impôts de base sur tous les joueurs (1x/jour à 12h)."""
     total_collected = 0
     total_players   = 0
 
     async with AsyncSessionLocal() as session:
         users = (await session.execute(text("SELECT user_id, coins FROM users WHERE coins > 1000000"))).fetchall()
-
         for uid, coins in users:
             tax = _compute_tax(coins)
             if tax <= 0:
                 continue
-            tax = min(tax, coins)  # ne jamais prendre plus que ce que le joueur a
+            tax = min(tax, coins)
             await session.execute(text(
                 "UPDATE users SET coins = coins - :tax WHERE user_id = :uid"
             ), {"tax": tax, "uid": uid})
             total_collected += tax
             total_players   += 1
-
         await session.commit()
 
-    logger.info(f"[IMPÔTS] {total_players} joueurs taxés — {total_collected:,} {CURRENCY} collectés et retirés de l'économie.")
+    logger.info(f"[IMPÔTS BASE] {total_players} joueurs taxés — {total_collected:,} {CURRENCY} retirés.")
 
-    # Annonce dans tous les groupes actifs
     from database.models import GroupSettings
     async with AsyncSessionLocal() as session:
         groups = (await session.execute(text("SELECT group_id FROM group_settings"))).fetchall()
-
     for (gid,) in groups:
         try:
             await context.bot.send_message(
@@ -324,14 +410,168 @@ async def job_collect_taxes(context: ContextTypes.DEFAULT_TYPE):
                 text=(
                     f"🏛️ <b>COLLECTE DES IMPÔTS</b>\n\n"
                     f"👥 Joueurs taxés : <b>{total_players}</b>\n"
-                    f"💸 Total retiré de l'économie : <b>{_fmt(total_collected)} {CURRENCY}</b>\n\n"
-                    f"Utilisez /impots pour voir votre taux.\n"
-                    f"💡 Déposez à la banque pour réduire votre base imposable !"
+                    f"💸 Total retiré : <b>{_fmt(total_collected)} {CURRENCY}</b>\n\n"
+                    f"Utilisez /impots pour voir votre taux."
                 ),
                 parse_mode=ParseMode.HTML,
             )
         except Exception as e:
             logger.warning(f"Impossible d'envoyer annonce impôts groupe {gid}: {e}")
+
+
+async def job_tax_top10(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Taxation agressive du top 10 — toutes les 6h.
+    Prélève 12% de la fortune totale (liquide + banque).
+    Notifie chaque joueur en DM.
+    """
+    import random as _random
+
+    async with AsyncSessionLocal() as session:
+        top30 = await _get_top30_fortunes(session)
+        top10 = top30[:10]
+
+        for rank, row in enumerate(top10, 1):
+            uid          = row.user_id
+            fortune      = int(row.fortune_totale)
+            liquide      = int(row.coins)
+            banque_total = int(row.bank_total)
+            prenom       = row.first_name
+
+            if fortune <= 0:
+                continue
+
+            tax_total = int(fortune * TOP10_TAX_RATE)
+            if tax_total <= 0:
+                continue
+
+            # Prélever sur le liquide d'abord, puis sur la banque si insuffisant
+            from_liquide = min(tax_total, liquide)
+            reste        = tax_total - from_liquide
+            from_banque  = min(reste, banque_total)
+            tax_total_reel = from_liquide + from_banque
+
+            if from_liquide > 0:
+                await session.execute(text(
+                    "UPDATE users SET coins = GREATEST(0, coins::bigint - :amt::bigint) WHERE user_id = :uid"
+                ), {"amt": from_liquide, "uid": uid})
+
+            if from_banque > 0:
+                # Répartit proportionnellement sur tous les comptes bancaires
+                accounts = (await session.execute(text(
+                    "SELECT id, balance FROM bank_accounts WHERE user_id = :uid AND balance > 0 ORDER BY balance DESC"
+                ), {"uid": uid})).fetchall()
+
+                remaining_to_deduct = from_banque
+                for acc_id, acc_balance in accounts:
+                    if remaining_to_deduct <= 0:
+                        break
+                    deduct = min(remaining_to_deduct, int(acc_balance))
+                    await session.execute(text(
+                        "UPDATE bank_accounts SET balance = GREATEST(0, balance::bigint - :amt::bigint) WHERE id = :aid"
+                    ), {"amt": deduct, "aid": acc_id})
+                    remaining_to_deduct -= deduct
+
+            msg_flavor = _random.choice(TOP10_MESSAGES)
+
+            # Notif DM
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=(
+                        f"💀 <b>TAXATION TOP {rank} — PRÉLÈVEMENT D'URGENCE</b>\n\n"
+                        f"{msg_flavor}\n\n"
+                        f"📊 Ta fortune totale : <b>{_fmt(fortune)} {CURRENCY}</b>\n"
+                        f"🔥 Taux appliqué : <b>{int(TOP10_TAX_RATE*100)}%</b>\n"
+                        f"💸 Prélevé sur liquide : <b>-{_fmt(from_liquide)} {CURRENCY}</b>\n"
+                        f"🏦 Prélevé sur banque : <b>-{_fmt(from_banque)} {CURRENCY}</b>\n"
+                        f"━━━━━━━━━━━━━━━━━\n"
+                        f"💀 <b>Total ponctionné : -{_fmt(tax_total_reel)} {CURRENCY}</b>\n\n"
+                        f"🏆 Tu es #{rank} du classement. Le fisc ne t'oubliera pas."
+                    ),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.warning(f"[TAX TOP10] Impossible de notifier {uid}: {e}")
+
+        await session.commit()
+
+    logger.info(f"[TAX TOP10] Cycle terminé — {len(top10)} joueurs ponctionnés à {TOP10_TAX_RATE*100:.0f}%.")
+
+
+async def job_tax_top30(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Taxation top 11–30 — 1x/jour.
+    Prélève 6% de la fortune totale. Notifie en DM.
+    """
+    import random as _random
+
+    async with AsyncSessionLocal() as session:
+        top30 = await _get_top30_fortunes(session)
+        targets = top30[10:30]  # rangs 11 à 30
+
+        for rank, row in enumerate(targets, 11):
+            uid          = row.user_id
+            fortune      = int(row.fortune_totale)
+            liquide      = int(row.coins)
+            banque_total = int(row.bank_total)
+            prenom       = row.first_name
+
+            if fortune <= 0:
+                continue
+
+            tax_total = int(fortune * TOP30_TAX_RATE)
+            if tax_total <= 0:
+                continue
+
+            from_liquide   = min(tax_total, liquide)
+            reste          = tax_total - from_liquide
+            from_banque    = min(reste, banque_total)
+            tax_total_reel = from_liquide + from_banque
+
+            if from_liquide > 0:
+                await session.execute(text(
+                    "UPDATE users SET coins = GREATEST(0, coins::bigint - :amt::bigint) WHERE user_id = :uid"
+                ), {"amt": from_liquide, "uid": uid})
+
+            if from_banque > 0:
+                accounts = (await session.execute(text(
+                    "SELECT id, balance FROM bank_accounts WHERE user_id = :uid AND balance > 0 ORDER BY balance DESC"
+                ), {"uid": uid})).fetchall()
+
+                remaining_to_deduct = from_banque
+                for acc_id, acc_balance in accounts:
+                    if remaining_to_deduct <= 0:
+                        break
+                    deduct = min(remaining_to_deduct, int(acc_balance))
+                    await session.execute(text(
+                        "UPDATE bank_accounts SET balance = GREATEST(0, balance::bigint - :amt::bigint) WHERE id = :aid"
+                    ), {"amt": deduct, "aid": acc_id})
+                    remaining_to_deduct -= deduct
+
+            msg_flavor = _random.choice(TOP30_MESSAGES)
+
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=(
+                        f"📋 <b>TAXE DE SOLIDARITÉ — TOP {rank}</b>\n\n"
+                        f"{msg_flavor}\n\n"
+                        f"📊 Fortune totale : <b>{_fmt(fortune)} {CURRENCY}</b>\n"
+                        f"🔥 Taux : <b>{int(TOP30_TAX_RATE*100)}%</b>\n"
+                        f"💸 Liquide : <b>-{_fmt(from_liquide)} {CURRENCY}</b>\n"
+                        f"🏦 Banque : <b>-{_fmt(from_banque)} {CURRENCY}</b>\n"
+                        f"━━━━━━━━━━━━━━━━━\n"
+                        f"💀 <b>Total : -{_fmt(tax_total_reel)} {CURRENCY}</b>"
+                    ),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.warning(f"[TAX TOP30] Impossible de notifier {uid}: {e}")
+
+        await session.commit()
+
+    logger.info(f"[TAX TOP30] Cycle terminé — {len(targets)} joueurs taxés à {TOP30_TAX_RATE*100:.0f}%.")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -711,8 +951,26 @@ async def _launch_heist(context: ContextTypes.DEFAULT_TYPE):
 
 def setup_drain_jobs(app: Application):
     from datetime import time as dtime
+    from datetime import timedelta as tdelta
+
+    # Impôts de base — 1x/jour à 12h UTC (tout le monde)
     app.job_queue.run_daily(
         job_collect_taxes,
         time=dtime(hour=12, minute=0, tzinfo=timezone.utc),
         name="collect_taxes",
+    )
+
+    # Taxation top 10 — toutes les 6h (4x/jour), commence 5min après démarrage
+    app.job_queue.run_repeating(
+        job_tax_top10,
+        interval=tdelta(hours=6),
+        first=tdelta(minutes=5),
+        name="tax_top10",
+    )
+
+    # Taxation top 11-30 — 1x/jour à 18h UTC
+    app.job_queue.run_daily(
+        job_tax_top30,
+        time=dtime(hour=18, minute=0, tzinfo=timezone.utc),
+        name="tax_top30",
     )

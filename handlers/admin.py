@@ -27,7 +27,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
-from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users, get_logs_for_user, get_suspicious_users
+from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users, get_logs_for_user, get_suspicious_users, get_all_groups
 from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
 from config import CURRENCY
@@ -1297,60 +1297,126 @@ async def richlista(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def logs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /logs @user [date]
+    /logs @user [date]  ou  /logs ID [date]
     Affiche les logs d'un utilisateur pour aujourd'hui ou une date donnée.
     Réservé aux admins.
     """
+    from datetime import datetime as _dt
+    from sqlalchemy import text as _text
+
     if not await is_admin(update.effective_user.id):
         return await update.message.reply_text("❌ Accès refusé.")
 
     if not context.args:
         return await update.message.reply_text(
-            "Usage : /logs @pseudo [YYYY-MM-DD]\nEx : /logs @Mark\nEx : /logs @Mark 2024-01-15"
+            "Usage : /logs @pseudo [YYYY-MM-DD]\n"
+            "Ex : /logs @Mark\nEx : /logs @Mark 2024-01-15\nEx : /logs 123456789"
         )
 
-    # Résoudre la cible
-    from utils.helpers import parse_target
-    target_tg = await parse_target(update, context)
-    if not target_tg:
-        return await update.message.reply_text("❌ Utilisateur introuvable. Utilise @pseudo.")
+    target_id   = None
+    target_name = None
+    msg = update.message
 
-    # Date optionnelle (2ème argument)
+    # 1. Réponse à un message
+    if msg.reply_to_message and msg.reply_to_message.from_user:
+        u = msg.reply_to_message.from_user
+        target_id   = u.id
+        target_name = u.first_name or u.username or str(u.id)
+
+    # 2. Entité Telegram (mention cliquable)
+    if not target_id:
+        for ent in (msg.entities or []):
+            if ent.type == "text_mention" and ent.user:
+                target_id   = ent.user.id
+                target_name = ent.user.first_name or str(ent.user.id)
+                break
+            if ent.type == "mention":
+                raw_username = msg.text[ent.offset: ent.offset + ent.length].lstrip("@")
+                async with AsyncSessionLocal() as _s:
+                    r = await _s.execute(
+                        _text("SELECT user_id, first_name FROM users WHERE lower(username)=lower(:u) LIMIT 1"),
+                        {"u": raw_username}
+                    )
+                    row = r.fetchone()
+                if row:
+                    target_id   = row[0]
+                    target_name = row[1] or raw_username
+                else:
+                    return await msg.reply_text(f"❌ @{raw_username} introuvable en base.")
+                break
+
+    # 3. ID numérique brut dans les args
+    if not target_id:
+        for arg in context.args:
+            if arg.lstrip("-").isdigit():
+                uid = int(arg)
+                async with AsyncSessionLocal() as _s:
+                    r = await _s.execute(
+                        _text("SELECT user_id, first_name FROM users WHERE user_id=:u LIMIT 1"),
+                        {"u": uid}
+                    )
+                    row = r.fetchone()
+                if row:
+                    target_id   = row[0]
+                    target_name = row[1] or str(uid)
+                else:
+                    return await msg.reply_text(f"❌ ID {uid} introuvable en base.")
+                break
+
+    # 4. @username texte brut sans entité Telegram
+    if not target_id:
+        for arg in context.args:
+            if arg.startswith("@"):
+                raw_username = arg.lstrip("@")
+                async with AsyncSessionLocal() as _s:
+                    r = await _s.execute(
+                        _text("SELECT user_id, first_name FROM users WHERE lower(username)=lower(:u) LIMIT 1"),
+                        {"u": raw_username}
+                    )
+                    row = r.fetchone()
+                if row:
+                    target_id   = row[0]
+                    target_name = row[1] or raw_username
+                else:
+                    return await msg.reply_text(f"❌ @{raw_username} introuvable en base.")
+                break
+
+    if not target_id:
+        return await msg.reply_text("❌ Utilisateur introuvable. Utilise @pseudo, un ID ou réponds à un message.")
+
+    # Date optionnelle
     date_str = None
     for arg in context.args:
         if arg.startswith("20") and len(arg) == 10:
             date_str = arg
             break
     if not date_str:
-        from datetime import datetime
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        date_str = _dt.utcnow().strftime("%Y-%m-%d")
 
     async with AsyncSessionLocal() as session:
-        logs = await get_logs_for_user(session, target_tg.id, date_str, limit=80)
+        logs = await get_logs_for_user(session, target_id, date_str, limit=80)
 
     if not logs:
-        return await update.message.reply_text(
-            f"📋 Aucun log pour <b>{target_tg.first_name}</b> le {date_str}.",
+        return await msg.reply_text(
+            f"📋 Aucun log pour <b>{target_name}</b> le {date_str}.",
             parse_mode="HTML"
         )
 
-    lines = [f"📋 <b>Logs de {target_tg.first_name}</b> ({date_str}) — {len(logs)} action(s)\n"]
+    lines = [f"📋 <b>Logs de {target_name}</b> ({date_str}) — {len(logs)} action(s)\n"]
     for log in logs:
-        ts   = log.created_at.strftime("%H:%M:%S")
-        amt  = f" [{log.amount:+,} $]" if log.amount else ""
-        args = f" {log.args}" if log.args else ""
-        res  = f" → {log.result}" if log.result else ""
-        lines.append(f"<code>{ts}</code> /{log.command}{args}{amt}{res}")
+        row_map = log._mapping
+        ts  = row_map["created_at"].strftime("%H:%M:%S")
+        amt = f" [{row_map['amount']:+,} $]" if row_map.get("amount") else ""
+        arg = f" {row_map['args']}"          if row_map.get("args")   else ""
+        res = f" → {row_map['result']}"      if row_map.get("result") else ""
+        lines.append(f"<code>{ts}</code> /{row_map['command']}{arg}{amt}{res}")
 
-    # Découper si trop long (limite Telegram ~4096 chars)
-    text = "\n".join(lines)
-    if len(text) > 3800:
-        text = text[:3800] + "\n… (tronqué)"
+    txt = "\n".join(lines)
+    if len(txt) > 3800:
+        txt = txt[:3800] + "\n… (tronqué)"
 
-    await update.message.reply_text(text, parse_mode="HTML")
+    await msg.reply_text(txt, parse_mode="HTML")
 
-
-# ─── /suspicious ──────────────────────────────────────────────────────────────
 
 async def suspicious_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -1378,3 +1444,78 @@ async def suspicious_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("")
 
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+# ─── /grouplist ───────────────────────────────────────────────────────────────
+
+async def grouplist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /grouplist         → liste tous les groupes actifs
+    /grouplist all     → liste actifs + inactifs (bot kické)
+    Réservé aux admins.
+    """
+    if not await is_admin(update.effective_user.id):
+        return await update.message.reply_text("❌ Accès refusé.")
+
+    show_all = bool(context.args and context.args[0].lower() == "all")
+    groups   = await get_all_groups(active_only=not show_all)
+
+    if not groups:
+        return await update.message.reply_text("📭 Aucun groupe enregistré pour l'instant.")
+
+    actifs   = [g for g in groups if g._mapping["is_active"]]
+    inactifs = [g for g in groups if not g._mapping["is_active"]]
+
+    lines = [f"🌐 <b>Groupes du bot</b> — {len(actifs)} actif(s)"
+             + (f", {len(inactifs)} inactif(s)" if show_all and inactifs else "") + "\n"]
+
+    def _fmt_group(g, idx: int) -> str:
+        m        = g._mapping
+        gid      = m["group_id"]
+        title    = m["title"] or "Sans nom"
+        gtype    = m["chat_type"] or "?"
+        members  = m["member_count"]
+        username = m["username"]
+        link     = m["invite_link"]
+        seen     = m["last_seen"]
+        active   = m["is_active"]
+
+        if username:
+            access = f'<a href="https://t.me/{username.lstrip("@")}">@{username.lstrip("@")}</a>'
+        elif link:
+            access = f'<a href="{link}">Lien invite</a>'
+        else:
+            access = "🔒 Privé (pas de lien)"
+
+        status      = "✅" if active else "❌ Inactif"
+        members_str = f"{members:,}" if members else "?"
+        seen_str    = seen.strftime("%d/%m %H:%M") if seen else "?"
+
+        return (
+            f"{idx}. {status} <b>{title}</b>\n"
+            f"   🆔 <code>{gid}</code> | 👥 {members_str} membres | {gtype}\n"
+            f"   🔗 {access}\n"
+            f"   ⏱ Vu le {seen_str}"
+        )
+
+    for i, g in enumerate(actifs, 1):
+        lines.append(_fmt_group(g, i))
+
+    if show_all and inactifs:
+        lines.append("\n<b>— Groupes inactifs (bot kické) —</b>")
+        for i, g in enumerate(inactifs, len(actifs) + 1):
+            lines.append(_fmt_group(g, i))
+
+    full_text = "\n\n".join(lines)
+    if len(full_text) <= 4000:
+        await update.message.reply_text(full_text, parse_mode="HTML", disable_web_page_preview=True)
+    else:
+        chunk = lines[0] + "\n\n"
+        for block in lines[1:]:
+            if len(chunk) + len(block) + 2 > 4000:
+                await update.message.reply_text(chunk.strip(), parse_mode="HTML", disable_web_page_preview=True)
+                chunk = block + "\n\n"
+            else:
+                chunk += block + "\n\n"
+        if chunk.strip():
+            await update.message.reply_text(chunk.strip(), parse_mode="HTML", disable_web_page_preview=True)

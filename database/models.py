@@ -186,16 +186,32 @@ class LotteryTicket(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+
+
+# ─── GROUPES DU BOT ──────────────────────────────────────────────────────────
+
+class BotGroup(Base):
+    __tablename__ = "bot_groups"
+    group_id     = Column(BigInteger, primary_key=True)
+    title        = Column(String(255), nullable=True)
+    username     = Column(String(255), nullable=True)
+    chat_type    = Column(String(20), nullable=True)
+    member_count = Column(Integer, nullable=True)
+    invite_link  = Column(String(512), nullable=True)
+    is_active    = Column(Boolean, default=True)
+    first_seen   = Column(DateTime, default=datetime.utcnow)
+    last_seen    = Column(DateTime, default=datetime.utcnow)
+
 # ─── LOGS D'ACTIVITÉ ─────────────────────────────────────────────────────────
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
     id         = Column(Integer, primary_key=True, autoincrement=True)
-    user_id    = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    user_id    = Column(BigInteger, nullable=False)   # pas de FK pour éviter violations
     username   = Column(String(255), nullable=True)
     command    = Column(String(100), nullable=False)
     args       = Column(String(500), nullable=True)
-    amount     = Column(BigInteger, nullable=True)   # montant si transaction
-    result     = Column(String(50), nullable=True)   # "ok", "fail", "cooldown"…
+    amount     = Column(BigInteger, nullable=True)
+    result     = Column(String(50), nullable=True)
     group_id   = Column(BigInteger, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

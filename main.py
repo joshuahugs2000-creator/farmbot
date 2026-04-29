@@ -82,7 +82,7 @@ from handlers.wealth_drain import (
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
-from database.db import AsyncSessionLocal, log_action
+from database.db import AsyncSessionLocal, log_action, init_logs_table
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -192,6 +192,7 @@ async def activity_logging_middleware(update: Update, context) -> None:
 
 async def on_startup(application: Application):
     await init_db()
+    await init_logs_table()   # ← crée activity_logs si elle n'existe pas
     await init_journal_table()
     await init_crime_tables()
     await init_drain_tables()

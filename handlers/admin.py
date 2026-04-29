@@ -138,7 +138,7 @@ async def give(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Montant invalide.")
 
     context.args = args[:-1]
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     context.args = args  # restauration
 
     if not target_tg:
@@ -172,7 +172,7 @@ async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Montant invalide.")
 
     context.args = args[:-1]
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     context.args = args  # restauration
 
     if not target_tg:
@@ -195,7 +195,7 @@ async def setcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg or not context.args:
         return await update.message.reply_text("Usage : /setcoins @user montant")
 
@@ -225,7 +225,7 @@ async def userinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text("Usage : /userinfo @user")
 
@@ -294,7 +294,7 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text("Usage : /ban @user")
 
@@ -319,7 +319,7 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text("Usage : /unban @user")
 
@@ -343,7 +343,7 @@ async def resetuser(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text("Usage : /resetuser @user")
 
@@ -371,7 +371,7 @@ async def adminadd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text("Usage : /adminadd @user")
 
@@ -387,7 +387,7 @@ async def adminremove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text("Usage : /adminremove @user")
 
@@ -454,7 +454,7 @@ async def liberer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text("Usage : /liberer @user")
 
@@ -540,7 +540,7 @@ async def emprisonner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg or not context.args:
         return await update.message.reply_text(
             "Usage : /emprisonner @user durée_minutes\nEx: /emprisonner @dupont 60"
@@ -705,7 +705,7 @@ async def giveportfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg or len(context.args) < 2:
         return await update.message.reply_text(
             "Usage : /giveportfolio @user [asset_id] [quantité]\n"
@@ -830,7 +830,7 @@ async def useractivity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text("Usage : /useractivity @user [heures]\nEx : /useractivity @Jean 4")
 
@@ -1014,7 +1014,7 @@ async def enquete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
+    target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
         return await update.message.reply_text(
             "Usage : /enquete @username\nOu utilise la commande en réponse au message d'un utilisateur."

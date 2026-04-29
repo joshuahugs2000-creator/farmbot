@@ -125,19 +125,27 @@ async def give(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
-    if not target_tg or not context.args:
+    args = context.args or []
+    if not args:
         return await update.message.reply_text("Usage : /give @user montant")
 
+    # Extraire le montant (dernier arg) AVANT parse_target
+    # pour éviter que le nombre soit confondu avec un ID utilisateur
     try:
-        amount = int(context.args[-1].replace(",", "").replace(" ", ""))
+        amount = int(args[-1].replace(",", "").replace(" ", ""))
         assert amount > 0
     except (ValueError, AssertionError):
         return await update.message.reply_text("Montant invalide.")
 
+    context.args = args[:-1]
+    target_tg = await parse_target(update, context)
+    context.args = args  # restauration
+
+    if not target_tg:
+        return await update.message.reply_text("Usage : /give @user montant")
+
     target = await ensure_user(target_tg)
     async with AsyncSessionLocal() as session:
-        # add_coins utilise asyncpg natif — supporte les BIGINT
         new_bal = await add_coins(session, target.user_id, amount)
 
     await update.message.reply_text(
@@ -153,15 +161,22 @@ async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
-    target_tg = await parse_target(update, context)
-    if not target_tg or not context.args:
+    args = context.args or []
+    if not args:
         return await update.message.reply_text("Usage : /take @user montant")
 
     try:
-        amount = int(context.args[-1].replace(",", "").replace(" ", ""))
+        amount = int(args[-1].replace(",", "").replace(" ", ""))
         assert amount > 0
     except (ValueError, AssertionError):
         return await update.message.reply_text("Montant invalide.")
+
+    context.args = args[:-1]
+    target_tg = await parse_target(update, context)
+    context.args = args  # restauration
+
+    if not target_tg:
+        return await update.message.reply_text("Usage : /take @user montant")
 
     target = await ensure_user(target_tg)
     async with AsyncSessionLocal() as session:

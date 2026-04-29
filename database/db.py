@@ -23,6 +23,20 @@ def _asyncpg_dsn() -> str:
 
 async def init_db():
     """Crée les tables et ajoute les colonnes manquantes (migration douce)."""
+    # ── Colonnes critiques ajoutées AVANT create_all ──────────────────────────
+    # SQLAlchemy tente de lire ces colonnes dès le 1er SELECT — elles doivent
+    # exister AVANT que create_all ne vérifie le schéma.
+    pre_migrations = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS karma         INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS harvest_count INTEGER DEFAULT 0",
+    ]
+    for sql in pre_migrations:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(sql))
+        except Exception:
+            pass  # la table users peut ne pas encore exister, c'est OK
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

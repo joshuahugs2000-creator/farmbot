@@ -23,20 +23,31 @@ def _asyncpg_dsn() -> str:
 
 async def init_db():
     """Crée les tables et ajoute les colonnes manquantes (migration douce)."""
-    # ── Colonnes critiques ajoutées AVANT create_all ──────────────────────────
-    # SQLAlchemy tente de lire ces colonnes dès le 1er SELECT — elles doivent
-    # exister AVANT que create_all ne vérifie le schéma.
-    pre_migrations = [
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS karma         INTEGER DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS harvest_count INTEGER DEFAULT 0",
-    ]
-    for sql in pre_migrations:
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text(sql))
-        except Exception:
-            pass  # la table users peut ne pas encore exister, c'est OK
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
 
+    # ── ÉTAPE 1 : Colonnes critiques en SQL pur AVANT tout accès ORM ─────────
+    # On passe par une connexion raw pour ne pas dépendre du modèle SQLAlchemy.
+    critical_cols = [
+        ("karma",         "INTEGER DEFAULT 0"),
+        ("harvest_count", "INTEGER DEFAULT 0"),
+        ("photo_file_id", "VARCHAR(512)"),
+        ("profile_color", "VARCHAR(20) DEFAULT 'blue'"),
+        ("family_name",   "VARCHAR(100)"),
+    ]
+    try:
+        async with engine.begin() as conn:
+            for col, coltype in critical_cols:
+                sql = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {coltype}"
+                try:
+                    await conn.execute(text(sql))
+                    _log.info(f"Migration OK : {sql}")
+                except Exception as e:
+                    _log.debug(f"Migration skipped ({col}): {e}")
+    except Exception as e:
+        _log.warning(f"pre_migrations: table users n'existe pas encore ({e})")
+
+    # ── ÉTAPE 2 : Créer toutes les tables manquantes ──────────────────────────
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

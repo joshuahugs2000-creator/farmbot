@@ -35,7 +35,7 @@ async def ensure_user(tg_user) -> User:
 def is_group(update: Update) -> bool:
     return update.effective_chat.type in ("group", "supergroup")
 
-async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE, allow_bot: bool = False):
     """
     Retourne un objet compatible TGUser depuis :
     - la réponse à un message
@@ -43,14 +43,15 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     - un @username résolu via la DB
     - un ID numérique brut (ex: /drame scandale 123456789)
 
-    Retourne None si la cible est un bot (avec message d'erreur).
+    Si allow_bot=False (défaut), retourne None avec message d'erreur si la cible est un bot.
+    Si allow_bot=True (admin), la cible bot est autorisée.
     """
     msg    = update.message
     bot_id = context.bot.id
 
     async def _check_bot(uid: int, is_bot: bool, label: str):
-        """Envoie un message d'erreur et retourne True si c'est un bot."""
-        if is_bot or uid == bot_id:
+        """Envoie un message d'erreur et retourne True si c'est un bot non autorisé."""
+        if (is_bot or uid == bot_id) and not allow_bot:
             logger.warning(f"[parse_target] {label} → cible est un bot ({uid}), rejeté.")
             await msg.reply_text("❌ Tu ne peux pas cibler le bot.")
             return True

@@ -256,8 +256,7 @@ async def _destroy_portfolio(user_id: int, percent: int) -> tuple[int, int]:
 
 
 async def _notify_victim(context, db_user, message: str):
-    """Envoie le message du drame à la victime en DM + dans tous les groupes."""
-    # DM à la victime
+    """Envoie le message du drame uniquement à la victime en DM (si elle a démarré le bot)."""
     try:
         await context.bot.send_message(
             chat_id=db_user.user_id,
@@ -265,22 +264,8 @@ async def _notify_victim(context, db_user, message: str):
             parse_mode=ParseMode.HTML
         )
     except Exception:
+        # La victime n'a pas démarré le bot — on ignore silencieusement
         pass
-
-    # Tous les groupes où le bot est actif
-    async with AsyncSessionLocal() as session:
-        res = await session.execute(select(GroupSettings))
-        groups = res.scalars().all()
-
-    for g in groups:
-        try:
-            await context.bot.send_message(
-                chat_id=g.group_id,
-                text=message,
-                parse_mode=ParseMode.HTML
-            )
-        except Exception:
-            pass
 
 
 # ─── /drame scandale ──────────────────────────────────────────────────────────

@@ -903,19 +903,24 @@ async def get_logs_for_user(
         date_str = datetime.utcnow().strftime("%Y-%m-%d")
     start = datetime.strptime(date_str, "%Y-%m-%d")
     end   = start + timedelta(days=1)
-    r = await session.execute(
-        text("""
-            SELECT id, user_id, username, command, args, amount, result, group_id, created_at
-            FROM activity_logs
-            WHERE user_id = :uid
-              AND created_at >= :start
-              AND created_at <  :end
-            ORDER BY created_at ASC
-            LIMIT :lim
-        """),
-        {"uid": user_id, "start": start, "end": end, "lim": limit}
-    )
-    return r.fetchall()
+    try:
+        r = await session.execute(
+            text("""
+                SELECT id, user_id, username, command, args, amount, result, group_id, created_at
+                FROM activity_logs
+                WHERE user_id = :uid
+                  AND created_at >= :start
+                  AND created_at <  :end
+                ORDER BY created_at ASC
+                LIMIT :lim
+            """),
+            {"uid": user_id, "start": start, "end": end, "lim": limit}
+        )
+        return r.fetchall()
+    except Exception:
+        # Table manquante → la créer et retourner vide
+        await init_logs_table()
+        return []
 
 
 async def get_suspicious_users(session: AsyncSession) -> List[dict]:
@@ -1038,13 +1043,17 @@ async def mark_group_inactive(group_id: int) -> None:
 
 
 async def get_all_groups(active_only: bool = True) -> list:
-    async with engine.begin() as conn:
-        if active_only:
-            r = await conn.execute(text(
-                "SELECT * FROM bot_groups WHERE is_active = TRUE ORDER BY last_seen DESC"
-            ))
-        else:
-            r = await conn.execute(text(
-                "SELECT * FROM bot_groups ORDER BY is_active DESC, last_seen DESC"
-            ))
-        return r.fetchall()
+    try:
+        async with engine.begin() as conn:
+            if active_only:
+                r = await conn.execute(text(
+                    "SELECT * FROM bot_groups WHERE is_active = TRUE ORDER BY last_seen DESC"
+                ))
+            else:
+                r = await conn.execute(text(
+                    "SELECT * FROM bot_groups ORDER BY is_active DESC, last_seen DESC"
+                ))
+            return r.fetchall()
+    except Exception:
+        await init_groups_table()
+        return []

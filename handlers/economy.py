@@ -132,19 +132,30 @@ async def work(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /pay ─────────────────────────────────────────────────────────────────────
 
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    target_tg = await parse_target(update, context)
-    if not target_tg or not context.args:
+    args = context.args or []
+    if not args:
         return await update.message.reply_text("Usage : /pay @pseudo montant\nEx : /pay @Mark 50000")
 
-    # Montant = dernier argument
+    # Montant = dernier argument (extrait AVANT parse_target pour éviter
+    # que le nombre soit confondu avec un user ID dans parse_target)
     try:
-        amount = int(context.args[-1].replace(" ", "").replace(",", ""))
+        amount = int(args[-1].replace(" ", "").replace(",", ""))
         assert amount > 0
     except (ValueError, AssertionError):
         return await update.message.reply_text("Montant invalide. Ex : /pay @Mark 50000")
 
+    # On retire le montant des args avant parse_target
+    context.args = args[:-1]
+    target_tg = await parse_target(update, context)
+    context.args = args  # restauration
+
+    if not target_tg:
+        return await update.message.reply_text(
+            "Utilisateur introuvable. Il doit avoir déjà utilisé le bot."
+        )
+
     if target_tg.id == update.effective_user.id:
-        return await update.message.reply_text("Tu ne peux pas te payer toi-meme !")
+        return await update.message.reply_text("Tu ne peux pas te payer toi-même !")
 
     sender = await ensure_user(update.effective_user)
     target = await ensure_user(target_tg)
@@ -158,7 +169,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Utilisateur introuvable.")
     else:
         await update.message.reply_text(
-            f"💸 {mention(sender)} a envoye {_fmt(amount)} {CURRENCY} a {mention(target)} !",
+            f"💸 {mention(sender)} a envoyé {_fmt(amount)} {CURRENCY} à {mention(target)} !",
             parse_mode=ParseMode.HTML,
         )
 
@@ -417,7 +428,6 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-
 # ─── /des ─────────────────────────────────────────────────────────────────────
 
 DES_MISE       = 50_000
@@ -513,7 +523,7 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Lancer le dé
         resultat = random.randint(1, 21)
-        face_choix   = DES_FACES[choix]
+        face_choix    = DES_FACES[choix]
         face_resultat = DES_FACES[resultat]
 
         if resultat == choix:

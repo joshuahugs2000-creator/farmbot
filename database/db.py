@@ -3,7 +3,7 @@ from sqlalchemy import select, and_, or_, delete, func, text
 from .models import (
     Base, User, GroupSettings, Relationship, PendingRequest,
     Garden, DailyWaifu, KarmaVote, UserBet, RelationType, RequestType,
-    CoupleAccount, ActivityLog,
+    CoupleAccount, ActivityLog, BotGroup,
 )
 from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TITLES
 from datetime import datetime, timedelta
@@ -83,7 +83,7 @@ async def init_db():
         """CREATE TABLE IF NOT EXISTS lottery_tickets (
             id         SERIAL PRIMARY KEY,
             session_id INTEGER REFERENCES lottery_sessions(id),
-            user_id    BIGINT REFERENCES users(user_id),
+            user_id    BIGINT NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
         )""",
         # ─── TABLE DES LOGS D'ACTIVITÉ ────────────────────────────────────────
@@ -100,6 +100,17 @@ async def init_db():
         )""",
         "CREATE INDEX IF NOT EXISTS idx_activity_logs_user_date ON activity_logs (user_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_activity_logs_date ON activity_logs (created_at)",
+        """CREATE TABLE IF NOT EXISTS bot_groups (
+            group_id     BIGINT PRIMARY KEY,
+            title        VARCHAR(255),
+            username     VARCHAR(255),
+            chat_type    VARCHAR(20),
+            member_count INTEGER,
+            invite_link  VARCHAR(512),
+            is_active    BOOLEAN DEFAULT TRUE,
+            first_seen   TIMESTAMP DEFAULT NOW(),
+            last_seen    TIMESTAMP DEFAULT NOW()
+        )""",
     ]
     # Chaque migration dans sa propre transaction pour éviter les rollbacks en cascade
     for sql in migrations:
@@ -972,3 +983,68 @@ async def get_suspicious_users(session: AsyncSession) -> List[dict]:
             })
 
     return suspicious
+
+
+# ─── BOT GROUPS ───────────────────────────────────────────────────────────────
+
+async def init_groups_table() -> None:
+    sql = """
+        CREATE TABLE IF NOT EXISTS bot_groups (
+            group_id     BIGINT PRIMARY KEY,
+            title        VARCHAR(255),
+            username     VARCHAR(255),
+            chat_type    VARCHAR(20),
+            member_count INTEGER,
+            invite_link  VARCHAR(512),
+            is_active    BOOLEAN DEFAULT TRUE,
+            first_seen   TIMESTAMP DEFAULT NOW(),
+            last_seen    TIMESTAMP DEFAULT NOW()
+        )
+    """
+    async with engine.begin() as conn:
+        await conn.execute(text(sql))
+
+
+async def upsert_group(
+    group_id: int,
+    title: str,
+    username: Optional[str],
+    chat_type: str,
+    member_count: Optional[int] = None,
+    invite_link: Optional[str] = None,
+) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            INSERT INTO bot_groups (group_id, title, username, chat_type, member_count, invite_link, is_active, first_seen, last_seen)
+            VALUES (:gid, :title, :username, :chat_type, :member_count, :invite_link, TRUE, NOW(), NOW())
+            ON CONFLICT (group_id) DO UPDATE SET
+                title        = EXCLUDED.title,
+                username     = EXCLUDED.username,
+                chat_type    = EXCLUDED.chat_type,
+                member_count = COALESCE(EXCLUDED.member_count, bot_groups.member_count),
+                invite_link  = COALESCE(EXCLUDED.invite_link, bot_groups.invite_link),
+                is_active    = TRUE,
+                last_seen    = NOW()
+        """), {"gid": group_id, "title": title, "username": username,
+               "chat_type": chat_type, "member_count": member_count, "invite_link": invite_link})
+
+
+async def mark_group_inactive(group_id: int) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE bot_groups SET is_active = FALSE WHERE group_id = :gid"),
+            {"gid": group_id}
+        )
+
+
+async def get_all_groups(active_only: bool = True) -> list:
+    async with engine.begin() as conn:
+        if active_only:
+            r = await conn.execute(text(
+                "SELECT * FROM bot_groups WHERE is_active = TRUE ORDER BY last_seen DESC"
+            ))
+        else:
+            r = await conn.execute(text(
+                "SELECT * FROM bot_groups ORDER BY is_active DESC, last_seen DESC"
+            ))
+        return r.fetchall()

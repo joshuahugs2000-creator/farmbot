@@ -32,6 +32,7 @@ class User(Base):
     profile_color = Column(String(20), default="blue")
     coins         = Column(BigInteger, default=10_000)
     karma         = Column(Integer, default=0)
+    harvest_count = Column(Integer, default=0)   # pour karma jardin
     family_name   = Column(String(100), nullable=True)
     last_daily    = Column(String(20), nullable=True)
     last_work     = Column(DateTime, nullable=True)
@@ -183,4 +184,19 @@ class LotteryTicket(Base):
     id         = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(Integer, ForeignKey("lottery_sessions.id"), nullable=False)
     user_id    = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ─── LOGS D'ACTIVITÉ ─────────────────────────────────────────────────────────
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    user_id    = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    username   = Column(String(255), nullable=True)
+    command    = Column(String(100), nullable=False)
+    args       = Column(String(500), nullable=True)
+    amount     = Column(BigInteger, nullable=True)   # montant si transaction
+    result     = Column(String(50), nullable=True)   # "ok", "fail", "cooldown"…
+    group_id   = Column(BigInteger, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

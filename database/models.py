@@ -32,7 +32,6 @@ class User(Base):
     profile_color = Column(String(20), default="blue")
     coins         = Column(BigInteger, default=10_000)
     karma         = Column(Integer, default=0)
-    harvest_count = Column(Integer, default=0)   # pour karma jardin
     family_name   = Column(String(100), nullable=True)
     last_daily    = Column(String(20), nullable=True)
     last_work     = Column(DateTime, nullable=True)

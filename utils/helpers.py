@@ -42,8 +42,19 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     - une entité text_mention
     - un @username résolu via la DB
     - un ID numérique brut (ex: /drame scandale 123456789)
+
+    Retourne None si la cible est un bot (avec message d'erreur).
     """
-    msg = update.message
+    msg    = update.message
+    bot_id = context.bot.id
+
+    async def _check_bot(uid: int, is_bot: bool, label: str):
+        """Envoie un message d'erreur et retourne True si c'est un bot."""
+        if is_bot or uid == bot_id:
+            logger.warning(f"[parse_target] {label} → cible est un bot ({uid}), rejeté.")
+            await msg.reply_text("❌ Tu ne peux pas cibler le bot.")
+            return True
+        return False
 
     # 0. ID numérique brut dans les args
     args = context.args or []
@@ -51,6 +62,8 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stripped = arg.strip()
         if stripped.lstrip("-").isdigit():
             uid = int(stripped)
+            if await _check_bot(uid, False, "ID brut"):
+                return None
             async with _db.AsyncSessionLocal() as session:
                 db_user = await _db.get_user(session, uid)
             if db_user:
@@ -69,11 +82,12 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if msg.reply_to_message:
         tg_user = msg.reply_to_message.from_user
         logger.info(f"[parse_target] reply → from_user={tg_user}")
-        if tg_user:
-            return tg_user
-        # from_user=None = admin anonyme ou channel → on ne peut pas identifier
-        logger.warning("[parse_target] reply_to_message.from_user est None (admin anonyme ?)")
-        return None
+        if tg_user is None:
+            logger.warning("[parse_target] reply_to_message.from_user est None (admin anonyme ?)")
+            return None
+        if await _check_bot(tg_user.id, getattr(tg_user, "is_bot", False), "reply"):
+            return None
+        return tg_user
 
     # 2. Entités texte
     text = msg.text or msg.caption or ""
@@ -81,6 +95,8 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Mention avec objet user connu de Telegram
         if entity.type == "text_mention" and entity.user:
             logger.info(f"[parse_target] text_mention → {entity.user.id}")
+            if await _check_bot(entity.user.id, getattr(entity.user, "is_bot", False), "text_mention"):
+                return None
             return entity.user
 
         # @username classique → résolution via DB
@@ -90,6 +106,8 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with _db.AsyncSessionLocal() as session:
                 db_user = await get_user_by_username(session, username)
             if db_user:
+                if await _check_bot(db_user.user_id, False, f"@mention {username}"):
+                    return None
                 class _FakeUser:
                     def __init__(self, u):
                         self.id         = u.user_id

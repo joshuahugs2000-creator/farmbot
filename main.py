@@ -51,7 +51,7 @@ from handlers.admin    import (
     useractivity,
     enquete,
     richlista,
-    logs_cmd, suspicious_cmd,
+    logs_cmd, suspicious_cmd, grouplist_cmd,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -82,7 +82,7 @@ from handlers.wealth_drain import (
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
-from database.db import AsyncSessionLocal, log_action, init_logs_table
+from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -154,6 +154,61 @@ async def prison_middleware(update: Update, context) -> bool:
 
 
 
+
+async def group_tracking_middleware(update: Update, context) -> None:
+    chat = update.effective_chat
+    if not chat or chat.type not in ("group", "supergroup", "channel"):
+        return
+    try:
+        invite_link  = None
+        username     = chat.username
+        if not username:
+            try:
+                invite_link = await context.bot.export_chat_invite_link(chat.id)
+            except Exception:
+                pass
+        try:
+            member_count = await context.bot.get_chat_member_count(chat.id)
+        except Exception:
+            member_count = None
+        await upsert_group(group_id=chat.id, title=chat.title or "Sans nom",
+                           username=username, chat_type=chat.type,
+                           member_count=member_count, invite_link=invite_link)
+    except Exception as e:
+        logger.debug(f"group_tracking_middleware error: {e}")
+
+
+async def my_chat_member_handler(update: Update, context) -> None:
+    from telegram import ChatMemberLeft, ChatMemberBanned
+    result = update.my_chat_member
+    if not result:
+        return
+    chat = result.chat
+    new  = result.new_chat_member
+    if chat.type not in ("group", "supergroup", "channel"):
+        return
+    try:
+        if isinstance(new, (ChatMemberLeft, ChatMemberBanned)):
+            await mark_group_inactive(chat.id)
+        else:
+            invite_link  = None
+            username     = chat.username
+            if not username:
+                try:
+                    invite_link = await context.bot.export_chat_invite_link(chat.id)
+                except Exception:
+                    pass
+            try:
+                member_count = await context.bot.get_chat_member_count(chat.id)
+            except Exception:
+                member_count = None
+            await upsert_group(group_id=chat.id, title=chat.title or "Sans nom",
+                               username=username, chat_type=chat.type,
+                               member_count=member_count, invite_link=invite_link)
+    except Exception as e:
+        logger.error(f"my_chat_member_handler error: {e}")
+
+
 async def activity_logging_middleware(update: Update, context) -> None:
     """Logue automatiquement chaque commande utilisée."""
     if not update.message or not update.message.text:
@@ -192,7 +247,8 @@ async def activity_logging_middleware(update: Update, context) -> None:
 
 async def on_startup(application: Application):
     await init_db()
-    await init_logs_table()   # ← crée activity_logs si elle n'existe pas
+    await init_logs_table()
+    await init_groups_table()   # ← crée activity_logs si elle n'existe pas
     await init_journal_table()
     await init_crime_tables()
     await init_drain_tables()
@@ -243,6 +299,9 @@ async def main():
     # ── Middleware de logging automatique ─────────────────────────────────────
     from telegram.ext import TypeHandler
     app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
+    app.add_handler(TypeHandler(Update, group_tracking_middleware),   group=-2)
+    from telegram.ext import ChatMemberHandler
+    app.add_handler(ChatMemberHandler(my_chat_member_handler, ChatMemberHandler.MY_CHAT_MEMBER))
 
     # ── Général ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",       start))
@@ -340,6 +399,7 @@ async def main():
     app.add_handler(CommandHandler("setdramesesuil", setdramesesuil))
     app.add_handler(CommandHandler("logs",           logs_cmd))
     app.add_handler(CommandHandler("suspicious",     suspicious_cmd))
+    app.add_handler(CommandHandler("grouplist",      grouplist_cmd))
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))

@@ -22,7 +22,7 @@ from handlers.family   import (
 )
 from handlers.tree     import tree
 from handlers.garden   import garden, plant_cmd, harvest
-from handlers.profile  import me, setpic, customize, color_callback, titles
+from handlers.profile  import me, setpic, customize, color_callback, titles, karmainfo
 from handlers.events   import check_anniversaries
 from handlers.events_random import setup_random_events, open_chest_cmd
 from handlers.economy  import (
@@ -51,6 +51,7 @@ from handlers.admin    import (
     useractivity,
     enquete,
     richlista,
+    logs_cmd, suspicious_cmd,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -81,7 +82,7 @@ from handlers.wealth_drain import (
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
-from database.db import AsyncSessionLocal
+from database.db import AsyncSessionLocal, log_action
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -151,6 +152,44 @@ async def prison_middleware(update: Update, context) -> bool:
         return False
 
 
+
+
+async def activity_logging_middleware(update: Update, context) -> None:
+    """Logue automatiquement chaque commande utilisée."""
+    if not update.message or not update.message.text:
+        return
+    user = update.effective_user
+    if not user:
+        return
+    txt = update.message.text
+    if not txt.startswith("/"):
+        return
+    parts   = txt.split()
+    command = parts[0].lstrip("/").split("@")[0].lower()
+    args    = " ".join(parts[1:]) if len(parts) > 1 else None
+    group_id = update.effective_chat.id if update.effective_chat else None
+    # Extraire un montant si possible (premier arg numérique)
+    amount = None
+    for p in parts[1:]:
+        try:
+            amount = int(p.replace("_", "").replace(" ", ""))
+            break
+        except ValueError:
+            pass
+    try:
+        async with AsyncSessionLocal() as session:
+            await log_action(
+                session,
+                user_id  = user.id,
+                username = user.username or user.first_name,
+                command  = command,
+                args     = args,
+                amount   = amount,
+                group_id = group_id,
+            )
+    except Exception as e:
+        logger.debug(f"Erreur log_action: {e}")
+
 async def on_startup(application: Application):
     await init_db()
     await init_journal_table()
@@ -200,6 +239,10 @@ async def main():
 
     app.add_error_handler(error_handler)
 
+    # ── Middleware de logging automatique ─────────────────────────────────────
+    from telegram.ext import TypeHandler
+    app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
+
     # ── Général ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("help",        help_cmd))
@@ -231,6 +274,7 @@ async def main():
     app.add_handler(CommandHandler("setpic",    _prison_checked(setpic)))
     app.add_handler(CommandHandler("customize", _prison_checked(customize)))
     app.add_handler(CommandHandler("titles",    _prison_checked(titles)))
+    app.add_handler(CommandHandler("karmainfo", karmainfo))
 
     # ── Économie ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("acc",        _prison_checked(acc)))
@@ -293,6 +337,8 @@ async def main():
     app.add_handler(CommandHandler("drame",          drame))
     app.add_handler(CommandHandler("article",        article_cmd))
     app.add_handler(CommandHandler("setdramesesuil", setdramesesuil))
+    app.add_handler(CommandHandler("logs",           logs_cmd))
+    app.add_handler(CommandHandler("suspicious",     suspicious_cmd))
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))

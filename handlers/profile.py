@@ -1,10 +1,20 @@
+"""
+handlers/profile.py — Profil utilisateur amélioré avec karma visuel.
+"""
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
-from database.db import AsyncSessionLocal, get_user, upsert_user, compute_title, get_family_members
+from database.db import (
+    AsyncSessionLocal, get_user, upsert_user, compute_title,
+    get_family_members, get_karma_level, karma_bar,
+)
 from utils.helpers import ensure_user
 from config import PROFILE_COLORS, TITLES, CURRENCY
+
+
+def _fmt(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
 
 
 async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -16,23 +26,42 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fam   = await get_family_members(session, user.user_id)
         size  = len(fam)
 
+    karma   = u.karma if u else 0
+    coins   = u.coins if u else 0
+    color   = u.profile_color if u else "blue"
+    fam_name = u.family_name if u else None
+    joined  = u.created_at.strftime("%d/%m/%Y") if u and u.created_at else "—"
+
     color_dot = {
         "blue": "🔵", "green": "🟢", "red": "🔴", "purple": "🟣",
         "orange": "🟠", "pink": "🩷", "gold": "🟡", "teal": "🩵",
-    }.get(u.profile_color if u else "blue", "🔵")
+    }.get(color, "🔵")
+
+    level    = get_karma_level(karma)
+    bar      = karma_bar(karma)
+    karma_pct = level["daily_pct"]
+    karma_sign = f"+{karma_pct}%" if karma_pct >= 0 else f"{karma_pct}%"
 
     lines = [
-        f"👤 <b>Profil de {update.effective_user.first_name}</b>",
+        f"╔══════════════════════════╗",
+        f"  👤 <b>{update.effective_user.first_name}</b>",
+        f"  🏅 {title}",
+        f"╚══════════════════════════╝",
         f"",
-        f"🏅 Titre    : {title}",
-        f"🏠 Famille  : {u.family_name or '—'}" if u else "",
-        f"👨‍👩‍👧 Membres  : {size}",
-        f"⭐ Karma    : {u.karma if u else 0}",
-        f"💰 {CURRENCY} : {u.coins if u else 0}",
-        f"{color_dot} Couleur   : {u.profile_color if u else 'blue'}",
+        f"🏠 <b>Famille</b>  : {fam_name or '— Sans famille'} ({size} membre(s))",
+        f"📅 <b>Inscrit</b>  : {joined}",
+        f"{color_dot} <b>Couleur</b>  : {color.capitalize()}",
+        f"",
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"⭐ <b>KARMA</b>  : {karma:+d}  {level['emoji']} <i>{level['label']}</i>",
+        f"   {bar}",
+        f"   📈 Daily bonus : <b>{karma_sign}</b>  |  ⏱ Cooldown /work réduit de <b>{level['work_red']}%</b>",
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"",
+        f"💰 <b>Solde</b>   : {_fmt(coins)} {CURRENCY}",
     ]
 
-    text = "\n".join(l for l in lines if l is not None)
+    text = "\n".join(lines)
     if u and u.photo_file_id:
         await update.message.reply_photo(u.photo_file_id, caption=text, parse_mode=ParseMode.HTML)
     else:
@@ -102,4 +131,35 @@ async def titles(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{title}\n"
             f"  → Famille ≥ {min_size} membres  |  Karma ≥ {min_karma}\n"
         )
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def karmainfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Explique le système karma avec tous les niveaux."""
+    from database.db import KARMA_LEVELS
+    lines = [
+        "⭐ <b>SYSTÈME KARMA</b>",
+        "",
+        "Le karma reflète ta réputation dans le jeu.",
+        "Il monte grâce à tes bonnes actions, et chute si tu joues de façon criminelle.",
+        "",
+        "📈 <b>Ce qui augmente le karma :</b>",
+        "  • Payer la caution de quelqu'un <code>/bail</code> → +2",
+        "  • Faire un don généreux <code>/pay</code> (≥ 10 000 $) → +1",
+        "  • Récolter ton jardin 5 fois → +1",
+        "  • Gagner un combat d'arène (30% de chance) → +1",
+        "",
+        "📉 <b>Ce qui baisse le karma :</b>",
+        "  • Voler quelqu'un <code>/rob</code> ou <code>/cambrioler</code> → -1",
+        "  • Être condamné par <code>/juge</code> → -2",
+        "  • Aller en prison → -1",
+        "",
+        "🏆 <b>Niveaux de karma :</b>",
+        "",
+    ]
+    for threshold, emoji, label, daily_pct, work_red in KARMA_LEVELS:
+        sign = f"+{daily_pct}%" if daily_pct >= 0 else f"{daily_pct}%"
+        work_str = f" | ⏱ -{work_red}% cooldown" if work_red > 0 else ""
+        lines.append(f"  {emoji} <b>{label}</b> (karma ≥ {threshold}) → Daily {sign}{work_str}")
+
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

@@ -18,7 +18,7 @@ from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
 from database.db import (
-    AsyncSessionLocal, get_user, add_coins, transfer_coins,
+    AsyncSessionLocal, get_user, add_coins, transfer_coins, adjust_karma,
 )
 from database.models import User
 from utils.helpers import ensure_user, parse_target, mention
@@ -284,6 +284,9 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await session.commit()
 
+            # 🎯 Karma : voler = -1 karma pour le voleur
+            await adjust_karma(session, robber.user_id, -1)
+
             # Scénario aléatoire de fuite
             fuites = [
                 "s'est éclipsé dans l'ombre avant que quiconque réagisse",
@@ -324,6 +327,10 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  "bail": bail, "rel": released_at}
             )
             await session.commit()
+
+            # 🎯 Karma : aller en prison = -1 karma
+            import asyncio as _aio
+            _aio.create_task(adjust_karma(session, robber_tg.id, -1))
 
             minutes_prison = int((released_at - datetime.utcnow()).total_seconds() / 60)
 
@@ -519,10 +526,14 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await session.commit()
 
+        # 🎯 Karma : payer la caution d'un autre = +2 karma
+        await adjust_karma(session, payer.user_id, +2)
+
         await update.message.reply_text(
             f"🔓 {mention(payer)} a payé la caution de {mention(prisoner)} !\n"
             f"💸 <b>{_fmt(bail_amount)} 💰</b> dépensés.\n"
-            f"🆓 {mention(prisoner)} est libre et peut à nouveau utiliser toutes les commandes !",
+            f"🆓 {mention(prisoner)} est libre et peut à nouveau utiliser toutes les commandes !\n"
+            f"⭐ +2 karma pour {mention(payer)} (générosité) !",
             parse_mode=ParseMode.HTML
         )
 

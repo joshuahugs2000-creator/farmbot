@@ -27,7 +27,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
-from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users
+from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users, get_logs_for_user, get_suspicious_users
 from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
 from config import CURRENCY
@@ -1291,3 +1291,90 @@ async def richlista(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── /logs ────────────────────────────────────────────────────────────────────
+
+async def logs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /logs @user [date]
+    Affiche les logs d'un utilisateur pour aujourd'hui ou une date donnée.
+    Réservé aux admins.
+    """
+    if not await is_admin(update.effective_user.id):
+        return await update.message.reply_text("❌ Accès refusé.")
+
+    if not context.args:
+        return await update.message.reply_text(
+            "Usage : /logs @pseudo [YYYY-MM-DD]\nEx : /logs @Mark\nEx : /logs @Mark 2024-01-15"
+        )
+
+    # Résoudre la cible
+    from utils.helpers import parse_target
+    target_tg = await parse_target(update, context)
+    if not target_tg:
+        return await update.message.reply_text("❌ Utilisateur introuvable. Utilise @pseudo.")
+
+    # Date optionnelle (2ème argument)
+    date_str = None
+    for arg in context.args:
+        if arg.startswith("20") and len(arg) == 10:
+            date_str = arg
+            break
+    if not date_str:
+        from datetime import datetime
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    async with AsyncSessionLocal() as session:
+        logs = await get_logs_for_user(session, target_tg.id, date_str, limit=80)
+
+    if not logs:
+        return await update.message.reply_text(
+            f"📋 Aucun log pour <b>{target_tg.first_name}</b> le {date_str}.",
+            parse_mode="HTML"
+        )
+
+    lines = [f"📋 <b>Logs de {target_tg.first_name}</b> ({date_str}) — {len(logs)} action(s)\n"]
+    for log in logs:
+        ts   = log.created_at.strftime("%H:%M:%S")
+        amt  = f" [{log.amount:+,} $]" if log.amount else ""
+        args = f" {log.args}" if log.args else ""
+        res  = f" → {log.result}" if log.result else ""
+        lines.append(f"<code>{ts}</code> /{log.command}{args}{amt}{res}")
+
+    # Découper si trop long (limite Telegram ~4096 chars)
+    text = "\n".join(lines)
+    if len(text) > 3800:
+        text = text[:3800] + "\n… (tronqué)"
+
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
+# ─── /suspicious ──────────────────────────────────────────────────────────────
+
+async def suspicious_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /suspicious
+    Liste les joueurs avec comportement anormal aujourd'hui.
+    Réservé aux admins.
+    """
+    if not await is_admin(update.effective_user.id):
+        return await update.message.reply_text("❌ Accès refusé.")
+
+    async with AsyncSessionLocal() as session:
+        suspects = await get_suspicious_users(session)
+
+    if not suspects:
+        return await update.message.reply_text(
+            "✅ Aucun comportement suspect détecté aujourd'hui.",
+        )
+
+    lines = [f"🚨 <b>Comportements suspects — aujourd'hui</b>\n"]
+    for s in suspects:
+        uname = f"@{s['username']}" if s['username'] and not s['username'].isdigit() else f"ID:{s['user_id']}"
+        lines.append(f"👤 <b>{uname}</b> ({s['cmd_count']} cmd)")
+        for flag in s["flags"]:
+            lines.append(f"   {flag}")
+        lines.append("")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")

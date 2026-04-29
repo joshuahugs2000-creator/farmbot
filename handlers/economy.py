@@ -23,7 +23,7 @@ from telegram.constants import ParseMode
 from database.db import (
     AsyncSessionLocal, get_user, get_richlist,
     add_coins, transfer_coins, claim_daily, claim_work,
-    deduct_for_game, add_coins_smart,
+    deduct_for_game, add_coins_smart, adjust_karma,
 )
 from sqlalchemy import text
 from utils.helpers import ensure_user, parse_target, mention
@@ -86,9 +86,12 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if result["status"] == "already":
         await update.message.reply_text("Tu as deja pris ton bonus aujourd'hui. Reviens demain !")
     elif result["status"] == "ok":
+        pct  = result.get("karma_bonus_pct", 0)
+        sign = f"+{pct}%" if pct >= 0 else f"{pct}%"
+        karma_line = f"\n⭐ Bonus karma ({result.get('karma_label','')}) : {sign}" if pct != 0 else ""
         await update.message.reply_text(
             f"🎁 Bonus quotidien recu !\n"
-            f"💰 +{_fmt(result['amount'])} {CURRENCY}\n"
+            f"💰 +{_fmt(result['amount'])} {CURRENCY}{karma_line}\n"
             f"Solde : {_fmt(result['balance'])} {CURRENCY}"
         )
     else:
@@ -120,9 +123,11 @@ async def work(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Tu es fatigue(e) ! Reviens dans {h}h{m:02d}m.")
     elif result["status"] == "ok":
         job_desc, _, _ = random.choice(JOBS)
+        cd_h = result.get("cooldown_h", 8.0)
+        karma_line = f"\n⏱ Prochain /work dans {cd_h}h ({result.get('karma_label','')})" if cd_h < 8.0 else ""
         await update.message.reply_text(
             f"{job_desc}\n"
-            f"💰 +{_fmt(result['amount'])} {CURRENCY}\n"
+            f"💰 +{_fmt(result['amount'])} {CURRENCY}{karma_line}\n"
             f"Solde : {_fmt(result['balance'])} {CURRENCY}"
         )
     else:
@@ -162,6 +167,11 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         result = await transfer_coins(session, sender.user_id, target.user_id, amount)
+        # 🎯 Karma : don généreux ≥ 10 000 $ = +1 karma
+        karma_msg = ""
+        if result == "ok" and amount >= 10_000:
+            await adjust_karma(session, sender.user_id, +1)
+            karma_msg = "\n⭐ +1 karma (don généreux) !"
 
     if result == "insufficient":
         await update.message.reply_text(f"Solde insuffisant ! Il te faut {_fmt(amount)} {CURRENCY}.")
@@ -169,7 +179,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Utilisateur introuvable.")
     else:
         await update.message.reply_text(
-            f"💸 {mention(sender)} a envoyé {_fmt(amount)} {CURRENCY} à {mention(target)} !",
+            f"💸 {mention(sender)} a envoyé {_fmt(amount)} {CURRENCY} à {mention(target)} !{karma_msg}",
             parse_mode=ParseMode.HTML,
         )
 

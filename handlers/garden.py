@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from database.db import AsyncSessionLocal, get_garden, plant, harvest_plant, get_settings, get_user
+from database.db import AsyncSessionLocal, get_garden, plant, harvest_plant, get_settings, get_user, adjust_karma
 from database.models import Garden
 from utils.helpers import ensure_user, is_group
 from config import PLANT_TYPES, GARDEN_SLOTS, CURRENCY
@@ -115,6 +115,22 @@ async def harvest(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total += coins
             lines.append(f"  {PLANT_TYPES[g.plant_type]['emoji']} {g.plant_type} → +{coins:,} {CURRENCY}")
 
+        # 🎯 Karma : +1 tous les 5 récoltes
+        from sqlalchemy import text as _text
+        await session.execute(
+            _text("UPDATE users SET harvest_count = COALESCE(harvest_count, 0) + :n WHERE user_id = :uid"),
+            {"n": len(ready), "uid": user.user_id}
+        )
+        await session.commit()
+        # Récupérer le nouveau harvest_count
+        r = await session.execute(_text("SELECT harvest_count FROM users WHERE user_id = :uid"), {"uid": user.user_id})
+        row = r.fetchone()
+        harvest_count = row[0] if row else 0
+        karma_msg = ""
+        if harvest_count > 0 and harvest_count % 5 == 0:
+            await adjust_karma(session, user.user_id, +1)
+            karma_msg = "\n⭐ +1 karma (5 récoltes atteintes) !"
+
     await update.message.reply_text(
-        "Recolte terminee !\n" + "\n".join(lines) + f"\nTotal : {total:,} {CURRENCY}"
+        "Recolte terminee !\n" + "\n".join(lines) + f"\nTotal : {total:,} {CURRENCY}" + karma_msg
     )

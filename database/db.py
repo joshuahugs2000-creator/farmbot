@@ -824,6 +824,29 @@ async def get_all_users(session: AsyncSession) -> List[User]:
 
 # ─── ACTIVITY LOGS ────────────────────────────────────────────────────────────
 
+async def init_logs_table() -> None:
+    """Crée la table activity_logs si elle n'existe pas (appelé au démarrage)."""
+    sql = """
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id         SERIAL PRIMARY KEY,
+            user_id    BIGINT NOT NULL,
+            username   VARCHAR(255),
+            command    VARCHAR(100) NOT NULL,
+            args       VARCHAR(500),
+            amount     BIGINT,
+            result     VARCHAR(50),
+            group_id   BIGINT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """
+    idx1 = "CREATE INDEX IF NOT EXISTS idx_alog_user_date ON activity_logs (user_id, created_at)"
+    idx2 = "CREATE INDEX IF NOT EXISTS idx_alog_date ON activity_logs (created_at)"
+    async with engine.begin() as conn:
+        await conn.execute(text(sql))
+        await conn.execute(text(idx1))
+        await conn.execute(text(idx2))
+
+
 async def log_action(
     session: AsyncSession,
     user_id: int,
@@ -835,19 +858,27 @@ async def log_action(
     result: Optional[str] = None,
     group_id: Optional[int] = None,
 ) -> None:
-    """Enregistre une action utilisateur en base."""
-    entry = ActivityLog(
-        user_id   = user_id,
-        username  = username,
-        command   = command,
-        args      = args,
-        amount    = amount,
-        result    = result,
-        group_id  = group_id,
-        created_at = datetime.utcnow(),
-    )
-    session.add(entry)
-    await session.commit()
+    """Enregistre une action utilisateur — SQL pur, aucune dépendance ORM."""
+    try:
+        await session.execute(
+            text("""
+                INSERT INTO activity_logs (user_id, username, command, args, amount, result, group_id, created_at)
+                VALUES (:uid, :uname, :cmd, :args, :amount, :result, :gid, :now)
+            """),
+            {
+                "uid":    user_id,
+                "uname":  username,
+                "cmd":    command,
+                "args":   args,
+                "amount": amount,
+                "result": result,
+                "gid":    group_id,
+                "now":    datetime.utcnow(),
+            }
+        )
+        await session.commit()
+    except Exception:
+        pass  # Ne jamais bloquer une commande à cause des logs
 
 
 async def get_logs_for_user(
@@ -855,94 +886,78 @@ async def get_logs_for_user(
     user_id: int,
     date_str: Optional[str] = None,
     limit: int = 50,
-) -> List[ActivityLog]:
+) -> list:
     """Retourne les logs d'un utilisateur pour une date donnée (YYYY-MM-DD) ou aujourd'hui."""
     if not date_str:
         date_str = datetime.utcnow().strftime("%Y-%m-%d")
     start = datetime.strptime(date_str, "%Y-%m-%d")
     end   = start + timedelta(days=1)
     r = await session.execute(
-        select(ActivityLog)
-        .where(
-            and_(
-                ActivityLog.user_id    == user_id,
-                ActivityLog.created_at >= start,
-                ActivityLog.created_at <  end,
-            )
-        )
-        .order_by(ActivityLog.created_at.asc())
-        .limit(limit)
+        text("""
+            SELECT id, user_id, username, command, args, amount, result, group_id, created_at
+            FROM activity_logs
+            WHERE user_id = :uid
+              AND created_at >= :start
+              AND created_at <  :end
+            ORDER BY created_at ASC
+            LIMIT :lim
+        """),
+        {"uid": user_id, "start": start, "end": end, "lim": limit}
     )
-    return list(r.scalars().all())
+    return r.fetchall()
 
 
 async def get_suspicious_users(session: AsyncSession) -> List[dict]:
-    """Retourne la liste des comportements suspects du jour."""
+    """Retourne la liste des comportements suspects du jour — SQL pur."""
     today = datetime.utcnow().strftime("%Y-%m-%d")
     start = datetime.strptime(today, "%Y-%m-%d")
     end   = start + timedelta(days=1)
+    now   = datetime.utcnow()
 
+    # Résumé par utilisateur pour aujourd'hui
     r = await session.execute(
-        select(
-            ActivityLog.user_id,
-            ActivityLog.username,
-            func.count(ActivityLog.id).label("cmd_count"),
-            func.sum(
-                func.coalesce(ActivityLog.amount, 0)
-            ).label("total_amount"),
-        )
-        .where(
-            and_(
-                ActivityLog.created_at >= start,
-                ActivityLog.created_at <  end,
-            )
-        )
-        .group_by(ActivityLog.user_id, ActivityLog.username)
-        .order_by(func.count(ActivityLog.id).desc())
+        text("""
+            SELECT user_id, username,
+                   COUNT(*)        AS cmd_count,
+                   COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS total_gain
+            FROM activity_logs
+            WHERE created_at >= :start AND created_at < :end
+            GROUP BY user_id, username
+            ORDER BY cmd_count DESC
+        """),
+        {"start": start, "end": end}
     )
-    rows = r.all()
+    rows = r.fetchall()
 
     suspicious = []
-    now = datetime.utcnow()
-    # Détail par utilisateur pour les seuils temporels
     for row in rows:
-        uid, uname, cmd_count, total_amount = row
+        uid, uname, cmd_count, total_gain = row.user_id, row.username, row.cmd_count, row.total_gain
         flags = []
 
-        # Seuil 1 : trop de commandes aujourd'hui
         if cmd_count >= 60:
             flags.append(f"🚨 {cmd_count} commandes aujourd'hui")
+        if total_gain >= 500_000:
+            flags.append(f"💰 +{int(total_gain):,} $ gagnés")
 
-        # Seuil 2 : gain massif
-        if total_amount and total_amount >= 500_000:
-            flags.append(f"💰 +{total_amount:,} $ gagnés")
-
-        # Seuil 3 : commandes en rafale (30 en 1h)
+        # Rafale dans la dernière heure
         one_hour_ago = now - timedelta(hours=1)
         r2 = await session.execute(
-            select(func.count(ActivityLog.id))
-            .where(
-                and_(
-                    ActivityLog.user_id    == uid,
-                    ActivityLog.created_at >= one_hour_ago,
-                )
-            )
+            text("SELECT COUNT(*) FROM activity_logs WHERE user_id=:uid AND created_at>=:t"),
+            {"uid": uid, "t": one_hour_ago}
         )
         hourly = r2.scalar() or 0
         if hourly >= 30:
             flags.append(f"⚡ {hourly} cmd/heure")
 
-        # Seuil 4 : /rebet ou /casino en rafale (10 en 30 min)
+        # Jeux en rafale (30 min)
         thirty_ago = now - timedelta(minutes=30)
         r3 = await session.execute(
-            select(func.count(ActivityLog.id))
-            .where(
-                and_(
-                    ActivityLog.user_id    == uid,
-                    ActivityLog.created_at >= thirty_ago,
-                    ActivityLog.command.in_(["rebet", "casino", "cockfight", "ppc"]),
-                )
-            )
+            text("""
+                SELECT COUNT(*) FROM activity_logs
+                WHERE user_id=:uid AND created_at>=:t
+                  AND command IN ('rebet','casino','cockfight','ppc')
+            """),
+            {"uid": uid, "t": thirty_ago}
         )
         game_count = r3.scalar() or 0
         if game_count >= 10:
@@ -950,9 +965,9 @@ async def get_suspicious_users(session: AsyncSession) -> List[dict]:
 
         if flags:
             suspicious.append({
-                "user_id":  uid,
-                "username": uname or str(uid),
-                "flags":    flags,
+                "user_id":   uid,
+                "username":  uname or str(uid),
+                "flags":     flags,
                 "cmd_count": cmd_count,
             })
 

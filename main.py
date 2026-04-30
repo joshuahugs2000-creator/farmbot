@@ -36,10 +36,12 @@ from handlers.games import (
     rebet_cmd, rebet_callback,
     setmood_cmd,
     mood_facile_cmd, mood_normal_cmd, mood_difficile_cmd, mood_impitoyable_cmd, mood_auto_cmd,
+    mines_cmd, mines_callback,
 )
 from handlers.arena import (
     cockfight_cmd, cockfight_callback,
     ppc_cmd, ppc_callback,
+    lancer_cmd, lancer_callback,
 )
 from handlers.admin    import (
     adminhelp, give, take, setcoins, userinfo,
@@ -363,12 +365,18 @@ async def main():
     # ── Arène PvP ─────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("cockfight", _prison_checked(cockfight_cmd)))
     app.add_handler(CommandHandler("ppc",       _prison_checked(ppc_cmd)))
+    app.add_handler(CommandHandler("lancer",    _prison_checked(lancer_cmd)))
+
+    # ── Jeux ──────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("mines",     _prison_checked(mines_cmd)))
 
     app.add_handler(CallbackQueryHandler(crash_callback,      pattern=r"^crash:"))
     app.add_handler(CallbackQueryHandler(apple_callback,      pattern=r"^apple:"))
     app.add_handler(CallbackQueryHandler(rebet_callback,      pattern=r"^rebet:"))
     app.add_handler(CallbackQueryHandler(cockfight_callback,  pattern=r"^cf:"))
     app.add_handler(CallbackQueryHandler(ppc_callback,        pattern=r"^ppc:"))
+    app.add_handler(CallbackQueryHandler(lancer_callback,     pattern=r"^lancer:"))
+    app.add_handler(CallbackQueryHandler(mines_callback,      pattern=r"^mines:"))
     app.add_handler(CallbackQueryHandler(market_callback,     pattern=r"^mkt:"))
 
     # ── Admin ─────────────────────────────────────────────────────────────────

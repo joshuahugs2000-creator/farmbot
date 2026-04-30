@@ -120,20 +120,20 @@ CATALOGUE = {
 
 # Taux de base (appliqué 1x/jour à 12h sur le liquide)
 TAX_BRACKETS = [
-    (1_000_000,         0.00),
-    (5_000_000,         0.02),
-    (20_000_000,        0.05),
-    (100_000_000,       0.10),
-    (1_000_000_000,     0.18),
-    (float("inf"),      0.28),
+    (5_000_000,         0.00),   # < 5M : exonéré (relevé pour protéger les ruinés)
+    (20_000_000,        0.01),   # 5M–20M : 1%
+    (100_000_000,       0.03),   # 20M–100M : 3%
+    (500_000_000,       0.06),   # 100M–500M : 6%
+    (1_000_000_000,     0.10),   # 500M–1G : 10%
+    (float("inf"),      0.15),   # > 1G : 15%
 ]
 
-# Taxation spéciale top 10 — 4x par jour (toutes les 6h) sur fortune totale
-TOP10_TAX_RATE     = 0.12
-TOP10_TAX_INTERVAL = 6   # heures
+# Taxation spéciale top 10 — 2x par jour (toutes les 12h) sur fortune totale
+TOP10_TAX_RATE     = 0.06   # réduit de 12% → 6%
+TOP10_TAX_INTERVAL = 12     # espacé de 6h → 12h
 
 # Taxation top 11–30 — 1x/jour supplémentaire sur fortune totale
-TOP30_TAX_RATE = 0.06
+TOP30_TAX_RATE = 0.03       # réduit de 6% → 3%
 
 TOP10_MESSAGES = [
     "🏛️ Le gouvernement a décidé de te ponctionner davantage. Bienvenue dans le club des ultra-riches.",
@@ -380,11 +380,12 @@ async def impots(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════════════════════
 
 async def job_collect_taxes(context: ContextTypes.DEFAULT_TYPE):
-    """Prélève les impôts de base sur tous les joueurs (1x/jour à 12h)."""
+    """Prélève les impôts de base sur tous les joueurs (1x/jour à 12h) — coins ET banque."""
     total_collected = 0
     total_players   = 0
 
     async with AsyncSessionLocal() as session:
+        # Taxe sur les coins
         users = (await session.execute(text("SELECT user_id, coins FROM users WHERE coins > 1000000"))).fetchall()
         for uid, coins in users:
             tax = _compute_tax(coins)
@@ -396,9 +397,25 @@ async def job_collect_taxes(context: ContextTypes.DEFAULT_TYPE):
             ), {"tax": tax, "uid": uid})
             total_collected += tax
             total_players   += 1
+
+        # Taxe sur les comptes bancaires (2% sur les soldes > 50M, 5% > 200M)
+        bank_accounts = (await session.execute(text(
+            "SELECT id, user_id, balance FROM bank_accounts WHERE balance > 50000000"
+        ))).fetchall()
+        for bid, uid, balance in bank_accounts:
+            if balance > 200_000_000:
+                bank_tax = int(balance * 0.05)
+            else:
+                bank_tax = int(balance * 0.02)
+            bank_tax = min(bank_tax, balance)
+            await session.execute(text(
+                "UPDATE bank_accounts SET balance = balance - :tax WHERE id = :bid"
+            ), {"tax": bank_tax, "bid": bid})
+            total_collected += bank_tax
+
         await session.commit()
 
-    logger.info(f"[IMPÔTS BASE] {total_players} joueurs taxés — {total_collected:,} {CURRENCY} retirés.")
+    logger.info(f"[IMPÔTS BASE] {total_players} joueurs taxés — {total_collected:,} {CURRENCY} retirés (coins + banque).")
 
     from database.models import GroupSettings
     async with AsyncSessionLocal() as session:
@@ -960,10 +977,10 @@ def setup_drain_jobs(app: Application):
         name="collect_taxes",
     )
 
-    # Taxation top 10 — toutes les 6h (4x/jour), commence 5min après démarrage
+    # Taxation top 10 — toutes les 12h (2x/jour), commence 5min après démarrage
     app.job_queue.run_repeating(
         job_tax_top10,
-        interval=tdelta(hours=6),
+        interval=tdelta(hours=12),
         first=tdelta(minutes=5),
         name="tax_top10",
     )
@@ -974,3 +991,204 @@ def setup_drain_jobs(app: Application):
         time=dtime(hour=18, minute=0, tzinfo=timezone.utc),
         name="tax_top30",
     )
+
+    # Événements économiques aléatoires — 3x/jour (8h, 14h, 20h UTC)
+    for h in [8, 14, 20]:
+        app.job_queue.run_daily(
+            job_random_economic_event,
+            time=dtime(hour=h, minute=0, tzinfo=timezone.utc),
+            name=f"eco_event_{h}h",
+        )
+
+
+# ─── ÉVÉNEMENTS ÉCONOMIQUES ALÉATOIRES ───────────────────────────────────────
+
+ECONOMIC_EVENTS = [
+    {
+        "name": "💹 Boom économique",
+        "desc": "Une vague de prospérité déferle sur la région ! Tous les joueurs reçoivent un bonus.",
+        "type": "bonus_all",
+        "min_pct": 0.05,   # +5% des coins
+        "max_pct": 0.15,   # +15% des coins
+        "probability": 15,
+    },
+    {
+        "name": "📉 Crise financière",
+        "desc": "Les marchés s'effondrent ! Tout le monde perd une partie de ses coins.",
+        "type": "malus_coins",
+        "min_pct": 0.05,
+        "max_pct": 0.20,
+        "probability": 15,
+    },
+    {
+        "name": "🏦 Taxation d'urgence",
+        "desc": "Le gouvernement prélève une taxe d'urgence sur les grandes fortunes bancaires !",
+        "type": "malus_bank_rich",   # Touche uniquement les comptes > 50M
+        "min_pct": 0.08,
+        "max_pct": 0.18,
+        "probability": 12,
+    },
+    {
+        "name": "🎰 Fièvre du jeu",
+        "desc": "Une fièvre de générosité s'empare des casinos ! Tous les joueurs reçoivent un cadeau.",
+        "type": "bonus_fixed",
+        "amount": 500_000,
+        "probability": 10,
+    },
+    {
+        "name": "🌪️ Inflation galopante",
+        "desc": "L'inflation frappe dur. Les plus petites fortunes sont épargnées, les grandes perdent plus.",
+        "type": "malus_progressive",  # Plus tu as, plus tu perds
+        "probability": 13,
+    },
+    {
+        "name": "💰 Jackpot national",
+        "desc": "Le gouvernement redistribue les surplus fiscaux ! Un bonus pour tous.",
+        "type": "bonus_fixed",
+        "amount": 1_000_000,
+        "probability": 8,
+    },
+    {
+        "name": "🔒 Gel des comptes bancaires",
+        "desc": "Les autorités gèlent temporairement 10% des dépôts bancaires dans tous les établissements.",
+        "type": "malus_bank_all",
+        "min_pct": 0.08,
+        "max_pct": 0.12,
+        "probability": 12,
+    },
+    {
+        "name": "😴 Rien à signaler",
+        "desc": "Les marchés sont calmes. Profitez-en pour jouer !",
+        "type": "none",
+        "probability": 15,
+    },
+]
+
+
+async def job_random_economic_event(context):
+    """Déclenche un événement économique aléatoire 3x/jour."""
+    import random as _rnd
+
+    weights = [e["probability"] for e in ECONOMIC_EVENTS]
+    event   = _rnd.choices(ECONOMIC_EVENTS, weights=weights, k=1)[0]
+
+    if event["type"] == "none":
+        return  # Pas d'annonce, rien ne se passe
+
+    affected = 0
+    total_delta = 0
+
+    async with AsyncSessionLocal() as session:
+        if event["type"] == "bonus_all":
+            pct = _rnd.uniform(event["min_pct"], event["max_pct"])
+            users = (await session.execute(text("SELECT user_id, coins FROM users"))).fetchall()
+            for uid, coins in users:
+                bonus = int(coins * pct)
+                if bonus <= 0:
+                    continue
+                await session.execute(text(
+                    "UPDATE users SET coins = coins + :b WHERE user_id = :uid"
+                ), {"b": bonus, "uid": uid})
+                total_delta += bonus
+                affected += 1
+
+        elif event["type"] == "malus_coins":
+            pct = _rnd.uniform(event["min_pct"], event["max_pct"])
+            users = (await session.execute(text("SELECT user_id, coins FROM users WHERE coins > 100000"))).fetchall()
+            for uid, coins in users:
+                malus = int(coins * pct)
+                malus = min(malus, coins - 1000)  # Garder 1000 minimum
+                if malus <= 0:
+                    continue
+                await session.execute(text(
+                    "UPDATE users SET coins = coins - :m WHERE user_id = :uid"
+                ), {"m": malus, "uid": uid})
+                total_delta -= malus
+                affected += 1
+
+        elif event["type"] == "malus_bank_rich":
+            pct = _rnd.uniform(event["min_pct"], event["max_pct"])
+            accounts = (await session.execute(text(
+                "SELECT id, balance FROM bank_accounts WHERE balance > 50000000"
+            ))).fetchall()
+            for bid, balance in accounts:
+                malus = int(balance * pct)
+                malus = min(malus, balance)
+                if malus <= 0:
+                    continue
+                await session.execute(text(
+                    "UPDATE bank_accounts SET balance = balance - :m WHERE id = :bid"
+                ), {"m": malus, "bid": bid})
+                total_delta -= malus
+                affected += 1
+
+        elif event["type"] == "bonus_fixed":
+            amount = event["amount"]
+            users = (await session.execute(text("SELECT user_id FROM users"))).fetchall()
+            for (uid,) in users:
+                await session.execute(text(
+                    "UPDATE users SET coins = coins + :a WHERE user_id = :uid"
+                ), {"a": amount, "uid": uid})
+                total_delta += amount
+                affected += 1
+
+        elif event["type"] == "malus_progressive":
+            users = (await session.execute(text("SELECT user_id, coins FROM users WHERE coins > 500000"))).fetchall()
+            for uid, coins in users:
+                if coins > 500_000_000:
+                    pct = 0.15
+                elif coins > 100_000_000:
+                    pct = 0.10
+                elif coins > 10_000_000:
+                    pct = 0.06
+                else:
+                    pct = 0.03
+                malus = int(coins * pct)
+                malus = min(malus, coins - 1000)
+                if malus <= 0:
+                    continue
+                await session.execute(text(
+                    "UPDATE users SET coins = coins - :m WHERE user_id = :uid"
+                ), {"m": malus, "uid": uid})
+                total_delta -= malus
+                affected += 1
+
+        elif event["type"] == "malus_bank_all":
+            pct = _rnd.uniform(event["min_pct"], event["max_pct"])
+            accounts = (await session.execute(text(
+                "SELECT id, balance FROM bank_accounts WHERE balance > 0"
+            ))).fetchall()
+            for bid, balance in accounts:
+                malus = int(balance * pct)
+                malus = min(malus, balance)
+                if malus <= 0:
+                    continue
+                await session.execute(text(
+                    "UPDATE bank_accounts SET balance = balance - :m WHERE id = :bid"
+                ), {"m": malus, "bid": bid})
+                total_delta -= malus
+                affected += 1
+
+        await session.commit()
+
+    # Annoncer dans tous les groupes actifs
+    sign   = "+" if total_delta >= 0 else ""
+    resume = f"{sign}{_fmt(total_delta)}" if total_delta != 0 else ""
+    msg = (
+        f"📰 <b>ÉVÉNEMENT ÉCONOMIQUE</b>\n\n"
+        f"{event['name']}\n"
+        f"<i>{event['desc']}</i>\n\n"
+        f"👥 Joueurs impactés : <b>{affected}</b>"
+        + (f"\n💸 Impact total : <b>{resume} {CURRENCY}</b>" if resume else "")
+    )
+
+    from database.models import GroupSettings
+    async with AsyncSessionLocal() as session:
+        groups = (await session.execute(text("SELECT group_id FROM group_settings"))).fetchall()
+    for (gid,) in groups:
+        try:
+            await context.bot.send_message(chat_id=gid, text=msg, parse_mode="HTML")
+        except Exception:
+            pass
+
+    logger.info(f"[ÉVÉNEMENT ÉCO] {event['name']} — {affected} joueurs, delta={total_delta:+,}")

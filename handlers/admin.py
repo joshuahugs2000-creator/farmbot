@@ -93,6 +93,10 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/enquete @user — Rapport d'enquête complet (triche, fortune, activité)\n\n"
         "<b>📢 Communication</b>\n"
         "/broadcast [message] — Message à tous les utilisateurs\n\n"
+        "<b>💥 Économie globale</b>\n"
+        "/fin — Effondrement : -90% pour tous, -95% pour le Top 10\n"
+        "/donate montant — Donner des $ à TOUS les joueurs\n"
+        "/donate montant @user — Donner des $ à un joueur précis\n\n"
         "<b>🎭 Drames économiques</b>\n"
         "/drame scandale @user|ID — Perte % $\n"
         "/drame catastrophe @user|ID — Détruit portfolio\n"
@@ -1587,3 +1591,157 @@ async def groupscan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chunk += block + "\n\n"
         if chunk.strip():
             await update.message.reply_text(chunk.strip(), parse_mode="HTML", disable_web_page_preview=True)
+
+
+# ─── /fin — Crash économique global ──────────────────────────────────────────
+
+async def fin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /fin
+    Déclenche un effondrement économique global :
+    - Tous les joueurs perdent 90% (coins + comptes bancaires)
+    - Le TOP 10 (fortune totale) perd 95%
+    Réservé aux super-admins.
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    msg = await update.message.reply_text(
+        "☠️ <b>L'EFFONDREMENT EST EN COURS...</b>\n"
+        "⏳ Calcul des fortunes et application des pertes...",
+        parse_mode=ParseMode.HTML
+    )
+
+    async with AsyncSessionLocal() as session:
+        # Identifier le TOP 10 par fortune totale (coins + banque)
+        top10_result = await session.execute(text("""
+            SELECT u.user_id,
+                   u.coins + COALESCE(SUM(b.balance), 0) AS fortune_totale
+            FROM users u
+            LEFT JOIN bank_accounts b ON b.user_id = u.user_id
+            GROUP BY u.user_id, u.coins
+            ORDER BY fortune_totale DESC
+            LIMIT 10
+        """))
+        top10_ids = {row.user_id for row in top10_result.fetchall()}
+
+        # Récupérer tous les users
+        all_users_result = await session.execute(text("SELECT user_id, coins FROM users"))
+        all_users = all_users_result.fetchall()
+
+        users_affected = 0
+        for row in all_users:
+            uid = row.user_id
+            loss_pct = 0.95 if uid in top10_ids else 0.90
+            keep_pct = 1.0 - loss_pct
+
+            # Réduire les coins (minimum 1 000)
+            new_coins = max(1000, int(row.coins * keep_pct))
+            await session.execute(
+                text("UPDATE users SET coins = :coins WHERE user_id = :uid"),
+                {"coins": new_coins, "uid": uid}
+            )
+
+            # Réduire les comptes bancaires (minimum 0)
+            bank_result = await session.execute(
+                text("SELECT id, balance FROM bank_accounts WHERE user_id = :uid"),
+                {"uid": uid}
+            )
+            for bank_row in bank_result.fetchall():
+                new_balance = max(0, int(bank_row.balance * keep_pct))
+                await session.execute(
+                    text("UPDATE bank_accounts SET balance = :bal WHERE id = :bid"),
+                    {"bal": new_balance, "bid": bank_row.id}
+                )
+
+            users_affected += 1
+
+        await session.commit()
+
+    await msg.edit_text(
+        f"💀 <b>C'EST LA FIN.</b>\n\n"
+        f"📉 Joueurs normaux : <b>-90%</b> de toute leur fortune\n"
+        f"👑 Top 10 les plus riches : <b>-95%</b> de toute leur fortune\n"
+        f"🏦 Comptes bancaires inclus dans la purge\n"
+        f"👥 Utilisateurs touchés : <b>{users_affected}</b>\n\n"
+        f"💡 Minimum garanti : <b>1 000 {CURRENCY}</b> sur les coins.",
+        parse_mode=ParseMode.HTML
+    )
+
+
+# ─── /donate — Don global ou ciblé ───────────────────────────────────────────
+
+async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /donate <montant>         → donne <montant> à TOUS les joueurs
+    /donate <montant> @user   → donne <montant> à un joueur spécifique
+    Réservé aux super-admins.
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    args = context.args
+    if not args:
+        return await update.message.reply_text(
+            "Usage :\n"
+            "• <code>/donate 5000</code> — donne 5 000 à TOUS les joueurs\n"
+            "• <code>/donate 5000 @user</code> — donne 5 000 à un joueur précis",
+            parse_mode=ParseMode.HTML
+        )
+
+    try:
+        amount = int(args[0].replace("_", "").replace(" ", ""))
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        return await update.message.reply_text("❌ Montant invalide. Exemple : /donate 5000")
+
+    target_arg = args[1] if len(args) >= 2 else None
+
+    # ── Don ciblé ──
+    if target_arg:
+        try:
+            target_tg = await parse_target(update, context, target_arg)
+        except Exception:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+
+        async with AsyncSessionLocal() as session:
+            await ensure_user(session, target_tg)
+            new_bal = await add_coins(session, target_tg.id, amount)
+            await session.commit()
+
+        return await update.message.reply_text(
+            f"✅ <b>Don effectué !</b>\n"
+            f"👤 Bénéficiaire : <b>{target_tg.first_name}</b>\n"
+            f"💰 Montant : <b>+{_fmt(amount)} {CURRENCY}</b>\n"
+            f"💵 Nouveau solde coins : <b>{_fmt(new_bal)} {CURRENCY}</b>",
+            parse_mode=ParseMode.HTML
+        )
+
+    # ── Don global ──
+    msg = await update.message.reply_text(
+        f"⏳ Don global de <b>{_fmt(amount)} {CURRENCY}</b> en cours...",
+        parse_mode=ParseMode.HTML
+    )
+
+    async with AsyncSessionLocal() as session:
+        all_users_result = await session.execute(text("SELECT user_id FROM users"))
+        all_users = all_users_result.fetchall()
+
+        count = 0
+        for row in all_users:
+            await session.execute(
+                text("UPDATE users SET coins = coins + :amt WHERE user_id = :uid"),
+                {"amt": amount, "uid": row.user_id}
+            )
+            count += 1
+
+        await session.commit()
+
+    await msg.edit_text(
+        f"🎁 <b>Don global envoyé !</b>\n\n"
+        f"💰 Montant par joueur : <b>+{_fmt(amount)} {CURRENCY}</b>\n"
+        f"👥 Joueurs crédités : <b>{count}</b>\n"
+        f"💸 Total distribué : <b>{_fmt(amount * count)} {CURRENCY}</b>",
+        parse_mode=ParseMode.HTML
+    )

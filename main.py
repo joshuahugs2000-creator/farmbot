@@ -64,7 +64,7 @@ from handlers.lottery  import (
     setup_lottery_jobs,
 )
 from handlers.crime    import (
-    rob, police, bail, bail_judgment, juge, juge_callback,
+    police, bail, bail_judgment, juge, juge_callback,
     security, security_callback,
     init_crime_tables,
     _is_in_prison, _get_prison, _fmt,
@@ -75,7 +75,7 @@ from handlers.auction import (
     init_auction_tables, setup_auction_jobs,
 )
 from handlers.wealth_drain import (
-    impots, cambrioler, braquage, annulerbraquage,
+    impots, cambrioler,
     init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
     job_tax_top10, job_tax_top30,
 )
@@ -427,7 +427,6 @@ async def main():
     app.add_handler(CommandHandler("cancelloto",   _prison_checked(cancelloto)))
 
     # ── Criminalité ───────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("rob",           _prison_checked(rob)))
     app.add_handler(CommandHandler("police",        _prison_checked(police)))
     app.add_handler(CommandHandler("bail",          bail))
     app.add_handler(CommandHandler("bail_judgment", bail_judgment))
@@ -459,8 +458,6 @@ async def main():
     # ── Drainage ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
     app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
-    app.add_handler(CommandHandler("braquage",        _prison_checked(braquage)))
-    app.add_handler(CommandHandler("annulerbraquage", _prison_checked(annulerbraquage)))
     setup_drain_jobs(app)
 
     # ── Jobs ──────────────────────────────────────────────────────────────────

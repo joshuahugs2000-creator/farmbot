@@ -282,6 +282,24 @@ def _prison_checked(handler_func):
                     parse_mode="HTML",
                 )
                 return
+        # ── Vérification du ban ────────────────────────────────────────────
+        user = update.effective_user
+        if user and not await is_admin(user.id):
+            try:
+                async with AsyncSessionLocal() as _s:
+                    from database.db import get_user as _gu
+                    _u = await _gu(_s, user.id)
+                    if _u and _u.is_banned:
+                        await update.message.reply_text(
+                            "🚫 <b>Tu es banni du bot.</b>\n\n"
+                            "⚠️ Activité suspecte détectée — accès bloqué.\n"
+                            "Contacte un administrateur si tu penses que c'est une erreur.",
+                            parse_mode="HTML",
+                        )
+                        return
+            except Exception:
+                pass
+        # ──────────────────────────────────────────────────────────────────
         if await prison_middleware(update, context):
             return
         return await handler_func(update, context)

@@ -1,1025 +1,613 @@
 """
-handlers/games.py — Jeux : Crash (multijoueur inline), Apple of Fortune, Roue de Fortune
+Système bancaire complet.
+
+5 banques de rang différent — plus la banque est prestigieuse :
+  • Dépôt minimum plus élevé
+  • Taux d'intérêt plus avantageux (versés toutes les 6h via job)
+  • Prêts plus importants disponibles
+
+Commandes :
+  /banks         — liste des banques
+  /bankopen      — ouvrir un compte
+  /bankdeposit   — déposer
+  /bankwithdraw  — retirer
+  /bankbalance   — voir ses comptes
+  /bankloan      — emprunter
+  /bankrepay     — rembourser un prêt
+  /bankloans     — voir ses prêts
 """
-import asyncio
-import random
-from datetime import date
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+import logging
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
+from sqlalchemy import select, text
 
-from database.db import AsyncSessionLocal, get_user, deduct_for_game, add_coins_smart
-from utils.helpers import ensure_user, mention
+from database.db import AsyncSessionLocal, get_user, add_coins
+from database.models import BankAccount, Loan
+from utils.helpers import ensure_user
+from config import CURRENCY
 
-import sqlalchemy as sa
+logger = logging.getLogger(__name__)
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+# ─── Définition des banques ───────────────────────────────────────────────────
+
+BANKS = {
+    "bronze": {
+        "name":          "🥉 Banque Bronze",
+        "rank":          1,
+        "emoji":         "🥉",
+        "desc":          "Banque populaire, accessible à tous",
+        "min_deposit":   1_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
+        "interest_rate": 0.0,      # Intérêts supprimés
+        "max_loan":      5_000_000,                   # Prêt max 5M
+        "loan_rate":     0.08,
+        "loan_days":     7,
+    },
+    "silver": {
+        "name":          "🥈 Banque Silver",
+        "rank":          2,
+        "emoji":         "🥈",
+        "desc":          "Pour les épargnants sérieux",
+        "min_deposit":   10_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
+        "interest_rate": 0.0,      # Intérêts supprimés
+        "max_loan":      5_000_000,                   # Prêt max 5M
+        "loan_rate":     0.06,
+        "loan_days":     14,
+    },
+    "gold": {
+        "name":          "🥇 Banque Gold",
+        "rank":          3,
+        "emoji":         "🥇",
+        "desc":          "Banque des investisseurs fortunés",
+        "min_deposit":   100_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
+        "interest_rate": 0.0,      # Intérêts supprimés
+        "max_loan":      5_000_000,                   # Prêt max 5M
+        "loan_rate":     0.05,
+        "loan_days":     21,
+    },
+    "platinum": {
+        "name":          "💠 Banque Platinum",
+        "rank":          4,
+        "emoji":         "💠",
+        "desc":          "Réservée aux élites financières",
+        "min_deposit":   500_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
+        "interest_rate": 0.0,      # Intérêts supprimés
+        "max_loan":      5_000_000,                   # Prêt max 5M
+        "loan_rate":     0.04,
+        "loan_days":     30,
+    },
+    "diamond": {
+        "name":          "💎 Banque Diamond",
+        "rank":          5,
+        "emoji":         "💎",
+        "desc":          "La banque des milliardaires",
+        "min_deposit":   2_000_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
+        "interest_rate": 0.0,      # Intérêts supprimés
+        "max_loan":      5_000_000,                   # Prêt max 5M
+        "loan_rate":     0.03,
+        "loan_days":     60,
+    },
+}
+
+BANK_KEYS = ["bronze", "silver", "gold", "platinum", "diamond"]
+
+INTEREST_INTERVAL_HOURS = 6  # toutes les 6h
+
 
 def _fmt(n: int) -> str:
-    return f"{int(n):,}".replace(",", " ")
-
-async def _get_balance(session, user_id: int) -> int:
-    user = await get_user(session, user_id)
-    return int(user.coins) if user else 0
-
-async def _add_coins(session, user_id: int, amount: int):
-    await session.execute(
-        sa.text("UPDATE users SET coins = coins + :a WHERE user_id = :uid"),
-        {"a": amount, "uid": user_id}
-    )
-    await session.commit()
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CRASH — Multijoueur avec bouton inline Cash Out
-# ═══════════════════════════════════════════════════════════════════════════════
-
-crash_games:     dict = {}
-crash_phase:     dict = {}
-crash_lobby_msg: dict = {}
-crash_live_msg:  dict = {}
-
-LOBBY_SECONDS = 20
-TICK_INTERVAL = 1.5
+    return f"{n:,}".replace(",", " ")
 
 
-def _gen_crash_point() -> float:
-    if random.random() < 0.05:
-        return 1.0
-    crash = 0.99 / (1 - random.random() * 0.95)
-    return round(min(crash, 100.0), 2)
+# ─── /banks ───────────────────────────────────────────────────────────────────
 
-
-def _lobby_text(chat_id: int, seconds_left: int) -> str:
-    players = crash_games.get(chat_id, {})
-    lines = []
-    total = 0
-    for d in players.values():
-        lines.append(f"  • {d['first_name']} — <b>{_fmt(d['mise'])} {CURRENCY}</b>")
-        total += d["mise"]
-    body = "\n".join(lines) if lines else "  En attente de joueurs..."
-    return (
-        f"🚀 <b>CRASH — Phase de mise</b>\n\n"
-        f"👥 <b>{len(players)} joueur(s)</b>  |  Pot : <b>{_fmt(total)} {CURRENCY}</b>\n\n"
-        f"{body}\n\n"
-        f"⏳ Démarrage dans <b>{seconds_left}s</b>\n"
-        f"Rejoins : <code>/crash &lt;mise&gt;</code>"
-    )
-
-
-def _running_text(chat_id: int, multiplier: float) -> str:
-    players = crash_games.get(chat_id, {})
-    lines = []
-    for d in players.values():
-        if d["cashed_out"]:
-            gain   = int(d["mise"] * d["cashout_mult"])
-            profit = gain - d["mise"]
-            sign   = f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit)
-            lines.append(f"✅ {d['first_name']} — x{d['cashout_mult']:.2f}  →  <b>{sign} {CURRENCY}</b>")
-        else:
-            potential = int(d["mise"] * multiplier)
-            lines.append(f"⏳ {d['first_name']} — {_fmt(d['mise'])} {CURRENCY}  →  <i>{_fmt(potential)} {CURRENCY}</i>")
-    body = "\n".join(lines) if lines else "—"
-    return (
-        f"🚀 <b>CRASH EN COURS</b>\n\n"
-        f"📈 <b>x{multiplier:.2f}</b>\n\n"
-        f"{body}\n\n"
-        f"⚡ Appuie sur <b>Cash Out</b> pour encaisser !"
-    )
-
-
-def _running_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("💰 Cash Out !", callback_data="crash:cashout")
-    ]])
-
-
-def _result_text(chat_id: int, crash_point: float) -> str:
-    players = crash_games.get(chat_id, {})
-    winners, losers = [], []
-    for d in players.values():
-        if d["cashed_out"]:
-            gain   = int(d["mise"] * d["cashout_mult"])
-            profit = gain - d["mise"]
-            winners.append(f"✅ {d['first_name']} — x{d['cashout_mult']:.2f}  →  <b>+{_fmt(profit)} {CURRENCY}</b>")
-        else:
-            losers.append(f"💀 {d['first_name']}  →  <b>-{_fmt(d['mise'])} {CURRENCY}</b>")
-    body = "\n".join(winners + losers) or "—"
-    return (
-        f"💥 <b>CRASH à x{crash_point:.2f} !</b>\n\n"
-        f"{body}\n\n"
-        f"Nouvelle partie : <code>/crash &lt;mise&gt;</code>"
-    )
-
-
-async def crash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/crash <mise> — Rejoindre le prochain Crash"""
-    user    = update.effective_user
-    chat_id = update.effective_chat.id
-    await ensure_user(user)
-
-    if not context.args:
-        return await update.message.reply_text(
-            "🚀 <b>Crash</b>\n\n"
-            "Le multiplicateur monte… jusqu'au crash !\n"
-            "Encaisse avant l'explosion pour gagner.\n\n"
-            "Usage : <code>/crash &lt;mise&gt;</code>\n"
-            "Exemple : <code>/crash 50000</code>",
-            parse_mode=ParseMode.HTML
+async def banks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lines = ["<b>🏦 Banques disponibles</b>\n"]
+    for key in BANK_KEYS:
+        b = BANKS[key]
+        lines.append(
+            f"{b['emoji']} <b>{b['name']}</b>  (Rang {b['rank']}/5)\n"
+            f"  └ {b['desc']}\n"
+            f"  └ Dépôt min : {_fmt(b['min_deposit'])} {CURRENCY} · Max : {_fmt(b['max_deposit'])} {CURRENCY}\n"
+            f"  └ Intérêts  : +{b['interest_rate']*100:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
+            f"  └ Prêt max  : {_fmt(b['max_loan'])} {CURRENCY}  (taux {b['loan_rate']*100:.0f}%)\n"
         )
+    lines.append("Utilisez /bankopen [banque] pour ouvrir un compte.")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── /bankopen ────────────────────────────────────────────────────────────────
+
+async def bankopen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        keys = " | ".join(BANK_KEYS)
+        return await update.message.reply_text(
+            f"Usage : /bankopen [banque]\nBanques : {keys}"
+        )
+
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text(f"Banque inconnue. Choix : {' | '.join(BANK_KEYS)}")
+
+    user = await ensure_user(update.effective_user)
+    async with AsyncSessionLocal() as session:
+        existing = await session.execute(
+            select(BankAccount).where(
+                BankAccount.user_id == user.user_id,
+                BankAccount.bank_id == bank_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            return await update.message.reply_text(
+                f"Tu as déjà un compte à la {BANKS[bank_id]['name']} !"
+            )
+
+        acc = BankAccount(
+            user_id       = user.user_id,
+            bank_id       = bank_id,
+            balance       = 0,
+            last_interest = datetime.utcnow(),
+        )
+        session.add(acc)
+        await session.commit()
+
+    b = BANKS[bank_id]
+    await update.message.reply_text(
+        f"✅ Compte ouvert à la <b>{b['name']}</b> !\n"
+        f"Dépôt minimum : {_fmt(b['min_deposit'])} {CURRENCY}\n"
+        f"Intérêts : +{b['interest_rate']*100:.1f}% toutes les {INTEREST_INTERVAL_HOURS}h\n\n"
+        f"Utilisez /bankdeposit {bank_id} [montant] pour alimenter votre compte.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /bankdeposit ─────────────────────────────────────────────────────────────
+
+async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text("Usage : /bankdeposit [banque] [montant]")
+
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text("Banque inconnue.")
 
     try:
-        mise = int(context.args[0].replace(" ", "").replace("_", ""))
-    except ValueError:
-        return await update.message.reply_text("❌ Mise invalide.")
+        amount = int(context.args[1].replace(",", "").replace(" ", ""))
+        assert amount > 0
+    except (ValueError, AssertionError):
+        return await update.message.reply_text("Montant invalide.")
 
-    if mise < 1000:
+    b    = BANKS[bank_id]
+    user = await ensure_user(update.effective_user)
+
+    if amount < b["min_deposit"]:
         return await update.message.reply_text(
-            "❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML
-        )
-
-    if crash_phase.get(chat_id) == "running":
-        return await update.message.reply_text(
-            "⚠️ Une partie est en cours, attends la prochaine !",
-            parse_mode=ParseMode.HTML
-        )
-
-    if chat_id not in crash_games:
-        crash_games[chat_id] = {}
-
-    if user.id in crash_games[chat_id]:
-        return await update.message.reply_text(
-            "⚠️ Tu es déjà inscrit pour cette partie !", parse_mode=ParseMode.HTML
+            f"Dépôt minimum pour la {b['name']} : {_fmt(b['min_deposit'])} {CURRENCY}"
         )
 
     async with AsyncSessionLocal() as session:
-        balance = await _get_balance(session, user.id)
-        if balance < mise:
+        acc = (await session.execute(
+            select(BankAccount).where(
+                BankAccount.user_id == user.user_id,
+                BankAccount.bank_id == bank_id,
+            )
+        )).scalar_one_or_none()
+
+        if not acc:
             return await update.message.reply_text(
-                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} {CURRENCY}</b>",
-                parse_mode=ParseMode.HTML
+                f"Tu n'as pas de compte à la {b['name']}. Utilise /bankopen {bank_id}"
             )
-        await _add_coins(session, user.id, -mise)
 
-    crash_games[chat_id][user.id] = {
-        "mise":         mise,
-        "cashed_out":   False,
-        "cashout_mult": None,
-        "current_mult": 1.0,
-        "first_name":   user.first_name,
-        "mention":      mention(user),
-        "lock":         asyncio.Lock(),
-    }
+        if acc.balance + amount > b["max_deposit"]:
+            return await update.message.reply_text(
+                f"Dépôt maximum atteint ({_fmt(b['max_deposit'])} {CURRENCY})."
+            )
 
-    if crash_phase.get(chat_id) != "lobby":
-        crash_phase[chat_id] = "lobby"
-        msg = await update.message.reply_text(
-            _lobby_text(chat_id, LOBBY_SECONDS),
-            parse_mode=ParseMode.HTML
+        u = await get_user(session, user.user_id)
+        if not u or u.coins < amount:
+            return await update.message.reply_text("Solde insuffisant !")
+
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": user.user_id}
         )
-        crash_lobby_msg[chat_id] = msg
-        asyncio.create_task(_run_lobby(context, chat_id))
-    else:
-        try:
-            await crash_lobby_msg[chat_id].edit_text(
-                _lobby_text(chat_id, -1),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception:
-            pass
-        await update.message.reply_text(
-            f"✅ {mention(user)} rejoint le crash avec <b>{_fmt(mise)} {CURRENCY}</b> !",
-            parse_mode=ParseMode.HTML
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) + CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
         )
+        await session.commit()
+        new_wallet  = u.coins - amount
+        new_balance = acc.balance + amount
+
+    await update.message.reply_text(
+        f"🏦 Dépôt effectué à la <b>{b['name']}</b>\n"
+        f"💰 Déposé   : +{_fmt(amount)} {CURRENCY}\n"
+        f"📊 En banque : {_fmt(new_balance)} {CURRENCY}\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} {CURRENCY}",
+        parse_mode=ParseMode.HTML,
+    )
 
 
-async def _run_lobby(context, chat_id: int):
-    for remaining in range(LOBBY_SECONDS, 0, -5):
-        await asyncio.sleep(5)
-        if crash_phase.get(chat_id) != "lobby":
-            return
-        try:
-            await crash_lobby_msg[chat_id].edit_text(
-                _lobby_text(chat_id, max(remaining - 5, 0)),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception:
-            pass
+# ─── /bankwithdraw ────────────────────────────────────────────────────────────
 
-    if not crash_games.get(chat_id):
-        crash_phase.pop(chat_id, None)
-        return
+async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text("Usage : /bankwithdraw [banque] [montant]")
 
-    crash_phase[chat_id] = "running"
-    asyncio.create_task(_run_crash(context, chat_id))
-
-
-async def _run_crash(context, chat_id: int):
-    crash_point = _gen_crash_point()
-    multiplier  = 1.0
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text("Banque inconnue.")
 
     try:
-        live_msg = await context.bot.send_message(
-            chat_id,
-            _running_text(chat_id, multiplier),
-            parse_mode=ParseMode.HTML,
-            reply_markup=_running_keyboard()
+        amount = int(context.args[1].replace(",", "").replace(" ", ""))
+        assert amount > 0
+    except (ValueError, AssertionError):
+        return await update.message.reply_text("Montant invalide.")
+
+    user = await ensure_user(update.effective_user)
+    b    = BANKS[bank_id]
+
+    async with AsyncSessionLocal() as session:
+        acc = (await session.execute(
+            select(BankAccount).where(
+                BankAccount.user_id == user.user_id,
+                BankAccount.bank_id == bank_id,
+            )
+        )).scalar_one_or_none()
+
+        if not acc:
+            return await update.message.reply_text(f"Pas de compte à la {b['name']}.")
+
+        if acc.balance < amount:
+            return await update.message.reply_text(
+                f"Solde bancaire insuffisant ! Tu as {_fmt(acc.balance)} {CURRENCY} dans cette banque."
+            )
+
+        u = await get_user(session, user.user_id)
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) - CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
         )
-        crash_live_msg[chat_id] = live_msg
-    except Exception:
-        _cleanup_crash(chat_id)
-        return
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": user.user_id}
+        )
+        await session.commit()
+        new_wallet  = u.coins + amount
+        new_balance = acc.balance - amount
 
-    while multiplier < crash_point:
-        await asyncio.sleep(TICK_INTERVAL)
-        multiplier = round(multiplier + 0.06 + multiplier * 0.04, 2)
-        multiplier = min(multiplier, crash_point)
+    await update.message.reply_text(
+        f"🏦 Retrait effectué de la <b>{b['name']}</b>\n"
+        f"💸 Retiré    : {_fmt(amount)} {CURRENCY}\n"
+        f"📊 En banque : {_fmt(new_balance)} {CURRENCY}\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} {CURRENCY}",
+        parse_mode=ParseMode.HTML,
+    )
 
-        for uid, d in crash_games[chat_id].items():
-            if not d["cashed_out"]:
-                d["current_mult"] = multiplier
 
-        try:
-            await live_msg.edit_text(
-                _running_text(chat_id, multiplier),
+# ─── /bankbalance ─────────────────────────────────────────────────────────────
+
+async def bankbalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = await ensure_user(update.effective_user)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(BankAccount).where(BankAccount.user_id == user.user_id)
+        )
+        accounts = result.scalars().all()
+        u = await get_user(session, user.user_id)
+
+    if not accounts:
+        return await update.message.reply_text(
+            "Tu n'as aucun compte bancaire.\nUtilise /banks pour voir les banques disponibles."
+        )
+
+    lines = [f"<b>🏦 Comptes bancaires de {update.effective_user.first_name}</b>\n"]
+    total = 0
+    for acc in accounts:
+        b   = BANKS.get(acc.bank_id, {})
+        rate = b.get("interest_rate", 0) * 100
+        lines.append(
+            f"{b.get('emoji','🏦')} <b>{b.get('name', acc.bank_id)}</b>\n"
+            f"  └ Solde : {_fmt(acc.balance)} {CURRENCY}\n"
+            f"  └ Taux  : +{rate:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
+        )
+        total += acc.balance
+
+    lines.append(f"\n💼 Total en banque : <b>{_fmt(total)} {CURRENCY}</b>")
+    lines.append(f"👛 Portefeuille     : {_fmt(u.coins if u else 0)} {CURRENCY}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── /bankloan ────────────────────────────────────────────────────────────────
+
+async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text("Usage : /bankloan [banque] [montant]")
+
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text("Banque inconnue.")
+
+    try:
+        amount = int(context.args[1].replace(",", "").replace(" ", ""))
+        assert amount > 0
+    except (ValueError, AssertionError):
+        return await update.message.reply_text("Montant invalide.")
+
+    b    = BANKS[bank_id]
+    user = await ensure_user(update.effective_user)
+
+    if amount > b["max_loan"]:
+        return await update.message.reply_text(
+            f"Prêt maximum pour la {b['name']} : {_fmt(b['max_loan'])} {CURRENCY}"
+        )
+
+    async with AsyncSessionLocal() as session:
+        # Vérifier qu'il a un compte dans cette banque
+        acc = (await session.execute(
+            select(BankAccount).where(
+                BankAccount.user_id == user.user_id,
+                BankAccount.bank_id == bank_id,
+            )
+        )).scalar_one_or_none()
+
+        if not acc:
+            return await update.message.reply_text(
+                f"Tu dois d'abord ouvrir un compte à la {b['name']} (/bankopen {bank_id})."
+            )
+
+        # ── RÈGLE 1 : aucun prêt actif autorisé (toutes banques confondues) ──
+        any_existing_loan = (await session.execute(
+            select(Loan).where(
+                Loan.user_id == user.user_id,
+                Loan.status  == "active",
+            )
+        )).scalar_one_or_none()
+
+        if any_existing_loan:
+            b_existing = BANKS.get(any_existing_loan.bank_id, {})
+            return await update.message.reply_text(
+                f"❌ <b>Prêt refusé.</b>\n\n"
+                f"Tu as déjà un prêt actif à la <b>{b_existing.get('name', any_existing_loan.bank_id)}</b> !\n"
+                f"💳 Reste à rembourser : <b>{_fmt(any_existing_loan.remaining)} {CURRENCY}</b>\n\n"
+                f"Tu dois rembourser entièrement avant de pouvoir emprunter à nouveau.\n"
+                f"Utilise : /bankrepay {any_existing_loan.bank_id} [montant]",
                 parse_mode=ParseMode.HTML,
-                reply_markup=_running_keyboard()
             )
-        except Exception:
-            pass
+
+        # ── RÈGLE 2 : avoir au moins 25% du montant demandé en solde bancaire ──
+        total_in_bank = acc.balance
+        required_collateral = int(amount * 0.25)
+        if total_in_bank < required_collateral:
+            return await update.message.reply_text(
+                f"❌ <b>Garantie insuffisante.</b>\n\n"
+                f"Pour emprunter <b>{_fmt(amount)} {CURRENCY}</b>, tu dois avoir au minimum "
+                f"<b>{_fmt(required_collateral)} {CURRENCY}</b> (25%) dans ton compte à la {b['name']}.\n\n"
+                f"💰 Ton solde actuel dans cette banque : <b>{_fmt(total_in_bank)} {CURRENCY}</b>\n"
+                f"📉 Il te manque : <b>{_fmt(required_collateral - total_in_bank)} {CURRENCY}</b>\n\n"
+                f"Dépose d'abord via /bankdeposit {bank_id} [montant].",
+                parse_mode=ParseMode.HTML,
+            )
+
+        interest    = int(amount * b["loan_rate"])
+        total_due   = amount + interest
+        due_at      = datetime.utcnow() + timedelta(days=b["loan_days"])
+
+        loan = Loan(
+            user_id       = user.user_id,
+            bank_id       = bank_id,
+            amount        = amount,
+            remaining     = total_due,
+            interest_rate = b["loan_rate"],
+            due_at        = due_at,
+        )
+        session.add(loan)
+
+        u = await get_user(session, user.user_id)
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": user.user_id}
+        )
+        await session.commit()
+        new_balance = u.coins + amount
+
+    await update.message.reply_text(
+        f"💳 <b>Prêt accordé par la {b['name']}</b>\n\n"
+        f"💰 Montant emprunté : {_fmt(amount)} {CURRENCY}\n"
+        f"📈 Intérêts ({b['loan_rate']*100:.0f}%) : {_fmt(interest)} {CURRENCY}\n"
+        f"💸 Total à rembourser : <b>{_fmt(total_due)} {CURRENCY}</b>\n"
+        f"📅 Date limite : {due_at.strftime('%d/%m/%Y')}\n\n"
+        f"⚠️ Si tu ne rembourses pas avant la date limite, la somme sera déduite "
+        f"de ton compte (solde négatif possible).\n\n"
+        f"👛 Nouveau solde : {_fmt(new_balance)} {CURRENCY}\n"
+        f"Utilisez /bankrepay {bank_id} [montant] pour rembourser.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /bankrepay ───────────────────────────────────────────────────────────────
+
+async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text("Usage : /bankrepay [banque] [montant]")
+
+    bank_id = context.args[0].lower()
+    if bank_id not in BANKS:
+        return await update.message.reply_text("Banque inconnue.")
 
     try:
-        await live_msg.edit_text(
-            _result_text(chat_id, crash_point),
-            parse_mode=ParseMode.HTML,
-            reply_markup=None
+        amount = int(context.args[1].replace(",", "").replace(" ", ""))
+        assert amount > 0
+    except (ValueError, AssertionError):
+        return await update.message.reply_text("Montant invalide.")
+
+    user = await ensure_user(update.effective_user)
+    b    = BANKS[bank_id]
+
+    async with AsyncSessionLocal() as session:
+        loan = (await session.execute(
+            select(Loan).where(
+                Loan.user_id == user.user_id,
+                Loan.bank_id == bank_id,
+                Loan.status  == "active",
+            )
+        )).scalar_one_or_none()
+
+        if not loan:
+            return await update.message.reply_text(f"Aucun prêt actif à la {b['name']}.")
+
+        u = await get_user(session, user.user_id)
+        if not u or u.coins < amount:
+            return await update.message.reply_text("Solde insuffisant !")
+
+        pay_amount = min(amount, loan.remaining)
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": pay_amount, "uid": user.user_id}
         )
-    except Exception:
+        loan.remaining -= pay_amount
+
+        if loan.remaining <= 0:
+            loan.status = "paid"
+            msg_extra   = "\n✅ <b>Prêt entièrement remboursé !</b>"
+        else:
+            msg_extra   = f"\n💳 Reste à rembourser : {_fmt(loan.remaining)} {CURRENCY}"
+
+        await session.commit()
+        new_wallet = u.coins - pay_amount
+
+    await update.message.reply_text(
+        f"🏦 Remboursement à la <b>{b['name']}</b>\n"
+        f"💸 Payé : {_fmt(pay_amount)} {CURRENCY}\n"
+        f"👛 Portefeuille : {_fmt(new_wallet)} {CURRENCY}"
+        + msg_extra,
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── /bankloans ───────────────────────────────────────────────────────────────
+
+async def bankloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = await ensure_user(update.effective_user)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Loan).where(Loan.user_id == user.user_id, Loan.status == "active")
+        )
+        loans = result.scalars().all()
+
+    if not loans:
+        return await update.message.reply_text("Aucun prêt actif en cours.")
+
+    lines = [f"<b>💳 Prêts actifs de {update.effective_user.first_name}</b>\n"]
+    total_debt = 0
+    for loan in loans:
+        b       = BANKS.get(loan.bank_id, {})
+        overdue = " ⚠️ EN RETARD" if datetime.utcnow() > loan.due_at else ""
+        lines.append(
+            f"{b.get('emoji','🏦')} <b>{b.get('name', loan.bank_id)}</b>{overdue}\n"
+            f"  └ Reste à payer : {_fmt(loan.remaining)} {CURRENCY}\n"
+            f"  └ Date limite   : {loan.due_at.strftime('%d/%m/%Y')}\n"
+        )
+        total_debt += loan.remaining
+
+    lines.append(f"\n💸 Dette totale : <b>{_fmt(total_debt)} {CURRENCY}</b>")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── Job : versement des intérêts toutes les 6h ───────────────────────────────
+
+async def pay_interests(context):
+    """Toutes les 6h : verse les intérêts + applique les pénalités de retard (sans notif)."""
+    now = datetime.utcnow()
+    paid_count = 0
+    total_paid = 0
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(BankAccount))
+        accounts = result.scalars().all()
+
+        for acc in accounts:
+            b = BANKS.get(acc.bank_id)
+            if not b or acc.balance <= 0:
+                continue
+            last = acc.last_interest or acc.opened_at
+            hours_elapsed = (now - last).total_seconds() / 3600
+            if hours_elapsed >= INTEREST_INTERVAL_HOURS:
+                interest = int(acc.balance * b["interest_rate"])
+                acc.balance      += interest
+                acc.last_interest = now
+                total_paid += interest
+                paid_count += 1
+
+        # Prêts en retard → pénalité 5% + déduction forcée
+        loan_result = await session.execute(select(Loan).where(Loan.status == "active"))
+        loans = loan_result.scalars().all()
+
+        for loan in loans:
+            if now > loan.due_at:
+                penalty = int(loan.remaining * 0.05)
+                loan.remaining += penalty
+                u = await get_user(session, loan.user_id)
+                if u:
+                    await session.execute(
+                        text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+                        {"amt": loan.remaining, "uid": loan.user_id}
+                    )
+                    loan.remaining = 0
+                    loan.status = "paid"
+
+        await session.commit()
+
+    logger.info(f"[BANK] Intérêts versés : {paid_count} comptes, {total_paid:,} {CURRENCY} au total.")
+
+
+# ─── Job : rappels de remboursement (2x par semaine) ─────────────────────────
+
+async def remind_loans(context):
+    """Toutes les 84h : envoie un rappel aux utilisateurs ayant un prêt actif."""
+    now = datetime.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Loan).where(Loan.status == "active")
+        )
+        loans = result.scalars().all()
+
+    for loan in loans:
+        b             = BANKS.get(loan.bank_id, {})
+        overdue       = now > loan.due_at
+        jours_restants = max(0, (loan.due_at - now).days)
+
+        if overdue:
+            texte = (
+                f"⚠️ <b>PRÊT EN RETARD !</b>\n\n"
+                f"Tu as un prêt en retard à la <b>{b.get('name', loan.bank_id)}</b> !\n"
+                f"💸 Reste à rembourser : <b>{_fmt(loan.remaining)} {CURRENCY}</b>\n\n"
+                f"Des pénalités de 5% sont appliquées à chaque cycle. "
+                f"Rembourse vite avec /bankrepay {loan.bank_id} [montant] !"
+            )
+        else:
+            texte = (
+                f"🔔 <b>Rappel de prêt</b>\n\n"
+                f"Tu as un prêt actif à la <b>{b.get('name', loan.bank_id)}</b>.\n"
+                f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} {CURRENCY}</b>\n"
+                f"📅 Date limite dans : <b>{jours_restants} jour(s)</b>\n\n"
+                f"Utilise /bankrepay {loan.bank_id} [montant] pour rembourser."
+            )
+
         try:
             await context.bot.send_message(
-                chat_id,
-                _result_text(chat_id, crash_point),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception:
-            pass
-
-    _cleanup_crash(chat_id)
-
-
-def _cleanup_crash(chat_id: int):
-    crash_games.pop(chat_id, None)
-    crash_phase.pop(chat_id, None)
-    crash_lobby_msg.pop(chat_id, None)
-    crash_live_msg.pop(chat_id, None)
-
-
-async def crash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
-    user    = query.from_user
-    chat_id = query.message.chat_id
-
-    await query.answer()
-
-    players = crash_games.get(chat_id, {})
-
-    if user.id not in players:
-        return await query.answer("❌ Tu n'as pas de mise active !", show_alert=True)
-
-    d = players[user.id]
-
-    if crash_phase.get(chat_id) != "running":
-        return await query.answer("⚠️ La partie n'est pas encore lancée.", show_alert=True)
-
-    async with d["lock"]:
-        if d["cashed_out"]:
-            return await query.answer("⚠️ Tu as déjà encaissé !", show_alert=True)
-
-        d["cashed_out"]   = True
-        d["cashout_mult"] = d["current_mult"]
-
-    mult   = d["cashout_mult"]
-    gain   = int(d["mise"] * mult)
-    profit = gain - d["mise"]
-
-    async with AsyncSessionLocal() as session:
-        await _add_coins(session, user.id, gain)
-
-    sign = f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit)
-    await query.answer(
-        f"💰 Cash Out à x{mult:.2f} ! Gain : {_fmt(gain)} {CURRENCY} ({sign} {CURRENCY})",
-        show_alert=True
-    )
-
-    try:
-        await crash_live_msg[chat_id].edit_text(
-            _running_text(chat_id, mult),
-            parse_mode=ParseMode.HTML,
-            reply_markup=_running_keyboard()
-        )
-    except Exception:
-        pass
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# APPLE OF FORTUNE — 5 colonnes × 10 niveaux
-# 🍏 = pomme verte (bonne) | 🍎 = pomme rouge (bombe/perdu)
-# Mises : 50 000 $ minimum — 5 000 000 $ maximum
-# ═══════════════════════════════════════════════════════════════════════════════
-
-apple_sessions: dict = {}
-
-APPLE_COLS   = 5
-APPLE_LEVELS = 10
-APPLE_MIN    = 50_000
-APPLE_MAX    = 9_000_000_000_000_000_000  # pas de plafond (max BIGINT PostgreSQL)
-
-# Multiplicateurs ajustés pour la difficulté augmentée
-# Niveaux 1-2 : 3/5 sûres (60%) | Niveaux 3-5 : 2/5 sûres (40%) | Niveaux 6-10 : 1/5 sûre (20%)
-APPLE_MULTS = {
-    1:  1.50,
-    2:  2.10,
-    3:  3.20,
-    4:  4.80,
-    5:  7.00,
-    6:  12.00,
-    7:  22.00,
-    8:  45.00,
-    9:  100.00,
-    10: 500.00,
-}
-
-def _apple_bombs(level: int) -> int:
-    if level <= 2:  return 2   # 3 sûres / 5
-    if level <= 5:  return 3   # 2 sûres / 5
-    if level <= 8:  return 4   # 1 sûre  / 5
-    return 4                   # Niveaux 9-10 → 4 bombes / 5 (1 seule issue de sortie !)
-
-def _apple_gen_row(level: int) -> list:
-    n_bombs = _apple_bombs(level)
-    row     = [False] * APPLE_COLS
-    for pos in random.sample(range(APPLE_COLS), n_bombs):
-        row[pos] = True
-    return row
-
-def _apple_keyboard(session: dict) -> InlineKeyboardMarkup:
-    level    = session["level"]
-    revealed = session["row_revealed"]
-    row      = session["row_bombs"]
-
-    buttons = []
-    for i in range(APPLE_COLS):
-        if revealed[i]:
-            # Pomme rouge = bombe, pomme verte = bonne
-            label = "🍎" if row[i] else "🍏"
-            buttons.append(InlineKeyboardButton(label, callback_data=f"apple:done:{level}:{i}"))
-        else:
-            buttons.append(InlineKeyboardButton("🍏", callback_data=f"apple:pick:{level}:{i}"))
-
-    rows = [buttons]
-
-    if session["level"] > 1 or session.get("passed_one"):
-        mult = APPLE_MULTS.get(session["level"] - 1, 1.0)
-        gain = int(session["mise"] * mult)
-        rows.append([InlineKeyboardButton(
-            f"💰 Encaisser x{mult:.2f} → {_fmt(gain)} {CURRENCY}",
-            callback_data="apple:cashout"
-        )])
-
-    return InlineKeyboardMarkup(rows)
-
-def _apple_danger_emoji(level: int) -> str:
-    n_bombs = _apple_bombs(level)
-    safe    = APPLE_COLS - n_bombs
-    return "🟢" * safe + "🔴" * n_bombs
-
-def _apple_status(session: dict) -> str:
-    level     = session["level"]
-    n_bombs   = _apple_bombs(level)
-    safe      = APPLE_COLS - n_bombs
-    mult_next = APPLE_MULTS.get(level, "?")
-    prev_mult = APPLE_MULTS.get(level - 1, 1.0) if level > 1 else 1.0
-    cashout_gain = int(session["mise"] * prev_mult) if level > 1 else 0
-
-    bar = _apple_danger_emoji(level)
-
-    lines = [
-        f"🍏 <b>APPLE OF FORTUNE</b>",
-        f"━━━━━━━━━━━━━━━━━━━━",
-        f"📊 Niveau  <b>{level} / {APPLE_LEVELS}</b>",
-        f"💵 Mise    <b>{_fmt(session['mise'])} {CURRENCY}</b>",
-        f"",
-        f"Risque ligne  {bar}",
-        f"🍎 Pommes rouges (pièges) : <b>{n_bombs}</b>",
-        f"🍏 Pommes vertes (sûres)  : <b>{safe}</b>",
-        f"",
-        f"🎯 Multiplicateur si tu passes : <b>x{mult_next}</b>",
-    ]
-    if level > 1:
-        lines.append(f"💰 Encaisser maintenant : <b>{_fmt(cashout_gain)} {CURRENCY}</b>")
-    lines.append(f"\n👇 <b>Choisis une pomme !</b>")
-    return "\n".join(lines)
-
-
-async def apple_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/apple <mise> — Apple of Fortune (mise libre)"""
-    user = update.effective_user
-    await ensure_user(user)
-
-    if not context.args:
-        table = "\n".join(
-            f"  Niveau {lvl:2d} — <b>x{mult:.2f}</b>  ({APPLE_COLS - _apple_bombs(lvl)}/5 sûres  |  {_apple_bombs(lvl)} pièges)"
-            for lvl, mult in APPLE_MULTS.items()
-        )
-        return await update.message.reply_text(
-            "🍏 <b>Apple of Fortune</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Gravis 10 niveaux en choisissant une pomme parmi 5.\n"
-            "🍏 Pomme verte = tu passes au niveau suivant\n"
-            "🍎 Pomme rouge = BOOM, tu perds tout !\n"
-            "Les pièges augmentent à chaque palier.\n\n"
-            f"<b>Mise minimum :</b> {_fmt(APPLE_MIN)} {CURRENCY}\n\n"
-            f"<b>Table des gains :</b>\n{table}\n\n"
-            "Usage : <code>/apple &lt;mise&gt;</code>\n"
-            "Ex : <code>/apple 100000</code>",
-            parse_mode=ParseMode.HTML
-        )
-
-    try:
-        mise = int(context.args[0].replace(" ", "").replace("_", ""))
-    except ValueError:
-        return await update.message.reply_text("❌ Mise invalide.")
-
-    if mise < APPLE_MIN:
-        return await update.message.reply_text(
-            f"❌ Mise minimum : <b>{_fmt(APPLE_MIN)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
-        )
-
-    if user.id in apple_sessions:
-        return await update.message.reply_text("⚠️ Tu as déjà une partie en cours !", parse_mode=ParseMode.HTML)
-
-    async with AsyncSessionLocal() as session:
-        balance = await _get_balance(session, user.id)
-        if balance < mise:
-            return await update.message.reply_text(
-                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
-            )
-        await _add_coins(session, user.id, -mise)
-
-    apple_sessions[user.id] = {
-        "mise":         mise,
-        "level":        1,
-        "row_bombs":    _apple_gen_row(1),
-        "row_revealed": [False] * APPLE_COLS,
-        "row_picked":   False,
-        "passed_one":   False,
-        "chat_id":      update.effective_chat.id,
-        "lock":         asyncio.Lock(),
-    }
-
-    sess     = apple_sessions[user.id]
-    keyboard = _apple_keyboard(sess)
-    await update.message.reply_text(
-        _apple_status(sess),
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard
-    )
-
-
-async def apple_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user  = query.from_user
-    await query.answer()
-
-    parts  = query.data.split(":")
-    action = parts[1]
-
-    if user.id not in apple_sessions:
-        await query.edit_message_reply_markup(reply_markup=None)
-        return
-
-    sess = apple_sessions[user.id]
-
-    # ── Cash Out ──────────────────────────────────────────────────────────────
-    if action == "cashout":
-        if sess["level"] <= 1 and not sess["passed_one"]:
-            return await query.answer("❌ Passe au moins un niveau d'abord !", show_alert=True)
-        mult   = APPLE_MULTS.get(sess["level"] - 1, 1.0)
-        gain   = int(sess["mise"] * mult)
-        profit = gain - sess["mise"]
-        async with AsyncSessionLocal() as session:
-            await _add_coins(session, user.id, gain)
-        del apple_sessions[user.id]
-        await query.edit_message_text(
-            f"💰 <b>Encaissé !</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Niveau atteint : <b>{sess['level'] - 1} / {APPLE_LEVELS}</b>\n"
-            f"Multiplicateur : <b>x{mult:.2f}</b>\n"
-            f"Gain : <b>{_fmt(gain)} {CURRENCY}</b>  (<b>+{_fmt(profit)} {CURRENCY}</b>)\n\n"
-            "Bien joué, tu as su t'arrêter ! 🍏",
-            parse_mode=ParseMode.HTML
-        )
-        return
-
-    if action == "done":
-        return
-
-    # ── Choisir une pomme ────────────────────────────────────────────────────
-    if action == "pick":
-        btn_level = int(parts[2])
-        idx       = int(parts[3])
-
-        if btn_level != sess["level"]:
-            return
-
-        if sess["row_picked"]:
-            return
-
-        async with sess["lock"]:
-            if sess["row_picked"]:
-                return
-
-            sess["row_picked"]        = True
-            sess["row_revealed"][idx] = True
-
-            # 🍎 POMME ROUGE = BOMBE
-            if sess["row_bombs"][idx]:
-                for i, is_bomb in enumerate(sess["row_bombs"]):
-                    if is_bomb:
-                        sess["row_revealed"][i] = True
-                keyboard = _apple_keyboard(sess)
-                del apple_sessions[user.id]
-                await query.edit_message_text(
-                    f"🍎 <b>POMME EMPOISONNÉE !</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"Niveau {sess['level']} — Case {idx + 1} était un piège !\n\n"
-                    f"💸 Tu as perdu <b>{_fmt(sess['mise'])} {CURRENCY}</b>\n\n"
-                    "Retente ta chance avec /apple 🍏",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=keyboard
-                )
-                return
-
-            # 🍏 POMME VERTE = NIVEAU PASSÉ
-            current_level = sess["level"]
-            mult          = APPLE_MULTS[current_level]
-            gain_now      = int(sess["mise"] * mult)
-
-            if current_level == APPLE_LEVELS:
-                async with AsyncSessionLocal() as session:
-                    await _add_coins(session, user.id, gain_now)
-                del apple_sessions[user.id]
-                await query.edit_message_text(
-                    f"🏆 <b>VICTOIRE ABSOLUE !</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"Tu as gravi les <b>{APPLE_LEVELS} niveaux</b> !\n"
-                    f"x{mult:.2f}  →  <b>{_fmt(gain_now)} {CURRENCY}</b> 🎉🍏",
-                    parse_mode=ParseMode.HTML
-                )
-                return
-
-            next_level = current_level + 1
-            sess["level"]        = next_level
-            sess["row_bombs"]    = _apple_gen_row(next_level)
-            sess["row_revealed"] = [False] * APPLE_COLS
-            sess["row_picked"]   = False
-            sess["passed_one"]   = True
-
-        keyboard = _apple_keyboard(sess)
-        await query.edit_message_text(
-            f"🍏 <b>Bonne pomme !</b>  Niveau <b>{current_level}</b> passé — x{mult:.2f}\n\n"
-            + _apple_status(sess),
-            parse_mode=ParseMode.HTML,
-            reply_markup=keyboard
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# ROUE DE FORTUNE — Segments variés : argent fixe, idem, multiplicateurs
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# Chaque segment : (label, type, valeur, poids)
-#   type "mult"  → gain = mise × valeur
-#   type "fixed" → gain = valeur (montant fixe indépendant de la mise)
-#   type "idem"  → gain = mise (remboursement exact)
-#   type "ruine" → gain = 0
-# ──────────────────────────────────────────────────────────────────────────────
-
-WHEEL_SEGMENTS = [
-    # label                         type      valeur       poids
-    ("💀 Ruine totale",            "ruine",   0,            6),   # +2
-    ("☠️ Malédiction x0.1",       "mult",    0.1,          10),  # +4
-    ("😭 x0.2",                    "mult",    0.2,           9),  # nouveau
-    ("😞 x0.3",                    "mult",    0.3,          10),  # +2
-    ("💸 x0.4",                    "mult",    0.4,           9),  # nouveau
-    ("😐 x0.5",                    "mult",    0.5,           9),  # -1
-    ("🔄 IDEM",                    "idem",    0,            10),  # -2
-    ("🙂 x0.8",                    "mult",    0.8,           9),
-    ("💵 +50 000 $",               "fixed",   50_000,        6),  # nouveau
-    ("💰 x1.2",                    "mult",    1.2,           8),  # nouveau
-    ("💵 +200 000 $",              "fixed",   200_000,       6),
-    ("💰 x1.5",                    "mult",    1.5,          10),
-    ("🎁 +500 000 $",              "fixed",   500_000,       4),
-    ("🤑 x2.0",                    "mult",    2.0,           7),
-    ("🎯 x3.0",                    "mult",    3.0,           5),
-    ("💵 +1 000 000 $",            "fixed",   1_000_000,     3),
-    ("⭐ x5.0",                    "mult",    5.0,           3),
-    ("🔥 x10.0",                   "mult",    10.0,          2),
-    ("🌟 MÉGA CHANCE x15.0",       "mult",    15.0,          1),
-    ("💎 JACKPOT x25.0",           "mult",    25.0,          1),
-]
-
-
-# ─── SYSTÈME DE MOOD ─────────────────────────────────────────────────────────
-# Le mood change à chaque heure. La seed est basée sur la date+heure
-# + un salt aléatoire fixé au démarrage du process → imprévisible mais stable
-# sur toute la durée d'une heure.
-
-import os as _os
-from config import CURRENCY
-_MOOD_SALT = int.from_bytes(_os.urandom(4), "big")
-
-MOODS = {
-    # mood            : (multiplicateur_malchance, multiplicateur_chance, label_affichage)
-    "impitoyable"  : (8.0, 0.05, "💀 Mode IMPITOYABLE — La roue veut ta ruine."),
-    "tres_mechant" : (3.5, 0.2,  "😈 La roue est TRÈS MÉCHANTE ce soir..."),
-    "mechant"      : (2.0, 0.5,  "😤 La roue est de mauvaise humeur."),
-    "normal"       : (1.0, 1.0,  "😐 La roue est neutre."),
-    "facile"       : (0.5, 2.0,  "😊 La roue est généreuse !"),
-    "tres_facile"  : (0.2, 3.5,  "🤑 La roue est EN FEU ce soir !"),
-}
-
-# Probabilités d'apparition de chaque mood par heure
-MOOD_WEIGHTS = {
-    "impitoyable"  : 0,   # jamais aléatoire — admin only
-    "tres_mechant" : 20,
-    "mechant"      : 25,
-    "normal"       : 30,
-    "facile"       : 15,
-    "tres_facile"  : 10,
-}
-
-
-_MOOD_OVERRIDE: str | None = None  # None = aléatoire, sinon clé forcée par admin
-
-
-def _current_mood() -> tuple[str, tuple]:
-    """Retourne (mood_key, mood_data) pour l'heure courante."""
-    if _MOOD_OVERRIDE and _MOOD_OVERRIDE in MOODS:
-        return _MOOD_OVERRIDE, MOODS[_MOOD_OVERRIDE]
-    from datetime import datetime
-    now   = datetime.utcnow()
-    seed  = now.year * 1000000 + now.month * 10000 + now.day * 100 + now.hour
-    seed  = (seed ^ _MOOD_SALT) & 0xFFFFFFFF
-    rng   = random.Random(seed)
-    keys  = list(MOOD_WEIGHTS.keys())
-    weights = [MOOD_WEIGHTS[k] for k in keys]
-    mood_key = rng.choices(keys, weights=weights, k=1)[0]
-    return mood_key, MOODS[mood_key]
-
-
-async def _set_mood_direct(update: Update, mood_key):
-    import handlers.games as _self
-    from handlers.admin import is_admin
-    if not await is_admin(update.effective_user.id):
-        return await update.message.reply_text("❌ Réservé aux admins.")
-    _self._MOOD_OVERRIDE = mood_key
-    if mood_key is None:
-        await update.message.reply_text("🎲 Roue remise en mode <b>aléatoire</b>.", parse_mode="HTML")
-    else:
-        _, (_, _, label) = _current_mood()
-        await update.message.reply_text(f"✅ {label}", parse_mode="HTML")
-
-async def mood_facile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _set_mood_direct(update, "facile")
-
-async def mood_normal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _set_mood_direct(update, "normal")
-
-async def mood_difficile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _set_mood_direct(update, "mechant")
-
-async def mood_impitoyable_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _set_mood_direct(update, "impitoyable")
-
-async def mood_auto_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _set_mood_direct(update, None)
-
-async def setmood_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import handlers.games as _self
-    from handlers.admin import is_admin
-    if not await is_admin(update.effective_user.id):
-        return await update.message.reply_text("❌ Réservé aux admins.")
-    _, (_, _, label) = _current_mood()
-    override_info = f"🔒 Forcé : <b>{_self._MOOD_OVERRIDE}</b>" if _self._MOOD_OVERRIDE else "🎲 Aléatoire"
-    await update.message.reply_text(
-        f"🎡 <b>Mood actuel :</b> {label}\n{override_info}\n\n"
-        f"Commandes : /facile · /normal · /difficile · /impitoyable · /moodauto",
-        parse_mode="HTML"
-    )
-
-
-def _spin_wheel() -> tuple:
-    """Retourne (label, type, valeur) en tenant compte du mood actuel."""
-    _, (bad_mult, good_mult, _) = _current_mood()
-
-    # Recalculer les poids selon le mood
-    adjusted = []
-    for label, kind, val, weight in WHEEL_SEGMENTS:
-        if kind == "ruine" or (kind == "mult" and isinstance(val, float) and val < 1.0):
-            # Case de malchance → amplifiée si méchant
-            new_w = max(1, int(weight * bad_mult))
-        elif kind in ("mult", "fixed") and (
-            (kind == "fixed") or (isinstance(val, float) and val >= 1.5)
-        ):
-            # Case de chance → amplifiée si facile
-            new_w = max(1, int(weight * good_mult))
-        else:
-            new_w = weight
-        adjusted.append((label, kind, val, new_w))
-
-    total = sum(s[3] for s in adjusted)
-    r     = random.uniform(0, total)
-    cum   = 0
-    for label, kind, val, w in adjusted:
-        cum += w
-        if r <= cum:
-            return label, kind, val
-    last = adjusted[-1]
-    return last[0], last[1], last[2]
-
-
-def _wheel_result_text(user_mention: str, mise: int, label: str, kind: str, val) -> tuple[str, int]:
-    """Calcule le gain et génère le texte de résultat. Retourne (texte, gain)."""
-    if kind == "ruine":
-        gain   = 0
-        profit = -mise
-        emoji  = "💀"
-        title  = "RUINE TOTALE !"
-    elif kind == "idem":
-        gain   = mise
-        profit = 0
-        emoji  = "🔄"
-        title  = "IDEM — Remboursé !"
-    elif kind == "fixed":
-        gain   = int(val)
-        profit = gain - mise
-        emoji  = "💵"
-        title  = f"{label.split(' ', 1)[1]} fixe !"
-    else:  # mult
-        gain   = int(mise * val)
-        profit = gain - mise
-        emoji  = "🎡"
-        title  = f"{label} !"
-
-    mise_str   = _fmt(mise)
-    gain_str   = _fmt(gain)
-    profit_str = (f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit))
-
-    profit_icon = "📈" if profit >= 0 else "📉"
-    text = (
-        f"{emoji} <b>{title}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎡 Vous êtes tombé sur : <b>{label}</b>\n\n"
-        f"👤 {user_mention}\n\n"
-        f"💵 Mise de départ : <b>{mise_str} {CURRENCY}</b>\n"
-        f"🏆 Vos revenus sont : <b>{gain_str} {CURRENCY}</b>\n"
-        f"{profit_icon} Bilan net : <b>{profit_str} {CURRENCY}</b>"
-    )
-    return text, gain
-
-
-async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/roue <mise>"""
-    user = update.effective_user
-    await ensure_user(user)
-
-    if not context.args:
-        segments_display = "\n".join(
-            f"  {label}  <i>(poids {w})</i>"
-            for label, _, _, w in WHEEL_SEGMENTS
-        )
-        return await update.message.reply_text(
-            "🎡 <b>Roue de Fortune</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Tourne la roue et tente ta chance !\n"
-            "Multiplicateurs, gains fixes, IDEM, JACKPOT… et la Ruine.\n\n"
-            f"<b>Segments :</b>\n{segments_display}\n\n"
-            "Usage : <code>/roue &lt;mise&gt;</code>",
-            parse_mode=ParseMode.HTML
-        )
-
-    try:
-        mise = int(context.args[0].replace(" ", "").replace("_", ""))
-    except ValueError:
-        return await update.message.reply_text("❌ Mise invalide.")
-
-    if mise < 1000:
-        return await update.message.reply_text("❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML)
-
-    async with AsyncSessionLocal() as session:
-        balance = await _get_balance(session, user.id)
-        if balance < mise:
-            return await update.message.reply_text(
-                f"❌ Solde insuffisant. Tu as <b>{_fmt(balance)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
-            )
-        await _add_coins(session, user.id, -mise)
-
-    # Mood actuel
-    mood_key, (_, _, mood_label) = _current_mood()
-
-    # Calculer le résultat AVANT l'animation pour éviter tout blocage
-    label, kind, val = _spin_wheel()
-    result_text, gain = _wheel_result_text(mention(user), mise, label, kind, val)
-
-    animation_frames = [
-        f"🎡 <b>La roue est lancée...</b>\n<i>{mood_label}</i>",
-        "🎡 ⠋ <i>Elle tourne à pleine vitesse !</i>",
-        "🎡 ⠙ <i>Ça s'emballe...</i>",
-        "🎡 ⠹ <i>La roue ralentit...</i>",
-        "🎡 ⠸ <i>Encore un tour...</i>",
-        "🎡 ⠼ <i>Presque là...</i>",
-        "🎡 ⠴ <i>Elle s'arrête...</i>",
-    ]
-
-    msg = await update.message.reply_text(animation_frames[0], parse_mode=ParseMode.HTML)
-    for frame in animation_frames[1:]:
-        await asyncio.sleep(0.6)
-        try:
-            await msg.edit_text(frame, parse_mode=ParseMode.HTML)
-        except Exception:
-            pass
-
-    await asyncio.sleep(0.8)
-
-    # Créditer les gains AVANT d'afficher le verdict
-    async with AsyncSessionLocal() as session:
-        await _add_coins(session, user.id, gain)
-
-    # Afficher le verdict — toujours en reply_text pour éviter le blocage
-    await asyncio.sleep(0.4)
-    await update.message.reply_text(result_text, parse_mode=ParseMode.HTML)
-
-    # Supprimer le message d'animation
-    try:
-        await msg.delete()
-    except Exception:
-        pass
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# REBET — Quitte ou double avec boutons Récupérer / Remiser
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Stockage en mémoire : rebet_sessions[chat_id][user_id] = {mise, gains, round}
-rebet_sessions: dict = {}
-
-MIN_REBET = 5000
-
-
-def _rebet_keyboard(chat_id: int, user_id: int, gains: int) -> InlineKeyboardMarkup:
-    next_win = gains * 2
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"💰 Récupérer {_fmt(gains)} {CURRENCY}", callback_data=f"rebet:cash:{chat_id}:{user_id}"),
-        InlineKeyboardButton(f"🎲 Remiser → {_fmt(next_win)} {CURRENCY}", callback_data=f"rebet:double:{chat_id}:{user_id}"),
-    ]])
-
-
-def _rebet_text(first_name: str, mise_initiale: int, gains: int, round_num: int) -> str:
-    multiplier = gains / mise_initiale if mise_initiale else 1
-    next_win = gains * 2
-    return (
-        f"🎲 <b>REBET — {first_name}</b>\n\n"
-        f"🪙 Mise de départ : <b>{_fmt(mise_initiale)} {CURRENCY}</b>\n"
-        f"📈 Multiplicateur : <b>x{multiplier:.1f}</b>\n"
-        f"💵 Gains actuels : <b>{_fmt(gains)} {CURRENCY}</b>\n"
-        f"⚡ Prochain gain : <b>{_fmt(next_win)} {CURRENCY}</b>\n"
-        f"🔄 Tour n°{round_num}\n\n"
-        f"Que veux-tu faire ?"
-    )
-
-
-async def rebet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await ensure_user(user)
-
-    if not context.args:
-        return await update.message.reply_text(
-            f"Usage : <code>/rebet &lt;mise&gt;</code>\n"
-            f"Mise minimum : <b>{_fmt(MIN_REBET)} {CURRENCY}</b>\n\n"
-            "🎲 Quitte ou double — récupère ou remise !",
-            parse_mode=ParseMode.HTML
-        )
-
-    try:
-        mise = int(context.args[0].replace(" ", "").replace("_", ""))
-    except ValueError:
-        return await update.message.reply_text("❌ Mise invalide.")
-
-    if mise < MIN_REBET:
-        return await update.message.reply_text(
-            f"❌ Mise minimum : <b>{_fmt(MIN_REBET)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
-        )
-
-    chat_id = update.effective_chat.id
-
-    async with AsyncSessionLocal() as session:
-        result = await deduct_for_game(session, user.id, mise)
-
-    if result == "insufficient":
-        async with AsyncSessionLocal() as session:
-            bal = await _get_balance(session, user.id)
-        return await update.message.reply_text(
-            f"❌ Solde insuffisant. Tu as <b>{_fmt(bal)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
-        )
-
-    # Initialiser la session
-    if chat_id not in rebet_sessions:
-        rebet_sessions[chat_id] = {}
-
-    rebet_sessions[chat_id][user.id] = {
-        "mise": mise,
-        "gains": mise,
-        "round": 1,
-        "first_name": user.first_name,
-    }
-
-    await update.message.reply_text(
-        _rebet_text(user.first_name, mise, mise, 1),
-        parse_mode=ParseMode.HTML,
-        reply_markup=_rebet_keyboard(chat_id, user.id, mise),
-    )
-
-
-async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    parts = query.data.split(":")
-    # format : rebet:action:chat_id:user_id
-    if len(parts) != 4:
-        return
-
-    _, action, chat_id_str, user_id_str = parts
-    chat_id = int(chat_id_str)
-    user_id = int(user_id_str)
-
-    # Vérifier que c'est bien le bon joueur
-    if query.from_user.id != user_id:
-        return await query.answer("❌ Ce n'est pas ton jeu !", show_alert=True)
-
-    session_data = rebet_sessions.get(chat_id, {}).get(user_id)
-    if not session_data:
-        return await query.edit_message_text("⌛ Session expirée. Relance avec /rebet.")
-
-    if action == "cash":
-        # Le joueur récupère ses gains
-        gains = session_data["gains"]
-        mise  = session_data["mise"]
-        rnd   = session_data["round"]
-        del rebet_sessions[chat_id][user_id]
-
-        async with AsyncSessionLocal() as session:
-            await add_coins_smart(session, user_id, gains)
-
-        profit = gains - mise
-        sign   = f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit)
-        await query.edit_message_text(
-            f"💰 <b>Gains récupérés !</b>\n\n"
-            f"🪙 Mise de départ : <b>{_fmt(mise)} {CURRENCY}</b>\n"
-            f"✅ Gains encaissés : <b>{_fmt(gains)} {CURRENCY}</b>\n"
-            f"📊 Profit net : <b>{sign} {CURRENCY}</b>\n"
-            f"🔄 Tours joués : <b>{rnd}</b>",
-            parse_mode=ParseMode.HTML,
-        )
-
-    elif action == "double":
-        # Quitte ou double !
-        win = random.random() < 0.5
-
-        if win:
-            session_data["gains"] *= 2
-            session_data["round"] += 1
-            mise  = session_data["mise"]
-            gains = session_data["gains"]
-            rnd   = session_data["round"]
-
-            await query.edit_message_text(
-                f"✅ <b>Gagné !</b> Tes gains doublent !\n\n"
-                + _rebet_text(session_data["first_name"], mise, gains, rnd),
-                parse_mode=ParseMode.HTML,
-                reply_markup=_rebet_keyboard(chat_id, user_id, gains),
-            )
-        else:
-            # Perdu — tout est perdu
-            mise = session_data["mise"]
-            rnd  = session_data["round"]
-            del rebet_sessions[chat_id][user_id]
-
-            await query.edit_message_text(
-                f"💥 <b>PERDU !</b>\n\n"
-                f"🪙 Mise de départ : <b>{_fmt(mise)} {CURRENCY}</b>\n"
-                f"❌ Tu perds tout !\n"
-                f"🔄 Tours joués : <b>{rnd}</b>\n\n"
-                f"<i>Trop gourmand... 😅</i>",
+                chat_id=loan.user_id,
+                text=texte,
                 parse_mode=ParseMode.HTML,
             )
+        except Exception as e:
+            logger.warning(f"[BANK] Impossible d'envoyer le rappel à {loan.user_id} : {e}")
+
+    logger.info(f"[BANK] Rappels de prêt envoyés : {len(loans)} utilisateur(s) notifié(s).")

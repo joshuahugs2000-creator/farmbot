@@ -560,7 +560,7 @@ async def claim_daily(session: AsyncSession, user_id: int) -> dict:
     now_key = datetime.utcnow().strftime("%Y-%m-%d")
     if user.last_daily == now_key:
         return {"status": "already"}
-    base_amount = random.randint(500, 3_000)
+    base_amount = random.randint(5_000, 20_000)
     # Bonus/malus karma
     level = get_karma_level(user.karma or 0)
     pct   = level["daily_pct"]
@@ -589,7 +589,7 @@ async def claim_work(session: AsyncSession, user_id: int) -> dict:
     if user.last_work and (now - user.last_work).total_seconds() < cooldown:
         wait = int((cooldown - (now - user.last_work).total_seconds()) / 60)
         return {"status": "cooldown", "wait_min": wait}
-    amount = random.randint(200, 2_000)
+    amount = random.randint(3_000, 30_000)
     await session.execute(
         text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT), last_work = :lw WHERE user_id = :uid"),
         {"amt": amount, "lw": now, "uid": user_id}

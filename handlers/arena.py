@@ -839,3 +839,227 @@ async def _ppc_resolve_direct(context, chat_id: int, tg_chat_id: int, s: dict):
         )
     except Exception as e:
         logger.error(f"PPC direct resolve error: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎲 /lancer — Duel de dés (PvP ou vs Bot)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+lancer_sessions: dict = {}  # chat_id -> {challenger, target, mise, msg_id, ...}
+
+LANCER_TIMEOUT = 60  # secondes pour accepter
+
+
+async def lancer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.effective_chat:
+        return
+
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+
+    if update.effective_chat.type == "private":
+        return await update.message.reply_text("🎲 /lancer se joue en groupe !")
+
+    args = context.args
+    if not args:
+        return await update.message.reply_text(
+            "🎲 <b>Duel de Dés</b>\n\n"
+            "Usage :\n"
+            "• <code>/lancer <mise></code> — défier le bot\n"
+            "• <code>/lancer @joueur <mise></code> — défier un joueur\n\n"
+            "Ex : <code>/lancer 10000</code> ou <code>/lancer @Ahmed 5000</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    # Parse mise (dernier arg numérique)
+    mise = None
+    for arg in reversed(args):
+        if arg.isdigit():
+            mise = int(arg)
+            break
+
+    if not mise or mise < 100:
+        return await update.message.reply_text("❌ Mise minimum : <b>100 $</b>", parse_mode=ParseMode.HTML)
+
+    await ensure_user(user)
+
+    # Vérifier le solde du challenger
+    async with AsyncSessionLocal() as session:
+        bal = await _get_balance(session, user.id)
+        if bal < mise:
+            return await update.message.reply_text(
+                f"❌ Solde insuffisant ! Tu as <b>{_fmt(bal)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
+            )
+
+    # Détecter si PvP ou vs Bot
+    target_tg = await parse_target(update, context)
+
+    if not target_tg or target_tg.is_bot:
+        # Vs Bot — résolution immédiate
+        import random as _random
+        de_joueur = _random.randint(1, 100)
+        de_bot = _random.randint(1, 100)
+
+        async with AsyncSessionLocal() as session:
+            await _deduct_coins(session, user.id, mise)
+
+        if de_joueur > de_bot:
+            # Victoire
+            async with AsyncSessionLocal() as session:
+                await _add_coins(session, user.id, mise * 2)
+            result_line = f"🏆 <b>{user.first_name} GAGNE !</b> +{_fmt(mise)} {CURRENCY}"
+        elif de_joueur < de_bot:
+            result_line = f"💀 <b>{user.first_name} PERD !</b> -{_fmt(mise)} {CURRENCY}"
+        else:
+            # Égalité → remboursement
+            async with AsyncSessionLocal() as session:
+                await _add_coins(session, user.id, mise)
+            result_line = f"🤝 <b>ÉGALITÉ !</b> Mise remboursée."
+
+        return await update.message.reply_text(
+            f"🎲 <b>DUEL DE DÉS — vs Bot</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🧑 {user.first_name} lance... <b>{de_joueur}</b>\n"
+            f"🤖 Bot lance... <b>{de_bot}</b>\n\n"
+            f"{result_line}",
+            parse_mode=ParseMode.HTML,
+        )
+
+    # PvP
+    if target_tg.id == user.id:
+        return await update.message.reply_text("❌ Tu ne peux pas te défier toi-même !")
+
+    await ensure_user(target_tg)
+
+    async with AsyncSessionLocal() as session:
+        bal2 = await _get_balance(session, target_tg.id)
+        if bal2 < mise:
+            return await update.message.reply_text(
+                f"❌ {target_tg.first_name} n'a pas assez de {CURRENCY} !"
+            )
+
+    if chat_id in lancer_sessions:
+        return await update.message.reply_text("⚠️ Un duel de dés est déjà en cours ici !")
+
+    lancer_sessions[chat_id] = {
+        "challenger_id":   user.id,
+        "challenger_name": user.first_name,
+        "target_id":       target_tg.id,
+        "target_name":     target_tg.first_name,
+        "mise":            mise,
+        "msg_id":          None,
+    }
+
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Accepter",  callback_data=f"lancer:accept:{chat_id}"),
+        InlineKeyboardButton("❌ Refuser", callback_data=f"lancer:decline:{chat_id}"),
+    ]])
+
+    msg = await update.message.reply_text(
+        f"🎲 <b>DUEL DE DÉS</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"⚔️ <b>{user.first_name}</b> défie <b>{target_tg.first_name}</b> !\n"
+        f"💰 Mise : <b>{_fmt(mise)} {CURRENCY}</b>\n\n"
+        f"⏳ {target_tg.first_name}, tu as <b>60 secondes</b> pour accepter !",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb,
+    )
+
+    lancer_sessions[chat_id]["msg_id"] = msg.message_id
+
+    asyncio.create_task(_lancer_timeout(context, chat_id, msg.chat_id, user.id, mise))
+
+
+async def _lancer_timeout(context, chat_id: int, tg_chat_id: int, challenger_id: int, mise: int):
+    await asyncio.sleep(LANCER_TIMEOUT)
+    s = lancer_sessions.pop(chat_id, None)
+    if not s:
+        return  # Déjà résolu
+    # Rembourser le challenger (si la mise avait été pré-déduite — ici elle ne l'est pas encore)
+    try:
+        await context.bot.edit_message_text(
+            chat_id=tg_chat_id,
+            message_id=s["msg_id"],
+            text=(
+                f"🎲 <b>DUEL DE DÉS — Expiré</b>\n\n"
+                f"⏰ {s['target_name']} n'a pas répondu dans les 60 secondes.\n"
+                f"💸 Duel annulé."
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
+
+
+async def lancer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+    parts = query.data.split(":")
+    action = parts[1]
+    chat_id = int(parts[2])
+
+    s = lancer_sessions.get(chat_id)
+    if not s:
+        return await query.answer("❌ Ce duel a expiré.", show_alert=True)
+
+    if user.id != s["target_id"]:
+        return await query.answer("⚠️ Ce duel ne te concerne pas.", show_alert=True)
+
+    if action == "decline":
+        lancer_sessions.pop(chat_id, None)
+        return await query.edit_message_text(
+            f"❌ {s['target_name']} a refusé le duel.\n💸 Duel annulé."
+        )
+
+    # Accepté — résolution
+    lancer_sessions.pop(chat_id, None)
+
+    import random as _random
+    mise = s["mise"]
+
+    async with AsyncSessionLocal() as session:
+        bal1 = await _get_balance(session, s["challenger_id"])
+        bal2 = await _get_balance(session, s["target_id"])
+        if bal1 < mise or bal2 < mise:
+            return await query.edit_message_text("❌ L'un des joueurs n'a plus assez de fonds.")
+        await _deduct_coins(session, s["challenger_id"], mise)
+        await _deduct_coins(session, s["target_id"], mise)
+
+    de1 = _random.randint(1, 100)
+    de2 = _random.randint(1, 100)
+
+    async with AsyncSessionLocal() as session:
+        if de1 > de2:
+            winner_id = s["challenger_id"]
+            winner_name = s["challenger_name"]
+            await _add_coins(session, winner_id, mise * 2)
+        elif de2 > de1:
+            winner_id = s["target_id"]
+            winner_name = s["target_name"]
+            await _add_coins(session, winner_id, mise * 2)
+        else:
+            # Égalité → remboursement
+            await _add_coins(session, s["challenger_id"], mise)
+            await _add_coins(session, s["target_id"], mise)
+            return await query.edit_message_text(
+                f"🎲 <b>RÉSULTAT DU DUEL</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🔴 {s['challenger_name']} : <b>{de1}</b>\n"
+                f"🔵 {s['target_name']} : <b>{de2}</b>\n\n"
+                f"🤝 <b>ÉGALITÉ !</b> Tout le monde est remboursé.",
+                parse_mode=ParseMode.HTML,
+            )
+
+    loser_name = s["target_name"] if winner_id == s["challenger_id"] else s["challenger_name"]
+
+    await query.edit_message_text(
+        f"🎲 <b>RÉSULTAT DU DUEL</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔴 {s['challenger_name']} lance... <b>{de1}</b>\n"
+        f"🔵 {s['target_name']} lance... <b>{de2}</b>\n\n"
+        f"🏆 <b>{winner_name} GAGNE !</b>\n"
+        f"💰 +{_fmt(mise)} {CURRENCY}",
+        parse_mode=ParseMode.HTML,
+    )

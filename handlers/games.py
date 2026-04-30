@@ -1024,3 +1024,263 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"<i>Trop gourmand... 😅</i>",
                 parse_mode=ParseMode.HTML,
             )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💣 /mines — Jeu de mines style Stake
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import math as _math
+
+mines_sessions: dict = {}  # user_id -> session
+
+MINES_GRID = 25  # 5x5
+MINES_MISE_MAX = 50_000_000
+MINES_MISE_MIN = 100
+
+
+def _mines_multiplier(revealed: int, nb_mines: int) -> float:
+    """Calcule le multiplicateur actuel basé sur les cases révélées et les mines."""
+    safe = MINES_GRID - nb_mines
+    if revealed >= safe or safe <= 0:
+        return 0.0
+    # Multiplicateur : monte progressivement selon la probabilité de survie
+    # Basé sur la combinatoire réelle
+    try:
+        prob = 1.0
+        for i in range(revealed):
+            prob *= (safe - i) / (MINES_GRID - i)
+        if prob <= 0:
+            return 0.0
+        return round((0.97 / prob), 2)  # 97% RTP
+    except Exception:
+        return 1.0
+
+
+def _mines_keyboard(session: dict) -> InlineKeyboardMarkup:
+    grid = session["grid"]       # liste 25 éléments: "safe" ou "mine"
+    revealed = session["revealed"]  # set d'index révélés
+    rows = []
+    for r in range(5):
+        row = []
+        for c in range(5):
+            idx = r * 5 + c
+            if idx in revealed:
+                emoji = "💎" if grid[idx] == "safe" else "💣"
+                btn = InlineKeyboardButton(emoji, callback_data=f"mines:noop:{idx}")
+            else:
+                btn = InlineKeyboardButton("⬜", callback_data=f"mines:reveal:{idx}")
+            row.append(btn)
+        rows.append(row)
+
+    current_mult = _mines_multiplier(len(revealed), session["nb_mines"])
+    current_gain = int(session["mise"] * current_mult)
+
+    rows.append([
+        InlineKeyboardButton(
+            f"💰 Encaisser {_fmt(current_gain)} {CURRENCY} (×{current_mult})",
+            callback_data="mines:cashout:0"
+        )
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def _mines_status(session: dict) -> str:
+    revealed_count = len(session["revealed"])
+    nb_mines = session["nb_mines"]
+    current_mult = _mines_multiplier(revealed_count, nb_mines)
+    current_gain = int(session["mise"] * current_mult)
+    safe_left = MINES_GRID - nb_mines - revealed_count
+
+    return (
+        f"💣 <b>MINES</b> — {nb_mines} mine{'s' if nb_mines > 1 else ''} cachée{'s' if nb_mines > 1 else ''}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🪙 Mise : <b>{_fmt(session['mise'])} {CURRENCY}</b>\n"
+        f"💎 Cases sûres révélées : <b>{revealed_count}</b>\n"
+        f"🎯 Cases sûres restantes : <b>{safe_left}</b>\n"
+        f"📈 Multiplicateur actuel : <b>×{current_mult}</b>\n"
+        f"💰 Gain potentiel : <b>{_fmt(current_gain)} {CURRENCY}</b>\n\n"
+        f"<i>Révèle des cases ou encaisse !</i>"
+    )
+
+
+async def mines_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+
+    user = update.effective_user
+    args = context.args
+
+    if not args or len(args) < 2:
+        return await update.message.reply_text(
+            "💣 <b>Mines</b>\n\n"
+            "Usage : <code>/mines <mines> <mise></code>\n"
+            "• <b>mines</b> : nombre de mines (1–24)\n"
+            "• <b>mise</b> : montant à miser\n\n"
+            "Ex : <code>/mines 3 5000</code> — 3 mines, mise 5 000\n\n"
+            "Plus il y a de mines, plus les gains montent vite !\n"
+            "Encaisse avant de tomber sur une bombe 💣",
+            parse_mode=ParseMode.HTML,
+        )
+
+    try:
+        nb_mines = int(args[0])
+        mise = int(args[1])
+    except ValueError:
+        return await update.message.reply_text("❌ Usage : <code>/mines <mines> <mise></code>", parse_mode=ParseMode.HTML)
+
+    if nb_mines < 1 or nb_mines > 24:
+        return await update.message.reply_text("❌ Nombre de mines : entre <b>1</b> et <b>24</b>", parse_mode=ParseMode.HTML)
+
+    if mise < MINES_MISE_MIN:
+        return await update.message.reply_text(f"❌ Mise minimum : <b>{_fmt(MINES_MISE_MIN)} {CURRENCY}</b>", parse_mode=ParseMode.HTML)
+
+    if mise > MINES_MISE_MAX:
+        return await update.message.reply_text(f"❌ Mise maximum : <b>{_fmt(MINES_MISE_MAX)} {CURRENCY}</b>", parse_mode=ParseMode.HTML)
+
+    if user.id in mines_sessions:
+        return await update.message.reply_text("⚠️ Tu as déjà une partie de mines en cours ! Encaisse ou termine-la d'abord.")
+
+    from database.db import ensure_user as _eu
+    await ensure_user(user)
+
+    async with AsyncSessionLocal() as session:
+        bal = await _get_balance(session, user.id)
+        if bal < mise:
+            return await update.message.reply_text(
+                f"❌ Solde insuffisant ! Tu as <b>{_fmt(bal)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
+            )
+        await session.execute(
+            sa.text("UPDATE users SET coins = coins - :a WHERE user_id = :uid"),
+            {"a": mise, "uid": user.id},
+        )
+        await session.commit()
+
+    # Générer la grille
+    import random as _random
+    grid = ["safe"] * MINES_GRID
+    mine_positions = _random.sample(range(MINES_GRID), nb_mines)
+    for pos in mine_positions:
+        grid[pos] = "mine"
+
+    mines_sessions[user.id] = {
+        "user_id":   user.id,
+        "chat_id":   update.effective_chat.id,
+        "mise":      mise,
+        "nb_mines":  nb_mines,
+        "grid":      grid,
+        "revealed":  set(),
+        "msg_id":    None,
+    }
+
+    s = mines_sessions[user.id]
+    msg = await update.message.reply_text(
+        _mines_status(s),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_mines_keyboard(s),
+    )
+    mines_sessions[user.id]["msg_id"] = msg.message_id
+
+
+async def mines_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+    parts = query.data.split(":")
+    action = parts[1]
+
+    s = mines_sessions.get(user.id)
+    if not s:
+        return await query.answer("❌ Aucune partie en cours.", show_alert=True)
+
+    if action == "noop":
+        return  # Case déjà révélée, rien à faire
+
+    if action == "cashout":
+        nb_revealed = len(s["revealed"])
+        mult = _mines_multiplier(nb_revealed, s["nb_mines"])
+        gain = int(s["mise"] * mult)
+
+        del mines_sessions[user.id]
+
+        async with AsyncSessionLocal() as session:
+            if gain > 0:
+                await _add_coins(session, user.id, gain)
+
+        profit = gain - s["mise"]
+        sign = f"+{_fmt(profit)}" if profit >= 0 else _fmt(profit)
+
+        return await query.edit_message_text(
+            f"💰 <b>Gains encaissés !</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🪙 Mise : <b>{_fmt(s['mise'])} {CURRENCY}</b>\n"
+            f"💎 Cases révélées : <b>{nb_revealed}</b>\n"
+            f"📈 Multiplicateur : <b>×{mult}</b>\n"
+            f"💰 Gain : <b>{_fmt(gain)} {CURRENCY}</b>\n"
+            f"📊 Profit net : <b>{sign} {CURRENCY}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    if action == "reveal":
+        idx = int(parts[2])
+        if idx in s["revealed"]:
+            return
+
+        s["revealed"].add(idx)
+
+        if s["grid"][idx] == "mine":
+            # BOOM
+            del mines_sessions[user.id]
+
+            # Afficher toutes les mines
+            grid = s["grid"]
+            revealed = s["revealed"]
+            rows = []
+            for r in range(5):
+                row = []
+                for c in range(5):
+                    i = r * 5 + c
+                    if grid[i] == "mine":
+                        row.append(InlineKeyboardButton("💣", callback_data="mines:noop:0"))
+                    elif i in revealed:
+                        row.append(InlineKeyboardButton("💎", callback_data="mines:noop:0"))
+                    else:
+                        row.append(InlineKeyboardButton("⬜", callback_data="mines:noop:0"))
+                rows.append(row)
+
+            return await query.edit_message_text(
+                f"💥 <b>BOOM ! Tu as trouvé une mine !</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🪙 Mise perdue : <b>{_fmt(s['mise'])} {CURRENCY}</b>\n"
+                f"💎 Cases révélées avant : <b>{len(s['revealed']) - 1}</b>\n\n"
+                f"<i>Trop gourmand... 😅</i>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(rows),
+            )
+
+        # Case sûre — vérifier si toutes les cases sûres sont révélées
+        safe_count = MINES_GRID - s["nb_mines"]
+        if len(s["revealed"]) >= safe_count:
+            # Gagné max !
+            mult = _mines_multiplier(len(s["revealed"]), s["nb_mines"])
+            gain = int(s["mise"] * mult)
+            del mines_sessions[user.id]
+            async with AsyncSessionLocal() as session:
+                await _add_coins(session, user.id, gain)
+            return await query.edit_message_text(
+                f"🎊 <b>INCROYABLE ! Toutes les cases sûres révélées !</b>\n\n"
+                f"📈 Multiplicateur : <b>×{mult}</b>\n"
+                f"💰 Gain : <b>{_fmt(gain)} {CURRENCY}</b>",
+                parse_mode=ParseMode.HTML,
+            )
+
+        # Continuer
+        try:
+            await query.edit_message_text(
+                _mines_status(s),
+                parse_mode=ParseMode.HTML,
+                reply_markup=_mines_keyboard(s),
+            )
+        except Exception:
+            pass

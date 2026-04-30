@@ -1519,3 +1519,71 @@ async def grouplist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chunk += block + "\n\n"
         if chunk.strip():
             await update.message.reply_text(chunk.strip(), parse_mode="HTML", disable_web_page_preview=True)
+
+
+# ─── /groupscan ───────────────────────────────────────────────────────────────
+
+async def groupscan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /groupscan — Force la récupération du lien d'invitation pour tous les groupes
+    où le bot est admin mais où le lien est manquant.
+    Réservé aux admins.
+    """
+    if not await is_admin(update.effective_user.id):
+        return await update.message.reply_text("❌ Accès refusé.")
+
+    groups = await get_all_groups(active_only=True)
+    if not groups:
+        return await update.message.reply_text("📭 Aucun groupe enregistré.")
+
+    msg = await update.message.reply_text("🔄 Scan en cours...")
+
+    ok, skipped, failed = 0, 0, 0
+    results = []
+
+    for g in groups:
+        m        = g._mapping
+        gid      = m["group_id"]
+        title    = m["title"] or str(gid)
+        username = m["username"]
+        link     = m["invite_link"]
+
+        # Déjà un lien ou username public → skip
+        if username or link:
+            skipped += 1
+            continue
+
+        # Tentative de génération du lien
+        try:
+            new_link = await context.bot.export_chat_invite_link(gid)
+            # Sauvegarder en base
+            await upsert_group(
+                group_id=gid,
+                title=title,
+                username=username,
+                chat_type=m["chat_type"] or "supergroup",
+                member_count=m["member_count"],
+                invite_link=new_link,
+            )
+            results.append(f"✅ <b>{title}</b>\n   🔗 <a href='{new_link}'>Lien généré</a>")
+            ok += 1
+        except Exception as e:
+            results.append(f"❌ <b>{title}</b> (<code>{gid}</code>)\n   ⚠️ {str(e)[:80]}")
+            failed += 1
+
+    summary = f"📊 Scan terminé — ✅ {ok} lien(s) générés | ⏭ {skipped} déjà connus | ❌ {failed} échec(s)\n\n"
+    full = summary + "\n\n".join(results) if results else summary + "Rien à faire."
+
+    if len(full) <= 4000:
+        await msg.edit_text(full, parse_mode="HTML", disable_web_page_preview=True)
+    else:
+        await msg.edit_text(summary, parse_mode="HTML")
+        chunk = ""
+        for block in results:
+            if len(chunk) + len(block) + 2 > 4000:
+                await update.message.reply_text(chunk.strip(), parse_mode="HTML", disable_web_page_preview=True)
+                chunk = block + "\n\n"
+            else:
+                chunk += block + "\n\n"
+        if chunk.strip():
+            await update.message.reply_text(chunk.strip(), parse_mode="HTML", disable_web_page_preview=True)

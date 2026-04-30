@@ -7,8 +7,10 @@ from aiohttp import web
 from telegram import Update
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CommandHandler,
     CallbackQueryHandler,
+    TypeHandler,
 )
 
 from config import BOT_TOKEN
@@ -104,6 +106,54 @@ PRISON_EXEMPT_COMMANDS = {
     "pause", "resume", "enquete", "richlista",
     "fin", "donate",
 }
+
+# Commandes accessibles même en étant banni (commandes admin uniquement)
+BAN_EXEMPT_COMMANDS = {
+    "ban", "unban", "adminhelp", "give", "take", "setcoins", "userinfo",
+    "adminadd", "adminremove", "adminlist", "userlist", "broadcast",
+    "liberer", "prisonlist", "emprisonner", "pause", "resume",
+    "enquete", "richlista", "logs", "suspicious", "grouplist", "groupscan",
+    "fin", "donate", "resetuser", "useractivity",
+}
+
+
+async def ban_middleware(update: Update, context) -> None:
+    """Bloque toutes les interactions des utilisateurs bannis."""
+    user = update.effective_user
+    if not user:
+        return
+    try:
+        async with AsyncSessionLocal() as _s:
+            from database.db import get_user as _gu
+            _u = await _gu(_s, user.id)
+            if not _u or not _u.is_banned:
+                return
+        # L'utilisateur est banni — vérifier s'il est admin
+        if await is_admin(user.id):
+            return
+        # Laisser passer les commandes admin
+        if update.message and update.message.text:
+            cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
+            if cmd in BAN_EXEMPT_COMMANDS:
+                return
+        # Bloquer et répondre
+        ban_reply = (
+            "\U0001F6AB <b>Accès refusé.</b>\n\n"
+            "⚠️ Tu as été banni du bot suite à une activité suspecte.\n"
+            "Contacte un administrateur si tu penses que c'est une erreur."
+        )
+        if update.message:
+            await update.message.reply_text(ban_reply, parse_mode="HTML")
+        elif update.callback_query:
+            await update.callback_query.answer(
+                "🚫 Tu es banni du bot. Contacte un admin.", show_alert=True
+            )
+        # Stopper la propagation
+        raise ApplicationHandlerStop()
+    except ApplicationHandlerStop:
+        raise
+    except Exception:
+        pass
 
 
 async def prison_middleware(update: Update, context) -> bool:
@@ -319,9 +369,9 @@ async def main():
     app.add_error_handler(error_handler)
 
     # ── Middleware de logging automatique ─────────────────────────────────────
-    from telegram.ext import TypeHandler
     app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
     app.add_handler(TypeHandler(Update, group_tracking_middleware),   group=-2)
+    app.add_handler(TypeHandler(Update, ban_middleware),              group=-3)
     from telegram.ext import ChatMemberHandler
     app.add_handler(ChatMemberHandler(my_chat_member_handler, ChatMemberHandler.MY_CHAT_MEMBER))
 

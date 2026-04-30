@@ -254,9 +254,9 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-        # Montant à voler : entre 5% et 30% des coins de la victime
+        # Montant à voler : entre 5% et 30% des coins de la victime, plafonné à 500K
         steal_pct = random.uniform(0.05, 0.30)
-        amount = max(1, int(victim.coins * steal_pct))
+        amount = min(500_000, max(1, int(victim.coins * steal_pct)))
 
         # Chance de succès : 45% (55% d'échec = plus de risque)
         success = random.random() < 0.45

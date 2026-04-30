@@ -51,7 +51,7 @@ from handlers.admin    import (
     useractivity,
     enquete,
     richlista,
-    logs_cmd, suspicious_cmd, grouplist_cmd,
+    logs_cmd, suspicious_cmd, grouplist_cmd, groupscan_cmd,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -400,6 +400,7 @@ async def main():
     app.add_handler(CommandHandler("logs",           logs_cmd))
     app.add_handler(CommandHandler("suspicious",     suspicious_cmd))
     app.add_handler(CommandHandler("grouplist",      grouplist_cmd))
+    app.add_handler(CommandHandler("groupscan",       groupscan_cmd))
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))

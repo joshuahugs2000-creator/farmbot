@@ -298,19 +298,47 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
+    # Détection ID brut ou @username
+    raw_id = None
+    if context.args and context.args[0].lstrip("-").isdigit():
+        raw_id = int(context.args[0])
+
     target_tg = await parse_target(update, context, allow_bot=True)
+
+    # Si l'ID est inconnu de la DB, on crée une entrée fantôme pour le bannir quand même
+    if not target_tg and raw_id:
+        from database.db import AsyncSessionLocal as _ASL
+        from database.models import User as _User
+        async with _ASL() as _s:
+            from sqlalchemy import select as _sel
+            _res = await _s.execute(_sel(_User).where(_User.user_id == raw_id))
+            _u = _res.scalar_one_or_none()
+            if not _u:
+                _u = _User(user_id=raw_id, username=None, first_name=f"User_{raw_id}")
+                _s.add(_u)
+                await _s.commit()
+        class _FakeById:
+            id = raw_id
+            first_name = f"User_{raw_id}"
+            username = None
+            is_bot = False
+        target_tg = _FakeById()
+
     if not target_tg:
         return await update.message.reply_text(
-            "Usage : <code>/ban @user [raison]</code>\n"
-            "Ex : <code>/ban @Ahmed activité suspecte détectée</code>",
+            "Usage :\n"
+            "<code>/ban @user [raison]</code>\n"
+            "<code>/ban 123456789 [raison]</code> — par ID\n\n"
+            "Astuce : l\'ID se trouve dans /userinfo ou /userlist",
             parse_mode=ParseMode.HTML,
         )
 
     if await is_admin(target_tg.id):
         return await update.message.reply_text("❌ Tu ne peux pas bannir un autre admin.")
 
-    # Raison optionnelle (tout ce qui suit le @user)
-    raison = " ".join(context.args[1:]) if context.args and len(context.args) > 1 else "activité suspecte détectée"
+    # Raison : tout ce qui suit le @user ou l'ID
+    raison_parts = context.args[1:] if context.args else []
+    raison = " ".join(raison_parts) if raison_parts else "activité suspecte détectée"
 
     target = await ensure_user(target_tg)
     async with AsyncSessionLocal() as session:

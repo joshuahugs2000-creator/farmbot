@@ -23,7 +23,7 @@ from telegram.constants import ParseMode
 from database.db import (
     AsyncSessionLocal, get_user, get_richlist,
     add_coins, transfer_coins, claim_daily, claim_work,
-    deduct_for_game, add_coins_smart, adjust_karma,
+    deduct_for_game, add_coins_smart, adjust_karma, log_action,
 )
 from sqlalchemy import text
 from utils.helpers import ensure_user, parse_target, mention
@@ -178,6 +178,30 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif result == "not_found":
         await update.message.reply_text("Utilisateur introuvable.")
     else:
+        group_id = update.effective_chat.id if update.effective_chat.type != "private" else None
+        async with AsyncSessionLocal() as _ls:
+            # Log côté envoyeur
+            await log_action(
+                _ls,
+                user_id  = sender.user_id,
+                username = sender.username,
+                command  = "pay",
+                args     = f"→ @{target.username or target.first_name}",
+                amount   = -amount,
+                result   = "ok",
+                group_id = group_id,
+            )
+            # Log côté destinataire
+            await log_action(
+                _ls,
+                user_id  = target.user_id,
+                username = target.username,
+                command  = "pay_reçu",
+                args     = f"← @{sender.username or sender.first_name}",
+                amount   = +amount,
+                result   = "ok",
+                group_id = group_id,
+            )
         await update.message.reply_text(
             f"💸 {mention(sender)} a envoyé {_fmt(amount)} {CURRENCY} à {mention(target)} !{karma_msg}",
             parse_mode=ParseMode.HTML,

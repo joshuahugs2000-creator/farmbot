@@ -300,21 +300,60 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
-        return await update.message.reply_text("Usage : /ban @user")
+        return await update.message.reply_text(
+            "Usage : <code>/ban @user [raison]</code>\n"
+            "Ex : <code>/ban @Ahmed activité suspecte détectée</code>",
+            parse_mode=ParseMode.HTML,
+        )
 
     if await is_admin(target_tg.id):
-        return await update.message.reply_text("Tu ne peux pas bannir un autre admin.")
+        return await update.message.reply_text("❌ Tu ne peux pas bannir un autre admin.")
+
+    # Raison optionnelle (tout ce qui suit le @user)
+    raison = " ".join(context.args[1:]) if context.args and len(context.args) > 1 else "activité suspecte détectée"
 
     target = await ensure_user(target_tg)
     async with AsyncSessionLocal() as session:
         u = await get_user(session, target.user_id)
         if not u:
             return await update.message.reply_text("Utilisateur introuvable.")
+        if u.is_banned:
+            return await update.message.reply_text(
+                f"⚠️ {mention(target)} est déjà banni.",
+                parse_mode=ParseMode.HTML,
+            )
         u.is_banned = True
+        u.coins = 0
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = 0 WHERE user_id = :uid"),
+            {"uid": target.user_id},
+        )
+        await session.execute(
+            text("UPDATE couple_accounts SET balance = 0 WHERE user1_id = :uid OR user2_id = :uid"),
+            {"uid": target.user_id},
+        )
         await session.commit()
 
+    # Notifier le banni en privé
+    ban_msg = (
+        f"🚨 <b>TU AS ÉTÉ BANNI DU BOT</b>\n\n"
+        f"⚠️ <b>Raison :</b> {raison}\n\n"
+        f"Tu ne peux plus utiliser aucune commande.\n"
+        f"Si tu penses que c'est une erreur, contacte un administrateur."
+    )
+    try:
+        await update.get_bot().send_message(
+            chat_id=target_tg.id,
+            text=ban_msg,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass  # Le joueur a peut-être bloqué le bot
+
     await update.message.reply_text(
-        f"🚫 {mention(target)} est maintenant banni du bot.",
+        f"🚫 <b>{target_tg.first_name} a été banni.</b>\n\n"
+        f"📋 Raison : <i>{raison}</i>\n"
+        f"📩 Notification envoyée en privé.",
         parse_mode=ParseMode.HTML,
     )
 
@@ -325,18 +364,39 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target_tg = await parse_target(update, context, allow_bot=True)
     if not target_tg:
-        return await update.message.reply_text("Usage : /unban @user")
+        return await update.message.reply_text("Usage : <code>/unban @user</code>", parse_mode=ParseMode.HTML)
 
     target = await ensure_user(target_tg)
     async with AsyncSessionLocal() as session:
         u = await get_user(session, target.user_id)
         if not u:
             return await update.message.reply_text("Utilisateur introuvable.")
+        if not u.is_banned:
+            return await update.message.reply_text(
+                f"⚠️ {mention(target)} n'est pas banni.",
+                parse_mode=ParseMode.HTML,
+            )
         u.is_banned = False
         await session.commit()
 
+    # Notifier le débanni en privé
+    unban_msg = (
+        f"✅ <b>TON BAN A ÉTÉ LEVÉ</b>\n\n"
+        f"Tu peux de nouveau utiliser toutes les commandes du bot.\n"
+        f"Bonne continuation !"
+    )
+    try:
+        await update.get_bot().send_message(
+            chat_id=target_tg.id,
+            text=unban_msg,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
+
     await update.message.reply_text(
-        f"✅ {mention(target)} est débanni.",
+        f"✅ <b>{target_tg.first_name} a été débanni.</b>\n"
+        f"📩 Notification envoyée en privé.",
         parse_mode=ParseMode.HTML,
     )
 

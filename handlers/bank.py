@@ -40,9 +40,9 @@ BANKS = {
         "emoji":         "🥉",
         "desc":          "Banque populaire, accessible à tous",
         "min_deposit":   1_000,
-        "max_deposit":   9_000_000_000_000_000_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
         "interest_rate": 0.0,      # Intérêts supprimés
-        "max_loan":      9_000_000_000_000_000_000,
+        "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.08,
         "loan_days":     7,
     },
@@ -52,9 +52,9 @@ BANKS = {
         "emoji":         "🥈",
         "desc":          "Pour les épargnants sérieux",
         "min_deposit":   10_000,
-        "max_deposit":   9_000_000_000_000_000_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
         "interest_rate": 0.0,      # Intérêts supprimés
-        "max_loan":      9_000_000_000_000_000_000,
+        "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.06,
         "loan_days":     14,
     },
@@ -64,9 +64,9 @@ BANKS = {
         "emoji":         "🥇",
         "desc":          "Banque des investisseurs fortunés",
         "min_deposit":   100_000,
-        "max_deposit":   9_000_000_000_000_000_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
         "interest_rate": 0.0,      # Intérêts supprimés
-        "max_loan":      9_000_000_000_000_000_000,
+        "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.05,
         "loan_days":     21,
     },
@@ -76,9 +76,9 @@ BANKS = {
         "emoji":         "💠",
         "desc":          "Réservée aux élites financières",
         "min_deposit":   500_000,
-        "max_deposit":   9_000_000_000_000_000_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
         "interest_rate": 0.0,      # Intérêts supprimés
-        "max_loan":      9_000_000_000_000_000_000,
+        "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.04,
         "loan_days":     30,
     },
@@ -88,9 +88,9 @@ BANKS = {
         "emoji":         "💎",
         "desc":          "La banque des milliardaires",
         "min_deposit":   2_000_000,
-        "max_deposit":   9_000_000_000_000_000_000,
+        "max_deposit":   2_000_000_000,              # Plafond 2 milliards
         "interest_rate": 0.0,      # Intérêts supprimés
-        "max_loan":      9_000_000_000_000_000_000,
+        "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.03,
         "loan_days":     60,
     },

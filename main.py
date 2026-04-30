@@ -132,12 +132,9 @@ async def ban_middleware(update: Update, context) -> None:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
-        # Répondre uniquement sur les commandes — ignorer les messages normaux
-        if update.message and update.message.text and update.message.text.startswith("/"):
-            await update.message.reply_text("\U0001F6AB Tu es banni du bot.")
-        elif update.callback_query:
-            await update.callback_query.answer("\U0001F6AB Tu es banni du bot.", show_alert=True)
-        # Stopper la propagation dans tous les cas
+        # Ignorer silencieusement — aucune réponse, aucun tag
+        if update.callback_query:
+            await update.callback_query.answer()  # acquitter sans message visible
         raise ApplicationHandlerStop()
     except ApplicationHandlerStop:
         raise

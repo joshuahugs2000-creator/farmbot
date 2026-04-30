@@ -11,8 +11,8 @@ HELP_TEXT = """
 <b>🌳 FarmBot — Toutes les commandes</b>
 
 <b>👨‍👩‍👧 Famille</b>
-/marry — Demander en mariage
-/adopt — Adopter un membre
+/marry — Demander en mariage (60s pour répondre)
+/adopt — Adopter un membre (60s pour répondre)
 /friend — Ajouter un ami
 /divorce — Divorcer
 /disown — Désavouer un enfant
@@ -37,33 +37,32 @@ HELP_TEXT = """
 
 <b>💰 Économie</b>
 /acc — Voir ton compte
-/daily — Bonus quotidien
-/work — Travailler (cooldown 8h)
+/daily — Bonus quotidien (5K–20K)
+/work — Travailler (3K–30K, cooldown 8h)
 /pay @joueur montant — Envoyer des $
 /richlist — Top 10 des plus riches
-
-<b>🎲 Casino</b>
-/blackjack mise — Blackjack contre le bot
-/roulette mise choix — Roulette
-/slots mise — Machine à sous
+/impots — Voir ton taux d'imposition
 
 <b>🎮 Jeux</b>
 /crash mise — Multiplicateur jusqu'au crash !
-/apple mise — Apple of Fortune
-/roue mise — Roue de Fortune
+/apple mise — Apple of Fortune (mise max 10M)
+/roue mise — Roue de Fortune (gain max 100M)
 /rebet mise — Quitte ou double
+/mines nb_mines mise — Démine la grille (style Stake)
 
 <b>🥊 Arène PvP</b>
-/cockfight mise — Combat de coqs
-/ppc mise — Pierre-Papier-Ciseaux
+/cockfight mise — Combat de coqs avec paris
+/ppc @joueur mise — Pierre-Papier-Ciseaux
+/lancer mise — Duel de dés vs bot
+/lancer @joueur mise — Duel de dés PvP (60s pour accepter)
 
 <b>🏦 Banque</b>
 /banks — Banques disponibles
 /bankopen — Ouvrir un compte
-/bankdeposit montant — Déposer
+/bankdeposit montant — Déposer (plafond 2 milliards)
 /bankwithdraw montant — Retirer
 /bankbalance — Voir le solde bancaire
-/bankloan montant — Prendre un prêt
+/bankloan montant — Prendre un prêt (max 5M)
 /bankrepay montant — Rembourser un prêt
 /bankloans — Voir tes prêts actifs
 
@@ -80,14 +79,11 @@ HELP_TEXT = """
 /tirage — Lancer le tirage
 /cancelloto — Annuler la loterie
 
-<b>🏛️ Impôts</b>
-/impots — Voir ton taux d'imposition
-
 <b>💸 Braquage & Crime</b>
 /cambrioler @joueur — Cambrioler un joueur
 /braquage [mise] — Braquage collectif
 /annulerbraquage — Annuler un braquage en cours
-/rob @joueur — Voler un joueur
+/rob @joueur — Voler un joueur (max 500K)
 /police @joueur — Signaler un voleur
 /bail @joueur — Payer la caution de quelqu'un
 /juge @joueur — Porter plainte
@@ -104,11 +100,13 @@ HELP_TEXT = """
 <b>✨ Événements</b>
 /open — Ouvrir un coffre mystère
 ⭐ Heure Dorée — gains casino x2 (aléatoire)
+🌍 Événements économiques — crises & booms automatiques
 
 <b>📊 Général</b>
 /leaderboard — Top des plus grandes familles
 /mode — Basculer mode global/groupe
 /toggle garden — Activer/désactiver le jardin
+/karma @joueur — Voter pour le karma
 /help — Afficher cette aide
 """
 

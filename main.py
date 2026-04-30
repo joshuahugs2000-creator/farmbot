@@ -64,10 +64,6 @@ from handlers.bank     import (
     pay_interests, remind_loans,
 )
 from handlers.invest   import market, market_callback, buy, sell, portfolio
-from handlers.lottery  import (
-    createloto, loto, ticket, tirage, tirage_force, cancelloto,
-    setup_lottery_jobs,
-)
 from handlers.crime    import (
     police, bail, bail_judgment, juge, juge_callback,
     security, security_callback,
@@ -136,19 +132,12 @@ async def ban_middleware(update: Update, context) -> None:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
-        # Bloquer et répondre
-        ban_reply = (
-            "\U0001F6AB <b>Accès refusé.</b>\n\n"
-            "⚠️ Tu as été banni du bot suite à une activité suspecte.\n"
-            "Contacte un administrateur si tu penses que c'est une erreur."
-        )
-        if update.message:
-            await update.message.reply_text(ban_reply, parse_mode="HTML")
+        # Répondre uniquement sur les commandes — ignorer les messages normaux
+        if update.message and update.message.text and update.message.text.startswith("/"):
+            await update.message.reply_text("\U0001F6AB Tu es banni du bot.")
         elif update.callback_query:
-            await update.callback_query.answer(
-                "🚫 Tu es banni du bot. Contacte un admin.", show_alert=True
-            )
-        # Stopper la propagation
+            await update.callback_query.answer("\U0001F6AB Tu es banni du bot.", show_alert=True)
+        # Stopper la propagation dans tous les cas
         raise ApplicationHandlerStop()
     except ApplicationHandlerStop:
         raise
@@ -332,24 +321,6 @@ def _prison_checked(handler_func):
                     parse_mode="HTML",
                 )
                 return
-        # ── Vérification du ban ────────────────────────────────────────────
-        user = update.effective_user
-        if user and not await is_admin(user.id):
-            try:
-                async with AsyncSessionLocal() as _s:
-                    from database.db import get_user as _gu
-                    _u = await _gu(_s, user.id)
-                    if _u and _u.is_banned:
-                        await update.message.reply_text(
-                            "🚫 <b>Tu es banni du bot.</b>\n\n"
-                            "⚠️ Activité suspecte détectée — accès bloqué.\n"
-                            "Contacte un administrateur si tu penses que c'est une erreur.",
-                            parse_mode="HTML",
-                        )
-                        return
-            except Exception:
-                pass
-        # ──────────────────────────────────────────────────────────────────
         if await prison_middleware(update, context):
             return
         return await handler_func(update, context)
@@ -499,12 +470,6 @@ async def main():
     app.add_handler(CommandHandler("portfolio", _prison_checked(portfolio)))
 
     # ── Loterie ───────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("createloto",   _prison_checked(createloto)))
-    app.add_handler(CommandHandler("loto",         _prison_checked(loto)))
-    app.add_handler(CommandHandler("ticket",       _prison_checked(ticket)))
-    app.add_handler(CommandHandler("tirage",       _prison_checked(tirage)))
-    app.add_handler(CommandHandler("tirageforce",  _prison_checked(tirage_force)))
-    app.add_handler(CommandHandler("cancelloto",   _prison_checked(cancelloto)))
 
     # ── Criminalité ───────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("police",        _prison_checked(police)))
@@ -558,7 +523,6 @@ async def main():
         first=timedelta(minutes=10),
         name="loan_reminders",
     )
-    setup_lottery_jobs(app)
     setup_auction_jobs(app)
     setup_journal_jobs(app)
     app.add_handler(CommandHandler("testjournal", testjournal_cmd))

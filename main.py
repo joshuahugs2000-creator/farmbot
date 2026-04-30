@@ -52,6 +52,7 @@ from handlers.admin    import (
     enquete,
     richlista,
     logs_cmd, suspicious_cmd, grouplist_cmd, groupscan_cmd,
+    fin, donate,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -99,6 +100,7 @@ PRISON_EXEMPT_COMMANDS = {
     "ban", "unban", "resetuser", "adminadd", "adminremove",
     "adminlist", "userlist", "broadcast", "liberer", "prisonlist", "emprisonner",
     "pause", "resume", "enquete", "richlista",
+    "fin", "donate",
 }
 
 
@@ -401,6 +403,8 @@ async def main():
     app.add_handler(CommandHandler("suspicious",     suspicious_cmd))
     app.add_handler(CommandHandler("grouplist",      grouplist_cmd))
     app.add_handler(CommandHandler("groupscan",       groupscan_cmd))
+    app.add_handler(CommandHandler("fin",            fin))
+    app.add_handler(CommandHandler("donate",         donate))
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))

@@ -350,13 +350,36 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass  # Le joueur a peut-être bloqué le bot
 
+    # Alerter tous les groupes
+    alert_lines = [
+        "🚨 <b>ALERTE SECURITE - BAN EXECUTE</b>",
+        "━" * 22,
+        "",
+        "<b>Joueur banni :</b> " + target_tg.first_name,
+        "ID : <code>" + str(target_tg.id) + "</code>",
+        "<b>Raison :</b> " + raison,
+        "",
+        "💰 Solde et comptes bancaires remis a 0.",
+        "🔒 Acces au bot definitivement bloque.",
+    ]
+    alert_msg = "\n".join(alert_lines)
+    groups = await get_all_groups(active_only=True)
+    for g in groups:
+        try:
+            await update.get_bot().send_message(
+                chat_id=g.group_id,
+                text=alert_msg,
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+
     await update.message.reply_text(
-        f"🚫 <b>{target_tg.first_name} a été banni.</b>\n\n"
-        f"📋 Raison : <i>{raison}</i>\n"
-        f"📩 Notification envoyée en privé.",
+        "🚫 <b>" + target_tg.first_name + " a ete banni.</b>\n\n"
+        "📋 Raison : <i>" + raison + "</i>\n"
+        "📩 Notification envoyee en prive + dans tous les groupes.",
         parse_mode=ParseMode.HTML,
     )
-
 
 async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):

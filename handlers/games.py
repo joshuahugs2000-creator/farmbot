@@ -1141,7 +1141,6 @@ async def mines_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.id in mines_sessions:
         return await update.message.reply_text("⚠️ Tu as déjà une partie de mines en cours ! Encaisse ou termine-la d'abord.")
 
-    from database.db import ensure_user as _eu
     await ensure_user(user)
 
     async with AsyncSessionLocal() as session:

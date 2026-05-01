@@ -400,7 +400,7 @@ async def _start_exam(query, context, uid: int, level: str, domain: str):
     await _show_question(query, context, uid, 0)
 
 
-QUESTION_TIMEOUT = 30  # secondes par question
+QUESTION_TIMEOUT = 20  # secondes par question
 
 
 def _timer_bar(remaining: int, total: int = QUESTION_TIMEOUT) -> str:

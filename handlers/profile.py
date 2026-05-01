@@ -51,35 +51,66 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     karma_sign = f"+{karma_pct}%" if karma_pct >= 0 else f"{karma_pct}%"
 
     # ── Diplômes ──────────────────────────────────────────────────────────────
+    DIPLOME_LABELS = {"bac": "BAC", "licence": "LICENCE", "master": "MASTER", "mba": "MBA"}
     DIPLOME_EMOJIS = {"bac": "📄", "licence": "🎓", "master": "🏅", "mba": "👑"}
     DOMAIN_EMOJIS  = {"finance": "📈", "informatique": "💻", "marketing": "📣",
                       "droit": "⚖️", "management": "🏢", "agriculture": "🌾", "securite": "🛡️"}
-    diplomes_obtenus = [e for lvl, e in DIPLOME_EMOJIS.items() if getattr(u, f"diplome_{lvl}", False)]
-    diplome_domain   = getattr(u, "diplome_domain", None)
-    domain_str       = ""
+    diplomes_obtenus = [
+        f"{DIPLOME_EMOJIS[lvl]} {DIPLOME_LABELS[lvl]}"
+        for lvl in ("bac", "licence", "master", "mba")
+        if getattr(u, f"diplome_{lvl}", False)
+    ]
+    diplome_domain = getattr(u, "diplome_domain", None)
     if diplome_domain:
         d_em = DOMAIN_EMOJIS.get(diplome_domain, "🎓")
-        domain_str = f"  ·  {d_em} {diplome_domain.capitalize()}"
-    diplome_line = f"🎓 <b>Diplômes</b> : {'  '.join(diplomes_obtenus) + domain_str if diplomes_obtenus else '—  (/diplome pour passer un examen)'}"
+        domain_tag = f" · {d_em} <b>{diplome_domain.upper()}</b>"
+    else:
+        domain_tag = ""
+    if diplomes_obtenus:
+        diplome_str = "  ".join(diplomes_obtenus) + domain_tag
+    else:
+        diplome_str = "<i>Aucun — /diplome pour s'inscrire</i>"
+
+    # ── Niveau de richesse ────────────────────────────────────────────────────
+    WEALTH_LEVELS = [
+        (1_000_000_000, "💎", "Milliardaire"),
+        (100_000_000,   "🏆", "Magnat"),
+        (10_000_000,    "💰", "Fortuné"),
+        (1_000_000,     "📈", "Aisé"),
+        (0,             "🪙", "Débutant"),
+    ]
+    wealth_emoji, wealth_label = next(
+        (e, l) for threshold, e, l in WEALTH_LEVELS if coins >= threshold
+    )
+
+    top_badge_line = f"\n     {TOP10_BADGES[rank]} <i>{TOP10_LABELS[rank]}</i> — Top {rank + 1}" if rank is not None else ""
+    fam_display = f"<b>{fam_name}</b>" if fam_name else "<i>Sans famille</i>"
+    fam_size_str = f"  ({size} membre{'s' if size > 1 else ''})"
 
     lines = [
-        f"╔══════════════════════════╗",
-        f"  👤 <b>{update.effective_user.first_name}</b>{rank_badge}",
-        f"  🏅 {title}",
-        f"╚══════════════════════════╝",
         f"",
-        f"🏠 <b>Famille</b>  : {fam_name or '— Sans famille'} ({size} membre(s))",
-        f"📅 <b>Inscrit</b>  : {joined}",
-        f"{color_dot} <b>Couleur</b>  : {color.capitalize()}",
-        f"{diplome_line}",
+        f"「 {color_dot} 」<b>{update.effective_user.first_name}</b>",
+        f"✦ {wealth_emoji} <b>{wealth_label}</b>  ┊  🏅 <i>{title}</i>{top_badge_line}",
+        f"✦ 📅 <i>Depuis le {joined}</i>",
         f"",
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        f"⭐ <b>KARMA</b>  : {karma:+d}  {level['emoji']} <i>{level['label']}</i>",
-        f"   {bar}",
-        f"   📈 Daily bonus : <b>{karma_sign}</b>  |  ⏱ Cooldown /work réduit de <b>{level['work_red']}%</b>",
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈",
         f"",
-        f"💰 <b>Solde</b>   : {_fmt(coins)} {CURRENCY}",
+        f"  💰 <b>FORTUNE</b>",
+        f"  ╰┈➤  <code>{_fmt(coins)} {CURRENCY}</code>",
+        f"",
+        f"  🏠 <b>FAMILLE</b>",
+        f"  ╰┈➤  {fam_display}{fam_size_str}",
+        f"",
+        f"  🎓 <b>DIPLÔMES</b>",
+        f"  ╰┈➤  {diplome_str}",
+        f"",
+        f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈",
+        f"",
+        f"  {level['emoji']} <b>KARMA</b>  <code>{karma:+d}</code>  ┊  <i>{level['label']}</i>",
+        f"  ╰┈➤ {bar}",
+        f"       📈 <b>{karma_sign}</b> daily  ·  ⚡ <b>-{level['work_red']}%</b> /work",
+        f"",
+        f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈",
     ]
 
     text = "\n".join(lines)

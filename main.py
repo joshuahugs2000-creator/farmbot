@@ -57,6 +57,7 @@ from handlers.admin    import (
     richlista,
     logs_cmd, suspicious_cmd, grouplist_cmd, groupscan_cmd,
     fin, donate,
+    admindiplome,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -490,6 +491,7 @@ async def main():
     # ── Diplômes ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("diplome", _prison_checked(diplome_cmd)))
     app.add_handler(CallbackQueryHandler(diplome_callback, pattern=r"^exam:"))
+    app.add_handler(CommandHandler("admindiplome", admindiplome))
 
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))

@@ -210,17 +210,28 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── /richlist ────────────────────────────────────────────────────────────────
 
+TOP10_BADGES = {
+    0: "👑", 1: "🥈", 2: "🥉", 3: "💎", 4: "💎",
+    5: "⭐", 6: "⭐", 7: "🔥", 8: "🔥", 9: "🎖️",
+}
+TOP10_LABELS = {
+    0: "Roi de la richesse", 1: "Vice-roi", 2: "Seigneur",
+    3: "Élite Diamond", 4: "Élite Diamond",
+    5: "Top Star", 6: "Top Star",
+    7: "Flambeur", 8: "Flambeur", 9: "Top 10",
+}
+
 async def richlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         top = await get_richlist(session, 10)
 
-    medals = ["🥇", "🥈", "🥉"]
-    lines  = ["💰 Classement des plus riches\n"]
+    lines = ["💰 <b>Classement des plus riches</b>\n"]
     for i, u in enumerate(top):
-        medal = medals[i] if i < 3 else f"{i+1}."
-        lines.append(f"{medal} {u.first_name} — {_fmt(u.coins)} {CURRENCY}")
+        badge = TOP10_BADGES.get(i, f"{i+1}.")
+        label = TOP10_LABELS.get(i, "")
+        lines.append(f"{badge} <b>{u.first_name}</b> — {_fmt(u.coins)} {CURRENCY}  <i>{label}</i>")
 
-    await update.message.reply_text("\n".join(lines))
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
 # ─── /blackjack ───────────────────────────────────────────────────────────────

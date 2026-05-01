@@ -7,7 +7,7 @@ from telegram.constants import ParseMode
 
 from database.db import (
     AsyncSessionLocal, get_user, upsert_user, compute_title,
-    get_family_members, get_karma_level, karma_bar,
+    get_family_members, get_karma_level, karma_bar, get_richlist,
 )
 from utils.helpers import ensure_user
 from config import PROFILE_COLORS, TITLES, CURRENCY
@@ -32,6 +32,14 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fam_name = u.family_name if u else None
     joined  = u.created_at.strftime("%d/%m/%Y") if u and u.created_at else "—"
 
+    # Badge top 10
+    TOP10_BADGES = {0:"👑",1:"🥈",2:"🥉",3:"💎",4:"💎",5:"⭐",6:"⭐",7:"🔥",8:"🔥",9:"🎖️"}
+    TOP10_LABELS = {0:"Roi de la richesse",1:"Vice-roi",2:"Seigneur",3:"Élite Diamond",4:"Élite Diamond",5:"Top Star",6:"Top Star",7:"Flambeur",8:"Flambeur",9:"Top 10"}
+    async with AsyncSessionLocal() as session2:
+        top10 = await get_richlist(session2, 10)
+    rank = next((i for i, t in enumerate(top10) if t.user_id == user.user_id), None)
+    rank_badge = f"\n  {TOP10_BADGES[rank]} <b>Top {rank+1} — {TOP10_LABELS[rank]}</b>" if rank is not None else ""
+
     color_dot = {
         "blue": "🔵", "green": "🟢", "red": "🔴", "purple": "🟣",
         "orange": "🟠", "pink": "🩷", "gold": "🟡", "teal": "🩵",
@@ -44,7 +52,7 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [
         f"╔══════════════════════════╗",
-        f"  👤 <b>{update.effective_user.first_name}</b>",
+        f"  👤 <b>{update.effective_user.first_name}</b>{rank_badge}",
         f"  🏅 {title}",
         f"╚══════════════════════════╝",
         f"",

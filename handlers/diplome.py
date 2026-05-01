@@ -156,7 +156,7 @@ async def _groq_questions(level: str, domain: str, n: int) -> list | None:
                 GROQ_URL,
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": "llama3-70b-8192",
+                    "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.7,
                     "max_tokens": 4000,
@@ -381,10 +381,22 @@ async def _start_exam(query, context, uid: int, level: str, domain: str):
     await _show_question(query, context, uid, 0)
 
 
+QUESTION_TIMEOUT = 30  # secondes par question
+
+
+def _timer_bar(remaining: int, total: int = QUESTION_TIMEOUT) -> str:
+    """Barre de progression du timer."""
+    filled = round((remaining / total) * 10)
+    bar = "🟩" * filled + "⬜" * (10 - filled)
+    return bar
+
+
 async def _show_question(query, context, uid: int, q_idx: int):
     data = context.user_data.get(f"exam_{uid}")
     if not data:
         return
+
+    import asyncio
 
     q      = data["questions"][q_idx]
     level  = data["level"]
@@ -393,21 +405,79 @@ async def _show_question(query, context, uid: int, q_idx: int):
     score  = data["score"]
     info   = EXAMS[level]
 
-    header = (
-        f"{info['emoji']} <b>{info['label']}</b>  ·  Question {q_idx + 1}/{total}\n"
-        f"✅ Score actuel : {score}/{q_idx}\n\n"
-    )
-
     buttons = [
         [InlineKeyboardButton(choice, callback_data=f"exam:answer:{level}:{domain}:{q_idx}:{i}")]
         for i, choice in enumerate(q["choices"])
     ]
 
-    await query.edit_message_text(
-        header + f"❓ <b>{q['question']}</b>",
+    # Stocker le q_idx actif pour détecter si le joueur a déjà répondu
+    data["current_q"] = q_idx
+    deadline = datetime.utcnow().timestamp() + QUESTION_TIMEOUT
+    data["deadline"] = deadline
+
+    def _build_text(remaining: int) -> str:
+        bar = _timer_bar(remaining)
+        header = (
+            f"{info['emoji']} <b>{info['label']}</b>  ·  Question {q_idx + 1}/{total}\n"
+            f"✅ Score : {score}/{q_idx}  |  ⏱ {bar} <b>{remaining}s</b>\n\n"
+        )
+        return header + f"❓ <b>{q['question']}</b>"
+
+    # Affichage initial
+    msg = await query.edit_message_text(
+        _build_text(QUESTION_TIMEOUT),
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(buttons),
     )
+
+    # Countdown en tâche de fond
+    async def _countdown():
+        try:
+            for remaining in range(QUESTION_TIMEOUT - 5, 0, -5):
+                await asyncio.sleep(5)
+                # Vérifier que le joueur n'a pas déjà répondu
+                current_data = context.user_data.get(f"exam_{uid}")
+                if not current_data or current_data.get("current_q") != q_idx:
+                    return  # Répondu, on arrête
+                try:
+                    await msg.edit_text(
+                        _build_text(remaining),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                    )
+                except Exception:
+                    pass
+
+            # Timer écoulé — vérifier une dernière fois
+            await asyncio.sleep(5)
+            current_data = context.user_data.get(f"exam_{uid}")
+            if not current_data or current_data.get("current_q") != q_idx:
+                return  # Répondu entre-temps
+
+            # Temps écoulé → question ratée, on avance
+            current_data["current_q"] = -1  # marquer comme traité
+            next_idx = q_idx + 1
+            try:
+                await msg.edit_text(
+                    f"⏰ <b>Temps écoulé !</b>\n\n"
+                    f"❌ Question {q_idx + 1} ratée — pas de réponse.\n"
+                    f"Score : {current_data['score']}/{q_idx + 1}",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                pass
+
+            await asyncio.sleep(2)
+            if next_idx >= current_data["total"]:
+                # Créer un faux query-like pour _finish_exam
+                await _finish_exam(msg, context, uid, current_data)
+            else:
+                await _show_question(msg, context, uid, next_idx)
+
+        except Exception as e:
+            logger.debug(f"Countdown error: {e}")
+
+    asyncio.create_task(_countdown())
 
 
 async def _handle_answer(query, context, uid: int, level: str, domain: str, q_idx: int, answer: int):
@@ -415,7 +485,14 @@ async def _handle_answer(query, context, uid: int, level: str, domain: str, q_id
     if not data:
         return await query.edit_message_text("❌ Session expirée. Refais /diplome pour recommencer.")
 
-    correct    = int(data["questions"][q_idx]["correct"])
+    # Si le timer a déjà traité cette question, ignorer
+    if data.get("current_q") != q_idx:
+        return
+
+    # Marquer comme répondu pour stopper le countdown
+    data["current_q"] = -1
+
+    correct = int(data["questions"][q_idx]["correct"])
     if answer == correct:
         data["score"] += 1
 

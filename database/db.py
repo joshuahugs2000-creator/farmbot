@@ -29,11 +29,18 @@ async def init_db():
     # ── ÉTAPE 1 : Colonnes critiques en SQL pur AVANT tout accès ORM ─────────
     # On passe par une connexion raw pour ne pas dépendre du modèle SQLAlchemy.
     critical_cols = [
-        ("karma",         "INTEGER DEFAULT 0"),
-        ("harvest_count", "INTEGER DEFAULT 0"),
-        ("photo_file_id", "VARCHAR(512)"),
-        ("profile_color", "VARCHAR(20) DEFAULT 'blue'"),
-        ("family_name",   "VARCHAR(100)"),
+        ("karma",           "INTEGER DEFAULT 0"),
+        ("harvest_count",   "INTEGER DEFAULT 0"),
+        ("photo_file_id",   "VARCHAR(512)"),
+        ("profile_color",   "VARCHAR(20) DEFAULT 'blue'"),
+        ("family_name",     "VARCHAR(100)"),
+        # Diplomes - critiques car ORM les lit au demarrage
+        ("diplome_bac",     "BOOLEAN DEFAULT FALSE"),
+        ("diplome_licence", "BOOLEAN DEFAULT FALSE"),
+        ("diplome_master",  "BOOLEAN DEFAULT FALSE"),
+        ("diplome_mba",     "BOOLEAN DEFAULT FALSE"),
+        ("diplome_domain",  "VARCHAR(50) DEFAULT NULL"),
+        ("exam_cooldown",   "TIMESTAMP DEFAULT NULL"),
     ]
     try:
         async with engine.begin() as conn:

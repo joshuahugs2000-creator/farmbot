@@ -56,7 +56,14 @@ async def init_db():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_work   TIMESTAMP    DEFAULT NULL",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS coins       BIGINT       DEFAULT 10000",
         "ALTER TABLE users ALTER COLUMN coins TYPE BIGINT USING coins::BIGINT",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned   BOOLEAN      NOT NULL DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned       BOOLEAN   NOT NULL DEFAULT FALSE",
+        # ── Diplômes ──────────────────────────────────────────────────────────
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS diplome_bac     BOOLEAN   DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS diplome_licence  BOOLEAN   DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS diplome_master   BOOLEAN   DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS diplome_mba      BOOLEAN   DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS diplome_domain   VARCHAR(50) DEFAULT NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS exam_cooldown    TIMESTAMP DEFAULT NULL",
         "UPDATE users SET coins = 10000 WHERE coins IS NULL OR coins < 10000",
         # karma & harvest
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS karma         INTEGER DEFAULT 0",

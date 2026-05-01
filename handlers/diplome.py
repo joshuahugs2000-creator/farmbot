@@ -243,6 +243,15 @@ async def diplome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton(f"📝 Passer la {info['label']}  {cost_str}", callback_data="exam:domain:licence")
             ]])
+        elif next_lvl in ("master", "mba") and domain:
+            # Domaine verrouillé — obligatoire de repasser dans le même domaine
+            d_em, d_lb = DOMAINS.get(domain, ("🎓", domain))
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    f"📝 Passer le {info['label']}  {d_em} {d_lb}  {cost_str}",
+                    callback_data=f"exam:begin:{next_lvl}:{domain}"
+                )
+            ]])
         else:
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton(f"📝 Passer le {info['label']}  {cost_str}", callback_data=f"exam:begin:{next_lvl}:{domain or 'general'}")
@@ -320,12 +329,22 @@ async def _start_exam(query, context, uid: int, level: str, domain: str):
     if _next_level(current) != level:
         return await query.edit_message_text("❌ Tu dois obtenir le diplôme précédent d'abord.")
 
-    # Ancienneté Master (30 jours)
+    # Verif domaine verrouille (Master / MBA dans le meme domaine que la Licence)
+    saved_domain = getattr(u, "diplome_domain", None)
+    if level in ("master", "mba") and saved_domain and domain != saved_domain:
+        d_em, d_lb = DOMAINS.get(saved_domain, ("🎓", saved_domain))
+        return await query.edit_message_text(
+            f"❌ Tu dois passer le {level.capitalize()} dans ton domaine de Licence : "
+            f"<b>{d_em} {d_lb}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    # Ancienneté Master (20 jours)
     if level == "master" and u.created_at:
         days = (datetime.utcnow() - u.created_at).days
-        if days < 30:
+        if days < 20:
             return await query.edit_message_text(
-                f"❌ Le Master requiert <b>30 jours</b> d'ancienneté.\nTu en as {days}/30.",
+                f"❌ Le Master requiert <b>20 jours</b> d'ancienneté.\nTu en as {days}/20.",
                 parse_mode=ParseMode.HTML,
             )
 

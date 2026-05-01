@@ -225,11 +225,30 @@ async def richlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         top = await get_richlist(session, 10)
 
+    def fmt_short(n):
+        if n >= 1_000_000_000: return f"{n/1_000_000_000:.2f}B"
+        if n >= 1_000_000:     return f"{n/1_000_000:.0f}M"
+        return _fmt(n)
+
+    BADGES = {3:"💎",4:"💎",5:"⭐",6:"⭐",7:"🔥",8:"🔥",9:"🎖️"}
+    PODIUM = [
+        ("🥇", "𝗣𝗟𝗔𝗖𝗘 𝟭"),
+        ("🥈", "𝗣𝗟𝗔𝗖𝗘 𝟮"),
+        ("🥉", "𝗣𝗟𝗔𝗖𝗘 𝟯"),
+    ]
+
     lines = ["💰 <b>Classement des plus riches</b>\n"]
+
     for i, u in enumerate(top):
-        badge = TOP10_BADGES.get(i, f"{i+1}.")
-        label = TOP10_LABELS.get(i, "")
-        lines.append(f"{badge} <b>{u.first_name}</b> — {_fmt(u.coins)} {CURRENCY}  <i>{label}</i>")
+        if i < 3:
+            medal, place = PODIUM[i]
+            lines.append(f"{medal} <b>{place} — {u.first_name}</b>")
+            lines.append(f"      {_fmt(u.coins)} $")
+        else:
+            if i == 3:
+                lines.append("──────────────")
+            badge = BADGES.get(i, f"{i+1}")
+            lines.append(f"{i+1} {badge} {u.first_name} — {fmt_short(u.coins)}")
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 

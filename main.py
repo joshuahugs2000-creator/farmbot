@@ -82,6 +82,7 @@ from handlers.wealth_drain import (
 )
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
+from handlers.diplome import diplome_cmd, diplome_callback
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
 
@@ -485,6 +486,10 @@ async def main():
     app.add_handler(CallbackQueryHandler(color_callback,     pattern=r"^color:"))
     app.add_handler(CallbackQueryHandler(juge_callback,      pattern=r"^juge:"))
     app.add_handler(CallbackQueryHandler(security_callback,  pattern=r"^sec:"))
+
+    # ── Diplômes ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("diplome", _prison_checked(diplome_cmd)))
+    app.add_handler(CallbackQueryHandler(diplome_callback, pattern=r"^exam:"))
 
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))

@@ -668,8 +668,9 @@ def _current_mood() -> tuple[str, tuple]:
         return _MOOD_OVERRIDE, MOODS[_MOOD_OVERRIDE]
     from datetime import datetime
     now   = datetime.utcnow()
-    seed  = now.year * 1000000 + now.month * 10000 + now.day * 100 + now.hour
-    seed  = (seed ^ _MOOD_SALT) & 0xFFFFFFFF
+    # Seed basé sur date+heure+minutes pour éviter tout biais lié à la mise
+    seed  = now.year * 100000000 + now.month * 1000000 + now.day * 10000 + now.hour * 100 + now.minute
+    seed  = (seed ^ _MOOD_SALT ^ 0xDEADBEEF) & 0xFFFFFFFF
     rng   = random.Random(seed)
     keys  = list(MOOD_WEIGHTS.keys())
     weights = [MOOD_WEIGHTS[k] for k in keys]
@@ -833,7 +834,7 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_text, gain = _wheel_result_text(mention(user), mise, label, kind, val)
 
     animation_frames = [
-        f"🎡 <b>La roue est lancée...</b>\n<i>{mood_label}</i>",
+        "🎡 <b>La roue est lancée...</b>",
         "🎡 ⠋ <i>Elle tourne à pleine vitesse !</i>",
         "🎡 ⠙ <i>Ça s'emballe...</i>",
         "🎡 ⠹ <i>La roue ralentit...</i>",

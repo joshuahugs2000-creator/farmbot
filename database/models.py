@@ -38,6 +38,14 @@ class User(Base):
     created_at    = Column(DateTime, default=datetime.utcnow)
     is_banned     = Column(Boolean, default=False)
 
+    # ─── DIPLÔMES ─────────────────────────────────────────────────────────────
+    diplome_bac     = Column(Boolean, default=False)
+    diplome_licence = Column(Boolean, default=False)
+    diplome_master  = Column(Boolean, default=False)
+    diplome_mba     = Column(Boolean, default=False)
+    diplome_domain  = Column(String(50), nullable=True)   # finance, informatique, ...
+    exam_cooldown   = Column(DateTime, nullable=True)      # bloqué jusqu'à cette date
+
 
 class GroupSettings(Base):
     __tablename__ = "group_settings"

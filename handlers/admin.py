@@ -1856,3 +1856,82 @@ async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💸 Total distribué : <b>{_fmt(amount * count)} {CURRENCY}</b>",
         parse_mode=ParseMode.HTML
     )
+
+
+# ─── /admindiplome ────────────────────────────────────────────────────────────
+
+async def admindiplome(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Accorde ou retire un diplôme à un joueur sans examen.
+    Usage : /admindiplome @user <bac|licence|master|mba> [domaine] [--retirer]
+    Exemples :
+      /admindiplome @toto bac
+      /admindiplome @toto licence informatique
+      /admindiplome @toto master --retirer
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    args = context.args or []
+    if len(args) < 2:
+        return await update.message.reply_text(
+            "❌ Usage : <code>/admindiplome @user &lt;bac|licence|master|mba&gt; [domaine] [--retirer]</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    target_arg = args[0].lstrip("@")
+    level      = args[1].lower()
+    retirer    = "--retirer" in [a.lower() for a in args]
+    domaine    = None
+    DOMAINS_VALID = {"finance", "informatique", "marketing", "droit", "management", "agriculture", "securite"}
+    LEVELS_VALID  = {"bac", "licence", "master", "mba"}
+
+    if level not in LEVELS_VALID:
+        return await update.message.reply_text(
+            f"❌ Niveau invalide. Choisir parmi : <code>bac, licence, master, mba</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    # Domaine optionnel (pour licence/master/mba)
+    for a in args[2:]:
+        if a.lower() in DOMAINS_VALID:
+            domaine = a.lower()
+            break
+
+    async with AsyncSessionLocal() as session:
+        from database.db import get_user_by_username, get_user
+        # Chercher par username ou user_id
+        if target_arg.isdigit():
+            u = await get_user(session, int(target_arg))
+        else:
+            u = await get_user_by_username(session, target_arg)
+
+        if not u:
+            return await update.message.reply_text("❌ Joueur introuvable.")
+
+        col = f"diplome_{level}"
+        val = "FALSE" if retirer else "TRUE"
+
+        sets = [f"{col} = {val}"]
+        params = {"uid": u.user_id}
+
+        # Si on accorde une licence/master/mba avec domaine → enregistrer le domaine
+        if not retirer and domaine and level in ("licence", "master", "mba"):
+            sets.append("diplome_domain = :dom")
+            params["dom"] = domaine
+
+        await session.execute(
+            text(f"UPDATE users SET {', '.join(sets)} WHERE user_id = :uid"),
+            params,
+        )
+        await session.commit()
+
+    action = "❌ Retiré" if retirer else "✅ Accordé"
+    dom_str = f" · <b>{domaine.capitalize()}</b>" if domaine and not retirer else ""
+    LEVEL_EMOJIS = {"bac": "📄", "licence": "🎓", "master": "🏅", "mba": "👑"}
+
+    await update.message.reply_text(
+        f"{action} le diplôme {LEVEL_EMOJIS[level]} <b>{level.upper()}</b>{dom_str} "
+        f"à <b>@{u.username or u.first_name}</b>.",
+        parse_mode=ParseMode.HTML,
+    )

@@ -71,6 +71,19 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         diplome_str = "<i>Aucun — /diplome pour s'inscrire</i>"
 
+    # ── Poste entreprise ──────────────────────────────────────────────────────
+    company_line = ""
+    try:
+        from handlers.company import _get_user_company, ROLE_EMOJI as _ROLE_EMOJI, SECTORS as _SECTORS
+        async with AsyncSessionLocal() as _cs:
+            _company, _emp = await _get_user_company(_cs, update.effective_user.id)
+            if _company and _emp:
+                _re = _ROLE_EMOJI.get(_emp.role, "👤")
+                _se, _ = _SECTORS.get(_company.sector, ("🏢", ""))
+                company_line = f"\n\n  🏢 <b>ENTREPRISE</b>\n  ╰┈➤  {_re} <b>{_emp.role.capitalize()}</b> chez <b>{_company.name}</b> {_se}"
+    except Exception:
+        pass
+
     # ── Niveau de richesse ────────────────────────────────────────────────────
     WEALTH_LEVELS = [
         (1_000_000_000, "💎", "Milliardaire"),
@@ -103,6 +116,7 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"",
         f"  🎓 <b>DIPLÔMES</b>",
         f"  ╰┈➤  {diplome_str}",
+        f"{company_line}",
         f"",
         f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈",
         f"",

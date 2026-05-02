@@ -223,16 +223,12 @@ async def _update_level(session, company: Company):
 # ─── INITIALISATION DES TABLES ───────────────────────────────────────────────
 
 async def init_company_tables():
-    from database.db import engine
-    from database.models import Base
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    # Créer les entreprises du bot si elles n'existent pas
+    """Initialise les entreprises du bot si elles n'existent pas encore."""
+    # Les tables sont déjà créées par init_db() via Base.metadata.create_all
     async with AsyncSessionLocal() as session:
         for bc in BOT_COMPANIES:
             exists = await _get_company_by_name(session, bc["name"])
             if not exists:
-                # Bot owner_id = 0 (fictif)
                 company = Company(
                     name=bc["name"],
                     sector=bc["sector"],
@@ -249,9 +245,8 @@ async def init_company_tables():
                     is_active=True,
                 )
                 session.add(company)
-                # Partager en bourse (le bot détient 100 parts)
         await session.commit()
-    logger.info("Tables entreprises initialisées.")
+    logger.info("Entreprises bot initialisées.")
 
 
 # ─── JOB : REVENUS AUTOMATIQUES (toutes les 24h) ──────────────────────────────

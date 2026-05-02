@@ -10,7 +10,7 @@ from config import CURRENCY
 # ─── TEXTE D'AIDE COMPLET (utilisateurs) ─────────────────────────────────────
 
 HELP_TEXT = """
-<b>🌳 FarmBot — Toutes les commandes</b>
+<b>🌳 Your Family ❤️ — Toutes les commandes</b>
 
 <b>👨‍👩‍👧 Famille</b>
 /marry — Demander en mariage (60s pour répondre)
@@ -134,56 +134,58 @@ HELP_TEXT = """
 # ─── TEXTE MISE À JOUR (/nouveautes) ─────────────────────────────────────────
 
 NOUVEAUTES_TEXT = (
-    "🆕 <b>Mise à jour FarmBot</b>\n\n"
-    "✅ Système de <b>Diplômes</b> & <b>Entreprises</b> désormais disponible !\n\n"
-    "🎓 Passe tes diplômes pour débloquer de meilleurs postes.\n"
-    "🏢 Crée ou rejoins une entreprise pour gagner un salaire quotidien.\n\n"
-    "Découvre comment ça marche 👇"
+    "🆕 <b>Your Family ❤️ — Nouvelle maj !</b>\n\n"
+    "💥 Deux gros trucs viennent d'arriver dans le jeu :\n\n"
+    "🎓 <b>Les Diplômes</b> — Étudie, passe tes exams, monte en grade !\n"
+    "🏢 <b>Les Entreprises</b> — Crée ta boîte ou rejoint une équipe pour te faire du blé chaque jour 💰\n\n"
+    "Plus t'es diplômé, plus t'as accès à des postes relous bien payés 😈\n\n"
+    "Clique en dessous pour tout comprendre 👇"
 )
 
 DIPLOME_DETAIL = (
-    "🎓 <b>Système de Diplômes</b>\n\n"
-    "<b>Comment ça marche :</b>\n"
-    "1️⃣ Tape <code>/diplome</code> pour lancer un examen\n"
-    "2️⃣ Réponds aux questions dans le temps imparti\n"
-    "3️⃣ Réussis pour obtenir ton diplôme !\n\n"
-    "<b>Les 4 niveaux :</b>\n"
-    "📄 <b>Bac</b> — Niveau de base (gratuit)\n"
-    "🎓 <b>Licence</b> — Accès aux postes Manager + secteurs avancés\n"
-    "🏅 <b>Master</b> — Accès Directeur + entreprises d'élite\n"
-    "👑 <b>MBA</b> — Le sommet. Crée les plus grandes entreprises\n\n"
-    "<b>À quoi ça sert :</b>\n"
-    "• Meilleur diplôme → meilleur poste en entreprise → plus grand salaire\n"
-    "• Le domaine de ta Licence détermine dans quel secteur tu peux créer une entreprise\n"
-    "• Certaines entreprises du bot exigent le Master ou le MBA\n\n"
-    "💡 Commence avec <code>/diplome</code>"
+    "🎓 <b>Les Diplômes — Comment ça marche ?</b>\n\n"
+    "C'est simple : tu passes des examens pour monter de niveau. Plus t'es calé, mieux tu gagnes.\n\n"
+    "⚡ <b>Les étapes :</b>\n"
+    "1️⃣ Lance <code>/diplome</code> pour démarrer un exam\n"
+    "2️⃣ Réponds vite, t'as un temps limité ⏱️\n"
+    "3️⃣ Réussis → diplôme validé 🎉 Rate → retente !\n\n"
+    "📊 <b>Les 4 niveaux :</b>\n"
+    "📄 <b>Bac</b> — Le début, tout le monde peut l'avoir\n"
+    "🎓 <b>Licence</b> — Accès aux postes Manager + tu choisis ton secteur\n"
+    "🏅 <b>Master</b> — Directeur + entreprises de prestige\n"
+    "👑 <b>MBA</b> — Le graal. Crée les plus grosses boîtes du jeu\n\n"
+    "💡 <b>Pourquoi c'est important :</b>\n"
+    "• Meilleur diplôme = meilleur poste = plus d'argent par jour 💸\n"
+    "• Ta Licence détermine dans quel secteur tu peux créer ta boîte\n"
+    "• Certaines entreprises refusent les gens sans Master/MBA\n\n"
+    "🚀 Lance toi : <code>/diplome</code>"
 )
 
 ENTREPRISE_DETAIL = (
-    "🏢 <b>Système d'Entreprises</b>\n\n"
-    "<b>Deux façons de participer :</b>\n\n"
-    "🤖 <b>Entreprises officielles (bot)</b>\n"
-    "Rejoins NexaTech, CapitalX, TradeHub, etc.\n"
+    "🏢 <b>Les Entreprises — Fais ta fortune !</b>\n\n"
+    "Tu veux des revenus automatiques chaque jour ? C'est par ici 👇\n\n"
+    "🤖 <b>Option 1 — Rejoindre une boîte du jeu</b>\n"
+    "NexaTech, CapitalX, TradeHub... postulez et attendez d'être recruté !\n"
     "→ <code>/postuler NexaTech</code>\n"
-    "Recrutement automatique selon ton diplôme.\n\n"
-    "👤 <b>Créer ta propre entreprise</b>\n"
-    "Coût : 50 000 000 $, minimum Licence requise\n"
+    "⚠️ Le recrutement dépend de ton diplôme — sois préparé !\n\n"
+    "💼 <b>Option 2 — Créer ta propre boîte</b>\n"
+    "Coût : <b>50 000 000 $</b> + avoir une Licence minimum\n"
     "→ <code>/creerboite MonEntreprise tech</code>\n"
-    "Secteurs : tech | finance | commerce | droit | agriculture | securite | immobilier | sante\n\n"
-    "<b>Revenus quotidiens selon le poste :</b>\n"
-    "👷 Stagiaire → 0% (pas de salaire)\n"
-    "👷 Employé → 10% du revenu journalier\n"
+    "Secteurs dispo : tech | finance | commerce | droit | agriculture | securite | immobilier | sante\n\n"
+    "💰 <b>Combien tu gagnes selon ton poste ?</b>\n"
+    "👷 Stagiaire → 0$ (t'es là pour apprendre, pas te la couler 😂)\n"
+    "👷 Employé → 10% des revenus journaliers\n"
     "💼 Manager → 20%\n"
     "🏦 Directeur → 35%\n"
-    "👑 PDG → dividendes via <code>/retraitboite</code>\n\n"
-    "<b>Niveaux d'entreprise :</b>\n"
-    "🏪 Startup (50M$) → 🏢 PME → 🏬 Société → 🏦 Corporation → 👑 Holding (10B$)\n\n"
-    "<b>Commandes clés :</b>\n"
-    "<code>/monentreprise</code> — Ta fiche + salaire\n"
-    "<code>/salaireinfo</code> — Détail salaire & solde\n"
-    "<code>/listeboites</code> — Toutes les entreprises\n"
-    "<code>/parts</code> — Répartition des parts\n"
-    "<code>/acheterparts nb nom</code> — OPA possible !"
+    "👑 PDG → dividendes perso via <code>/retraitboite</code> 🤑\n\n"
+    "📈 <b>Fais grandir ta boîte :</b>\n"
+    "🏪 Startup → 🏢 PME → 🏬 Société → 🏦 Corporation → 👑 Holding (10 milliards !)\n\n"
+    "🕹️ <b>Commandes utiles :</b>\n"
+    "<code>/monentreprise</code> — Ta fiche perso\n"
+    "<code>/salaireinfo</code> — Combien t'as gagné\n"
+    "<code>/listeboites</code> — Toutes les boîtes dispo\n"
+    "<code>/parts</code> — Qui possède quoi\n"
+    "<code>/acheterparts nb nom</code> — OPA ! Rachète une boîte 😈"
 )
 
 
@@ -208,7 +210,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     caption = (
         f"👋 <b>Bienvenue, {update.effective_user.first_name} !</b>\n\n"
-        "💞 <b>FarmBot ❤️</b> — Construis ta famille virtuelle !\n\n"
+        "💞 <b>Your Family ❤️</b> — Construis ta famille virtuelle !\n\n"
         "👨‍👩‍👧 Marie-toi, adopte, crée ton arbre généalogique.\n"
         "🌱 Gère ton jardin et récolte tes plantes.\n"
         "🎲 Joue au casino et enrichis ta dynastie.\n"

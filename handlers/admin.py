@@ -84,21 +84,13 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/userinfo @user — Infos complètes sur un user\n"
         "/ban @user — Bannir un utilisateur\n"
         "/unban @user — Débannir\n"
-        "/resetuser @user — Remettre le compte à zéro\n"
-        "/useractivity @user — Activité récente d'un utilisateur\n\n"
+        "/resetuser @user — Remettre le compte à zéro\n\n"
         "<b>⚙️ Gestion admins</b>\n"
         "/adminadd @user — Ajouter un admin\n"
         "/adminremove @user — Retirer un admin\n"
         "/adminlist — Liste des admins actuels\n"
         "/userlist — Liste de tous les utilisateurs enregistrés\n"
         "/enquete @user — Rapport d'enquête complet (triche, fortune, activité)\n\n"
-        "<b>📊 Surveillance</b>\n"
-        "/logs @user — Historique des commandes d'un user\n"
-        "/suspicious — Utilisateurs suspects (activité anormale)\n"
-        "/grouplist — Liste des groupes où le bot est actif\n"
-        "/groupscan — Scan des groupes inactifs\n\n"
-        "<b>🎓 Diplômes</b>\n"
-        "/admindiplome @user diplome — Attribuer un diplôme manuellement\n\n"
         "<b>📢 Communication</b>\n"
         "/broadcast [message] — Message à tous les utilisateurs\n\n"
         "<b>💥 Économie globale</b>\n"
@@ -126,7 +118,34 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/difficile — Roue méchante\n"
         "/impitoyable — Roue DESTRUCTION TOTALE 💀\n"
         "/moodauto — Retour aléatoire\n"
-        "/setmood — Voir le mood actuel\n"
+        "/setmood — Voir le mood actuel\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚡ <b>GOD MODE — Commandes avancées</b>\n\n"
+        "<b>📊 Surveillance</b>\n"
+        "/statsbot — Snapshot global du bot\n"
+        "/checkuser @user — Fiche ultra-complète d'un joueur\n"
+        "/topactifs — Top 10 joueurs les plus actifs (7j)\n\n"
+        "<b>🧊 Contrôle joueurs</b>\n"
+        "/freeze @user — Geler un compte (30 jours prison)\n"
+        "/unfreeze @user — Dégeler un compte\n"
+        "/resetcooldown @user — Remettre daily/work/diplôme à zéro\n"
+        "/addkarma @user montant — Ajouter/retirer du karma\n"
+        "/setkarma @user valeur — Définir karma exact\n"
+        "/wipeinventory @user — Vider l'inventaire enchères\n"
+        "/resetbanque @user — Vider les comptes bancaires\n"
+        "/wipeloans @user — Effacer tous les prêts actifs\n\n"
+        "<b>💹 Économie globale</b>\n"
+        "/inflation pct — Appliquer une inflation/déflation à TOUS\n"
+        "/purgeprison — Libérer TOUS les prisonniers\n"
+        "/broadcastdm message — DM à tous les users\n\n"
+        "<b>🏢 Entreprises</b>\n"
+        "/kickboite @user — Expulser de force d'une entreprise\n"
+        "/deletecompany nom — Dissoudre une entreprise de force\n"
+        "/forcepdg @user nom — Nommer PDG de force\n"
+        "/mutecompany nom — Suspendre une entreprise\n"
+        "/unmutecompany nom — Réactiver une entreprise\n"
+        "/setreputation nom valeur — Modifier la réputation\n"
+        "/addvalue nom montant — Modifier la valeur d'une entreprise\n"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
@@ -1943,3 +1962,733 @@ async def admindiplome(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"à <b>@{u.username or u.first_name}</b>.",
         parse_mode=ParseMode.HTML,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ▓▓▓  GOD MODE — COMMANDES AVANCÉES  ▓▓▓
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── /statsbot — Statistiques globales du bot ────────────────────────────────
+
+async def statsbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Snapshot complet : users, argent, entreprises, banques, prison."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    async with AsyncSessionLocal() as session:
+        total_users    = (await session.execute(text("SELECT COUNT(*) FROM users"))).scalar()
+        total_coins    = (await session.execute(text("SELECT COALESCE(SUM(coins),0) FROM users"))).scalar()
+        total_banned   = (await session.execute(text("SELECT COUNT(*) FROM users WHERE is_banned=TRUE"))).scalar()
+        total_bank     = (await session.execute(text("SELECT COALESCE(SUM(balance),0) FROM bank_accounts"))).scalar()
+        total_loans    = (await session.execute(text("SELECT COALESCE(SUM(amount),0) FROM loans WHERE repaid=FALSE"))).scalar() if True else 0
+        total_prison   = (await session.execute(text("SELECT COUNT(*) FROM crime_prison"))).scalar()
+        total_companies= (await session.execute(text("SELECT COUNT(*) FROM companies WHERE is_active=TRUE"))).scalar()
+        total_emps     = (await session.execute(text("SELECT COUNT(*) FROM company_employees WHERE left_at IS NULL"))).scalar()
+        richest        = (await session.execute(text("SELECT first_name, coins FROM users ORDER BY coins DESC LIMIT 1"))).fetchone()
+        active_today   = (await session.execute(text(
+            "SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE created_at > NOW() - INTERVAL '24 hours'"
+        ))).scalar()
+
+    richest_str = f"{richest.first_name} ({_fmt(richest.coins)} $)" if richest else "N/A"
+
+    await update.message.reply_text(
+        f"📊 <b>STATS GLOBALES — God Mode</b>\n\n"
+        f"👥 Utilisateurs total : <b>{total_users}</b>\n"
+        f"🟢 Actifs (24h) : <b>{active_today}</b>\n"
+        f"🚫 Bannis : <b>{total_banned}</b>\n"
+        f"🔒 En prison : <b>{total_prison}</b>\n\n"
+        f"💰 Coins en circulation : <b>{_fmt(total_coins)} $</b>\n"
+        f"🏦 Dépôts bancaires : <b>{_fmt(total_bank)} $</b>\n"
+        f"💳 Prêts actifs : <b>{_fmt(total_loans)} $</b>\n\n"
+        f"🏢 Entreprises actives : <b>{total_companies}</b>\n"
+        f"👷 Employés actifs : <b>{total_emps}</b>\n\n"
+        f"👑 Joueur le plus riche : <b>{richest_str}</b>",
+        parse_mode=ParseMode.HTML
+    )
+
+
+# ─── /resetcooldown @user — Remet tous les cooldowns à zéro ──────────────────
+
+async def resetcooldown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remet à zéro : last_daily, last_work, exam_cooldown."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/resetcooldown @user</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+        await session.execute(
+            text("UPDATE users SET last_daily=NULL, last_work=NULL, exam_cooldown=NULL WHERE user_id=:uid"),
+            {"uid": target.user_id}
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"✅ Cooldowns de <b>{target.first_name}</b> remis à zéro.\n"
+        f"(daily, work, examen diplôme)",
+        parse_mode="HTML"
+    )
+
+
+# ─── /addkarma @user montant — Modifier le karma ─────────────────────────────
+
+async def addkarma(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajoute ou retire du karma à un joueur."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if len(context.args) < 2:
+        return await update.message.reply_text("❌ Usage : <code>/addkarma @user montant</code>", parse_mode="HTML")
+
+    try:
+        amount = int(context.args[1])
+    except ValueError:
+        return await update.message.reply_text("❌ Montant invalide.")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+        target.karma = max(-999, min(999, target.karma + amount))
+        new_karma = target.karma
+        await session.commit()
+
+    sign = "+" if amount >= 0 else ""
+    await update.message.reply_text(
+        f"⭐ Karma de <b>{target.first_name}</b> : {sign}{amount} → <b>{new_karma}</b>",
+        parse_mode="HTML"
+    )
+
+
+# ─── /wipeinventory @user — Vider l'inventaire d'enchères ────────────────────
+
+async def wipeinventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Supprime tous les objets d'enchères d'un joueur."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/wipeinventory @user</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+        result = await session.execute(
+            text("DELETE FROM auction_items WHERE owner_id=:uid RETURNING id"),
+            {"uid": target.user_id}
+        )
+        deleted = len(result.fetchall())
+        await session.commit()
+
+    await update.message.reply_text(
+        f"🗑️ <b>{deleted}</b> objet(s) supprimé(s) de l'inventaire de <b>{target.first_name}</b>.",
+        parse_mode="HTML"
+    )
+
+
+# ─── /resetbanque @user — Vider les comptes bancaires d'un joueur ────────────
+
+async def resetbanque(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remet à zéro tous les comptes bancaires d'un joueur."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/resetbanque @user</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+        await session.execute(
+            text("UPDATE bank_accounts SET balance=0 WHERE user_id=:uid"),
+            {"uid": target.user_id}
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"🏦 Comptes bancaires de <b>{target.first_name}</b> remis à zéro.",
+        parse_mode="HTML"
+    )
+
+
+# ─── /kickboite @user — Virer de force de son entreprise ─────────────────────
+
+async def kickboite(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Force le départ d'un employé de son entreprise (sans cooldown)."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/kickboite @user</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+
+        from datetime import datetime, timedelta
+        bypass = datetime.utcnow() - timedelta(days=8)
+        result = await session.execute(
+            text("UPDATE company_employees SET left_at=:bypass WHERE user_id=:uid AND left_at IS NULL RETURNING company_id"),
+            {"bypass": bypass, "uid": target.user_id}
+        )
+        rows = result.fetchall()
+        await session.commit()
+
+    if rows:
+        await update.message.reply_text(
+            f"✅ <b>{target.first_name}</b> a été expulsé de son entreprise (sans cooldown).",
+            parse_mode="HTML"
+        )
+    else:
+        await update.message.reply_text(f"❌ {target.first_name} n'est dans aucune entreprise.")
+
+
+# ─── /deletecompany nom — Supprimer une entreprise joueur ────────────────────
+
+async def deletecompany(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dissout de force une entreprise (joueur seulement)."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/deletecompany [nom entreprise]</code>", parse_mode="HTML")
+
+    name = " ".join(context.args)
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("SELECT id, name, is_bot_company FROM companies WHERE name ILIKE :n AND is_active=TRUE"),
+            {"n": name}
+        )).fetchone()
+
+        if not row:
+            return await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
+        if row.is_bot_company:
+            return await update.message.reply_text("❌ Impossible de supprimer une entreprise officielle.")
+
+        from datetime import datetime, timedelta
+        bypass = datetime.utcnow() - timedelta(days=8)
+        cid = row.id
+
+        await session.execute(text("UPDATE company_employees SET left_at=:bp WHERE company_id=:cid AND left_at IS NULL"), {"bp": bypass, "cid": cid})
+        await session.execute(text("UPDATE companies SET is_active=FALSE, treasury=0 WHERE id=:cid"), {"cid": cid})
+        await session.commit()
+
+    await update.message.reply_text(
+        f"🏚️ L'entreprise <b>{row.name}</b> a été dissoute par un admin.",
+        parse_mode="HTML"
+    )
+
+
+# ─── /forcepdg @user nom_entreprise — Nommer PDG de force ────────────────────
+
+async def forcepdg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Nomme de force un joueur PDG d'une entreprise."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if len(context.args) < 2:
+        return await update.message.reply_text("❌ Usage : <code>/forcepdg @user [nom entreprise]</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+
+        company_name = " ".join(context.args[1:])
+        company = (await session.execute(
+            text("SELECT id, name, owner_id FROM companies WHERE name ILIKE :n AND is_active=TRUE"),
+            {"n": company_name}
+        )).fetchone()
+
+        if not company:
+            return await update.message.reply_text(f"❌ Entreprise <b>{company_name}</b> introuvable.", parse_mode="HTML")
+
+        from datetime import datetime
+        # Dégrader l'ancien PDG
+        await session.execute(
+            text("UPDATE company_employees SET role='directeur' WHERE company_id=:cid AND role='pdg' AND left_at IS NULL"),
+            {"cid": company.id}
+        )
+        # Vérifier si le target est déjà dans l'entreprise
+        emp = (await session.execute(
+            text("SELECT id FROM company_employees WHERE company_id=:cid AND user_id=:uid AND left_at IS NULL"),
+            {"cid": company.id, "uid": target.user_id}
+        )).fetchone()
+
+        if emp:
+            await session.execute(
+                text("UPDATE company_employees SET role='pdg' WHERE company_id=:cid AND user_id=:uid AND left_at IS NULL"),
+                {"cid": company.id, "uid": target.user_id}
+            )
+        else:
+            await session.execute(
+                text("INSERT INTO company_employees (company_id, user_id, role, joined_at) VALUES (:cid, :uid, 'pdg', :now)"),
+                {"cid": company.id, "uid": target.user_id, "now": datetime.utcnow()}
+            )
+        await session.execute(
+            text("UPDATE companies SET owner_id=:uid WHERE id=:cid"),
+            {"uid": target.user_id, "cid": company.id}
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"👑 <b>{target.first_name}</b> est maintenant PDG de <b>{company.name}</b>.",
+        parse_mode="HTML"
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=target.user_id,
+            text=f"👑 <b>Un admin t'a nommé PDG de {company.name} !</b>",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+
+# ─── /purgeprison — Libérer TOUS les prisonniers ─────────────────────────────
+
+async def purgeprison(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Libère tous les prisonniers d'un coup."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(text("DELETE FROM crime_prison RETURNING user_id"))
+        freed = len(result.fetchall())
+        await session.commit()
+
+    await update.message.reply_text(
+        f"🔓 <b>Amnistie générale !</b> {freed} prisonnier(s) libéré(s).",
+        parse_mode="HTML"
+    )
+
+
+# ─── /freeze @user — Bloquer toutes les actions d'un joueur ──────────────────
+
+async def freeze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Gèle un compte : coins mis à 0, prison longue durée (720h).
+    /freeze @user
+    /unfreeze @user pour dégeler
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/freeze @user</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+
+        from datetime import datetime, timedelta
+        released_at = datetime.utcnow() + timedelta(hours=720)
+
+        # Mettre en prison longue durée
+        existing = (await session.execute(
+            text("SELECT id FROM crime_prison WHERE user_id=:uid"), {"uid": target.user_id}
+        )).fetchone()
+        if existing:
+            await session.execute(
+                text("UPDATE crime_prison SET released_at=:r WHERE user_id=:uid"),
+                {"r": released_at, "uid": target.user_id}
+            )
+        else:
+            await session.execute(
+                text("INSERT INTO crime_prison (user_id, reason, released_at, bail_amount) VALUES (:uid, 'FREEZE ADMIN', :r, 999999999)"),
+                {"uid": target.user_id, "r": released_at}
+            )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"🧊 <b>{target.first_name}</b> est gelé pour <b>30 jours</b>.\n"
+        f"Utilise <code>/unfreeze @{target.username or target.first_name}</code> pour dégeler.",
+        parse_mode="HTML"
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=target.user_id,
+            text="🧊 <b>Ton compte a été gelé par un administrateur.</b>\nContacte le support.",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+
+async def unfreeze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dégèle un compte gelé par /freeze."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/unfreeze @user</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+        await session.execute(text("DELETE FROM crime_prison WHERE user_id=:uid"), {"uid": target.user_id})
+        await session.commit()
+
+    await update.message.reply_text(
+        f"✅ <b>{target.first_name}</b> a été dégelé.",
+        parse_mode="HTML"
+    )
+
+
+# ─── /setkarma @user valeur — Définir karma exact ────────────────────────────
+
+async def setkarma(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if len(context.args) < 2:
+        return await update.message.reply_text("❌ Usage : <code>/setkarma @user valeur</code>", parse_mode="HTML")
+    try:
+        val = int(context.args[1])
+    except ValueError:
+        return await update.message.reply_text("❌ Valeur invalide.")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Introuvable.")
+        target.karma = max(-999, min(999, val))
+        await session.commit()
+
+    await update.message.reply_text(
+        f"⭐ Karma de <b>{target.first_name}</b> → <b>{val}</b>",
+        parse_mode="HTML"
+    )
+
+
+# ─── /inflation pct — Augmenter tous les soldes d'un % ───────────────────────
+
+async def inflation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /inflation 10  → +10% sur tous les coins de tous les joueurs
+    /inflation -20 → -20% (déflation)
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/inflation [pourcentage]</code>\nEx: /inflation 10 ou /inflation -20", parse_mode="HTML")
+
+    try:
+        pct = float(context.args[0])
+    except ValueError:
+        return await update.message.reply_text("❌ Pourcentage invalide.")
+
+    multiplier = 1 + (pct / 100)
+    msg = await update.message.reply_text(f"⏳ Application de {pct:+.1f}% sur tous les soldes...")
+
+    async with AsyncSessionLocal() as session:
+        users_result = await session.execute(text("SELECT user_id, coins FROM users"))
+        users = users_result.fetchall()
+        for u in users:
+            new_coins = max(1000, int(u.coins * multiplier))
+            await session.execute(
+                text("UPDATE users SET coins=:c WHERE user_id=:uid"),
+                {"c": new_coins, "uid": u.user_id}
+            )
+        await session.commit()
+
+    arrow = "📈" if pct >= 0 else "📉"
+    await msg.edit_text(
+        f"{arrow} <b>{'Inflation' if pct >= 0 else 'Déflation'} appliquée !</b>\n\n"
+        f"Variation : <b>{pct:+.1f}%</b>\n"
+        f"Joueurs affectés : <b>{len(users)}</b>\n"
+        f"Solde minimum garanti : <b>1 000 $</b>",
+        parse_mode="HTML"
+    )
+
+
+# ─── /checkuser @user — Fiche complète God Mode ──────────────────────────────
+
+async def checkuser(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fiche ultra-complète : coins, banque, prison, entreprise, diplômes, famille."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/checkuser @user</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+
+        uid = target.user_id
+
+        # Banque
+        banks = (await session.execute(
+            text("SELECT bank_id, balance FROM bank_accounts WHERE user_id=:uid"), {"uid": uid}
+        )).fetchall()
+        bank_str = " | ".join(f"{b.bank_id}: {_fmt(b.balance)}$" for b in banks) or "Aucun"
+
+        # Prison
+        prison = (await session.execute(
+            text("SELECT released_at, reason FROM crime_prison WHERE user_id=:uid"), {"uid": uid}
+        )).fetchone()
+        prison_str = f"🔒 jusqu'au {prison.released_at.strftime('%d/%m %H:%M')}" if prison else "🟢 Libre"
+
+        # Entreprise
+        emp_row = (await session.execute(
+            text("""SELECT ce.role, c.name FROM company_employees ce
+                    JOIN companies c ON c.id=ce.company_id
+                    WHERE ce.user_id=:uid AND ce.left_at IS NULL AND c.is_active=TRUE"""),
+            {"uid": uid}
+        )).fetchone()
+        company_str = f"{emp_row.name} ({emp_row.role})" if emp_row else "Aucune"
+
+        # Diplômes
+        diplomes = []
+        if target.diplome_bac:     diplomes.append("📄 Bac")
+        if target.diplome_licence: diplomes.append(f"🎓 Licence {target.diplome_domain or ''}")
+        if target.diplome_master:  diplomes.append("🏅 Master")
+        if target.diplome_mba:     diplomes.append("👑 MBA")
+        diplomes_str = " · ".join(diplomes) or "Aucun"
+
+        # Activité récente
+        last_cmd = (await session.execute(
+            text("SELECT command, created_at FROM activity_logs WHERE user_id=:uid ORDER BY created_at DESC LIMIT 1"),
+            {"uid": uid}
+        )).fetchone()
+        last_cmd_str = f"/{last_cmd.command} ({last_cmd.created_at.strftime('%d/%m %H:%M')})" if last_cmd else "N/A"
+
+        # Loans
+        loans = (await session.execute(
+            text("SELECT COALESCE(SUM(amount),0) as total FROM loans WHERE user_id=:uid AND repaid=FALSE"),
+            {"uid": uid}
+        )).fetchone()
+        loans_str = _fmt(loans.total) + " $" if loans else "0 $"
+
+    banned_str = "🚫 OUI" if target.is_banned else "✅ NON"
+
+    await update.message.reply_text(
+        f"🔍 <b>FICHE GOD — {target.first_name}</b>\n"
+        f"├ ID : <code>{uid}</code>\n"
+        f"├ @{target.username or 'sans username'}\n"
+        f"├ Banni : {banned_str}\n"
+        f"├ Prison : {prison_str}\n\n"
+        f"💰 <b>FORTUNE</b>\n"
+        f"├ Coins : <b>{_fmt(target.coins)} $</b>\n"
+        f"├ Banque : {bank_str}\n"
+        f"├ Prêts actifs : {loans_str}\n\n"
+        f"🏢 <b>ENTREPRISE</b> : {company_str}\n"
+        f"🎓 <b>DIPLÔMES</b> : {diplomes_str}\n\n"
+        f"⌨️ <b>DERNIÈRE COMMANDE</b> : {last_cmd_str}\n"
+        f"📅 Inscrit le : {target.created_at.strftime('%d/%m/%Y') if target.created_at else 'N/A'}",
+        parse_mode="HTML"
+    )
+
+
+# ─── /setreputation nom valeur — Modifier réputation entreprise ───────────────
+
+async def setreputation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Modifier la réputation d'une entreprise."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if len(context.args) < 2:
+        return await update.message.reply_text("❌ Usage : <code>/setreputation [nom entreprise] [0.0-5.0]</code>", parse_mode="HTML")
+
+    try:
+        val = float(context.args[-1])
+        val = max(0.0, min(5.0, val))
+    except ValueError:
+        return await update.message.reply_text("❌ Valeur invalide (0.0 à 5.0).")
+
+    name = " ".join(context.args[:-1])
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("UPDATE companies SET reputation=:v WHERE name ILIKE :n AND is_active=TRUE RETURNING name"),
+            {"v": val, "n": name}
+        )
+        updated = result.fetchone()
+        await session.commit()
+
+    if updated:
+        await update.message.reply_text(f"⭐ Réputation de <b>{updated.name}</b> → <b>{val}/5.0</b>", parse_mode="HTML")
+    else:
+        await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
+
+
+# ─── /addvalue nom montant — Modifier valeur entreprise ──────────────────────
+
+async def addvalue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajouter ou retirer de la valeur à une entreprise."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if len(context.args) < 2:
+        return await update.message.reply_text("❌ Usage : <code>/addvalue [nom] [montant]</code>\nMontant négatif pour réduire.", parse_mode="HTML")
+
+    try:
+        amount = int(context.args[-1].replace("_", ""))
+    except ValueError:
+        return await update.message.reply_text("❌ Montant invalide.")
+
+    name = " ".join(context.args[:-1])
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("UPDATE companies SET value=GREATEST(1000000, value+:a) WHERE name ILIKE :n AND is_active=TRUE RETURNING name, value"),
+            {"a": amount, "n": name}
+        )
+        updated = result.fetchone()
+        await session.commit()
+
+    if updated:
+        sign = "+" if amount >= 0 else ""
+        await update.message.reply_text(
+            f"💰 Valeur de <b>{updated.name}</b> : {sign}{_fmt(amount)} $ → <b>{_fmt(updated.value)} $</b>",
+            parse_mode="HTML"
+        )
+    else:
+        await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
+
+
+# ─── /wipeloans @user — Effacer tous les prêts ───────────────────────────────
+
+async def wipeloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Efface tous les prêts actifs d'un joueur (marqués remboursés)."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/wipeloans @user</code>", parse_mode="HTML")
+
+    async with AsyncSessionLocal() as session:
+        target = await _resolve_user(session, context.args[0])
+        if not target:
+            return await update.message.reply_text("❌ Introuvable.")
+        result = await session.execute(
+            text("UPDATE loans SET repaid=TRUE WHERE user_id=:uid AND repaid=FALSE RETURNING id"),
+            {"uid": target.user_id}
+        )
+        count = len(result.fetchall())
+        await session.commit()
+
+    await update.message.reply_text(
+        f"✅ <b>{count}</b> prêt(s) effacé(s) pour <b>{target.first_name}</b>.",
+        parse_mode="HTML"
+    )
+
+
+# ─── /broadcastdm message — DM à tous les utilisateurs ──────────────────────
+
+async def broadcastdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Envoie un DM à TOUS les utilisateurs (avec compteur succès/échec)."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/broadcastdm [message]</code>", parse_mode="HTML")
+
+    message_text = " ".join(context.args)
+    msg = await update.message.reply_text("📨 Envoi DM en cours...")
+
+    async with AsyncSessionLocal() as session:
+        users_result = await session.execute(text("SELECT user_id FROM users WHERE is_banned=FALSE"))
+        users = users_result.fetchall()
+
+    success, fail = 0, 0
+    for row in users:
+        try:
+            await context.bot.send_message(
+                chat_id=row.user_id,
+                text=f"📢 <b>Message de l'administration :</b>\n\n{message_text}",
+                parse_mode="HTML"
+            )
+            success += 1
+        except Exception:
+            fail += 1
+
+    await msg.edit_text(
+        f"📨 <b>Broadcast DM terminé</b>\n\n"
+        f"✅ Envoyés : <b>{success}</b>\n"
+        f"❌ Échecs : <b>{fail}</b>",
+        parse_mode="HTML"
+    )
+
+
+# ─── /topactifs — Top 10 joueurs les plus actifs ─────────────────────────────
+
+async def topactifs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Top 10 des joueurs les plus actifs (commandes 7 derniers jours)."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(text(
+            """SELECT u.first_name, u.username, COUNT(al.id) as cmd_count
+               FROM activity_logs al
+               JOIN users u ON u.user_id = al.user_id
+               WHERE al.created_at > NOW() - INTERVAL '7 days'
+               GROUP BY u.user_id, u.first_name, u.username
+               ORDER BY cmd_count DESC LIMIT 10"""
+        ))).fetchall()
+
+    if not rows:
+        return await update.message.reply_text("Aucune activité sur les 7 derniers jours.")
+
+    lines = ["🏆 <b>Top Actifs — 7 derniers jours</b>\n"]
+    medals = ["🥇", "🥈", "🥉"]
+    for i, r in enumerate(rows):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        tag = f"@{r.username}" if r.username else r.first_name
+        lines.append(f"{medal} {tag} — <b>{r.cmd_count}</b> commandes")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+# ─── /mutecompany nom — Bloquer les revenus d'une entreprise ─────────────────
+
+async def mutecompany(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Désactive (is_active=FALSE) une entreprise temporairement."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/mutecompany [nom]</code>", parse_mode="HTML")
+
+    name = " ".join(context.args)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("UPDATE companies SET is_active=FALSE WHERE name ILIKE :n AND is_active=TRUE RETURNING name"),
+            {"n": name}
+        )
+        updated = result.fetchone()
+        await session.commit()
+
+    if updated:
+        await update.message.reply_text(f"⛔ <b>{updated.name}</b> a été suspendue.", parse_mode="HTML")
+    else:
+        await update.message.reply_text(f"❌ Introuvable ou déjà inactive.", parse_mode="HTML")
+
+
+async def unmutecompany(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Réactive une entreprise suspendue."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/unmutecompany [nom]</code>", parse_mode="HTML")
+
+    name = " ".join(context.args)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("UPDATE companies SET is_active=TRUE WHERE name ILIKE :n AND is_active=FALSE RETURNING name"),
+            {"n": name}
+        )
+        updated = result.fetchone()
+        await session.commit()
+
+    if updated:
+        await update.message.reply_text(f"✅ <b>{updated.name}</b> a été réactivée.", parse_mode="HTML")
+    else:
+        await update.message.reply_text(f"❌ Introuvable ou déjà active.", parse_mode="HTML")
+
+
+# ─── Helper interne : résoudre @user ou ID ───────────────────────────────────
+
+async def _resolve_user(session, arg: str):
+    """Retourne un User depuis @username ou ID numérique."""
+    arg = arg.lstrip("@")
+    if arg.isdigit():
+        from database.db import get_user
+        return await get_user(session, int(arg))
+    else:
+        from database.db import get_user_by_username
+        return await get_user_by_username(session, arg)

@@ -16,7 +16,7 @@ from telegram.ext import (
 from config import BOT_TOKEN
 from database import init_db
 
-from handlers.misc     import start, help_cmd, leaderboard, mode, toggle
+from handlers.misc     import start, help_cmd, leaderboard, mode, toggle, nouveautes_cmd, nouveautes_callback
 from handlers.family   import (
     marry, adopt, friend, divorce, disown, unfriend,
     setfamilyname, leave, familyphoto,
@@ -375,6 +375,8 @@ async def main():
     app.add_handler(CommandHandler("leaderboard", _prison_checked(leaderboard)))
     app.add_handler(CommandHandler("mode",        _prison_checked(mode)))
     app.add_handler(CommandHandler("toggle",      _prison_checked(toggle)))
+    app.add_handler(CommandHandler("nouveautes",  nouveautes_cmd))
+    app.add_handler(CallbackQueryHandler(nouveautes_callback, pattern=r"^info:"))
 
     # ── Famille ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("marry",         _prison_checked(marry)))

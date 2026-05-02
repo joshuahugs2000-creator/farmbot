@@ -92,7 +92,7 @@ from handlers.company import (
     nommer_cmd, monentreprise_cmd,
     depotboite_cmd, retraitboite_cmd, logsboite_cmd,
     parts_cmd, vendreparts_cmd, acheterparts_cmd,
-    saboter_cmd, job_company_revenues,
+    licencier_cmd, dissoudreboite_cmd, job_daily_report, job_company_revenues,
 )
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
@@ -528,7 +528,8 @@ async def main():
     app.add_handler(CommandHandler("parts",         _prison_checked(parts_cmd)))
     app.add_handler(CommandHandler("vendreparts",   _prison_checked(vendreparts_cmd)))
     app.add_handler(CommandHandler("acheterparts",  _prison_checked(acheterparts_cmd)))
-    app.add_handler(CommandHandler("saboter",       _prison_checked(saboter_cmd)))
+    app.add_handler(CommandHandler("licencier",      _prison_checked(licencier_cmd)))
+    app.add_handler(CommandHandler("dissoudreboite",  _prison_checked(dissoudreboite_cmd)))
 
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))
@@ -574,6 +575,16 @@ async def main():
         interval=timedelta(hours=24),
         first=timedelta(minutes=15),
         name="company_revenues",
+    )
+
+    # ── Job rapport quotidien 18h (PDG) ─────────────────────────────────────────
+    from datetime import time as dt_time
+    import pytz
+    tz_paris = pytz.timezone("Africa/Abidjan")  # UTC+0 = Lomé/Abidjan
+    app.job_queue.run_daily(
+        job_daily_report,
+        time=dt_time(hour=18, minute=0, tzinfo=tz_paris),
+        name="daily_report",
     )
 
     # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────

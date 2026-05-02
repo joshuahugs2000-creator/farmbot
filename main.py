@@ -1,420 +1,658 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
-from telegram.constants import ParseMode
+import logging
+import os
+import asyncio
+from datetime import time, timedelta
 
-from database.db import AsyncSessionLocal, get_settings, get_leaderboard, compute_title, get_user
-from utils.helpers import ensure_user, mention
-from config import CURRENCY
-
-
-# ─── TEXTE D'AIDE COMPLET (utilisateurs) ─────────────────────────────────────
-
-HELP_TEXT = """
-<b>🌳 Your Family ❤️ — Toutes les commandes</b>
-
-<b>👨‍👩‍👧 Famille</b>
-/marry — Demander en mariage (60s pour répondre)
-/adopt — Adopter un membre
-/friend — Ajouter un ami
-/divorce — Divorcer
-/disown — Désavouer un enfant
-/unfriend — Retirer un ami
-/setfamilyname nom — Changer le nom de famille
-/leave — Quitter la famille
-/familyphoto — Photo de famille
-
-<b>🌲 Arbre</b>
-/tree — Ton arbre généalogique
-
-<b>🌱 Jardin</b>
-/garden — Voir ton jardin
-/plant slot plante — Planter
-/harvest [slot] — Récolter
-
-<b>👤 Profil</b>
-/me — Ton profil complet
-/setpic — Changer ta photo de profil
-/customize — Couleur du profil
-/titles — Liste des titres disponibles
-/karmainfo — Infos sur le karma
-
-<b>💰 Économie</b>
-/acc — Voir ton compte
-/daily — Bonus quotidien (5K–20K)
-/work — Travailler (3K–30K, cooldown 8h)
-/pay @joueur montant — Envoyer des $
-/richlist — Top 10 des plus riches
-/impots — Voir ton taux d'imposition
-
-<b>🎓 Diplômes</b>
-/diplome — Passer un diplôme (Bac, Licence, Master, MBA)
-
-<b>🏢 Entreprises</b>
-/listeboites — Voir toutes les entreprises
-/infoboite nom — Détails d'une entreprise
-/postuler nom — Postuler dans une entreprise
-/rejoindre nom — Accepter une invitation
-/demissionner — Quitter son entreprise
-/monentreprise — Ta fiche employé & salaire
-/salaireinfo — Voir ton salaire détaillé
-/candidatures — Voir les candidatures (PDG/Dir.)
-/accepter id — Accepter une candidature
-/refuser id — Refuser une candidature
-/recruter @pseudo [poste] — Inviter quelqu'un
-/nommer @pseudo poste — Promouvoir un employé
-/licencier @pseudo — Licencier un employé
-/creerboite nom secteur — Créer ton entreprise (50M$)
-/dissoudreboite — Dissoudre son entreprise
-/depotboite montant — Déposer en trésorerie
-/retraitboite montant — Retirer de la trésorerie
-/logsboite — Historique de l'entreprise
-/parts [nom] — Voir la répartition des parts
-/acheterparts nb nom — Acheter des parts
-/vendreparts nb prix — Vendre des parts
-
-<b>🎮 Jeux</b>
-/crash mise — Multiplicateur jusqu'au crash !
-/apple mise — Apple of Fortune (max 10M)
-/roue mise — Roue de Fortune (gain max 100M)
-/rebet mise — Quitte ou double
-/mines nb_mines mise — Démine la grille
-/blackjack mise — Blackjack
-/roulette mise — Roulette
-/slots mise — Machine à sous
-
-<b>🥊 Arène PvP</b>
-/cockfight mise — Combat de coqs
-/ppc @joueur mise — Pierre-Papier-Ciseaux
-/lancer mise — Duel de dés vs bot
-/lancer @joueur mise — Duel de dés PvP
-
-<b>🏦 Banque</b>
-/banks — Banques disponibles
-/bankopen — Ouvrir un compte
-/bankdeposit montant — Déposer (plafond 2B)
-/bankwithdraw montant — Retirer
-/bankbalance — Voir le solde bancaire
-/bankloan montant — Prendre un prêt (max 5M)
-/bankrepay montant — Rembourser un prêt
-/bankloans — Voir tes prêts actifs
-
-<b>📈 Investissements</b>
-/market — Voir le marché
-/buy actif quantité — Acheter un actif
-/sell id — Vendre une position
-/portfolio — Voir ton portefeuille
-
-<b>💸 Crime & Braquage</b>
-/cambrioler @joueur — Cambrioler un joueur
-/police @joueur — Signaler un voleur
-/bail @joueur — Payer la caution
-/juge @joueur — Porter plainte
-/security — Protection anti-vol
-
-<b>🔨 Enchères</b>
-/bid montant — Enchérir
-/expertise — Valeur de ton dernier objet
-/myitems — Ton inventaire
-/sellitem id prix — Mettre en vente
-/shopitems — Objets en vente
-/buyitem id — Acheter un objet
-
-<b>✨ Événements</b>
-/open — Ouvrir un coffre mystère
-
-<b>📊 Général</b>
-/leaderboard — Top des plus grandes familles
-/mode — Mode global/groupe
-/toggle garden — Activer/désactiver le jardin
-/help — Afficher cette aide
-/nouveautes — Voir les dernières mises à jour
-"""
-
-
-# ─── TEXTE MISE À JOUR (/nouveautes) ─────────────────────────────────────────
-
-NOUVEAUTES_TEXT = (
-    "🆕 <b>Your Family ❤️ — Nouvelle maj !</b>\n\n"
-    "💥 Deux gros trucs viennent d'arriver dans le jeu :\n\n"
-    "🎓 <b>Les Diplômes</b> — Étudie, passe tes exams, monte en grade !\n"
-    "🏢 <b>Les Entreprises</b> — Crée ta boîte ou rejoint une équipe pour te faire du blé chaque jour 💰\n\n"
-    "Plus t'es diplômé, plus t'as accès à des postes relous bien payés 😈\n\n"
-    "Clique en dessous pour tout comprendre 👇"
+from aiohttp import web
+from telegram import Update
+from telegram.ext import (
+    Application,
+    ApplicationHandlerStop,
+    CommandHandler,
+    CallbackQueryHandler,
+    TypeHandler,
 )
 
-DIPLOME_DETAIL = (
-    "🎓 <b>Les Diplômes — Comment ça marche ?</b>\n\n"
-    "C'est simple : tu passes des examens pour monter de niveau. Plus t'es calé, mieux tu gagnes.\n\n"
-    "⚡ <b>Les étapes :</b>\n"
-    "1️⃣ Lance <code>/diplome</code> pour démarrer un exam\n"
-    "2️⃣ Réponds vite, t'as un temps limité ⏱️\n"
-    "3️⃣ Réussis → diplôme validé 🎉 Rate → retente !\n\n"
-    "📊 <b>Les 4 niveaux :</b>\n"
-    "📄 <b>Bac</b> — Le début, tout le monde peut l'avoir\n"
-    "🎓 <b>Licence</b> — Accès aux postes Manager + tu choisis ton secteur\n"
-    "🏅 <b>Master</b> — Directeur + entreprises de prestige\n"
-    "👑 <b>MBA</b> — Le graal. Crée les plus grosses boîtes du jeu\n\n"
-    "💡 <b>Pourquoi c'est important :</b>\n"
-    "• Meilleur diplôme = meilleur poste = plus d'argent par jour 💸\n"
-    "• Ta Licence détermine dans quel secteur tu peux créer ta boîte\n"
-    "• Certaines entreprises refusent les gens sans Master/MBA\n\n"
-    "🚀 Lance toi : <code>/diplome</code>"
+from config import BOT_TOKEN
+from database import init_db
+
+from handlers.misc     import start, help_cmd, leaderboard, mode, toggle, nouveautes_cmd, nouveautes_callback
+from handlers.family   import (
+    marry, adopt, friend, divorce, disown, unfriend,
+    setfamilyname, leave, familyphoto,
+    request_callback, leave_callback,
 )
-
-ENTREPRISE_DETAIL = (
-    "🏢 <b>Les Entreprises — Fais ta fortune !</b>\n\n"
-    "Tu veux des revenus automatiques chaque jour ? C'est par ici 👇\n\n"
-    "🤖 <b>Option 1 — Rejoindre une boîte du jeu</b>\n"
-    "NexaTech, CapitalX, TradeHub... postulez et attendez d'être recruté !\n"
-    "→ <code>/postuler NexaTech</code>\n"
-    "⚠️ Le recrutement dépend de ton diplôme — sois préparé !\n\n"
-    "💼 <b>Option 2 — Créer ta propre boîte</b>\n"
-    "Coût : <b>50 000 000 $</b> + avoir une Licence minimum\n"
-    "→ <code>/creerboite MonEntreprise tech</code>\n"
-    "Secteurs dispo : tech | finance | commerce | droit | agriculture | securite | immobilier | sante\n\n"
-    "💰 <b>Combien tu gagnes selon ton poste ?</b>\n"
-    "👷 Stagiaire → 0$ (t'es là pour apprendre, pas te la couler 😂)\n"
-    "👷 Employé → 10% des revenus journaliers\n"
-    "💼 Manager → 20%\n"
-    "🏦 Directeur → 35%\n"
-    "👑 PDG → dividendes perso via <code>/retraitboite</code> 🤑\n\n"
-    "📈 <b>Fais grandir ta boîte :</b>\n"
-    "🏪 Startup → 🏢 PME → 🏬 Société → 🏦 Corporation → 👑 Holding (10 milliards !)\n\n"
-    "🕹️ <b>Commandes utiles :</b>\n"
-    "<code>/monentreprise</code> — Ta fiche perso\n"
-    "<code>/salaireinfo</code> — Combien t'as gagné\n"
-    "<code>/listeboites</code> — Toutes les boîtes dispo\n"
-    "<code>/parts</code> — Qui possède quoi\n"
-    "<code>/acheterparts nb nom</code> — OPA ! Rachète une boîte 😈"
+from handlers.tree     import tree
+from handlers.garden   import garden, plant_cmd, harvest
+from handlers.profile  import me, setpic, customize, color_callback, titles, karmainfo
+from handlers.events   import check_anniversaries
+from handlers.events_random import setup_random_events, open_chest_cmd
+from handlers.economy  import (
+    acc, daily, work, pay, richlist,
+    blackjack, roulette, slots,
 )
+from handlers.games import (
+    crash_cmd, crash_callback,
+    apple_cmd, apple_callback,
+    roue_cmd,
+    rebet_cmd, rebet_callback,
+    setmood_cmd,
+    mood_facile_cmd, mood_normal_cmd, mood_difficile_cmd, mood_impitoyable_cmd, mood_auto_cmd,
+    mines_cmd, mines_callback,
+)
+from handlers.arena import (
+    cockfight_cmd, cockfight_callback,
+    ppc_cmd, ppc_callback,
+    lancer_cmd, lancer_callback,
+)
+from handlers.admin    import (
+    adminhelp, give, take, setcoins, userinfo,
+    ban, unban, resetuser,
+    adminadd, adminremove, adminlist, userlist, broadcast,
+    liberer, prisonlist, emprisonner,
+    is_admin, pause, resume,
+    giveportfolio, takeportfolio, marketlist,
+    useractivity,
+    enquete,
+    richlista,
+    logs_cmd, suspicious_cmd, grouplist_cmd, groupscan_cmd,
+    fin, donate,
+    admindiplome,
+    # ── God Mode ──────────────────────────────────────────────────────────────
+    statsbot, resetcooldown, addkarma, setkarma,
+    wipeinventory, resetbanque, kickboite, deletecompany,
+    forcepdg, purgeprison, freeze, unfreeze,
+    inflation, checkuser, setreputation, addvalue,
+    wipeloans, broadcastdm, topactifs,
+    mutecompany, unmutecompany,
+)
+from handlers.bank     import (
+    banks, bankopen, bankdeposit, bankwithdraw,
+    bankbalance, bankloan, bankrepay, bankloans,
+    pay_interests, remind_loans,
+)
+from handlers.invest   import market, market_callback, buy, sell, portfolio
+from handlers.crime    import (
+    police, bail, bail_judgment, juge, juge_callback,
+    security, security_callback,
+    init_crime_tables,
+    _is_in_prison, _get_prison, _fmt,
+)
+from handlers.auction import (
+    bid, expertise, expertise_callback, auction_callback,
+    myitems, sellitem, shopitems, buyitem,
+    init_auction_tables, setup_auction_jobs,
+)
+from handlers.wealth_drain import (
+    impots, cambrioler,
+    init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
+    job_tax_top10, job_tax_top30,
+)
+from handlers.drames import drame, setdramesesuil
+from handlers.article import article_cmd
+from handlers.diplome import diplome_cmd, diplome_callback
+from handlers.company import (
+    init_company_tables, update_company_activity,
+    listeboites_cmd, infoboite_cmd, creerboite_cmd,
+    postuler_cmd, candidatures_cmd, accepter_cmd, refuser_cmd,
+    recruter_cmd, rejoindre_cmd, demissionner_cmd,
+    nommer_cmd, monentreprise_cmd,
+    depotboite_cmd, retraitboite_cmd, logsboite_cmd,
+    parts_cmd, vendreparts_cmd, acheterparts_cmd,
+    licencier_cmd, dissoudreboite_cmd, job_daily_report, job_company_revenues,
+    salaireinfo_cmd,
+)
+from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
+from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
+
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+WEBHOOK_URL = "https://farmbot-77xl.onrender.com"
+PORT = int(os.environ.get("PORT", 8080))
+
+PRISON_EXEMPT_COMMANDS = {
+    "start", "help", "bail", "bail_judgment",
+    "adminhelp", "give", "take", "setcoins", "userinfo",
+    "ban", "unban", "resetuser", "adminadd", "adminremove",
+    "adminlist", "userlist", "broadcast", "liberer", "prisonlist", "emprisonner",
+    "pause", "resume", "enquete", "richlista",
+    "fin", "donate",
+}
+
+# Commandes accessibles même en étant banni (commandes admin uniquement)
+BAN_EXEMPT_COMMANDS = {
+    "ban", "unban", "adminhelp", "give", "take", "setcoins", "userinfo",
+    "adminadd", "adminremove", "adminlist", "userlist", "broadcast",
+    "liberer", "prisonlist", "emprisonner", "pause", "resume",
+    "enquete", "richlista", "logs", "suspicious", "grouplist", "groupscan",
+    "fin", "donate", "resetuser", "useractivity",
+}
 
 
-# ─── CLAVIER MISE À JOUR ──────────────────────────────────────────────────────
+async def ban_middleware(update: Update, context) -> None:
+    """Bloque toutes les interactions des utilisateurs bannis."""
+    user = update.effective_user
+    if not user:
+        return
+    try:
+        async with AsyncSessionLocal() as _s:
+            from database.db import get_user as _gu
+            _u = await _gu(_s, user.id)
+            if not _u or not _u.is_banned:
+                return
+        # L'utilisateur est banni — vérifier s'il est admin
+        if await is_admin(user.id):
+            return
+        # Laisser passer les commandes admin
+        if update.message and update.message.text:
+            cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
+            if cmd in BAN_EXEMPT_COMMANDS:
+                return
+        # Ignorer silencieusement — aucune réponse, aucun tag
+        if update.callback_query:
+            await update.callback_query.answer()  # acquitter sans message visible
+        raise ApplicationHandlerStop()
+    except ApplicationHandlerStop:
+        raise
+    except Exception:
+        pass
 
-def _nouveautes_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🎓 En savoir plus : Diplômes", callback_data="info:diplomes"),
-            InlineKeyboardButton("🏢 En savoir plus : Entreprises", callback_data="info:entreprises"),
-        ]
-    ])
+
+async def prison_middleware(update: Update, context) -> bool:
+    if not update.message or not update.message.text:
+        return False
+    user = update.effective_user
+    if not user:
+        return False
+    text = update.message.text
+    if not text.startswith("/"):
+        return False
+    command = text.split()[0].lstrip("/").split("@")[0].lower()
+    if command in PRISON_EXEMPT_COMMANDS:
+        return False
+    if await is_admin(user.id):
+        return False
+    try:
+        async with AsyncSessionLocal() as session:
+            from datetime import datetime
+            prison_row_res = await session.execute(
+                __import__("sqlalchemy").text("SELECT * FROM crime_prison WHERE user_id = :uid"),
+                {"uid": user.id}
+            )
+            prison_row = prison_row_res.fetchone()
+            if not prison_row:
+                return False
+            now = datetime.utcnow()
+            if now >= prison_row.released_at:
+                await session.execute(
+                    __import__("sqlalchemy").text("DELETE FROM crime_prison WHERE user_id = :uid"),
+                    {"uid": user.id}
+                )
+                await session.commit()
+                return False
+            minutes_left = max(0, int((prison_row.released_at - now).total_seconds() / 60))
+            h = minutes_left // 60
+            m = minutes_left % 60
+            duration_str = f"{h}h{m:02d}m" if h > 0 else f"{m} minute(s)"
+            await update.message.reply_text(
+                f"🔒 <b>Tu es en prison !</b>\n\n"
+                f"La commande <code>/{command}</code> n'est pas disponible.\n"
+                f"⏳ Libération dans : <b>{duration_str}</b>\n"
+                f"💸 Caution : <b>{_fmt(prison_row.bail_amount)} 💰</b>\n\n"
+                f"Demande à quelqu'un de payer ta caution avec <code>/bail @toi</code>",
+                parse_mode="HTML"
+            )
+            return True
+    except Exception as e:
+        logger.error(f"Erreur prison_middleware: {e}")
+        return False
 
 
-START_PHOTO = "assets/start_banner.jpg"
 
 
-# ─── COMMANDES ────────────────────────────────────────────────────────────────
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await ensure_user(update.effective_user)
+async def group_tracking_middleware(update: Update, context) -> None:
+    chat = update.effective_chat
+    if not chat or chat.type not in ("group", "supergroup", "channel"):
+        return
+    try:
+        invite_link  = None
+        username     = chat.username
+        if not username:
+            try:
+                invite_link = await context.bot.export_chat_invite_link(chat.id)
+            except Exception:
+                pass
+        try:
+            member_count = await context.bot.get_chat_member_count(chat.id)
+        except Exception:
+            member_count = None
+        await upsert_group(group_id=chat.id, title=chat.title or "Sans nom",
+                           username=username, chat_type=chat.type,
+                           member_count=member_count, invite_link=invite_link)
+    except Exception as e:
+        logger.debug(f"group_tracking_middleware error: {e}")
 
-    caption = (
-        f"👋 <b>Bienvenue, {update.effective_user.first_name} !</b>\n\n"
-        "💞 <b>Your Family ❤️</b> — Construis ta famille virtuelle !\n\n"
-        "👨‍👩‍👧 Marie-toi, adopte, crée ton arbre généalogique.\n"
-        "🌱 Gère ton jardin et récolte tes plantes.\n"
-        "🎲 Joue au casino et enrichis ta dynastie.\n"
-        "🎓 Passe tes diplômes et bâtis ton empire entrepreneurial !\n\n"
-        "Tape /help pour voir toutes les commandes.\n"
-        "Tape /nouveautes pour les dernières nouveautés."
+
+async def my_chat_member_handler(update: Update, context) -> None:
+    from telegram import ChatMemberLeft, ChatMemberBanned
+    result = update.my_chat_member
+    if not result:
+        return
+    chat = result.chat
+    new  = result.new_chat_member
+    if chat.type not in ("group", "supergroup", "channel"):
+        return
+    try:
+        if isinstance(new, (ChatMemberLeft, ChatMemberBanned)):
+            await mark_group_inactive(chat.id)
+        else:
+            invite_link  = None
+            username     = chat.username
+            if not username:
+                try:
+                    invite_link = await context.bot.export_chat_invite_link(chat.id)
+                except Exception:
+                    pass
+            try:
+                member_count = await context.bot.get_chat_member_count(chat.id)
+            except Exception:
+                member_count = None
+            await upsert_group(group_id=chat.id, title=chat.title or "Sans nom",
+                               username=username, chat_type=chat.type,
+                               member_count=member_count, invite_link=invite_link)
+    except Exception as e:
+        logger.error(f"my_chat_member_handler error: {e}")
+
+
+async def activity_logging_middleware(update: Update, context) -> None:
+    """Logue automatiquement chaque commande utilisée."""
+    if not update.message or not update.message.text:
+        return
+    user = update.effective_user
+    if not user:
+        return
+    txt = update.message.text
+    if not txt.startswith("/"):
+        return
+    parts   = txt.split()
+    command = parts[0].lstrip("/").split("@")[0].lower()
+    args    = " ".join(parts[1:]) if len(parts) > 1 else None
+    group_id = update.effective_chat.id if update.effective_chat else None
+    # Extraire un montant si possible (premier arg numérique)
+    amount = None
+    for p in parts[1:]:
+        try:
+            amount = int(p.replace("_", "").replace(" ", ""))
+            break
+        except ValueError:
+            pass
+    try:
+        async with AsyncSessionLocal() as session:
+            await log_action(
+                session,
+                user_id  = user.id,
+                username = user.username or user.first_name,
+                command  = command,
+                args     = args,
+                amount   = amount,
+                group_id = group_id,
+            )
+    except Exception as e:
+        logger.debug(f"Erreur log_action: {e}")
+    # Mettre à jour l'activité entreprise
+    try:
+        await update_company_activity(user.id)
+    except Exception as e:
+        logger.debug(f"Erreur update_company_activity: {e}")
+
+async def on_startup(application: Application):
+    await init_db()
+    await init_logs_table()
+    await init_groups_table()   # ← crée activity_logs si elle n'existe pas
+    await init_journal_table()
+    await init_crime_tables()
+    await init_drain_tables()
+    await _ensure_cambriolage_cd_table()
+    await init_auction_tables()
+    await init_company_tables()
+    logger.info("Base de données initialisée.")
+
+
+async def error_handler(update: object, context):
+    logger.error("Exception dans un handler :", exc_info=context.error)
+    if isinstance(update, Update) and update.message:
+        try:
+            await update.message.reply_text(
+                "⚠️ Une erreur s'est produite. Réessaie dans quelques instants."
+            )
+        except Exception:
+            pass
+
+
+def _prison_checked(handler_func):
+    async def wrapper(update: Update, context):
+        import handlers.admin as _admin_mod
+        if _admin_mod.BOT_PAUSED:
+            if not await is_admin(update.effective_user.id):
+                await update.message.reply_text(
+                    "⏸️ <b>Le bot est actuellement en pause.</b>\nRevenez plus tard !",
+                    parse_mode="HTML",
+                )
+                return
+        if await prison_middleware(update, context):
+            return
+        return await handler_func(update, context)
+    wrapper.__name__ = handler_func.__name__
+    return wrapper
+
+
+async def main():
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .updater(None)
+        .post_init(on_startup)
+        .build()
     )
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Ajouter au groupe", url=f"https://t.me/{context.bot.username}?startgroup=start")],
-        [
-            InlineKeyboardButton("📖 Guide rapide", url="https://telegra.ph/FarmBot-Guide-des-commandes"),
-            InlineKeyboardButton("📢 Canal officiel", url="https://t.me/familybot_channel"),
-        ],
-        [InlineKeyboardButton("🛠 Contacter le dev", url="https://t.me/yoshider")],
-    ])
+    app.add_error_handler(error_handler)
+
+    # ── Middleware de logging automatique ─────────────────────────────────────
+    app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
+    app.add_handler(TypeHandler(Update, group_tracking_middleware),   group=-2)
+    app.add_handler(TypeHandler(Update, ban_middleware),              group=-3)
+    from telegram.ext import ChatMemberHandler
+    app.add_handler(ChatMemberHandler(my_chat_member_handler, ChatMemberHandler.MY_CHAT_MEMBER))
+
+    # ── Général ───────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("start",       start))
+    app.add_handler(CommandHandler("help",        help_cmd))
+    app.add_handler(CommandHandler("leaderboard", _prison_checked(leaderboard)))
+    app.add_handler(CommandHandler("mode",        _prison_checked(mode)))
+    app.add_handler(CommandHandler("toggle",      _prison_checked(toggle)))
+    app.add_handler(CommandHandler("nouveautes",  nouveautes_cmd))
+    app.add_handler(CallbackQueryHandler(nouveautes_callback, pattern=r"^info:"))
+
+    # ── Famille ───────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("marry",         _prison_checked(marry)))
+    app.add_handler(CommandHandler("adopt",         _prison_checked(adopt)))
+    app.add_handler(CommandHandler("friend",        _prison_checked(friend)))
+    app.add_handler(CommandHandler("divorce",       _prison_checked(divorce)))
+    app.add_handler(CommandHandler("disown",        _prison_checked(disown)))
+    app.add_handler(CommandHandler("unfriend",      _prison_checked(unfriend)))
+    app.add_handler(CommandHandler("setfamilyname", _prison_checked(setfamilyname)))
+    app.add_handler(CommandHandler("leave",         _prison_checked(leave)))
+    app.add_handler(CommandHandler("familyphoto",   _prison_checked(familyphoto)))
+
+    # ── Arbre ─────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("tree",    _prison_checked(tree)))
+
+    # ── Jardin ────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("garden",  _prison_checked(garden)))
+    app.add_handler(CommandHandler("plant",   _prison_checked(plant_cmd)))
+    app.add_handler(CommandHandler("harvest", _prison_checked(harvest)))
+
+    # ── Profil ────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("me",        _prison_checked(me)))
+    app.add_handler(CommandHandler("setpic",    _prison_checked(setpic)))
+    app.add_handler(CommandHandler("customize", _prison_checked(customize)))
+    app.add_handler(CommandHandler("titles",    _prison_checked(titles)))
+    app.add_handler(CommandHandler("karmainfo", karmainfo))
+
+    # ── Économie ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("acc",        _prison_checked(acc)))
+    app.add_handler(CommandHandler("daily",      _prison_checked(daily)))
+    app.add_handler(CommandHandler("work",       _prison_checked(work)))
+    app.add_handler(CommandHandler("pay",        _prison_checked(pay)))
+    app.add_handler(CommandHandler("richlist",   _prison_checked(richlist)))
+    app.add_handler(CommandHandler("blackjack",  _prison_checked(blackjack)))
+    app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
+    app.add_handler(CommandHandler("slots",      _prison_checked(slots)))
+
+    # ── Jeux ──────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("crash",  _prison_checked(crash_cmd)))
+    app.add_handler(CommandHandler("apple",  _prison_checked(apple_cmd)))
+    app.add_handler(CommandHandler("roue",     _prison_checked(roue_cmd)))
+    app.add_handler(CommandHandler("setmood",      setmood_cmd))
+    app.add_handler(CommandHandler("facile",       mood_facile_cmd))
+    app.add_handler(CommandHandler("normal",       mood_normal_cmd))
+    app.add_handler(CommandHandler("difficile",    mood_difficile_cmd))
+    app.add_handler(CommandHandler("impitoyable",  mood_impitoyable_cmd))
+    app.add_handler(CommandHandler("moodauto",     mood_auto_cmd))
+    app.add_handler(CommandHandler("rebet",  _prison_checked(rebet_cmd)))
+
+    # ── Arène PvP ─────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("cockfight", _prison_checked(cockfight_cmd)))
+    app.add_handler(CommandHandler("ppc",       _prison_checked(ppc_cmd)))
+    app.add_handler(CommandHandler("lancer",    _prison_checked(lancer_cmd)))
+
+    # ── Jeux ──────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("mines",     _prison_checked(mines_cmd)))
+
+    app.add_handler(CallbackQueryHandler(crash_callback,      pattern=r"^crash:"))
+    app.add_handler(CallbackQueryHandler(apple_callback,      pattern=r"^apple:"))
+    app.add_handler(CallbackQueryHandler(rebet_callback,      pattern=r"^rebet:"))
+    app.add_handler(CallbackQueryHandler(cockfight_callback,  pattern=r"^cf:"))
+    app.add_handler(CallbackQueryHandler(ppc_callback,        pattern=r"^ppc:"))
+    app.add_handler(CallbackQueryHandler(lancer_callback,     pattern=r"^lancer:"))
+    app.add_handler(CallbackQueryHandler(mines_callback,      pattern=r"^mines:"))
+    app.add_handler(CallbackQueryHandler(market_callback,     pattern=r"^mkt:"))
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("adminhelp",      adminhelp))
+    app.add_handler(CommandHandler("give",           give))
+    app.add_handler(CommandHandler("take",           take))
+    app.add_handler(CommandHandler("setcoins",       setcoins))
+    app.add_handler(CommandHandler("userinfo",       userinfo))
+    app.add_handler(CommandHandler("ban",            ban))
+    app.add_handler(CommandHandler("unban",          unban))
+    app.add_handler(CommandHandler("resetuser",      resetuser))
+    app.add_handler(CommandHandler("adminadd",       adminadd))
+    app.add_handler(CommandHandler("adminremove",    adminremove))
+    app.add_handler(CommandHandler("adminlist",      adminlist))
+    app.add_handler(CommandHandler("userlist",       userlist))
+    app.add_handler(CommandHandler("broadcast",      broadcast))
+    app.add_handler(CommandHandler("liberer",        liberer))
+    app.add_handler(CommandHandler("prisonlist",     prisonlist))
+    app.add_handler(CommandHandler("emprisonner",    emprisonner))
+    app.add_handler(CommandHandler("pause",          pause))
+    app.add_handler(CommandHandler("resume",         resume))
+    app.add_handler(CommandHandler("giveportfolio",  giveportfolio))
+    app.add_handler(CommandHandler("takeportfolio",  takeportfolio))
+    app.add_handler(CommandHandler("marketlist",     marketlist))
+    app.add_handler(CommandHandler("useractivity",   useractivity))
+    app.add_handler(CommandHandler("enquete",        enquete))
+    app.add_handler(CommandHandler("richlista",      richlista))
+    app.add_handler(CommandHandler("drame",          drame))
+    app.add_handler(CommandHandler("article",        article_cmd))
+    app.add_handler(CommandHandler("setdramesesuil", setdramesesuil))
+    app.add_handler(CommandHandler("logs",           logs_cmd))
+    app.add_handler(CommandHandler("suspicious",     suspicious_cmd))
+    app.add_handler(CommandHandler("grouplist",      grouplist_cmd))
+    app.add_handler(CommandHandler("groupscan",       groupscan_cmd))
+    app.add_handler(CommandHandler("fin",            fin))
+    app.add_handler(CommandHandler("donate",         donate))
+
+    # ── Banque ────────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("banks",        _prison_checked(banks)))
+    app.add_handler(CommandHandler("bankopen",     _prison_checked(bankopen)))
+    app.add_handler(CommandHandler("bankdeposit",  _prison_checked(bankdeposit)))
+    app.add_handler(CommandHandler("bankwithdraw", _prison_checked(bankwithdraw)))
+    app.add_handler(CommandHandler("bankbalance",  _prison_checked(bankbalance)))
+    app.add_handler(CommandHandler("bankloan",     _prison_checked(bankloan)))
+    app.add_handler(CommandHandler("bankrepay",    _prison_checked(bankrepay)))
+    app.add_handler(CommandHandler("bankloans",    _prison_checked(bankloans)))
+
+    # ── Investissements ───────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("market",    _prison_checked(market)))
+    app.add_handler(CommandHandler("buy",       _prison_checked(buy)))
+    app.add_handler(CommandHandler("sell",      _prison_checked(sell)))
+    app.add_handler(CommandHandler("portfolio", _prison_checked(portfolio)))
+
+    # ── Loterie ───────────────────────────────────────────────────────────────
+
+    # ── Criminalité ───────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("police",        _prison_checked(police)))
+    app.add_handler(CommandHandler("bail",          bail))
+    app.add_handler(CommandHandler("bail_judgment", bail_judgment))
+    app.add_handler(CommandHandler("juge",          _prison_checked(juge)))
+    app.add_handler(CommandHandler("security",      _prison_checked(security)))
+
+    # ── Événements aléatoires ─────────────────────────────────────────────────
+    app.add_handler(CommandHandler("open", _prison_checked(open_chest_cmd)))
+    setup_random_events(app)
+
+    # ── Callbacks ─────────────────────────────────────────────────────────────
+    app.add_handler(CallbackQueryHandler(request_callback,   pattern=r"^req:"))
+    app.add_handler(CallbackQueryHandler(leave_callback,     pattern=r"^leave:"))
+    app.add_handler(CallbackQueryHandler(color_callback,     pattern=r"^color:"))
+    app.add_handler(CallbackQueryHandler(juge_callback,      pattern=r"^juge:"))
+    app.add_handler(CallbackQueryHandler(security_callback,  pattern=r"^sec:"))
+
+    # ── Diplômes ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("diplome", _prison_checked(diplome_cmd)))
+    app.add_handler(CallbackQueryHandler(diplome_callback, pattern=r"^exam:"))
+    app.add_handler(CommandHandler("admindiplome", admindiplome))
+
+    # ── God Mode ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("statsbot",       statsbot))
+    app.add_handler(CommandHandler("resetcooldown",  resetcooldown))
+    app.add_handler(CommandHandler("addkarma",       addkarma))
+    app.add_handler(CommandHandler("setkarma",       setkarma))
+    app.add_handler(CommandHandler("wipeinventory",  wipeinventory))
+    app.add_handler(CommandHandler("resetbanque",    resetbanque))
+    app.add_handler(CommandHandler("kickboite",      kickboite))
+    app.add_handler(CommandHandler("deletecompany",  deletecompany))
+    app.add_handler(CommandHandler("forcepdg",       forcepdg))
+    app.add_handler(CommandHandler("purgeprison",    purgeprison))
+    app.add_handler(CommandHandler("freeze",         freeze))
+    app.add_handler(CommandHandler("unfreeze",       unfreeze))
+    app.add_handler(CommandHandler("inflation",      inflation))
+    app.add_handler(CommandHandler("checkuser",      checkuser))
+    app.add_handler(CommandHandler("setreputation",  setreputation))
+    app.add_handler(CommandHandler("addvalue",       addvalue))
+    app.add_handler(CommandHandler("wipeloans",      wipeloans))
+    app.add_handler(CommandHandler("broadcastdm",    broadcastdm))
+    app.add_handler(CommandHandler("topactifs",      topactifs))
+    app.add_handler(CommandHandler("mutecompany",    mutecompany))
+    app.add_handler(CommandHandler("unmutecompany",  unmutecompany))
+
+    # ── Entreprises ───────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("listeboites",   _prison_checked(listeboites_cmd)))
+    app.add_handler(CommandHandler("infoboite",     _prison_checked(infoboite_cmd)))
+    app.add_handler(CommandHandler("creerboite",    _prison_checked(creerboite_cmd)))
+    app.add_handler(CommandHandler("postuler",      _prison_checked(postuler_cmd)))
+    app.add_handler(CommandHandler("candidatures",  _prison_checked(candidatures_cmd)))
+    app.add_handler(CommandHandler("accepter",      _prison_checked(accepter_cmd)))
+    app.add_handler(CommandHandler("refuser",       _prison_checked(refuser_cmd)))
+    app.add_handler(CommandHandler("recruter",      _prison_checked(recruter_cmd)))
+    app.add_handler(CommandHandler("rejoindre",     _prison_checked(rejoindre_cmd)))
+    app.add_handler(CommandHandler("demissionner",  _prison_checked(demissionner_cmd)))
+    app.add_handler(CommandHandler("nommer",        _prison_checked(nommer_cmd)))
+    app.add_handler(CommandHandler("monentreprise", _prison_checked(monentreprise_cmd)))
+    app.add_handler(CommandHandler("depotboite",    _prison_checked(depotboite_cmd)))
+    app.add_handler(CommandHandler("retraitboite",  _prison_checked(retraitboite_cmd)))
+    app.add_handler(CommandHandler("logsboite",     _prison_checked(logsboite_cmd)))
+    app.add_handler(CommandHandler("parts",         _prison_checked(parts_cmd)))
+    app.add_handler(CommandHandler("vendreparts",   _prison_checked(vendreparts_cmd)))
+    app.add_handler(CommandHandler("acheterparts",  _prison_checked(acheterparts_cmd)))
+    app.add_handler(CommandHandler("licencier",      _prison_checked(licencier_cmd)))
+    app.add_handler(CommandHandler("dissoudreboite",  _prison_checked(dissoudreboite_cmd)))
+    app.add_handler(CommandHandler("salaireinfo",     _prison_checked(salaireinfo_cmd)))
+
+    # ── Enchères ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("bid",       _prison_checked(bid)))
+    app.add_handler(CommandHandler("expertise", _prison_checked(expertise)))
+    app.add_handler(CommandHandler("myitems",   _prison_checked(myitems)))
+    app.add_handler(CommandHandler("sellitem",  _prison_checked(sellitem)))
+    app.add_handler(CommandHandler("shopitems", _prison_checked(shopitems)))
+    app.add_handler(CommandHandler("buyitem",   _prison_checked(buyitem)))
+    app.add_handler(CallbackQueryHandler(auction_callback,   pattern=r"^auction:bid:"))
+    app.add_handler(CallbackQueryHandler(auction_callback,   pattern=r"^auction:info:"))
+    app.add_handler(CallbackQueryHandler(expertise_callback, pattern=r"^auction:(sellnow|keep):"))
+
+    # ── Drainage ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
+    app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
+    setup_drain_jobs(app)
+
+    # ── Jobs ──────────────────────────────────────────────────────────────────
+    app.job_queue.run_daily(
+        check_anniversaries,
+        time=time(hour=8, minute=0),
+        name="anniversary_check",
+    )
+    app.job_queue.run_repeating(
+        pay_interests,
+        interval=timedelta(hours=6),
+        first=timedelta(minutes=5),
+        name="bank_interests",
+    )
+    app.job_queue.run_repeating(
+        remind_loans,
+        interval=timedelta(hours=84),
+        first=timedelta(minutes=10),
+        name="loan_reminders",
+    )
+    setup_auction_jobs(app)
+    setup_journal_jobs(app)
+    app.add_handler(CommandHandler("testjournal", testjournal_cmd))
+
+    # ── Job revenus entreprises (toutes les 24h) ──────────────────────────────
+    app.job_queue.run_repeating(
+        job_company_revenues,
+        interval=timedelta(hours=24),
+        first=timedelta(minutes=15),
+        name="company_revenues",
+    )
+
+    # ── Job rapport quotidien 18h (PDG) ─────────────────────────────────────────
+    from datetime import time as dt_time
+    import pytz
+    tz_paris = pytz.timezone("Africa/Abidjan")  # UTC+0 = Lomé/Abidjan
+    app.job_queue.run_daily(
+        job_daily_report,
+        time=dt_time(hour=18, minute=0, tzinfo=tz_paris),
+        name="daily_report",
+    )
+
+    # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────
+    async def health(request):
+        return web.Response(text="OK", status=200)
+
+    async def telegram_webhook(request):
+        data = await request.json()
+        update = Update.de_json(data, app.bot)
+        await app.process_update(update)
+        return web.Response(text="OK")
+
+    webserver = web.Application()
+    webserver.router.add_get("/", health)
+    webserver.router.add_post("/webhook", telegram_webhook)
+
+    await app.initialize()
+    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+    await app.start()
+
+    logger.info(f"Bot démarré sur port {PORT} — webhook + health check actifs.")
+
+    runner = web.AppRunner(webserver)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
 
     try:
-        with open("assets/start_banner.jpg", "rb") as photo:
-            await update.message.reply_photo(
-                photo=photo,
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard,
-            )
-    except Exception:
-        await update.message.reply_text(
-            caption,
-            parse_mode=ParseMode.HTML,
-            reply_markup=keyboard,
-        )
+        await asyncio.Event().wait()
+    finally:
+        await app.stop()
+        await app.shutdown()
+        await runner.cleanup()
 
 
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(HELP_TEXT, parse_mode=ParseMode.HTML)
-
-
-async def nouveautes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from handlers.admin import is_admin
-    from database.models import User, GroupSettings
-    from sqlalchemy import select
-
-    if not await is_admin(update.effective_user.id):
-        await update.message.reply_text(
-            NOUVEAUTES_TEXT,
-            parse_mode=ParseMode.HTML,
-            reply_markup=_nouveautes_keyboard(),
-        )
-        return
-
-    await update.message.reply_text("📡 Envoi en cours à tous les membres et groupes...")
-
-    sent_users, failed_users = 0, 0
-    sent_groups, failed_groups = 0, 0
-
-    async with AsyncSessionLocal() as session:
-        res = await session.execute(select(User).where(User.is_banned == False))
-        user_rows = res.scalars().all()
-        res2 = await session.execute(select(GroupSettings))
-        group_rows = res2.scalars().all()
-
-    for u in user_rows:
-        try:
-            await context.bot.send_message(
-                chat_id=u.user_id,
-                text=NOUVEAUTES_TEXT,
-                parse_mode=ParseMode.HTML,
-                reply_markup=_nouveautes_keyboard(),
-            )
-            sent_users += 1
-        except Exception:
-            failed_users += 1
-
-    for g in group_rows:
-        try:
-            await context.bot.send_message(
-                chat_id=g.group_id,
-                text=NOUVEAUTES_TEXT,
-                parse_mode=ParseMode.HTML,
-                reply_markup=_nouveautes_keyboard(),
-            )
-            sent_groups += 1
-        except Exception:
-            failed_groups += 1
-
-    await update.message.reply_text(
-        f"✅ <b>Broadcast terminé !</b>
-"
-        f"👤 Users   → ✅ {sent_users}  ❌ {failed_users}
-"
-        f"👥 Groupes → ✅ {sent_groups}  ❌ {failed_groups}
-"
-        f"📊 Total : {sent_users + sent_groups}",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-async def nouveautes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
-
-    if data == "info:diplomes":
-        popup = (
-            "🎓 LES DIPLÔMES
-
-"
-            "Lance /diplome pour passer un exam !
-
-"
-            "📄 Bac — Le début, tout le monde peut l avoir
-"
-            "🎓 Licence — Manager + choix de ton secteur
-"
-            "🏅 Master — Directeur + entreprises de prestige
-"
-            "👑 MBA — Le graal. Crée les plus grosses boîtes
-
-"
-            "Meilleur diplôme = meilleur poste = plus d argent 💸"
-        )
-    elif data == "info:entreprises":
-        popup = (
-            "🏢 LES ENTREPRISES
-
-"
-            "Option 1 — Rejoindre une boîte du jeu
-"
-            "/postuler NexaTech (selon ton diplôme)
-
-"
-            "Option 2 — Créer ta propre boîte
-"
-            "Coût : 50 000 000 $ + Licence minimum
-"
-            "/creerboite MonEntreprise tech
-
-"
-            "💰 Revenus par poste :
-"
-            "👷 Stagiaire → 0$
-"
-            "👷 Employé → 10%
-"
-            "💼 Manager → 20%
-"
-            "🏦 Directeur → 35%
-"
-            "👑 PDG → dividendes 🤑
-
-"
-            "🏪 Startup → PME → Société → Corporation → 👑 Holding"
-        )
-    else:
-        popup = "❓ Section inconnue."
-
-    await query.answer(text=popup, show_alert=True)
-
-
-async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    async with AsyncSessionLocal() as session:
-        top = await get_leaderboard(session, 10)
-        if not top:
-            return await update.message.reply_text("Aucune donnée disponible.")
-
-        lines  = ["<b>🏆 Classement — Plus grandes familles</b>\n"]
-        medals = ["🥇", "🥈", "🥉"]
-        for i, entry in enumerate(top):
-            u     = entry["user"]
-            size  = entry["size"]
-            medal = medals[i] if i < 3 else f"{i+1}."
-            title = await compute_title(session, u.user_id)
-            lines.append(f"{medal} {u.first_name} — {size} membres  {title}  Karma: {u.karma}")
-
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
-
-
-async def mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type not in ("group", "supergroup"):
-        return await update.message.reply_text("Commande de groupe uniquement.")
-    group_id = update.effective_chat.id
-    async with AsyncSessionLocal() as session:
-        s      = await get_settings(session, group_id)
-        s.mode = "group" if s.mode == "global" else "global"
-        await session.commit()
-        new_mode = s.mode
-    await update.message.reply_text(f"Mode : <b>{new_mode}</b>", parse_mode=ParseMode.HTML)
-
-
-async def toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type not in ("group", "supergroup"):
-        return await update.message.reply_text("Commande de groupe uniquement.")
-    if not context.args:
-        return await update.message.reply_text("Usage : /toggle garden")
-
-    feature  = context.args[0].lower()
-    group_id = update.effective_chat.id
-
-    async with AsyncSessionLocal() as session:
-        s = await get_settings(session, group_id)
-        if feature == "garden":
-            s.garden_enabled = not s.garden_enabled
-            state = "activé ✅" if s.garden_enabled else "désactivé ❌"
-        else:
-            return await update.message.reply_text("Fonctionnalité inconnue. Seul 'garden' est disponible.")
-        await session.commit()
-
-    await update.message.reply_text(f"{feature.capitalize()} : {state}.")
+if __name__ == "__main__":
+    asyncio.run(main())

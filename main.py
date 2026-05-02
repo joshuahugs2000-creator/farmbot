@@ -16,7 +16,7 @@ from telegram.ext import (
 from config import BOT_TOKEN
 from database import init_db
 
-from handlers.misc     import start, help_cmd, leaderboard, mode, toggle
+from handlers.misc     import start, help_cmd, leaderboard, mode, toggle, nouveautes_cmd, nouveautes_callback
 from handlers.family   import (
     marry, adopt, friend, divorce, disown, unfriend,
     setfamilyname, leave, familyphoto,
@@ -365,6 +365,7 @@ async def main():
     # ── Général ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("help",        help_cmd))
+    app.add_handler(CommandHandler("nouveautes",  nouveautes_cmd))
     app.add_handler(CommandHandler("leaderboard", _prison_checked(leaderboard)))
     app.add_handler(CommandHandler("mode",        _prison_checked(mode)))
     app.add_handler(CommandHandler("toggle",      _prison_checked(toggle)))
@@ -502,6 +503,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(request_callback,   pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,     pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,     pattern=r"^color:"))
+    app.add_handler(CallbackQueryHandler(nouveautes_callback, pattern=r"^info:"))
     app.add_handler(CallbackQueryHandler(juge_callback,      pattern=r"^juge:"))
     app.add_handler(CallbackQueryHandler(security_callback,  pattern=r"^sec:"))
 

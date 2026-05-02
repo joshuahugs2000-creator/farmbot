@@ -565,10 +565,16 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Vérifier nom unique
-        exists = await _get_company_by_name(session, name)
-        if exists:
-            await update.message.reply_text(f"❌ Une entreprise nommée <b>{name}</b> existe déjà.", parse_mode="HTML")
+        # Vérifier nom unique (actives ET inactives pour éviter UniqueViolationError)
+        exists_any = (await session.execute(
+            select(Company).where(Company.name.ilike(name))
+        )).scalar_one_or_none()
+        if exists_any:
+            await update.message.reply_text(
+                f"❌ Une entreprise nommée <b>{name}</b> existe déjà (ou a existé).\n"
+                f"Choisis un autre nom.",
+                parse_mode="HTML"
+            )
             return
 
         # Créer
@@ -587,7 +593,15 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_bot_company=False,
         )
         session.add(new_company)
-        await session.flush()
+        try:
+            await session.flush()
+        except Exception:
+            await session.rollback()
+            await update.message.reply_text(
+                f"❌ Ce nom est déjà pris en base de données. Choisis un autre nom.",
+                parse_mode="HTML"
+            )
+            return
 
         # Le fondateur devient PDG
         pdg_emp = CompanyEmployee(

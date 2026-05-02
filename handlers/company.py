@@ -1969,3 +1969,106 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"👥 Tous les employés ont été libérés sans cooldown.",
             parse_mode="HTML"
         )
+
+# ─── COMMANDE : /salaireinfo ─────────────────────────────────────────────────
+
+async def salaireinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Affiche le salaire journalier estimé et le solde du compte, avec option de transfert."""
+    user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        db_user = await get_user(session, user.id)
+        company, emp = await _get_user_company(session, user.id)
+
+        if not company:
+            await update.message.reply_text(
+                "❌ Tu ne fais partie d'aucune entreprise.\n"
+                "📋 Rejoins une entreprise avec <code>/listeboites</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        _, _, _, monthly_rate, _ = _level_info(company.level)
+        total_revenue = int(company.value * monthly_rate) // 30
+        personal_share = ROLE_SHARE.get(emp.role, 0.0)
+        personal_revenue = int(total_revenue * personal_share)
+
+        # Ancienneté
+        joined = emp.joined_at if hasattr(emp, "joined_at") and emp.joined_at else None
+        if joined:
+            days_here = (datetime.utcnow() - joined).days
+            anciennete_str = f"{days_here} jour(s)"
+        else:
+            anciennete_str = "N/A"
+
+        role_emoji = ROLE_EMOJI.get(emp.role, "👤")
+        sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
+
+        if emp.role == "pdg":
+            salaire_line = (
+                f"  ╰┈➤  👑 PDG — touche les dividendes via <code>/retraitboite</code>\n"
+            )
+        elif personal_revenue > 0:
+            salaire_line = (
+                f"  ╰┈➤  💵 <b>{_fmt(personal_revenue)} $/jour</b> ({int(personal_share*100)}% du revenu boite)\n"
+                f"  ╰┈➤  📅 Mensuel estimé : <b>{_fmt(personal_revenue * 30)} $</b>\n"
+            )
+        else:
+            salaire_line = (
+                f"  ╰┈➤  Stagiaire — pas de salaire direct\n"
+                f"  ╰┈➤  Passe ton <code>/diplome</code> pour être payé !\n"
+            )
+
+        # Si args : /salaireinfo transfert [montant]
+        if context.args and context.args[0].lower() == "transfert":
+            if emp.role in ("stagiaire", "pdg"):
+                await update.message.reply_text(
+                    "❌ Le transfert de salaire n'est disponible que pour les Employés, Managers et Directeurs."
+                )
+                return
+            if len(context.args) < 2:
+                await update.message.reply_text(
+                    f"❌ Usage : <code>/salaireinfo transfert [montant]</code>\n"
+                    f"💡 Ton salaire/jour estimé : <b>{_fmt(personal_revenue)} $</b>",
+                    parse_mode="HTML"
+                )
+                return
+            try:
+                amount = int(context.args[1].replace("_", ""))
+            except ValueError:
+                await update.message.reply_text("❌ Montant invalide.")
+                return
+            if amount <= 0:
+                await update.message.reply_text("❌ Montant invalide.")
+                return
+            if db_user.coins < amount:
+                await update.message.reply_text(
+                    f"❌ Solde insuffisant. Tu as <b>{_fmt(db_user.coins)} $</b>.",
+                    parse_mode="HTML"
+                )
+                return
+            # Transfert vers son propre compte (c'est déjà son compte — ici on simule un "virement interne")
+            # En pratique : on peut l'utiliser pour envoyer à quelqu'un via /pay
+            await update.message.reply_text(
+                f"💡 Pour transférer de l'argent à quelqu'un, utilise :\n"
+                f"<code>/pay @pseudo {amount}</code>\n\n"
+                f"💰 Ton solde actuel : <b>{_fmt(db_user.coins)} $</b>",
+                parse_mode="HTML"
+            )
+            return
+
+        msg = (
+            f"╔══════════════════════════════╗\n"
+            f"║  💼  MON SALAIRE             ║\n"
+            f"╚══════════════════════════════╝\n\n"
+            f"🏢 <b>{company.name}</b> — {sec_emoji} {sec_name}\n"
+            f"{role_emoji} Poste : <b>{emp.role.capitalize()}</b>\n"
+            f"📅 Ancienneté : <b>{anciennete_str}</b>\n\n"
+            f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈\n\n"
+            f"  📈 SALAIRE\n"
+            f"{salaire_line}\n"
+            f"  💰 TON SOLDE ACTUEL\n"
+            f"  ╰┈➤  <b>{_fmt(db_user.coins)} $</b>\n\n"
+            f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈\n\n"
+            f"💡 Pour envoyer de l'argent : <code>/pay @pseudo [montant]</code>"
+        )
+        await update.message.reply_text(msg, parse_mode="HTML")

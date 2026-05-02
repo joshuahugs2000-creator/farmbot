@@ -4,6 +4,8 @@ from .models import (
     Base, User, GroupSettings, Relationship, PendingRequest,
     Garden, DailyWaifu, KarmaVote, UserBet, RelationType, RequestType,
     CoupleAccount, ActivityLog, BotGroup,
+    Company, CompanyEmployee, CompanyShare,
+    CompanyApplication, CompanyInvite, CompanyLog,
 )
 from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TITLES
 from datetime import datetime, timedelta

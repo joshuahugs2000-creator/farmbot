@@ -223,3 +223,77 @@ class ActivityLog(Base):
     result     = Column(String(50), nullable=True)
     group_id   = Column(BigInteger, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ─── ENTREPRISES ──────────────────────────────────────────────────────────────
+
+class Company(Base):
+    __tablename__ = "companies"
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    name            = Column(String(100), nullable=False, unique=True)
+    sector          = Column(String(50), nullable=False)   # tech, finance, commerce, ...
+    owner_id        = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    group_id        = Column(BigInteger, nullable=False)
+    description     = Column(String(300), nullable=True)
+    value           = Column(BigInteger, default=50_000_000)
+    treasury        = Column(BigInteger, default=0)        # caisse de l'entreprise
+    total_shares    = Column(Integer, default=100)         # nombre total de parts
+    owner_shares    = Column(Integer, default=100)         # parts détenues par le fondateur
+    level           = Column(Integer, default=1)           # 1=Startup … 5=Holding
+    reputation      = Column(Float, default=3.0)           # /5
+    is_bot_company  = Column(Boolean, default=False)       # entreprise créée par le bot
+    is_active       = Column(Boolean, default=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    last_revenue    = Column(DateTime, nullable=True)      # dernier versement revenus
+    last_active     = Column(DateTime, default=datetime.utcnow)  # pour détecter inactivité PDG
+
+
+class CompanyEmployee(Base):
+    __tablename__ = "company_employees"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    user_id     = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    role        = Column(String(30), default="stagiaire")  # stagiaire/employe/manager/directeur/pdg
+    joined_at   = Column(DateTime, default=datetime.utcnow)
+    left_at     = Column(DateTime, nullable=True)          # date de démission (cooldown)
+    command_count = Column(Integer, default=0)             # commandes utilisées depuis l'entrée
+
+
+class CompanyShare(Base):
+    __tablename__ = "company_shares"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    owner_id    = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    quantity    = Column(Integer, default=0)
+    acquired_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CompanyApplication(Base):
+    __tablename__ = "company_applications"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    user_id     = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    status      = Column(String(20), default="pending")    # pending/accepted/rejected
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+
+class CompanyInvite(Base):
+    __tablename__ = "company_invites"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    target_id   = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    role        = Column(String(30), default="employe")
+    invited_by  = Column(BigInteger, nullable=False)
+    status      = Column(String(20), default="pending")
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    expires_at  = Column(DateTime, nullable=False)
+
+
+class CompanyLog(Base):
+    __tablename__ = "company_logs"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    event_type  = Column(String(50), nullable=False)       # recrutement, promotion, depot, ...
+    description = Column(String(500), nullable=False)
+    amount      = Column(BigInteger, nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow)

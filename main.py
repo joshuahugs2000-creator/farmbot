@@ -93,6 +93,7 @@ from handlers.company import (
     depotboite_cmd, retraitboite_cmd, logsboite_cmd,
     parts_cmd, vendreparts_cmd, acheterparts_cmd,
     licencier_cmd, dissoudreboite_cmd, job_daily_report, job_company_revenues,
+    salaireinfo_cmd,
 )
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
@@ -530,6 +531,7 @@ async def main():
     app.add_handler(CommandHandler("acheterparts",  _prison_checked(acheterparts_cmd)))
     app.add_handler(CommandHandler("licencier",      _prison_checked(licencier_cmd)))
     app.add_handler(CommandHandler("dissoudreboite",  _prison_checked(dissoudreboite_cmd)))
+    app.add_handler(CommandHandler("salaireinfo",     _prison_checked(salaireinfo_cmd)))
 
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))

@@ -48,12 +48,14 @@ SECTOR_ALLOWED_DOMAINS = {
     "sante":       ["management"],
 }
 
+# Format : (emoji, nom, valeur_min, taux_mensuel, max_employes)
+# Revenu/jour = valeur * taux_mensuel / 30
 LEVELS = {
-    1: ("🏪", "Startup",     50_000_000,    0.01, 5),
-    2: ("🏢", "PME",         200_000_000,   0.02, 10),
-    3: ("🏬", "Société",     500_000_000,   0.03, 50),
-    4: ("🏦", "Corporation", 2_000_000_000, 0.04, 100),
-    5: ("👑", "Holding",     10_000_000_000,0.05, 200),
+    1: ("🏪", "Startup",      50_000_000,    0.04, 5),    # 4%/mois  → ~1.3%/jour de la valeur
+    2: ("🏢", "PME",          200_000_000,   0.06, 10),   # 6%/mois  → ~2%/jour
+    3: ("🏬", "Société",      500_000_000,   0.08, 50),   # 8%/mois  → ~2.7%/jour
+    4: ("🏦", "Corporation", 2_000_000_000,  0.10, 100),  # 10%/mois → ~3.3%/jour
+    5: ("👑", "Holding",    10_000_000_000,  0.12, 200),  # 12%/mois → ~4%/jour
 }
 
 ROLES_ORDER = ["stagiaire", "employe", "manager", "directeur", "pdg"]
@@ -279,8 +281,8 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
         )).scalars().all()
 
         for company in companies:
-            _, _, _, daily_rate, _ = _level_info(company.level)
-            revenue = int(company.value * daily_rate)
+            _, _, _, monthly_rate, _ = _level_info(company.level)
+            revenue = int(company.value * monthly_rate) // 30  # versement journalier = taux mensuel ÷ 30
             if revenue <= 0:
                 continue
 
@@ -470,7 +472,7 @@ async def infoboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈\n\n"
             f"💰 <b>Valeur</b> : {_fmt(company.value)}\n"
             f"🏦 <b>Trésorerie</b> : {_fmt(company.treasury)}\n"
-            f"📈 <b>Revenus/jour</b> : {_fmt(int(company.value * daily_rate))}\n"
+            f"📈 <b>Revenus/jour</b> : {_fmt(int(company.value * daily_rate) // 30)} <i>(distribués aux employés)</i>\n"
             f"⭐ <b>Réputation</b> : {company.reputation:.1f}/5\n"
             f"👤 <b>PDG</b> : {owner_name}\n"
             f"👥 <b>Employés</b> : {nb_emp}/{max_emp}\n"
@@ -1341,6 +1343,26 @@ async def monentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )).scalar()
 
+        # Calcul du revenu personnel selon le rôle
+        total_revenue = int(company.value * daily_rate) // 30  # taux mensuel ÷ 30
+        personal_share = ROLE_SHARE.get(emp.role, 0.0)
+        personal_revenue = int(total_revenue * personal_share)
+
+        if emp.role == "pdg":
+            personal_rev_line = (
+                f"  ╰┈➤  <b>PDG</b> — dividendes via <code>/retraitboite</code>\n"
+            )
+        elif personal_revenue > 0:
+            personal_rev_line = (
+                f"  ╰┈➤  💵 <b>{_fmt(personal_revenue)} $/jour</b> pour toi ({int(personal_share*100)}% du revenu boite)\n"
+                f"  ╰┈➤  🏦 Revenu total boite : {_fmt(total_revenue)} $/jour\n"
+            )
+        else:
+            personal_rev_line = (
+                f"  ╰┈➤  Stagiaire — pas de salaire direct\n"
+                f"  ╰┈➤  🏦 Revenu total boite : {_fmt(total_revenue)} $/jour\n"
+            )
+
         msg = (
             f"「 {sec_emoji} 」<b>{company.name}</b>\n"
             f"✦ {lvl_emoji} {lvl_name}  ┊  ⭐ {company.reputation:.1f}/5\n\n"
@@ -1349,8 +1371,8 @@ async def monentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"  ╰┈➤  {_fmt(company.value)}\n\n"
             f"  🏦 TRÉSORERIE\n"
             f"  ╰┈➤  {_fmt(company.treasury)}\n\n"
-            f"  📈 REVENUS/JOUR\n"
-            f"  ╰┈➤  {_fmt(int(company.value * daily_rate))}\n\n"
+            f"  📈 TON SALAIRE/JOUR\n"
+            f"{personal_rev_line}\n"
             f"  👥 ÉQUIPE\n"
             f"  ╰┈➤  {nb_emp}/{max_emp} employés\n\n"
             f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈\n\n"
@@ -1829,8 +1851,8 @@ async def job_daily_report(context) -> None:
             )).scalars().all()
 
             nb_emps = len(emps)
-            _, _, _, daily_rate, max_emp = _level_info(company.level)
-            revenue = int(company.value * daily_rate)
+            _, _, _, monthly_rate, max_emp = _level_info(company.level)
+            revenue = int(company.value * monthly_rate) // 30  # mensuel ÷ 30
             lvl_emoji, lvl_name, _, _, _ = _level_info(company.level)
             sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
 
@@ -1855,7 +1877,7 @@ async def job_daily_report(context) -> None:
                 f"{lvl_emoji} Niveau : <b>{lvl_name}</b>\n\n"
                 f"💰 Valeur : <b>{_fmt(company.value)} $</b>\n"
                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n"
-                f"📈 Revenus/jour : <b>{_fmt(revenue)} $</b>\n\n"
+                f"📈 Revenus/jour : <b>{_fmt(revenue)} $</b> <i>(total distribué)</i>\n\n"
                 f"👥 Employés : <b>{nb_emps}/{max_emp}</b>\n"
                 f"⭐ Réputation : <b>{company.reputation:.1f}/5.0</b>"
                 f"{pending_line}"

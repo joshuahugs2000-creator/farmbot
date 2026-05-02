@@ -36,12 +36,24 @@ SECTORS = {
     "sante":      ("🏥", "Santé"),
 }
 
+# Domaines de licence autorisés à créer dans chaque secteur
+SECTOR_ALLOWED_DOMAINS = {
+    "tech":        ["informatique"],
+    "finance":     ["finance", "management"],
+    "commerce":    ["marketing", "management", "finance"],
+    "droit":       ["droit"],
+    "agriculture": ["agriculture"],
+    "securite":    ["securite", "management"],
+    "immobilier":  ["management", "marketing"],
+    "sante":       ["management"],
+}
+
 LEVELS = {
     1: ("🏪", "Startup",     50_000_000,    0.01, 5),
     2: ("🏢", "PME",         200_000_000,   0.02, 10),
-    3: ("🏬", "Société",     500_000_000,   0.03, 20),
-    4: ("🏦", "Corporation", 2_000_000_000, 0.04, 40),
-    5: ("👑", "Holding",     10_000_000_000,0.05, 100),
+    3: ("🏬", "Société",     500_000_000,   0.03, 50),
+    4: ("🏦", "Corporation", 2_000_000_000, 0.04, 100),
+    5: ("👑", "Holding",     10_000_000_000,0.05, 200),
 }
 
 ROLES_ORDER = ["stagiaire", "employe", "manager", "directeur", "pdg"]
@@ -444,6 +456,25 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Vérifier cohérence domaine / secteur
+        user_domain = db_user.diplome_domain
+        allowed_domains = SECTOR_ALLOWED_DOMAINS.get(sector, [])
+        if user_domain and allowed_domains and user_domain not in allowed_domains:
+            from handlers.diplome import DOMAINS as DIPLOME_DOMAINS
+            sec_emoji, sec_name = SECTORS[sector]
+            domain_label = DIPLOME_DOMAINS.get(user_domain, ("🎓", user_domain))[1]
+            allowed_labels = " / ".join(
+                DIPLOME_DOMAINS.get(d, ("🎓", d))[1] for d in allowed_domains
+            )
+            await update.message.reply_text(
+                f"❌ Ton domaine <b>{domain_label}</b> ne te permet pas de créer "
+                f"une entreprise dans le secteur <b>{sec_name}</b>.\n\n"
+                f"💡 Ce secteur requiert : <b>{allowed_labels}</b>\n"
+                f"Tu peux quand même <b>acheter des parts</b> avec <code>/acheterparts</code>",
+                parse_mode="HTML"
+            )
+            return
+
         if db_user.coins < 50_000_000:
             await update.message.reply_text(
                 f"❌ Il te faut <b>50 000 000 $</b> pour créer une entreprise.\n"
@@ -530,6 +561,41 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ─── Prérequis diplômes par secteur (entreprises du bot) ───────────────────
+SECTOR_REQUIREMENTS = {
+    "tech":        {"min": "licence",  "ideal": "master"},
+    "finance":     {"min": "master",   "ideal": "mba"},
+    "commerce":    {"min": "bac",      "ideal": "licence"},
+    "agriculture": {"min": "bac",      "ideal": "licence"},
+    "securite":    {"min": "bac",      "ideal": "licence"},
+    "droit":       {"min": "master",   "ideal": "mba"},
+    "immobilier":  {"min": "licence",  "ideal": "master"},
+    "sante":       {"min": "licence",  "ideal": "master"},
+}
+
+DIPLOME_LEVEL = {"bac": 1, "licence": 2, "master": 3, "mba": 4}
+DIPLOME_LABEL = {
+    "bac":     "📄 Bac",
+    "licence": "🎓 Licence",
+    "master":  "🏅 Master",
+    "mba":     "👑 MBA",
+}
+
+def _get_user_diplome_level(db_user) -> int:
+    if db_user.diplome_mba:     return 4
+    if db_user.diplome_master:  return 3
+    if db_user.diplome_licence: return 2
+    if db_user.diplome_bac:     return 1
+    return 0
+
+def _get_role_for_bot_company(db_user, sector: str) -> str:
+    lvl = _get_user_diplome_level(db_user)
+    if lvl >= 4: return "directeur"
+    if lvl >= 3: return "manager"
+    if lvl >= 2: return "employe"
+    return "stagiaire"
+
+
 # ─── COMMANDE : /postuler [nom entreprise] ───────────────────────────────────
 
 async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -602,6 +668,49 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ <b>{target.name}</b> est au complet ({max_emp} employés max).", parse_mode="HTML")
             return
 
+        # ── Entreprise du bot : verdict automatique ──────────────────────────
+        if target.is_bot_company:
+            sector = target.sector.lower()
+            req = SECTOR_REQUIREMENTS.get(sector, {"min": "bac", "ideal": "licence"})
+            min_lvl   = DIPLOME_LEVEL.get(req["min"], 1)
+            user_lvl  = _get_user_diplome_level(db_user)
+
+            if user_lvl < min_lvl:
+                min_label = DIPLOME_LABEL.get(req["min"], req["min"])
+                await update.message.reply_text(
+                    f"❌ <b>{target.name}</b> exige au minimum le {min_label} "
+                    f"pour le secteur <b>{sector}</b>.\n"
+                    f"Passe ton diplôme avec <code>/diplome</code>",
+                    parse_mode="HTML"
+                )
+                return
+
+            # Diplôme OK → recrutement immédiat
+            role = _get_role_for_bot_company(db_user, sector)
+            role_emoji = ROLE_EMOJI.get(role, "👤")
+            new_emp = CompanyEmployee(
+                company_id=target.id,
+                user_id=user.id,
+                role=role,
+            )
+            session.add(new_emp)
+            await _add_log(session, target.id, "recrutement",
+                           f"{user.first_name} recruté comme {role} (auto)")
+            await session.commit()
+
+            ideal_label = DIPLOME_LABEL.get(req["ideal"], req["ideal"])
+            bonus_msg = ""
+            if user_lvl < DIPLOME_LEVEL.get(req["ideal"], 99):
+                bonus_msg = f"\n💡 Avec le {ideal_label} tu pourrais obtenir un meilleur poste !"
+
+            await update.message.reply_text(
+                f"✅ <b>{target.name}</b> t'a recruté en tant que "
+                f"{role_emoji} <b>{role.capitalize()}</b> !{bonus_msg}",
+                parse_mode="HTML"
+            )
+            return
+
+        # ── Entreprise d'un joueur : candidature classique ───────────────────
         app = CompanyApplication(
             company_id=target.id,
             user_id=user.id,
@@ -617,6 +726,40 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Le PDG ou les Directeurs vont l'examiner.",
             parse_mode="HTML"
         )
+
+        # ── Notifier le PDG et les Directeurs en DM ──
+        if not target.is_bot_company:
+            managers = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == target.id,
+                    CompanyEmployee.left_at == None,
+                    CompanyEmployee.role.in_(["pdg", "directeur"]),
+                )
+            )).scalars().all()
+
+            diplomes = []
+            if db_user.diplome_bac:     diplomes.append("📄 Bac")
+            if db_user.diplome_licence: diplomes.append(f"🎓 Licence {db_user.diplome_domain or ''}")
+            if db_user.diplome_master:  diplomes.append("🏅 Master")
+            if db_user.diplome_mba:     diplomes.append("👑 MBA")
+            diplomes_str = " · ".join(diplomes) or "Aucun"
+
+            notif_msg = (
+                f"🔔 <b>Nouvelle candidature !</b>\n\n"
+                f"👤 <b>{user.first_name}</b> postule dans <b>{target.name}</b>\n"
+                f"🎓 Diplômes : {diplomes_str}\n\n"
+                f"✅ <code>/accepter {user.id}</code>\n"
+                f"❌ <code>/refuser {user.id}</code>"
+            )
+            for mgr in managers:
+                try:
+                    await context.bot.send_message(
+                        chat_id=mgr.user_id,
+                        text=notif_msg,
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
 
 
 # ─── COMMANDE : /candidatures ─────────────────────────────────────────────────

@@ -249,24 +249,67 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def nouveautes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Affiche le message de mise à jour avec boutons En savoir plus."""
-    await update.message.reply_text(
-        NOUVEAUTES_TEXT,
-        parse_mode=ParseMode.HTML,
-        reply_markup=_nouveautes_keyboard(),
-    )
+    from handlers.admin import is_admin
+    from database.models import User, GroupSettings
+    from sqlalchemy import select
+
+    if not await is_admin(update.effective_user.id):
+        await update.message.reply_text(
+            NOUVEAUTES_TEXT,
+            parse_mode=ParseMode.HTML,
+            reply_markup=_nouveautes_keyboard(),
+        )
+        return
+
+    await update.message.reply_text("Envoi en cours a tous les membres et groupes...")
+
+    sent_users, failed_users = 0, 0
+    sent_groups, failed_groups = 0, 0
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(User).where(User.is_banned == False))
+        user_rows = res.scalars().all()
+        res2 = await session.execute(select(GroupSettings))
+        group_rows = res2.scalars().all()
+
+    for u in user_rows:
+        try:
+            await context.bot.send_message(
+                chat_id=u.user_id,
+                text=NOUVEAUTES_TEXT,
+                parse_mode=ParseMode.HTML,
+                reply_markup=_nouveautes_keyboard(),
+            )
+            sent_users += 1
+        except Exception:
+            failed_users += 1
+
+    for g in group_rows:
+        try:
+            await context.bot.send_message(
+                chat_id=g.group_id,
+                text=NOUVEAUTES_TEXT,
+                parse_mode=ParseMode.HTML,
+                reply_markup=_nouveautes_keyboard(),
+            )
+            sent_groups += 1
+        except Exception:
+            failed_groups += 1
+
+    rapport = "Broadcast termine ! | Users -> " + str(sent_users) + " OK " + str(failed_users) + " echecs | Groupes -> " + str(sent_groups) + " OK " + str(failed_groups) + " echecs | Total : " + str(sent_users + sent_groups)
+    await update.message.reply_text(rapport, parse_mode=ParseMode.HTML)
 
 
 async def nouveautes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gère les boutons En savoir plus (diplômes / entreprises)."""
     query = update.callback_query
-    await query.answer()
-    data = query.data  # "info:diplomes" ou "info:entreprises"
-
+    data = query.data
     if data == "info:diplomes":
-        await query.message.reply_text(DIPLOME_DETAIL, parse_mode=ParseMode.HTML)
+        popup = "DIPLOMES\n\nLance /diplome pour passer un exam!\n\nBac - Le debut\nLicence - Manager + secteur\nMaster - Directeur\nMBA - Le graal\n\nMeilleur diplome = meilleur salaire"
     elif data == "info:entreprises":
-        await query.message.reply_text(ENTREPRISE_DETAIL, parse_mode=ParseMode.HTML)
+        popup = "ENTREPRISES\n\nOption 1 - /postuler NexaTech\nOption 2 - /creerboite MonEntreprise tech (50M + Licence)\n\nSalaires:\nStagiaire 0% | Employe 10% | Manager 20% | Directeur 35% | PDG dividendes\n\nStartup -> PME -> Societe -> Corporation -> Holding"
+    else:
+        popup = "Section inconnue."
+    await query.answer(text=popup, show_alert=True)
 
 
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):

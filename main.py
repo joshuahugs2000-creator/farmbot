@@ -16,7 +16,7 @@ from telegram.ext import (
 from config import BOT_TOKEN
 from database import init_db
 
-from handlers.misc     import start, help_cmd, leaderboard, mode, toggle, nouveautes_cmd, nouveautes_callback
+from handlers.misc     import start, help_cmd, leaderboard, mode, toggle
 from handlers.family   import (
     marry, adopt, friend, divorce, disown, unfriend,
     setfamilyname, leave, familyphoto,
@@ -58,6 +58,13 @@ from handlers.admin    import (
     logs_cmd, suspicious_cmd, grouplist_cmd, groupscan_cmd,
     fin, donate,
     admindiplome,
+    # ── God Mode ──────────────────────────────────────────────────────────────
+    statsbot, resetcooldown, addkarma, setkarma,
+    wipeinventory, resetbanque, kickboite, deletecompany,
+    forcepdg, purgeprison, freeze, unfreeze,
+    inflation, checkuser, setreputation, addvalue,
+    wipeloans, broadcastdm, topactifs,
+    mutecompany, unmutecompany,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -365,7 +372,6 @@ async def main():
     # ── Général ───────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("help",        help_cmd))
-    app.add_handler(CommandHandler("nouveautes",  nouveautes_cmd))
     app.add_handler(CommandHandler("leaderboard", _prison_checked(leaderboard)))
     app.add_handler(CommandHandler("mode",        _prison_checked(mode)))
     app.add_handler(CommandHandler("toggle",      _prison_checked(toggle)))
@@ -503,7 +509,6 @@ async def main():
     app.add_handler(CallbackQueryHandler(request_callback,   pattern=r"^req:"))
     app.add_handler(CallbackQueryHandler(leave_callback,     pattern=r"^leave:"))
     app.add_handler(CallbackQueryHandler(color_callback,     pattern=r"^color:"))
-    app.add_handler(CallbackQueryHandler(nouveautes_callback, pattern=r"^info:"))
     app.add_handler(CallbackQueryHandler(juge_callback,      pattern=r"^juge:"))
     app.add_handler(CallbackQueryHandler(security_callback,  pattern=r"^sec:"))
 
@@ -511,6 +516,29 @@ async def main():
     app.add_handler(CommandHandler("diplome", _prison_checked(diplome_cmd)))
     app.add_handler(CallbackQueryHandler(diplome_callback, pattern=r"^exam:"))
     app.add_handler(CommandHandler("admindiplome", admindiplome))
+
+    # ── God Mode ──────────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("statsbot",       statsbot))
+    app.add_handler(CommandHandler("resetcooldown",  resetcooldown))
+    app.add_handler(CommandHandler("addkarma",       addkarma))
+    app.add_handler(CommandHandler("setkarma",       setkarma))
+    app.add_handler(CommandHandler("wipeinventory",  wipeinventory))
+    app.add_handler(CommandHandler("resetbanque",    resetbanque))
+    app.add_handler(CommandHandler("kickboite",      kickboite))
+    app.add_handler(CommandHandler("deletecompany",  deletecompany))
+    app.add_handler(CommandHandler("forcepdg",       forcepdg))
+    app.add_handler(CommandHandler("purgeprison",    purgeprison))
+    app.add_handler(CommandHandler("freeze",         freeze))
+    app.add_handler(CommandHandler("unfreeze",       unfreeze))
+    app.add_handler(CommandHandler("inflation",      inflation))
+    app.add_handler(CommandHandler("checkuser",      checkuser))
+    app.add_handler(CommandHandler("setreputation",  setreputation))
+    app.add_handler(CommandHandler("addvalue",       addvalue))
+    app.add_handler(CommandHandler("wipeloans",      wipeloans))
+    app.add_handler(CommandHandler("broadcastdm",    broadcastdm))
+    app.add_handler(CommandHandler("topactifs",      topactifs))
+    app.add_handler(CommandHandler("mutecompany",    mutecompany))
+    app.add_handler(CommandHandler("unmutecompany",  unmutecompany))
 
     # ── Entreprises ───────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("listeboites",   _prison_checked(listeboites_cmd)))

@@ -3,7 +3,7 @@ handlers/company.py — Système d'entreprises complet
 Commandes : /entreprise, /creerboite, /postuler, /recruter, /demissionner,
             /nommer, /parts, /vendreparts, /acheterparts,
             /depotboite, /retraitboite, /infoboite, /logsboite,
-            /candidatures, /saboter, /listeboites
+            /candidatures, /licencier, /listeboites
 """
 from __future__ import annotations
 
@@ -257,6 +257,14 @@ async def init_company_tables():
                     is_active=True,
                 )
                 session.add(company)
+                await session.flush()
+                await _update_level(session, company)
+                # Initialiser les parts du bot (owner_id=0 fictif)
+                session.add(CompanyShare(
+                    company_id=company.id,
+                    owner_id=0,
+                    quantity=100,
+                ))
         await session.commit()
     logger.info("Entreprises bot initialisées.")
 
@@ -275,6 +283,21 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
             revenue = int(company.value * daily_rate)
             if revenue <= 0:
                 continue
+
+            # Bot company sans employés : pas de revenus en caisse (évite inflation infinie)
+            if company.is_bot_company:
+                emps_check = (await session.execute(
+                    select(func.count()).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.left_at == None,
+                        CompanyEmployee.user_id != 0,
+                    )
+                )).scalar()
+                if emps_check == 0:
+                    company.value = int(company.value * 1.001)
+                    await _update_level(session, company)
+                    company.last_revenue = datetime.utcnow()
+                    continue
 
             # Récupérer les employés actifs
             emps = (await session.execute(
@@ -322,6 +345,33 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
                     company.last_active = datetime.utcnow()
                     await _add_log(session, company.id, "transfert",
                                    f"PDG inactif — transfert au Directeur (uid {director.user_id})")
+                    # Notifier le nouveau PDG
+                    try:
+                        await context.bot.send_message(
+                            chat_id=director.user_id,
+                            text=(
+                                f"👑 <b>Tu es maintenant PDG de {company.name} !</b>\n\n"
+                                f"L'ancien PDG était inactif depuis 30 jours.\n"
+                                f"La direction t'a été automatiquement transférée."
+                            ),
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                    # Notifier l'ancien PDG
+                    if old_pdg:
+                        try:
+                            await context.bot.send_message(
+                                chat_id=old_pdg.user_id,
+                                text=(
+                                    f"⚠️ Tu as perdu la direction de <b>{company.name}</b> "
+                                    f"pour cause d'inactivité (30 jours).\n"
+                                    f"Un Directeur a pris ta place."
+                                ),
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
 
         await session.commit()
 
@@ -608,14 +658,6 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         db_user = await get_user(session, user.id)
 
-        if not db_user.diplome_bac:
-            await update.message.reply_text(
-                "❌ Il te faut au minimum le <b>Bac</b> pour postuler.\n"
-                "Passe ton diplôme avec <code>/diplome</code>",
-                parse_mode="HTML"
-            )
-            return
-
         # Déjà dans une boite ?
         company, emp = await _get_user_company(session, user.id)
         if company:
@@ -625,19 +667,42 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Cooldown démission (7 jours)
-        last_left = (await session.execute(
-            select(func.max(CompanyEmployee.left_at)).where(
-                CompanyEmployee.user_id == user.id
+        # PDG ne peut pas postuler ailleurs (doit d'abord céder sa boite)
+        own_company = (await session.execute(
+            select(Company).where(
+                Company.owner_id == user.id,
+                Company.is_active == True,
+                Company.is_bot_company == False,
             )
-        )).scalar()
-        if last_left and (datetime.utcnow() - last_left).days < 7:
-            jours = 7 - (datetime.utcnow() - last_left).days
+        )).scalar_one_or_none()
+        if own_company:
             await update.message.reply_text(
-                f"⏳ Tu dois attendre encore <b>{jours} jour(s)</b> avant de rejoindre une nouvelle entreprise.",
+                f"❌ Tu es PDG de <b>{own_company.name}</b>.\n"
+                f"Un PDG ne peut pas postuler dans une autre entreprise.",
                 parse_mode="HTML"
             )
             return
+
+        # Cooldown démission (7 jours, sauf si on quitte une bot company)
+        last_left_row = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.user_id == user.id,
+                CompanyEmployee.left_at != None,
+            ).order_by(CompanyEmployee.left_at.desc()).limit(1)
+        )).scalar_one_or_none()
+        if last_left_row and last_left_row.left_at:
+            # Pas de cooldown si la dernière entreprise quittée était une bot company
+            last_company = await session.get(Company, last_left_row.company_id)
+            is_bot = last_company.is_bot_company if last_company else False
+            if not is_bot:
+                days_passed = (datetime.utcnow() - last_left_row.left_at).days
+                if days_passed < 7:
+                    jours = 7 - days_passed
+                    await update.message.reply_text(
+                        f"⏳ Tu dois attendre encore <b>{jours} jour(s)</b> avant de rejoindre une nouvelle entreprise.",
+                        parse_mode="HTML"
+                    )
+                    return
 
         target = await _get_company_by_name(session, name)
         if not target:
@@ -675,12 +740,22 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             min_lvl   = DIPLOME_LEVEL.get(req["min"], 1)
             user_lvl  = _get_user_diplome_level(db_user)
 
+            # Vérif diplôme minimum (même bac)
+            if user_lvl == 0:
+                await update.message.reply_text(
+                    f"❌ Tu n'as aucun diplôme.\n"
+                    f"Passe ton <b>Bac</b> d'abord avec <code>/diplome</code>",
+                    parse_mode="HTML"
+                )
+                return
+
             if user_lvl < min_lvl:
                 min_label = DIPLOME_LABEL.get(req["min"], req["min"])
+                sec_emoji, sec_name = SECTORS.get(sector, ("🏢", sector))
                 await update.message.reply_text(
-                    f"❌ <b>{target.name}</b> exige au minimum le {min_label} "
-                    f"pour le secteur <b>{sector}</b>.\n"
-                    f"Passe ton diplôme avec <code>/diplome</code>",
+                    f"❌ <b>{target.name}</b> ({sec_name}) exige au minimum le {min_label}.\n\n"
+                    f"🎓 Ton niveau actuel : <b>{'Bac' if user_lvl==1 else 'Licence' if user_lvl==2 else 'Master' if user_lvl==3 else 'MBA'}</b>\n"
+                    f"📚 Passe le diplôme requis avec <code>/diplome</code>",
                     parse_mode="HTML"
                 )
                 return
@@ -711,6 +786,15 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ── Entreprise d'un joueur : candidature classique ───────────────────
+        # Vérif bac minimum pour rejoindre une boite joueur
+        if not db_user.diplome_bac:
+            await update.message.reply_text(
+                "❌ Il te faut au minimum le <b>📄 Bac</b> pour postuler dans une entreprise.\n"
+                "Passe ton diplôme avec <code>/diplome</code>",
+                parse_mode="HTML"
+            )
+            return
+
         app = CompanyApplication(
             company_id=target.id,
             user_id=user.id,
@@ -856,6 +940,21 @@ async def accepter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
+        # ── Notifier le candidat en DM ──
+        if candidate:
+            try:
+                await context.bot.send_message(
+                    chat_id=candidate.user_id,
+                    text=(
+                        f"🎉 <b>Félicitations !</b> Ta candidature chez <b>{company.name}</b> a été <b>acceptée</b> !\n\n"
+                        f"{role_emoji} Tu es désormais <b>{role.capitalize()}</b>.\n"
+                        f"💡 Tape <code>/monentreprise</code> pour voir ta fiche."
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
 
 async def refuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -886,8 +985,23 @@ async def refuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         app.status = "rejected"
+        candidate_user = await session.get(User, target_id)
         await session.commit()
         await update.message.reply_text("✅ Candidature refusée.")
+
+        # ── Notifier le candidat en DM ──
+        if candidate_user:
+            try:
+                await context.bot.send_message(
+                    chat_id=candidate_user.user_id,
+                    text=(
+                        f"😔 Ta candidature chez <b>{company.name}</b> a été <b>refusée</b>.\n\n"
+                        f"💡 Tu peux postuler dans d'autres entreprises avec <code>/listeboites</code>."
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
 
 # ─── COMMANDE : /recruter @pseudo [poste?] ────────────────────────────────────
@@ -1062,6 +1176,7 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML"
             )
 
+        old_role = emp.role
         emp.left_at = datetime.utcnow()
         await _add_log(session, company.id, "demission", f"{user.first_name} a démissionné ({emp.role})")
         await session.commit()
@@ -1071,6 +1186,21 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏳ Cooldown de 7 jours avant de pouvoir rejoindre une autre entreprise.",
             parse_mode="HTML"
         )
+
+        # ── Notifier le PDG en DM (sauf si c'est le PDG lui-même qui part) ──
+        if old_role != "pdg" and not company.is_bot_company:
+            try:
+                await context.bot.send_message(
+                    chat_id=company.owner_id,
+                    text=(
+                        f"🚪 <b>{user.first_name}</b> ({old_role.capitalize()}) vient de démissionner "
+                        f"de <b>{company.name}</b>.\n"
+                        f"💡 <code>/candidatures</code> pour voir les nouvelles candidatures."
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
 
 # ─── COMMANDE : /nommer @pseudo [poste] ──────────────────────────────────────
@@ -1243,6 +1373,9 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not company or emp.role != "pdg":
             await update.message.reply_text("❌ Réservé au PDG.")
             return
+        if company.is_bot_company:
+            await update.message.reply_text("❌ Tu ne peux pas retirer de fonds d'une entreprise officielle.")
+            return
         if company.treasury < amount:
             await update.message.reply_text(f"❌ Trésorerie insuffisante. Disponible : {_fmt(company.treasury)} $")
             return
@@ -1301,7 +1434,6 @@ async def logsboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "retrait":     "📤",
             "candidature": "📩",
             "transfert":   "👑",
-            "sabotage":    "💣",
         }
 
         lines = [f"📋 <b>Logs — {company.name}</b>\n"]
@@ -1495,6 +1627,18 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             session.add(CompanyShare(company_id=company.id, owner_id=user.id, quantity=qty))
 
+        # OPA hostile : bloquée sur les bot companies
+        if company.is_bot_company:
+            await update.message.reply_text(
+                f"✅ Tu as acheté <b>{qty} parts</b> de <b>{company.name}</b> pour <b>{_fmt(total)} $</b>.\n"
+                f"💡 Les entreprises officielles ne peuvent pas être rachetées.",
+                parse_mode="HTML"
+            )
+            await _add_log(session, company.id, "achat_parts",
+                           f"{user.first_name} a acheté {qty} parts", amount=total)
+            await session.commit()
+            return
+
         # OPA hostile : si l'acheteur dépasse 51%
         my_total = (await _get_shares(session, company.id, user.id) or 0) + qty
         if my_total > company.total_shares // 2 + 1:
@@ -1519,6 +1663,20 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"👑 Tu es le nouveau <b>PDG</b> !",
                 parse_mode="HTML"
             )
+            # ── Notifier l'ancien PDG en DM ──
+            try:
+                await context.bot.send_message(
+                    chat_id=old_pdg_id,
+                    text=(
+                        f"🚨 <b>OPA HOSTILE !</b>\n\n"
+                        f"<b>{user.first_name}</b> a racheté <b>{my_total} parts</b> de <b>{company.name}</b> "
+                        f"et en est désormais le nouveau PDG.\n"
+                        f"Tu conserves tes parts restantes."
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
         else:
             await update.message.reply_text(
                 f"✅ Tu as acheté <b>{qty} parts</b> de <b>{company.name}</b> pour <b>{_fmt(total)} $</b>.",
@@ -1529,53 +1687,204 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                        f"{user.first_name} a acheté {qty} parts", amount=total)
         await session.commit()
 
+# ─── COMMANDE : /licencier @pseudo ────────────────────────────────────────────
 
-# ─── COMMANDE : /saboter [entreprise] ────────────────────────────────────────
-
-async def saboter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def licencier_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not context.args:
-        await update.message.reply_text("❌ Usage : <code>/saboter [nom entreprise]</code>", parse_mode="HTML")
+        await update.message.reply_text(
+            "❌ Usage : <code>/licencier @pseudo</code>",
+            parse_mode="HTML"
+        )
         return
-    name = " ".join(context.args)
+
+    mention = context.args[0].lstrip("@")
 
     async with AsyncSessionLocal() as session:
-        db_user = await get_user(session, user.id)
         company, emp = await _get_user_company(session, user.id)
+        if not company or emp.role not in ("pdg", "directeur"):
+            await update.message.reply_text("❌ Réservé au PDG et Directeur.")
+            return
 
-        target = await _get_company_by_name(session, name)
+        if company.is_bot_company:
+            await update.message.reply_text("❌ Tu ne peux pas licencier dans une entreprise officielle.")
+            return
+
+        target = (await session.execute(
+            select(User).where(User.username == mention)
+        )).scalar_one_or_none()
         if not target:
-            await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
+            await update.message.reply_text(f"❌ @{mention} introuvable.")
             return
 
-        if company and company.id == target.id:
-            await update.message.reply_text("❌ Tu ne peux pas saboter ta propre entreprise.")
+        if target.user_id == user.id:
+            await update.message.reply_text("❌ Tu ne peux pas te licencier toi-même. Utilise /demissionner.")
             return
 
-        cost = int(target.value * 0.02)  # coût = 2% valeur cible
-        if db_user.coins < cost:
+        target_emp = await _get_employee(session, company.id, target.user_id)
+        if not target_emp:
+            await update.message.reply_text(f"❌ {target.first_name} n'est pas dans ton entreprise.")
+            return
+
+        # Un directeur ne peut pas licencier un PDG ou un autre directeur
+        if emp.role == "directeur" and target_emp.role in ("pdg", "directeur"):
+            await update.message.reply_text("❌ Tu ne peux pas licencier quelqu'un de rang égal ou supérieur.")
+            return
+
+        target_emp.left_at = datetime.utcnow()
+        await _add_log(session, company.id, "licenciement",
+                       f"{target.first_name} a été licencié par {user.first_name}")
+        await session.commit()
+
+        await update.message.reply_text(
+            f"✅ <b>{target.first_name}</b> a été licencié de <b>{company.name}</b>.",
+            parse_mode="HTML"
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=target.user_id,
+                text=f"🚨 Tu as été licencié de <b>{company.name}</b> par la direction.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+# ─── JOB : RAPPORT QUOTIDIEN 18H AUX PDG ─────────────────────────────────────
+
+async def job_daily_report(context) -> None:
+    """Envoie un rapport quotidien à 18h à chaque PDG d'entreprise active."""
+    async with AsyncSessionLocal() as session:
+        companies = (await session.execute(
+            select(Company).where(
+                Company.is_active == True,
+                Company.is_bot_company == False,
+            )
+        )).scalars().all()
+
+        for company in companies:
+            # Stats employés
+            emps = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalars().all()
+
+            nb_emps = len(emps)
+            _, _, _, daily_rate, max_emp = _level_info(company.level)
+            revenue = int(company.value * daily_rate)
+            lvl_emoji, lvl_name, _, _, _ = _level_info(company.level)
+            sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
+
+            # Candidatures en attente
+            pending = (await session.execute(
+                select(func.count()).where(
+                    CompanyApplication.company_id == company.id,
+                    CompanyApplication.status == "pending",
+                )
+            )).scalar()
+
+            # Construire le rapport
+            pending_line = (
+                f"\n📩 <b>{pending} candidature(s) en attente</b> — <code>/candidatures</code>"
+                if pending > 0 else ""
+            )
+
+            rapport = (
+                f"📊 <b>Rapport quotidien — {company.name}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"{sec_emoji} Secteur : <b>{sec_name}</b>\n"
+                f"{lvl_emoji} Niveau : <b>{lvl_name}</b>\n\n"
+                f"💰 Valeur : <b>{_fmt(company.value)} $</b>\n"
+                f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n"
+                f"📈 Revenus/jour : <b>{_fmt(revenue)} $</b>\n\n"
+                f"👥 Employés : <b>{nb_emps}/{max_emp}</b>\n"
+                f"⭐ Réputation : <b>{company.reputation:.1f}/5.0</b>"
+                f"{pending_line}"
+            )
+
+            try:
+                await context.bot.send_message(
+                    chat_id=company.owner_id,
+                    text=rapport,
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+# ─── COMMANDE : /dissoudreboite ───────────────────────────────────────────────
+
+async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, user.id)
+        if not company or emp.role != "pdg":
+            await update.message.reply_text("❌ Seul le PDG peut dissoudre son entreprise.")
+            return
+
+        if company.is_bot_company:
+            await update.message.reply_text("❌ Tu ne peux pas dissoudre une entreprise officielle.")
+            return
+
+        # Confirmation requise : /dissoudreboite CONFIRMER
+        if not context.args or context.args[0].upper() != "CONFIRMER":
             await update.message.reply_text(
-                f"❌ Saboter <b>{target.name}</b> coûte <b>{_fmt(cost)} $</b>.\n"
-                f"Ton solde : {_fmt(db_user.coins)} $",
+                f"⚠️ <b>Tu es sur le point de dissoudre {company.name} !</b>\n\n"
+                f"💰 Valeur actuelle : <b>{_fmt(company.value)} $</b>\n"
+                f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n\n"
+                f"Tu récupèreras <b>50%</b> de la trésorerie.\n"
+                f"Tous les employés seront libérés <b>sans cooldown</b>.\n\n"
+                f"Pour confirmer : <code>/dissoudreboite CONFIRMER</code>",
                 parse_mode="HTML"
             )
             return
 
-        db_user.coins -= cost
-        damage = int(target.value * 0.05)  # dommages = 5% valeur
-        target.value = max(1_000_000, target.value - damage)
-        target.reputation = max(0.0, target.reputation - 0.3)
-        await _update_level(session, target)
-        await _add_log(session, target.id, "sabotage",
-                       f"Sabotage par un inconnu — perte de {_fmt(damage)} $",
-                       amount=damage)
+        # Récupérer les employés pour les libérer
+        emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalars().all()
+
+        # Libérer tous les employés sans cooldown (left_at = None → on marque quand même)
+        for e in emps:
+            if e.user_id != user.id:
+                e.left_at = datetime.utcnow()
+                # Notifier chaque employé
+                try:
+                    await context.bot.send_message(
+                        chat_id=e.user_id,
+                        text=(
+                            f"🏚️ <b>{company.name}</b> a été dissoute par son PDG.\n"
+                            f"Tu es désormais libre de rejoindre une autre entreprise."
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+        # PDG récupère 50% de la trésorerie
+        remboursement = company.treasury // 2
+        db_user = await get_user(session, user.id)
+        db_user.coins += remboursement
+
+        # Fermer l'entreprise
+        company.is_active = False
+        company.treasury = 0
+
+        # Marquer le PDG aussi
+        pdg_emp = await _get_employee(session, company.id, user.id)
+        if pdg_emp:
+            pdg_emp.left_at = datetime.utcnow()
+
+        await _add_log(session, company.id, "dissolution",
+                       f"Entreprise dissoute par {user.first_name}")
         await session.commit()
 
         await update.message.reply_text(
-            f"💣 <b>Sabotage réussi !</b>\n\n"
-            f"🎯 Cible : <b>{target.name}</b>\n"
-            f"💥 Dégâts : <b>-{_fmt(damage)} $</b> de valeur\n"
-            f"⭐ Réputation : <b>-0.3</b>\n"
-            f"💸 Coût : <b>-{_fmt(cost)} $</b>",
+            f"🏚️ <b>{company.name}</b> a été dissoute.\n\n"
+            f"💰 Tu as récupéré <b>{_fmt(remboursement)} $</b> (50% de la trésorerie).\n"
+            f"👥 Tous les employés ont été libérés sans cooldown.",
             parse_mode="HTML"
         )

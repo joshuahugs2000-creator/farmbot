@@ -84,6 +84,16 @@ from handlers.wealth_drain import (
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.diplome import diplome_cmd, diplome_callback
+from handlers.company import (
+    init_company_tables, update_company_activity,
+    listeboites_cmd, infoboite_cmd, creerboite_cmd,
+    postuler_cmd, candidatures_cmd, accepter_cmd, refuser_cmd,
+    recruter_cmd, rejoindre_cmd, demissionner_cmd,
+    nommer_cmd, monentreprise_cmd,
+    depotboite_cmd, retraitboite_cmd, logsboite_cmd,
+    parts_cmd, vendreparts_cmd, acheterparts_cmd,
+    saboter_cmd, job_company_revenues,
+)
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
 
@@ -286,6 +296,11 @@ async def activity_logging_middleware(update: Update, context) -> None:
             )
     except Exception as e:
         logger.debug(f"Erreur log_action: {e}")
+    # Mettre à jour l'activité entreprise
+    try:
+        await update_company_activity(user.id)
+    except Exception as e:
+        logger.debug(f"Erreur update_company_activity: {e}")
 
 async def on_startup(application: Application):
     await init_db()
@@ -296,6 +311,7 @@ async def on_startup(application: Application):
     await init_drain_tables()
     await _ensure_cambriolage_cd_table()
     await init_auction_tables()
+    await init_company_tables()
     logger.info("Base de données initialisée.")
 
 
@@ -493,6 +509,27 @@ async def main():
     app.add_handler(CallbackQueryHandler(diplome_callback, pattern=r"^exam:"))
     app.add_handler(CommandHandler("admindiplome", admindiplome))
 
+    # ── Entreprises ───────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("listeboites",   _prison_checked(listeboites_cmd)))
+    app.add_handler(CommandHandler("infoboite",     _prison_checked(infoboite_cmd)))
+    app.add_handler(CommandHandler("creerboite",    _prison_checked(creerboite_cmd)))
+    app.add_handler(CommandHandler("postuler",      _prison_checked(postuler_cmd)))
+    app.add_handler(CommandHandler("candidatures",  _prison_checked(candidatures_cmd)))
+    app.add_handler(CommandHandler("accepter",      _prison_checked(accepter_cmd)))
+    app.add_handler(CommandHandler("refuser",       _prison_checked(refuser_cmd)))
+    app.add_handler(CommandHandler("recruter",      _prison_checked(recruter_cmd)))
+    app.add_handler(CommandHandler("rejoindre",     _prison_checked(rejoindre_cmd)))
+    app.add_handler(CommandHandler("demissionner",  _prison_checked(demissionner_cmd)))
+    app.add_handler(CommandHandler("nommer",        _prison_checked(nommer_cmd)))
+    app.add_handler(CommandHandler("monentreprise", _prison_checked(monentreprise_cmd)))
+    app.add_handler(CommandHandler("depotboite",    _prison_checked(depotboite_cmd)))
+    app.add_handler(CommandHandler("retraitboite",  _prison_checked(retraitboite_cmd)))
+    app.add_handler(CommandHandler("logsboite",     _prison_checked(logsboite_cmd)))
+    app.add_handler(CommandHandler("parts",         _prison_checked(parts_cmd)))
+    app.add_handler(CommandHandler("vendreparts",   _prison_checked(vendreparts_cmd)))
+    app.add_handler(CommandHandler("acheterparts",  _prison_checked(acheterparts_cmd)))
+    app.add_handler(CommandHandler("saboter",       _prison_checked(saboter_cmd)))
+
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))
     app.add_handler(CommandHandler("expertise", _prison_checked(expertise)))
@@ -530,6 +567,14 @@ async def main():
     setup_auction_jobs(app)
     setup_journal_jobs(app)
     app.add_handler(CommandHandler("testjournal", testjournal_cmd))
+
+    # ── Job revenus entreprises (toutes les 24h) ──────────────────────────────
+    app.job_queue.run_repeating(
+        job_company_revenues,
+        interval=timedelta(hours=24),
+        first=timedelta(minutes=15),
+        name="company_revenues",
+    )
 
     # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────
     async def health(request):

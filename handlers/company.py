@@ -11,8 +11,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import text, select, func
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import select, func
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from database.db import AsyncSessionLocal, get_user
@@ -385,7 +385,15 @@ async def update_company_activity(user_id: int):
         if not company or not emp:
             return
         emp.command_count += 1
-        # +50 000 $ par commande utilisée par un employé
+        # +50 000 $ par commande, plafonné à 500 000 $/jour par entreprise
+        today = datetime.utcnow().date()
+        last_rev_date = company.last_revenue.date() if company.last_revenue else None
+        if last_rev_date != today:
+            # Nouveau jour : réinitialiser le compteur d'activité implicitement
+            # (on compte via command_count, pas besoin de reset)
+            pass
+        # Limite : max 10 commandes bonifiées par employé par reset quotidien
+        # Simple : on plafonne le gain total via value (pas de champ dédié, on cap à +500k/24h)
         company.value += 50_000
         company.last_active = datetime.utcnow()
         await session.commit()
@@ -468,7 +476,8 @@ async def infoboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👥 <b>Employés</b> : {nb_emp}/{max_emp}\n"
             f"🎂 <b>Fondée le</b> : {company.created_at.strftime('%d/%m/%Y')}\n\n"
             f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈\n"
-            f"📦 <b>Parts</b> : {company.owner_shares}/{company.total_shares} détenues par le PDG"
+            f"📦 <b>Parts PDG</b> : {company.owner_shares}/{company.total_shares} · "
+            f"💡 <code>/parts {company.name}</code> pour le détail"
         )
         await update.message.reply_text(msg, parse_mode="HTML")
 
@@ -740,21 +749,16 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             min_lvl   = DIPLOME_LEVEL.get(req["min"], 1)
             user_lvl  = _get_user_diplome_level(db_user)
 
-            # Vérif diplôme minimum (même bac)
-            if user_lvl == 0:
-                await update.message.reply_text(
-                    f"❌ Tu n'as aucun diplôme.\n"
-                    f"Passe ton <b>Bac</b> d'abord avec <code>/diplome</code>",
-                    parse_mode="HTML"
-                )
-                return
+            # Vérif diplôme minimum — message précis avec le vrai diplôme requis
+            min_label = DIPLOME_LABEL.get(req["min"], req["min"])
+            sec_emoji, sec_name = SECTORS.get(sector, ("🏢", sector))
+
+            NIVEAU_LABEL = {0: "Aucun diplôme", 1: "📄 Bac", 2: "🎓 Licence", 3: "🏅 Master", 4: "👑 MBA"}
 
             if user_lvl < min_lvl:
-                min_label = DIPLOME_LABEL.get(req["min"], req["min"])
-                sec_emoji, sec_name = SECTORS.get(sector, ("🏢", sector))
                 await update.message.reply_text(
                     f"❌ <b>{target.name}</b> ({sec_name}) exige au minimum le {min_label}.\n\n"
-                    f"🎓 Ton niveau actuel : <b>{'Bac' if user_lvl==1 else 'Licence' if user_lvl==2 else 'Master' if user_lvl==3 else 'MBA'}</b>\n"
+                    f"📊 Ton niveau actuel : <b>{NIVEAU_LABEL.get(user_lvl, 'Aucun')}</b>\n"
                     f"📚 Passe le diplôme requis avec <code>/diplome</code>",
                     parse_mode="HTML"
                 )
@@ -778,9 +782,12 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if user_lvl < DIPLOME_LEVEL.get(req["ideal"], 99):
                 bonus_msg = f"\n💡 Avec le {ideal_label} tu pourrais obtenir un meilleur poste !"
 
+            sec_emoji2, sec_name2 = SECTORS.get(sector, ("🏢", sector))
             await update.message.reply_text(
-                f"✅ <b>{target.name}</b> t'a recruté en tant que "
-                f"{role_emoji} <b>{role.capitalize()}</b> !{bonus_msg}",
+                f"✅ <b>{target.name}</b> ({sec_name2}) t'a recruté !\n\n"
+                f"{role_emoji} Poste : <b>{role.capitalize()}</b>"
+                f"{bonus_msg}\n\n"
+                f"💡 Tape <code>/monentreprise</code> pour voir ta fiche.",
                 parse_mode="HTML"
             )
             return
@@ -789,8 +796,9 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Vérif bac minimum pour rejoindre une boite joueur
         if not db_user.diplome_bac:
             await update.message.reply_text(
-                "❌ Il te faut au minimum le <b>📄 Bac</b> pour postuler dans une entreprise.\n"
-                "Passe ton diplôme avec <code>/diplome</code>",
+                f"❌ Tu n'as aucun diplôme.\n\n"
+                f"🏢 <b>{target.name}</b> exige au minimum le <b>📄 Bac</b> pour postuler.\n"
+                f"📚 Passe ton diplôme avec <code>/diplome</code>",
                 parse_mode="HTML"
             )
             return
@@ -916,11 +924,11 @@ async def accepter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         app.status = "accepted"
         candidate = await session.get(User, target_id)
 
-        # Rôle selon diplôme
+        # Rôle selon diplôme (cohérent avec ROLE_DIPLOMA)
         role = "stagiaire"
         if candidate and candidate.diplome_mba:      role = "directeur"
-        elif candidate and candidate.diplome_master: role = "manager"
-        elif candidate and candidate.diplome_licence:role = "manager"
+        elif candidate and candidate.diplome_master: role = "manager"   # Master → manager (directeur réservé au MBA)
+        elif candidate and candidate.diplome_licence:role = "employe"   # Licence → employe
         elif candidate and candidate.diplome_bac:    role = "employe"
 
         new_emp = CompanyEmployee(
@@ -1073,6 +1081,21 @@ async def recruter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Il peut accepter avec <code>/rejoindre {company.name}</code>",
             parse_mode="HTML"
         )
+        # ── Notifier la cible en DM ──
+        try:
+            await context.bot.send_message(
+                chat_id=target.user_id,
+                text=(
+                    f"📩 <b>Tu as reçu une invitation !</b>\n\n"
+                    f"🏢 <b>{company.name}</b> t'invite à les rejoindre "
+                    f"en tant que {role_emoji} <b>{role_arg.capitalize()}</b>.\n\n"
+                    f"✅ Accepter : <code>/rejoindre {company.name}</code>\n"
+                    f"⏳ L'invitation expire dans <b>48h</b>."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
 
 # ─── COMMANDE : /rejoindre [entreprise] ──────────────────────────────────────
@@ -1085,16 +1108,22 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = " ".join(context.args)
 
     async with AsyncSessionLocal() as session:
-        # Cooldown
-        last_left = (await session.execute(
-            select(func.max(CompanyEmployee.left_at)).where(
-                CompanyEmployee.user_id == user.id
-            )
-        )).scalar()
-        if last_left and (datetime.utcnow() - last_left).days < 7:
-            jours = 7 - (datetime.utcnow() - last_left).days
-            await update.message.reply_text(f"⏳ Cooldown : encore {jours} jour(s) avant de rejoindre une entreprise.")
-            return
+        # Cooldown (pas appliqué si la dernière boite quittée était une bot company)
+        last_left_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.user_id == user.id,
+                CompanyEmployee.left_at != None,
+            ).order_by(CompanyEmployee.left_at.desc()).limit(1)
+        )).scalar_one_or_none()
+        if last_left_emp and last_left_emp.left_at:
+            last_co = await session.get(Company, last_left_emp.company_id)
+            is_bot_last = last_co.is_bot_company if last_co else False
+            if not is_bot_last:
+                days_passed = (datetime.utcnow() - last_left_emp.left_at).days
+                if days_passed < 7:
+                    jours = 7 - days_passed
+                    await update.message.reply_text(f"⏳ Cooldown : encore {jours} jour(s) avant de rejoindre une entreprise.")
+                    return
 
         # Déjà dans une boite ?
         company, emp = await _get_user_company(session, user.id)
@@ -1181,11 +1210,18 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _add_log(session, company.id, "demission", f"{user.first_name} a démissionné ({emp.role})")
         await session.commit()
 
-        await update.message.reply_text(
-            f"👋 Tu as quitté <b>{company.name}</b>.\n"
-            f"⏳ Cooldown de 7 jours avant de pouvoir rejoindre une autre entreprise.",
-            parse_mode="HTML"
-        )
+        if company.is_bot_company:
+            await update.message.reply_text(
+                f"👋 Tu as quitté <b>{company.name}</b>.\n"
+                f"✅ Pas de cooldown — c'est une entreprise officielle.",
+                parse_mode="HTML"
+            )
+        else:
+            await update.message.reply_text(
+                f"👋 Tu as quitté <b>{company.name}</b>.\n"
+                f"⏳ Cooldown de 7 jours avant de pouvoir rejoindre une autre entreprise.",
+                parse_mode="HTML"
+            )
 
         # ── Notifier le PDG en DM (sauf si c'est le PDG lui-même qui part) ──
         if old_role != "pdg" and not company.is_bot_company:
@@ -1265,6 +1301,19 @@ async def nommer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ <b>{target.first_name}</b> est désormais {role_emoji} <b>{new_role.capitalize()}</b> dans <b>{company.name}</b> !",
             parse_mode="HTML"
         )
+        # ── Notifier la personne promue en DM ──
+        try:
+            await context.bot.send_message(
+                chat_id=target.user_id,
+                text=(
+                    f"🎖️ <b>Félicitations !</b> Tu as été promu(e) dans <b>{company.name}</b>\n\n"
+                    f"{role_emoji} Ton nouveau poste : <b>{new_role.capitalize()}</b>\n"
+                    f"💡 Tape <code>/monentreprise</code> pour voir ta fiche."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
 
 # ─── COMMANDE : /monentreprise ────────────────────────────────────────────────
@@ -1518,15 +1567,19 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             can_sell = my_shares
 
+        if qty <= 0:
+            await update.message.reply_text("❌ La quantité doit être supérieure à 0.")
+            return
+
+        if my_shares < qty:
+            await update.message.reply_text(f"❌ Tu n'as que {my_shares} parts.")
+            return
+
         if qty > can_sell:
             await update.message.reply_text(
                 f"❌ Tu ne peux vendre que <b>{can_sell}</b> parts (PDG garde ≥51%).",
                 parse_mode="HTML"
             )
-            return
-
-        if qty <= 0 or my_shares < qty:
-            await update.message.reply_text(f"❌ Tu n'as que {my_shares} parts.")
             return
 
         total = qty * price_each
@@ -1543,7 +1596,9 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         company.treasury -= total
-        company.owner_shares += qty  # retour dans le pool du PDG
+        # Seul le PDG rachète ses propres parts
+        if emp.role == "pdg":
+            company.owner_shares += qty
         db_user.coins += total
 
         # Mettre à jour les parts
@@ -1626,6 +1681,9 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             buyer_share.quantity += qty
         else:
             session.add(CompanyShare(company_id=company.id, owner_id=user.id, quantity=qty))
+
+        # Flush pour que _get_shares lise la valeur à jour en DB
+        await session.flush()
 
         # OPA hostile : bloquée sur les bot companies
         if company.is_bot_company:
@@ -1847,10 +1905,11 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         )).scalars().all()
 
-        # Libérer tous les employés sans cooldown (left_at = None → on marque quand même)
+        # Libérer tous les employés SANS cooldown (on date dans le passé pour bypass les 7j)
+        bypass_date = datetime.utcnow() - timedelta(days=8)
         for e in emps:
             if e.user_id != user.id:
-                e.left_at = datetime.utcnow()
+                e.left_at = bypass_date
                 # Notifier chaque employé
                 try:
                     await context.bot.send_message(

@@ -147,20 +147,21 @@ async def _groq_questions(level: str, domain: str, n: int) -> list | None:
         random.shuffle(themes)
         themes_choisis = ", ".join(themes[:4])
         prompt = (
-            f"[SEED:{seed}] Génère exactement {n} questions QCM de culture générale VARIÉES et ORIGINALES "
-            f"pour un examen de niveau Bac. Thèmes à couvrir : {themes_choisis}. "
-            f"Les questions doivent être DIFFÉRENTES à chaque génération. "
-            "Réponds UNIQUEMENT avec un tableau JSON valide, sans markdown ni texte autour. "
-            'Format: [{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}] '
+            f"[SEED:{seed}] Tu dois générer EXACTEMENT {n} questions QCM, ni plus ni moins. "
+            f"Thème : culture générale niveau Bac. Thèmes à couvrir : {themes_choisis}. "
+            f"Les questions doivent être VARIÉES et ORIGINALES. "
+            f"Réponds UNIQUEMENT avec un tableau JSON de {n} objets, sans markdown ni texte autour. "
+            f'Format: [{{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}}] '
             "Le champ 'correct' est l'index 0-3 de la bonne réponse."
         )
     else:
         hardness = {"licence": "intermédiaire", "master": "avancé", "mba": "expert"}[level]
         prompt = (
-            f"[SEED:{seed}] Génère exactement {n} questions QCM de niveau {hardness} en {domain_label} "
-            f"(niveau académique {level_label}). Questions professionnelles et réalistes, VARIÉES. "
-            "Réponds UNIQUEMENT avec un tableau JSON valide, sans markdown ni texte autour. "
-            'Format: [{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}] '
+            f"[SEED:{seed}] Tu dois générer EXACTEMENT {n} questions QCM, ni plus ni moins. "
+            f"Niveau : {hardness}. Domaine : {domain_label} (niveau {level_label}). "
+            f"Questions professionnelles, réalistes et VARIÉES. "
+            f"Réponds UNIQUEMENT avec un tableau JSON de {n} objets, sans markdown ni texte autour. "
+            f'Format: [{{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}}] '
             "Le champ 'correct' est l'index 0-3 de la bonne réponse."
         )
 
@@ -172,8 +173,8 @@ async def _groq_questions(level: str, domain: str, n: int) -> list | None:
                 json={
                     "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.95,  # plus de variété
-                    "max_tokens": 4000,
+                    "temperature": 0.95,
+                    "max_tokens": 6000,  # 6000 pour supporter jusqu'à 15 questions MBA
                 },
             )
         data = resp.json()

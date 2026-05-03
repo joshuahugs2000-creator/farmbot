@@ -58,6 +58,11 @@ from handlers.admin    import (
     logs_cmd, suspicious_cmd, grouplist_cmd, groupscan_cmd,
     fin, donate,
     admindiplome,
+    adminexam_reset_cooldown,
+    adminexam_set_anciennete,
+    adminexam_give_coins_exam,
+    adminexam_info,
+    adminexam_unlock,
     # ── God Mode ──────────────────────────────────────────────────────────────
     statsbot, resetcooldown, addkarma, setkarma,
     wipeinventory, resetbanque, kickboite, deletecompany,
@@ -519,6 +524,11 @@ async def main():
     app.add_handler(CommandHandler("diplome", _prison_checked(diplome_cmd)))
     app.add_handler(CallbackQueryHandler(diplome_callback, pattern=r"^exam:"))
     app.add_handler(CommandHandler("admindiplome", admindiplome))
+    app.add_handler(CommandHandler("examreset", adminexam_reset_cooldown))
+    app.add_handler(CommandHandler("examanciennete", adminexam_set_anciennete))
+    app.add_handler(CommandHandler("examcoins", adminexam_give_coins_exam))
+    app.add_handler(CommandHandler("examinfo", adminexam_info))
+    app.add_handler(CommandHandler("examunlock", adminexam_unlock))
 
     # ── God Mode ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("statsbot",       statsbot))

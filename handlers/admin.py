@@ -1984,7 +1984,7 @@ async def statsbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_coins    = (await session.execute(text("SELECT COALESCE(SUM(coins),0) FROM users"))).scalar()
         total_banned   = (await session.execute(text("SELECT COUNT(*) FROM users WHERE is_banned=TRUE"))).scalar()
         total_bank     = (await session.execute(text("SELECT COALESCE(SUM(balance),0) FROM bank_accounts"))).scalar()
-        total_loans    = (await session.execute(text("SELECT COALESCE(SUM(amount),0) FROM loans WHERE repaid=FALSE"))).scalar() if True else 0
+        total_loans    = (await session.execute(text("SELECT COALESCE(SUM(amount),0) FROM loans WHERE status='active'"))).scalar() if True else 0
         total_prison   = (await session.execute(text("SELECT COUNT(*) FROM crime_prison"))).scalar()
         total_companies= (await session.execute(text("SELECT COUNT(*) FROM companies WHERE is_active=TRUE"))).scalar()
         total_emps     = (await session.execute(text("SELECT COUNT(*) FROM company_employees WHERE left_at IS NULL"))).scalar()
@@ -2459,7 +2459,7 @@ async def checkuser(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Loans
         loans = (await session.execute(
-            text("SELECT COALESCE(SUM(amount),0) as total FROM loans WHERE user_id=:uid AND repaid=FALSE"),
+            text("SELECT COALESCE(SUM(amount),0) as total FROM loans WHERE user_id=:uid AND status='active'"),
             {"uid": uid}
         )).fetchone()
         loans_str = _fmt(loans.total) + " $" if loans else "0 $"
@@ -2561,7 +2561,7 @@ async def wipeloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not target:
             return await update.message.reply_text("❌ Introuvable.")
         result = await session.execute(
-            text("UPDATE loans SET repaid=TRUE WHERE user_id=:uid AND repaid=FALSE RETURNING id"),
+            text("UPDATE loans SET status='repaid' WHERE user_id=:uid AND status='active' RETURNING id"),
             {"uid": target.user_id}
         )
         count = len(result.fetchall())

@@ -1912,7 +1912,7 @@ async def admindiplome(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target_arg = args[0].lstrip("@")
     level      = args[1].lower()
-    retirer    = "--retirer" in [a.lower() for a in args]
+    retirer    = any(a.lower() in ("--retirer", "retirer", "-retirer", "remove") for a in args)
     domaine    = None
     DOMAINS_VALID = {"finance", "informatique", "marketing", "droit", "management", "agriculture", "securite"}
     LEVELS_VALID  = {"bac", "licence", "master", "mba"}

@@ -1783,6 +1783,105 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── COMMANDE : /licencier @pseudo ────────────────────────────────────────────
 
+# ─── COMMANDE : /employes [nom_entreprise] ────────────────────────────────────
+
+async def employes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /employes           → liste les employés de TON entreprise
+    /employes NomBoite  → liste les employés d'une entreprise publique
+    """
+    user = update.effective_user
+
+    async with AsyncSessionLocal() as session:
+        if context.args:
+            # Chercher par nom d'entreprise
+            name = " ".join(context.args)
+            company = await _get_company_by_name(session, name)
+            if not company:
+                await update.message.reply_text(
+                    f"❌ Entreprise <b>{name}</b> introuvable.\n"
+                    f"Vérifie le nom exact avec <code>/listeboites</code>.",
+                    parse_mode="HTML"
+                )
+                return
+        else:
+            # Entreprise de l'utilisateur
+            result = await _get_user_company(session, user.id)
+            if not result or not result[0]:
+                await update.message.reply_text(
+                    "❌ Tu ne fais partie d'aucune entreprise.\n"
+                    "Usage : <code>/employes [NomEntreprise]</code> pour voir une autre boite.",
+                    parse_mode="HTML"
+                )
+                return
+            company, _ = result
+
+        # Récupérer tous les employés actifs avec leurs infos user
+        rows = (await session.execute(
+            select(CompanyEmployee, User)
+            .join(User, User.user_id == CompanyEmployee.user_id)
+            .where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+            .order_by(
+                # Tri par rang : pdg > directeur > manager > employe > stagiaire
+                CompanyEmployee.role.in_(["pdg"]).desc(),
+                CompanyEmployee.role.in_(["directeur"]).desc(),
+                CompanyEmployee.role.in_(["manager"]).desc(),
+                CompanyEmployee.role.in_(["employe"]).desc(),
+            )
+        )).fetchall()
+
+        if not rows:
+            await update.message.reply_text(
+                f"❌ Aucun employé trouvé dans <b>{company.name}</b>.",
+                parse_mode="HTML"
+            )
+            return
+
+        sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
+        lvl_emoji, lvl_name, _, _, max_emp = _level_info(company.level)
+
+        # Regrouper par rôle
+        by_role: dict[str, list] = {r: [] for r in ROLES_ORDER[::-1]}
+        for emp, u in rows:
+            by_role.setdefault(emp.role, []).append((emp, u))
+
+        lines = [
+            f"「 {sec_emoji} 」<b>{company.name}</b>  ·  {lvl_emoji} {lvl_name}",
+            f"👥 <b>{len(rows)}/{max_emp} employés</b>",
+            "◈━━━━━━━━━━━━━━━━━━━━━━━━◈",
+        ]
+
+        role_order = ["pdg", "directeur", "manager", "employe", "stagiaire"]
+        role_labels = {
+            "pdg":        "👑 PDG",
+            "directeur":  "🏦 Directeurs",
+            "manager":    "💼 Managers",
+            "employe":    "👷 Employés",
+            "stagiaire":  "🔰 Stagiaires",
+        }
+
+        for role in role_order:
+            members = by_role.get(role, [])
+            if not members:
+                continue
+            lines.append(f"\n{role_labels[role]} :")
+            for emp, u in members:
+                name_display = f"@{u.username}" if u.username else u.first_name
+                joined = emp.joined_at.strftime("%d/%m/%y") if emp.joined_at else "—"
+                lines.append(f"  ╰┈➤ {name_display}  <i>(depuis {joined})</i>")
+
+        lines.append("\n◈━━━━━━━━━━━━━━━━━━━━━━━━◈")
+        lines.append("ℹ️ Utilise <code>/infoboite</code> pour les détails financiers.")
+
+        await update.message.reply_text(
+            "\n".join(lines),
+            parse_mode="HTML"
+        )
+
+
 async def licencier_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not context.args:

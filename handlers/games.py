@@ -806,6 +806,8 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Tourne la roue et tente ta chance !\n"
             "Multiplicateurs, gains fixes, IDEM, JACKPOT… et la Ruine.\n\n"
             f"<b>Segments :</b>\n{segments_display}\n\n"
+            "💰 Mise min : <b>1 000 $</b>  |  Mise max : <b>6 600 000 $</b>\n"
+            "🏆 Gain plafonné à <b>100 000 000 $</b>\n\n"
             "Usage : <code>/roue &lt;mise&gt;</code>",
             parse_mode=ParseMode.HTML
         )
@@ -815,8 +817,17 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         return await update.message.reply_text("❌ Mise invalide.")
 
+    ROUE_MISE_MAX = 6_600_000  # Mise max : 6.6M (x15 = 99M ≈ plafond 100M)
+
     if mise < 1000:
         return await update.message.reply_text("❌ Mise minimum : <b>1 000 $</b>", parse_mode=ParseMode.HTML)
+
+    if mise > ROUE_MISE_MAX:
+        return await update.message.reply_text(
+            f"❌ Mise maximum : <b>6 600 000 $</b>\n"
+            f"💡 Le gain est plafonné à 100M — inutile de miser plus !",
+            parse_mode=ParseMode.HTML
+        )
 
     async with AsyncSessionLocal() as session:
         balance = await _get_balance(session, user.id)

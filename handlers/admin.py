@@ -1987,6 +1987,261 @@ async def admindiplome(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+
+
+# ─── Commandes admin examens ──────────────────────────────────────────────────
+
+async def adminexam_reset_cooldown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /examreset @user — Supprime le cooldown d'examen d'un joueur (peut repasser immédiatement).
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    args = context.args or []
+    if not args:
+        return await update.message.reply_text("❌ Usage : <code>/examreset @user</code>", parse_mode=ParseMode.HTML)
+
+    target = args[0].lstrip("@")
+    async with AsyncSessionLocal() as session:
+        from database.db import get_user, get_user_by_username
+        u = await get_user(session, int(target)) if target.isdigit() else await get_user_by_username(session, target)
+        if not u:
+            return await update.message.reply_text("❌ Joueur introuvable.")
+        await session.execute(text("UPDATE users SET exam_cooldown = NULL WHERE user_id = :uid"), {"uid": u.user_id})
+        await session.commit()
+
+    await update.message.reply_text(
+        f"✅ Cooldown d'examen supprimé pour <b>@{u.username or u.first_name}</b>. Il peut repasser immédiatement.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def adminexam_set_anciennete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /examanciennete @user jours — Force l'ancienneté d'un joueur (pour débloquer le Master).
+    Ex : /examanciennete @toto 20
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    args = context.args or []
+    if len(args) < 2:
+        return await update.message.reply_text(
+            "❌ Usage : <code>/examanciennete @user jours</code>\nEx : /examanciennete @toto 20",
+            parse_mode=ParseMode.HTML,
+        )
+
+    target = args[0].lstrip("@")
+    try:
+        jours = int(args[1])
+    except ValueError:
+        return await update.message.reply_text("❌ Le nombre de jours doit être un entier.")
+
+    async with AsyncSessionLocal() as session:
+        from database.db import get_user, get_user_by_username
+        from datetime import datetime, timedelta
+        u = await get_user(session, int(target)) if target.isdigit() else await get_user_by_username(session, target)
+        if not u:
+            return await update.message.reply_text("❌ Joueur introuvable.")
+        new_date = datetime.utcnow() - timedelta(days=jours)
+        await session.execute(
+            text("UPDATE users SET created_at = :d WHERE user_id = :uid"),
+            {"d": new_date, "uid": u.user_id},
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"✅ Ancienneté de <b>@{u.username or u.first_name}</b> forcée à <b>{jours} jours</b>.\n"
+        f"Il peut maintenant passer le Master.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def adminexam_give_coins_exam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /examcoins @user — Donne exactement les coins nécessaires pour passer le prochain diplôme.
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    args = context.args or []
+    if not args:
+        return await update.message.reply_text("❌ Usage : <code>/examcoins @user</code>", parse_mode=ParseMode.HTML)
+
+    target = args[0].lstrip("@")
+
+    EXAMS_COST = {"bac": 0, "licence": 500_000, "master": 5_000_000, "mba": 50_000_000}
+    LEVEL_ORDER = ["none", "bac", "licence", "master", "mba"]
+
+    async with AsyncSessionLocal() as session:
+        from database.db import get_user, get_user_by_username
+        u = await get_user(session, int(target)) if target.isdigit() else await get_user_by_username(session, target)
+        if not u:
+            return await update.message.reply_text("❌ Joueur introuvable.")
+
+        # Déterminer le niveau actuel et suivant
+        if getattr(u, "diplome_mba", False):     current = "mba"
+        elif getattr(u, "diplome_master", False): current = "master"
+        elif getattr(u, "diplome_licence", False): current = "licence"
+        elif getattr(u, "diplome_bac", False):   current = "bac"
+        else:                                      current = "none"
+
+        idx = LEVEL_ORDER.index(current)
+        if idx >= len(LEVEL_ORDER) - 1:
+            return await update.message.reply_text(
+                f"<b>@{u.username or u.first_name}</b> a déjà tous les diplômes 🏆",
+                parse_mode=ParseMode.HTML,
+            )
+
+        next_lvl = LEVEL_ORDER[idx + 1]
+        cost = EXAMS_COST[next_lvl]
+        if cost == 0:
+            return await update.message.reply_text(
+                f"Le <b>{next_lvl.upper()}</b> est gratuit, pas besoin de coins.",
+                parse_mode=ParseMode.HTML,
+            )
+
+        # Donner exactement le manquant si insuffisant
+        manquant = max(0, cost - u.coins)
+        if manquant == 0:
+            return await update.message.reply_text(
+                f"<b>@{u.username or u.first_name}</b> a déjà assez pour le <b>{next_lvl.upper()}</b> ({u.coins:,} 💰).",
+                parse_mode=ParseMode.HTML,
+            )
+
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + :c WHERE user_id = :uid"),
+            {"c": manquant, "uid": u.user_id},
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"💰 <b>{manquant:,} $</b> donnés à <b>@{u.username or u.first_name}</b>.\n"
+        f"Il peut maintenant passer le <b>{next_lvl.upper()}</b> ({cost:,} $ requis).",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def adminexam_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /examinfo @user — Affiche toutes les infos d'examen d'un joueur (niveau, cooldown, ancienneté, domaine).
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    args = context.args or []
+    if not args:
+        return await update.message.reply_text("❌ Usage : <code>/examinfo @user</code>", parse_mode=ParseMode.HTML)
+
+    target = args[0].lstrip("@")
+    async with AsyncSessionLocal() as session:
+        from database.db import get_user, get_user_by_username
+        from datetime import datetime
+        u = await get_user(session, int(target)) if target.isdigit() else await get_user_by_username(session, target)
+        if not u:
+            return await update.message.reply_text("❌ Joueur introuvable.")
+
+        if getattr(u, "diplome_mba", False):      current = "mba"
+        elif getattr(u, "diplome_master", False):  current = "master"
+        elif getattr(u, "diplome_licence", False): current = "licence"
+        elif getattr(u, "diplome_bac", False):     current = "bac"
+        else:                                       current = "aucun"
+
+        cd = getattr(u, "exam_cooldown", None)
+        if cd and cd > datetime.utcnow():
+            delta = cd - datetime.utcnow()
+            h = int(delta.total_seconds() // 3600)
+            m = int((delta.total_seconds() % 3600) // 60)
+            cd_str = f"⏳ {h}h{m:02d}m restants"
+        else:
+            cd_str = "✅ Aucun (peut passer)"
+
+        anciennete = (datetime.utcnow() - u.created_at).days if u.created_at else "?"
+        domain = getattr(u, "diplome_domain", None) or "—"
+
+        diplomes = []
+        for lvl, emoji in [("bac","📄"),("licence","🎓"),("master","🏅"),("mba","👑")]:
+            diplomes.append(f"{'✅' if getattr(u, f'diplome_{lvl}', False) else '⬜'} {emoji} {lvl.upper()}")
+
+        await update.message.reply_text(
+            f"🔍 <b>Exam Info — @{u.username or u.first_name}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📚 Niveau actuel : <b>{current.upper()}</b>\n"
+            f"🎯 Domaine : <b>{domain}</b>\n"
+            f"📅 Ancienneté : <b>{anciennete} jours</b> (Master requis : 20j)\n"
+            f"💰 Solde : <b>{u.coins:,} $</b>\n"
+            f"⏱ Cooldown : <b>{cd_str}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            + "\n".join(diplomes),
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def adminexam_unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /examunlock @user — Supprime TOUTES les restrictions pour un joueur :
+    cooldown, ancienneté (force 30j), et donne les coins si manquants.
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    args = context.args or []
+    if not args:
+        return await update.message.reply_text("❌ Usage : <code>/examunlock @user</code>", parse_mode=ParseMode.HTML)
+
+    target = args[0].lstrip("@")
+    EXAMS_COST = {"bac": 0, "licence": 500_000, "master": 5_000_000, "mba": 50_000_000}
+    LEVEL_ORDER_L = ["none", "bac", "licence", "master", "mba"]
+
+    async with AsyncSessionLocal() as session:
+        from database.db import get_user, get_user_by_username
+        from datetime import datetime, timedelta
+        u = await get_user(session, int(target)) if target.isdigit() else await get_user_by_username(session, target)
+        if not u:
+            return await update.message.reply_text("❌ Joueur introuvable.")
+
+        if getattr(u, "diplome_mba", False):      current = "mba"
+        elif getattr(u, "diplome_master", False):  current = "master"
+        elif getattr(u, "diplome_licence", False): current = "licence"
+        elif getattr(u, "diplome_bac", False):     current = "bac"
+        else:                                       current = "none"
+
+        idx = LEVEL_ORDER_L.index(current)
+        actions = []
+
+        # 1. Reset cooldown
+        updates = ["exam_cooldown = NULL"]
+        actions.append("✅ Cooldown supprimé")
+
+        # 2. Force ancienneté 30j
+        new_date = datetime.utcnow() - timedelta(days=30)
+        updates.append("created_at = :cdate")
+        actions.append("✅ Ancienneté forcée à 30 jours")
+
+        # 3. Coins pour prochain niveau
+        if idx < len(LEVEL_ORDER_L) - 1:
+            next_lvl = LEVEL_ORDER_L[idx + 1]
+            cost = EXAMS_COST.get(next_lvl, 0)
+            manquant = max(0, cost - u.coins)
+            if manquant > 0:
+                updates.append("coins = CAST(coins AS BIGINT) + :manquant")
+                actions.append(f"✅ {manquant:,} $ ajoutés pour le {next_lvl.upper()}")
+            else:
+                actions.append(f"✅ Assez de coins pour le {next_lvl.upper()}")
+        else:
+            next_lvl = None
+            manquant = 0
+            actions.append("🏆 Déjà tous les diplômes")
+
+        await session.execute(
+            text(f"UPDATE users SET {', '.join(updates)} WHERE user_id = :uid"),
+            {"uid": u.user_id, "cdate": new_date, "manquant": manquant},
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"🔓 <b>@{u.username or u.first_name}</b> débloqué !\n\n"
+        + "\n".join(actions)
+        + (f"\n\n➡️ Il peut maintenant passer le <b>{next_lvl.upper()}</b>." if next_lvl else ""),
+        parse_mode=ParseMode.HTML,
+    )
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ▓▓▓  GOD MODE — COMMANDES AVANCÉES  ▓▓▓
 # ═══════════════════════════════════════════════════════════════════════════════

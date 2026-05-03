@@ -524,6 +524,10 @@ async def _handle_answer(query, context, uid: int, level: str, domain: str, q_id
 
 
 async def _finish_exam(query, context, uid: int, data: dict):
+    """
+    query peut être un CallbackQuery (réponse bouton) ou un Message (timeout timer).
+    On normalise l'appel edit pour supporter les deux cas.
+    """
     level    = data["level"]
     domain   = data["domain"]
     score    = data["score"]
@@ -531,6 +535,18 @@ async def _finish_exam(query, context, uid: int, data: dict):
     info     = EXAMS[level]
     required = info["required"]
     success  = score >= required
+
+    async def _edit(text: str, **kwargs):
+        """Édite le message peu importe si c'est un CallbackQuery ou un Message."""
+        try:
+            if hasattr(query, "edit_message_text"):
+                # CallbackQuery
+                await query.edit_message_text(text, **kwargs)
+            else:
+                # Message (appelé depuis le timer)
+                await query.edit_text(text, **kwargs)
+        except Exception as e:
+            logger.warning(f"_finish_exam edit error: {e}")
 
     async with AsyncSessionLocal() as session:
         params = {"uid": uid}
@@ -561,7 +577,7 @@ async def _finish_exam(query, context, uid: int, data: dict):
         d_str = ""
         if level != "bac" and domain not in ("bac", "general", None):
             d_str = f"  ·  {DOMAINS.get(domain, ('',''))[1]}"
-        await query.edit_message_text(
+        await _edit(
             f"🎉 <b>FÉLICITATIONS !</b>\n\n"
             f"✅ Diplôme obtenu : <b>{info['emoji']} {info['label']}{d_str}</b>\n"
             f"📊 Score : <b>{score}/{total}</b>\n\n"
@@ -571,7 +587,7 @@ async def _finish_exam(query, context, uid: int, data: dict):
             parse_mode=ParseMode.HTML,
         )
     else:
-        await query.edit_message_text(
+        await _edit(
             f"❌ <b>ÉCHEC</b>\n\n"
             f"Score : <b>{score}/{total}</b>  (minimum requis : <b>{required}/{total}</b>)\n\n"
             f"⏳ Nouveau tentative disponible dans <b>{info['cooldown_fail']}h</b>.\n"

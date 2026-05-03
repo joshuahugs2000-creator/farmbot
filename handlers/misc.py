@@ -52,6 +52,8 @@ HELP_TEXT = """
 <b>🏢 Entreprises</b>
 /listeboites — Voir toutes les entreprises
 /infoboite nom — Détails d'une entreprise
+/employes — Liste des employés de ton entreprise
+/employes nom — Liste des employés d'une autre entreprise
 /postuler nom — Postuler dans une entreprise
 /rejoindre nom — Accepter une invitation
 /demissionner — Quitter son entreprise

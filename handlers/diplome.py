@@ -53,7 +53,7 @@ EXAMS: dict[str, dict] = {
     "bac":     {"emoji": "📄", "label": "Bac",     "n": 10, "required": 7,  "cost": 0,          "cooldown_fail": 6},
     "licence": {"emoji": "🎓", "label": "Licence", "n": 10, "required": 8,  "cost": 500_000,    "cooldown_fail": 12},
     "master":  {"emoji": "🏅", "label": "Master",  "n": 10, "required": 8,  "cost": 5_000_000,  "cooldown_fail": 24},
-    "mba":     {"emoji": "👑", "label": "MBA",      "n": 15, "required": 12, "cost": 50_000_000, "cooldown_fail": 24},
+    "mba":     {"emoji": "👑", "label": "MBA",      "n": 10, "required": 10, "cost": 50_000_000, "cooldown_fail": 24},
 }
 
 WORK_BONUS: dict[str, int] = {
@@ -369,7 +369,7 @@ async def diplome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{_status('bac')}  📄 <b>Bac</b>  — Gratuit  (7/10 requis)",
         f"{_status('licence')}  🎓 <b>Licence</b>  — {_fmt(500_000)} 💰  (8/10 requis)",
         f"{_status('master')}  🏅 <b>Master</b>  — {_fmt(5_000_000)} 💰  (8/10 requis)",
-        f"{_status('mba')}  👑 <b>MBA</b>  — {_fmt(50_000_000)} 💰  (12/15 requis)",
+        f"{_status('mba')}  👑 <b>MBA</b>  — {_fmt(50_000_000)} 💰  (10/10 requis — parfait ✨)",
         "━━━━━━━━━━━━━━━━━━━━━━━━",
         f"{'📌' if domain else '—'} <b>Domaine :</b> {d_emoji + ' ' + d_label if domain else '—  (choisi à la Licence)'}",
         bonus_line,

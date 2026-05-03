@@ -146,6 +146,10 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/unmutecompany nom — Réactiver une entreprise\n"
         "/setreputation nom valeur — Modifier la réputation\n"
         "/addvalue nom montant — Modifier la valeur d'une entreprise\n"
+        "/adminboites — Vue complète de toutes les entreprises\n"
+        "/adminboite nom — Fiche détaillée : employés, salaires, logs\n\n"
+        "<b>📈 Utilisation du bot</b>\n"
+        "/statsusers — Actifs par période, nouveaux inscrits, top commandes\n"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
@@ -2692,3 +2696,204 @@ async def _resolve_user(session, arg: str):
     else:
         from database.db import get_user_by_username
         return await get_user_by_username(session, arg)
+
+
+# ─── /adminboites — Vue admin complète de toutes les entreprises ──────────────
+
+async def adminboites(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Liste toutes les entreprises avec valeur, tréso, nb employés, revenus."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(text(
+            """
+            SELECT c.id, c.name, c.sector, c.level, c.value, c.treasury,
+                   c.reputation, c.is_active, c.is_bot_company,
+                   COUNT(e.user_id) AS nb_emp
+            FROM companies c
+            LEFT JOIN company_employees e ON e.company_id = c.id AND e.left_at IS NULL
+            GROUP BY c.id
+            ORDER BY c.value DESC
+            """
+        ))).fetchall()
+
+    if not rows:
+        return await update.message.reply_text("❌ Aucune entreprise trouvée.")
+
+    LEVEL_NAMES = {1:"Startup",2:"PME",3:"Société",4:"Corporation",5:"Holding"}
+    SECTOR_EMO  = {"tech":"💻","finance":"📈","commerce":"🛒","droit":"⚖️","agriculture":"🌾","securite":"🛡️","immobilier":"🏗️","sante":"🏥"}
+    # Taux mensuel par niveau
+    RATES = {1:0.04, 2:0.06, 3:0.08, 4:0.10, 5:0.12}
+
+    lines = ["🏢 <b>ADMIN — Toutes les entreprises</b>\n"]
+    for r in rows:
+        daily = int(r.value * RATES.get(r.level, 0.04) / 30)
+        em    = SECTOR_EMO.get(r.sector, "🏢")
+        state = "🟢" if r.is_active else "🔴"
+        bot   = "🤖" if r.is_bot_company else ""
+        lines.append(
+            f"{state}{bot} <b>{r.name}</b>  {em} niv.{r.level} {LEVEL_NAMES.get(r.level,'?')}\n"
+            f"  💰 Valeur : <code>{_fmt(r.value)}</code>  |  🏦 Tréso : <code>{_fmt(r.treasury)}</code>\n"
+            f"  📈 Rev/jour estimé : <code>{_fmt(daily)}</code>  |  👥 Employés : {r.nb_emp}  |  ⭐ {r.reputation:.1f}/5\n"
+        )
+
+    # Telegram limite à 4096 chars — envoyer par chunks
+    msg = "\n".join(lines)
+    for i in range(0, len(msg), 4000):
+        await update.message.reply_text(msg[i:i+4000], parse_mode="HTML")
+
+
+# ─── /adminboite nom — Détail admin d'UNE entreprise ─────────────────────────
+
+async def adminboite(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fiche complète : employés, salaires, gains/pertes estimés."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text("❌ Usage : <code>/adminboite NomEntreprise</code>", parse_mode="HTML")
+
+    name = " ".join(context.args)
+
+    async with AsyncSessionLocal() as session:
+        comp = (await session.execute(
+            text("SELECT * FROM companies WHERE LOWER(name)=LOWER(:n) LIMIT 1"), {"n": name}
+        )).fetchone()
+        if not comp:
+            return await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
+
+        emps = (await session.execute(text(
+            """
+            SELECT e.role, e.joined_at, e.command_count,
+                   u.user_id, u.username, u.first_name, u.coins
+            FROM company_employees e
+            JOIN users u ON u.user_id = e.user_id
+            WHERE e.company_id = :cid AND e.left_at IS NULL
+            ORDER BY e.role
+            """
+        ), {"cid": comp.id})).fetchall()
+
+        logs = (await session.execute(text(
+            """
+            SELECT event_type, description, amount, created_at
+            FROM company_logs
+            WHERE company_id = :cid
+            ORDER BY created_at DESC LIMIT 10
+            """
+        ), {"cid": comp.id})).fetchall()
+
+    RATES = {1:0.04, 2:0.06, 3:0.08, 4:0.10, 5:0.12}
+    ROLE_SHARE = {"stagiaire":0.0,"employe":0.10,"manager":0.20,"directeur":0.35,"pdg":0.0}
+    daily_total = int(comp.value * RATES.get(comp.level, 0.04) / 30)
+
+    lines = [
+        f"🔍 <b>ADMIN — {comp.name}</b>",
+        f"Secteur : {comp.sector}  |  Niveau : {comp.level}  |  ⭐ {comp.reputation:.1f}/5",
+        f"💰 Valeur : <code>{_fmt(comp.value)}</code>  |  🏦 Tréso : <code>{_fmt(comp.treasury)}</code>",
+        f"📈 Revenu journalier estimé : <code>{_fmt(daily_total)}</code>",
+        f"État : {'🟢 Active' if comp.is_active else '🔴 Inactive'}  |  {'🤖 Bot' if comp.is_bot_company else '👤 Joueur'}",
+        "",
+        "👥 <b>EMPLOYÉS & SALAIRES</b>",
+    ]
+
+    total_salaires = 0
+    for e in emps:
+        share  = ROLE_SHARE.get(e.role, 0)
+        salary = int(daily_total * share)
+        total_salaires += salary
+        name_d = f"@{e.username}" if e.username else e.first_name
+        uid_d  = f"(ID:{e.user_id})"
+        joined = e.joined_at.strftime("%d/%m/%y") if e.joined_at else "—"
+        lines.append(
+            f"  • {name_d} {uid_d} — <b>{e.role.capitalize()}</b>\n"
+            f"    💵 Salaire/jour : <code>{_fmt(salary)}</code>  |  📅 Depuis : {joined}  |  🖱 Cmds : {e.command_count}"
+        )
+
+    pdg_cut = daily_total - total_salaires
+    lines += [
+        "",
+        f"💸 Total salaires employés/jour : <code>{_fmt(total_salaires)}</code>",
+        f"👑 Part PDG (dividendes) : <code>{_fmt(pdg_cut)}</code>",
+        "",
+        "📋 <b>10 DERNIERS LOGS</b>",
+    ]
+    for l in logs:
+        amt  = f"  [{_fmt(l.amount)}]" if l.amount else ""
+        date = l.created_at.strftime("%d/%m %H:%M") if l.created_at else "—"
+        lines.append(f"  [{date}] {l.event_type}{amt} — {l.description}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+# ─── /statsusers — Statistiques d'utilisation du bot ─────────────────────────
+
+async def statsusers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Nombre d'utilisateurs actifs par période + total."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    async with AsyncSessionLocal() as session:
+        total     = (await session.execute(text("SELECT COUNT(*) FROM users"))).scalar()
+        bannis    = (await session.execute(text("SELECT COUNT(*) FROM users WHERE is_banned=TRUE"))).scalar()
+        actifs_1h = (await session.execute(text(
+            "SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE created_at > NOW() - INTERVAL '1 hour'"
+        ))).scalar()
+        actifs_24h = (await session.execute(text(
+            "SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE created_at > NOW() - INTERVAL '24 hours'"
+        ))).scalar()
+        actifs_7j  = (await session.execute(text(
+            "SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE created_at > NOW() - INTERVAL '7 days'"
+        ))).scalar()
+        actifs_30j = (await session.execute(text(
+            "SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE created_at > NOW() - INTERVAL '30 days'"
+        ))).scalar()
+        nouveaux_7j = (await session.execute(text(
+            "SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '7 days'"
+        ))).scalar()
+        nouveaux_30j = (await session.execute(text(
+            "SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '30 days'"
+        ))).scalar()
+        cmds_24h = (await session.execute(text(
+            "SELECT COUNT(*) FROM activity_logs WHERE created_at > NOW() - INTERVAL '24 hours'"
+        ))).scalar()
+        cmds_7j = (await session.execute(text(
+            "SELECT COUNT(*) FROM activity_logs WHERE created_at > NOW() - INTERVAL '7 days'"
+        ))).scalar()
+        top_cmds = (await session.execute(text(
+            """
+            SELECT command, COUNT(*) as nb
+            FROM activity_logs
+            WHERE created_at > NOW() - INTERVAL '7 days' AND command IS NOT NULL
+            GROUP BY command ORDER BY nb DESC LIMIT 5
+            """
+        ))).fetchall()
+
+    taux = round((actifs_24h / total * 100), 1) if total else 0
+
+    lines = [
+        "📊 <b>STATS UTILISATEURS — Bot</b>",
+        "",
+        f"👥 Total inscrits : <b>{total}</b>",
+        f"🚫 Bannis : <b>{bannis}</b>",
+        f"✅ Actifs (non bannis) : <b>{total - bannis}</b>",
+        "",
+        "⚡ <b>ACTIVITÉ</b>",
+        f"🟢 Actifs dernière heure : <b>{actifs_1h}</b>",
+        f"🟡 Actifs 24h : <b>{actifs_24h}</b>  ({taux}% du total)",
+        f"🔵 Actifs 7 jours : <b>{actifs_7j}</b>",
+        f"⚪ Actifs 30 jours : <b>{actifs_30j}</b>",
+        "",
+        "🆕 <b>NOUVEAUX INSCRITS</b>",
+        f"  Cette semaine : <b>{nouveaux_7j}</b>",
+        f"  Ce mois : <b>{nouveaux_30j}</b>",
+        "",
+        "🖱 <b>COMMANDES</b>",
+        f"  24h : <b>{cmds_24h}</b>",
+        f"  7 jours : <b>{cmds_7j}</b>",
+        "",
+        "🏆 <b>TOP 5 COMMANDES (7j)</b>",
+    ]
+    for row in top_cmds:
+        lines.append(f"  /{row.command} — {row.nb} fois")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")

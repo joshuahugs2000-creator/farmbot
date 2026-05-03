@@ -104,10 +104,75 @@ FALLBACK: dict[str, list] = {
     ],
 }
 
-# Pour les domaines sans fallback, on utilise les questions Bac
+FALLBACK["marketing"] = [
+    {"question": "Qu'est-ce que le marketing mix ?",                              "choices": ["A. Un cocktail de boissons", "B. Les 4P : Produit, Prix, Place, Promotion", "C. Un logiciel de gestion", "D. Une technique de vente directe"], "correct": 1},
+    {"question": "Que signifie CRM ?",                                            "choices": ["A. Customer Relationship Management", "B. Creative Revenue Model", "C. Content Reach Metrics", "D. Corporate Resource Management"], "correct": 0},
+    {"question": "Qu'est-ce qu'un buyer persona ?",                               "choices": ["A. Un concurrent fictif", "B. Le profil type du client idéal", "C. Un outil de publicité payante", "D. Un contrat de vente"], "correct": 1},
+    {"question": "Que mesure le NPS (Net Promoter Score) ?",                      "choices": ["A. Le chiffre d'affaires net", "B. La satisfaction et fidélité client", "C. Le trafic sur un site web", "D. Le coût d'acquisition"], "correct": 1},
+    {"question": "Qu'est-ce que le SEO ?",                                        "choices": ["A. Social Engagement Optimization", "B. Search Engine Optimization", "C. Sales & Export Operations", "D. System Email Outreach"], "correct": 1},
+    {"question": "Qu'est-ce qu'un entonnoir de conversion ?",                     "choices": ["A. Un outil de comptabilité", "B. Le parcours client de la découverte à l'achat", "C. Un rapport financier", "D. Une technique de packaging"], "correct": 1},
+    {"question": "Que désigne le terme 'branding' ?",                             "choices": ["A. La gestion des stocks", "B. La construction de l'identité et image de marque", "C. Le recrutement commercial", "D. La fixation des prix"], "correct": 1},
+    {"question": "Qu'est-ce que le coût d'acquisition client (CAC) ?",            "choices": ["A. Le prix de revient d'un produit", "B. Le coût moyen pour acquérir un nouveau client", "C. Le salaire des commerciaux", "D. Le budget publicitaire total"], "correct": 1},
+    {"question": "Qu'est-ce qu'une étude de marché ?",                           "choices": ["A. Un bilan comptable", "B. Une analyse de l'offre, la demande et la concurrence", "C. Un plan de financement", "D. Un contrat fournisseur"], "correct": 1},
+    {"question": "Que signifie B2B ?",                                            "choices": ["A. Back to Basics", "B. Business to Business", "C. Brand to Brand", "D. Budget to Budget"], "correct": 1},
+]
+
+FALLBACK["droit"] = [
+    {"question": "Qu'est-ce qu'un contrat synallagmatique ?",                     "choices": ["A. Un contrat unilatéral", "B. Un contrat avec obligations réciproques", "C. Un contrat verbal", "D. Un contrat international"], "correct": 1},
+    {"question": "Que signifie la présomption d'innocence ?",                    "choices": ["A. Toute personne est coupable jusqu'à preuve du contraire", "B. Toute personne est innocente jusqu'à preuve du contraire", "C. Le juge décide seul de la culpabilité", "D. Le procureur a toujours raison"], "correct": 1},
+    {"question": "Qu'est-ce qu'une personne morale ?",                           "choices": ["A. Une personne physique respectueuse", "B. Une entité juridique (société, association...)", "C. Un mineur sous tutelle", "D. Un expert judiciaire"], "correct": 1},
+    {"question": "Qu'est-ce que la force majeure en droit ?",                    "choices": ["A. Un avantage contractuel", "B. Un événement imprévisible, irrésistible et extérieur exonérant la responsabilité", "C. Une clause pénale", "D. Un recours en appel"], "correct": 1},
+    {"question": "Qu'est-ce qu'un acte notarié ?",                               "choices": ["A. Un document rédigé par un avocat", "B. Un acte authentique rédigé par un notaire", "C. Un jugement du tribunal", "D. Un contrat verbal enregistré"], "correct": 1},
+    {"question": "Que désigne la 'prescription' en droit ?",                     "choices": ["A. Une ordonnance médicale", "B. L'extinction d'un droit après un délai légal", "C. Une loi récente", "D. Un avertissement officiel"], "correct": 1},
+    {"question": "Qu'est-ce que le droit de la responsabilité civile ?",         "choices": ["A. Le droit pénal appliqué aux civils", "B. L'obligation de réparer le préjudice causé à autrui", "C. Le droit des contrats publics", "D. Le droit électoral"], "correct": 1},
+    {"question": "Qu'est-ce qu'une clause pénale ?",                             "choices": ["A. Une peine de prison prévue au contrat", "B. Une indemnité forfaitaire prévue en cas d'inexécution", "C. Une amende fiscale", "D. Une sanction disciplinaire"], "correct": 1},
+    {"question": "Que signifie 'in solidum' ?",                                  "choices": ["A. Solidarité familiale", "B. Responsabilité conjointe et solidaire de plusieurs débiteurs", "C. Un contrat en bonne et due forme", "D. Un jugement définitif"], "correct": 1},
+    {"question": "Qu'est-ce que la jurisprudence ?",                             "choices": ["A. L'ensemble des lois votées", "B. L'ensemble des décisions de justice qui font référence", "C. Le règlement intérieur d'une entreprise", "D. Les traités internationaux"], "correct": 1},
+]
+
+FALLBACK["management"] = [
+    {"question": "Qu'est-ce que le management participatif ?",                   "choices": ["A. La prise de décision uniquement par le PDG", "B. L'implication des employés dans les décisions", "C. La gestion automatisée des équipes", "D. Le management à distance"], "correct": 1},
+    {"question": "Que désigne le terme 'KPI' ?",                                 "choices": ["A. Key Performance Indicator", "B. Knowledge Process Integration", "C. Key Project Initiative", "D. Knowledge Performance Index"], "correct": 0},
+    {"question": "Qu'est-ce que la méthode SMART pour les objectifs ?",          "choices": ["A. Simple, Mesurable, Atteignable, Réaliste, Temporel", "B. Spécifique, Mesurable, Atteignable, Réaliste, Temporel", "C. Stratégique, Mesurable, Ambitieux, Rapide, Traçable", "D. Simple, Motivant, Ambitieux, Réaliste, Technologique"], "correct": 1},
+    {"question": "Qu'est-ce que la délégation en management ?",                  "choices": ["A. Transférer une tâche à un subordonné tout en gardant la responsabilité", "B. Se décharger complètement d'une tâche", "C. Recruter un consultant externe", "D. Supprimer un poste"], "correct": 0},
+    {"question": "Qu'est-ce qu'un organigramme ?",                               "choices": ["A. Un tableau de bord financier", "B. La représentation graphique de la hiérarchie d'une organisation", "C. Un plan de communication", "D. Un outil de planification de projet"], "correct": 1},
+    {"question": "Que mesure le taux d'absentéisme ?",                           "choices": ["A. Le nombre de démissions", "B. La part du temps de travail perdu par les absences", "C. Le retard des livraisons", "D. Le taux de rotation des stocks"], "correct": 1},
+    {"question": "Qu'est-ce que la méthode Agile ?",                             "choices": ["A. Une approche de management rigide et planifiée", "B. Une approche itérative et flexible de gestion de projet", "C. Un logiciel de gestion RH", "D. Une technique de recrutement"], "correct": 1},
+    {"question": "Qu'est-ce que le turnover en entreprise ?",                    "choices": ["A. Le chiffre d'affaires annuel", "B. Le taux de renouvellement du personnel", "C. La rotation des stocks", "D. Le changement de direction"], "correct": 1},
+    {"question": "Qu'est-ce qu'un plan de formation ?",                          "choices": ["A. Le planning des congés", "B. Le document définissant les actions de développement des compétences", "C. Le budget marketing", "D. Le règlement intérieur"], "correct": 1},
+    {"question": "Que désigne le leadership transformationnel ?",                "choices": ["A. La gestion administrative quotidienne", "B. Un style de leadership inspirant le changement et la vision", "C. Le management par les chiffres", "D. La supervision stricte des équipes"], "correct": 1},
+]
+
+FALLBACK["agriculture"] = [
+    {"question": "Qu'est-ce que l'agroforesterie ?",                             "choices": ["A. L'agriculture en forêt uniquement", "B. La combinaison d'arbres, cultures et/ou élevage sur la même parcelle", "C. La culture hors-sol", "D. La gestion des forêts tropicales"], "correct": 1},
+    {"question": "Que signifie pH du sol en agriculture ?",                      "choices": ["A. Le taux d'humidité", "B. L'acidité ou alcalinité du sol", "C. La proportion d'humus", "D. La température moyenne du sol"], "correct": 1},
+    {"question": "Qu'est-ce que la rotation des cultures ?",                    "choices": ["A. Cultiver la même plante chaque année", "B. Alterner différentes cultures sur une même parcelle", "C. Arroser en tournant autour du champ", "D. Retourner la terre mécaniquement"], "correct": 1},
+    {"question": "Qu'est-ce qu'un intrant agricole ?",                           "choices": ["A. Un revenu agricole", "B. Une ressource utilisée dans la production (semence, engrais, pesticide...)", "C. Une subvention gouvernementale", "D. Un équipement de récolte"], "correct": 1},
+    {"question": "Que désigne l'agriculture de précision ?",                     "choices": ["A. L'agriculture manuelle traditionnelle", "B. L'utilisation de technologies (GPS, drones, capteurs) pour optimiser les rendements", "C. L'agriculture en serre fermée", "D. La production artisanale"], "correct": 1},
+    {"question": "Qu'est-ce que la jachère ?",                                   "choices": ["A. Une mauvaise herbe invasive", "B. Laisser une terre au repos pour la régénérer", "C. Un type de labour profond", "D. Une technique d'irrigation"], "correct": 1},
+    {"question": "Qu'est-ce que le compostage ?",                               "choices": ["A. Une technique de taille des arbres", "B. La décomposition de matières organiques pour produire un amendement naturel", "C. Un procédé de conservation des semences", "D. Un système d'irrigation goutte à goutte"], "correct": 1},
+    {"question": "Que signifie 'agriculture raisonnée' ?",                       "choices": ["A. Agriculture 100% bio", "B. Agriculture minimisant l'impact environnemental tout en restant rentable", "C. Agriculture uniquement pour autoconsommation", "D. Agriculture intensive maximisant le rendement"], "correct": 1},
+    {"question": "Qu'est-ce que l'élevage extensif ?",                           "choices": ["A. L'élevage en bâtiment avec forte densité", "B. L'élevage avec de grands espaces et faible densité animale", "C. L'élevage hors-sol", "D. L'élevage de volailles uniquement"], "correct": 1},
+    {"question": "Qu'est-ce que la permaculture ?",                              "choices": ["A. La culture permanente sans repos du sol", "B. Un système de conception agricole imitant les écosystèmes naturels", "C. La monoculture intensive", "D. L'agriculture aquatique"], "correct": 1},
+]
+
+FALLBACK["securite"] = [
+    {"question": "Qu'est-ce qu'une attaque par phishing ?",                      "choices": ["A. Une intrusion physique dans un bâtiment", "B. Une tentative de tromper un utilisateur pour voler ses données", "C. Un virus informatique qui chiffre les fichiers", "D. Une panne de réseau planifiée"], "correct": 1},
+    {"question": "Que signifie 'RGPD' ?",                                        "choices": ["A. Règlement Général sur la Protection des Données", "B. Réseau de Gestion des Protocoles Digitaux", "C. Règles Générales de Prévention des Dommages", "D. Registre Global des Personnes et Données"], "correct": 0},
+    {"question": "Qu'est-ce qu'un pare-feu (firewall) ?",                        "choices": ["A. Un logiciel antivirus", "B. Un système filtrant le trafic réseau selon des règles de sécurité", "C. Un protocole de chiffrement", "D. Un serveur de sauvegarde"], "correct": 1},
+    {"question": "Qu'est-ce que l'authentification à deux facteurs (2FA) ?",     "choices": ["A. Un double mot de passe identique", "B. Une vérification d'identité combinant deux méthodes distinctes", "C. Un accès partagé entre deux utilisateurs", "D. Une sauvegarde automatique des données"], "correct": 1},
+    {"question": "Que désigne un ransomware ?",                                  "choices": ["A. Un logiciel espion", "B. Un malware qui chiffre les données et demande une rançon", "C. Un outil de surveillance réseau", "D. Un virus de messagerie"], "correct": 1},
+    {"question": "Qu'est-ce qu'un audit de sécurité ?",                         "choices": ["A. Une réunion d'équipe hebdomadaire", "B. Une évaluation systématique des failles et mesures de sécurité", "C. Un contrat de maintenance informatique", "D. Un rapport financier annuel"], "correct": 1},
+    {"question": "Que signifie 'chiffrement de bout en bout' ?",                 "choices": ["A. Le chiffrement du serveur uniquement", "B. Les données sont chiffrées de l'expéditeur au destinataire sans décryptage intermédiaire", "C. Un chiffrement partiel des métadonnées", "D. Le chiffrement du canal réseau uniquement"], "correct": 1},
+    {"question": "Qu'est-ce qu'une politique de sécurité des systèmes d'information (PSSI) ?", "choices": ["A. Un antivirus d'entreprise", "B. L'ensemble des règles et procédures pour protéger le SI", "C. Un plan de reprise d'activité", "D. Un contrat de prestation informatique"], "correct": 1},
+    {"question": "Qu'est-ce qu'une vulnérabilité zero-day ?",                    "choices": ["A. Une faille connue depuis longtemps et non corrigée", "B. Une faille inconnue du fabricant, exploitée avant tout correctif", "C. Un bug qui apparaît le premier jour du déploiement", "D. Une faille corrigée en urgence"], "correct": 1},
+    {"question": "Que désigne le principe du 'moindre privilège' ?",             "choices": ["A. Donner le maximum d'accès à tous les utilisateurs", "B. N'accorder à chaque utilisateur que les droits strictement nécessaires à sa tâche", "C. Restreindre l'accès uniquement aux administrateurs", "D. Supprimer tous les comptes non utilisés"], "correct": 1},
+]
+
+# Pour les domaines encore sans fallback, on utilise les questions Bac
 for _d in DOMAINS:
     if _d not in FALLBACK:
-        FALLBACK[_d] = FALLBACK["bac"]
+        FALLBACK[_d] = list(FALLBACK["bac"])  # copie, pas une référence
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -127,78 +192,146 @@ def _next_level(current: str) -> str | None:
 
 # ── Génération Groq ───────────────────────────────────────────────────────────
 
-async def _groq_questions(level: str, domain: str, n: int) -> list | None:
-    if not GROQ_API_KEY:
-        return None
-
-    domain_label = DOMAINS.get(domain, ("", domain))[1]
-    level_label  = EXAMS[level]["label"]
-
+def _build_prompt(level: str, domain_label: str, level_label: str, n: int, seed: int) -> str:
+    """Construit le prompt Groq selon le niveau."""
     import random
-    seed = random.randint(1000, 9999)  # seed aléatoire pour forcer la variété
-
     if level == "bac":
         themes = [
             "géographie mondiale", "histoire", "sciences naturelles",
             "mathématiques de base", "culture générale", "économie de base",
             "littérature", "sports et records", "gastronomie et culture",
             "technologie et inventions", "politique mondiale", "astronomie",
+            "biologie", "physique", "chimie de base", "philosophie",
         ]
         random.shuffle(themes)
-        themes_choisis = ", ".join(themes[:4])
-        prompt = (
-            f"[SEED:{seed}] Tu dois générer EXACTEMENT {n} questions QCM, ni plus ni moins. "
-            f"Thème : culture générale niveau Bac. Thèmes à couvrir : {themes_choisis}. "
-            f"Les questions doivent être VARIÉES et ORIGINALES. "
-            f"Réponds UNIQUEMENT avec un tableau JSON de {n} objets, sans markdown ni texte autour. "
-            f'Format: [{{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}}] '
-            "Le champ 'correct' est l'index 0-3 de la bonne réponse."
+        themes_choisis = ", ".join(themes[:5])
+        return (
+            f"[SEED:{seed}] Génère EXACTEMENT {n} questions QCM de culture générale niveau Bac. "
+            f"Thèmes obligatoires : {themes_choisis}. Questions VARIÉES et DIFFÉRENTES à chaque fois. "
+            f"RÉPONDS UNIQUEMENT avec le JSON brut, aucun texte avant ou après, aucun markdown. "
+            f'Format strict : [{{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}},...] '
+            f"Génère exactement {n} objets dans le tableau. Le champ correct est l'index 0-3 de la bonne réponse."
         )
     else:
-        hardness = {"licence": "intermédiaire", "master": "avancé", "mba": "expert"}[level]
-        prompt = (
-            f"[SEED:{seed}] Tu dois générer EXACTEMENT {n} questions QCM, ni plus ni moins. "
-            f"Niveau : {hardness}. Domaine : {domain_label} (niveau {level_label}). "
-            f"Questions professionnelles, réalistes et VARIÉES. "
-            f"Réponds UNIQUEMENT avec un tableau JSON de {n} objets, sans markdown ni texte autour. "
-            f'Format: [{{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}}] '
-            "Le champ 'correct' est l'index 0-3 de la bonne réponse."
+        hardness = {"licence": "intermédiaire", "master": "avancé", "mba": "expert et pointu"}[level]
+        sous_themes = {
+            "finance": "comptabilité, marchés financiers, fiscalité, trésorerie, gestion des risques",
+            "informatique": "algorithmes, réseaux, bases de données, cybersécurité, architecture logicielle",
+            "marketing": "stratégie marketing, branding, digital, pricing, comportement consommateur",
+            "droit": "droit des contrats, droit du travail, droit commercial, procédure civile",
+            "management": "leadership, gestion de projet, RH, stratégie d'entreprise, organisation",
+            "agriculture": "agronomie, élevage, agroéconomie, développement durable, techniques agricoles",
+            "securite": "cybersécurité, sécurité physique, gestion des risques, RGPD, audit",
+        }.get(level if level == "bac" else domain_label.lower(), "concepts professionnels avancés")
+        return (
+            f"[SEED:{seed}] Génère EXACTEMENT {n} questions QCM niveau {hardness} en {domain_label} ({level_label}). "
+            f"Sous-thèmes à couvrir : {sous_themes}. Questions PROFESSIONNELLES, PRÉCISES et VARIÉES. "
+            f"RÉPONDS UNIQUEMENT avec le JSON brut, aucun texte avant ou après, aucun markdown. "
+            f'Format strict : [{{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}},...] '
+            f"Génère exactement {n} objets dans le tableau. Le champ correct est l'index 0-3 de la bonne réponse."
         )
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-                json={
-                    "model": "llama-3.3-70b-versatile",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.95,
-                    "max_tokens": 6000,  # 6000 pour supporter jusqu'à 15 questions MBA
-                },
-            )
-        data = resp.json()
-        raw  = data["choices"][0]["message"]["content"].strip()
-        # Nettoyer les éventuels backticks
-        if "```" in raw:
-            parts = raw.split("```")
-            for p in parts:
-                if p.startswith("json"):
-                    raw = p[4:].strip()
-                    break
-                elif p.strip().startswith("["):
-                    raw = p.strip()
-                    break
-        questions = json.loads(raw)
-        assert isinstance(questions, list) and len(questions) >= n
-        for q in questions[:n]:
-            assert "question" in q and "choices" in q and "correct" in q
-            assert len(q["choices"]) == 4
-            assert 0 <= int(q["correct"]) <= 3
-        return questions[:n]
-    except Exception as e:
-        logger.error(f"Groq échec: {e}")
+
+def _parse_groq_raw(raw: str) -> list:
+    """Extrait et parse le JSON d'une réponse Groq, même si elle contient du markdown."""
+    raw = raw.strip()
+
+    # Cas 1 : déjà propre
+    if raw.startswith("["):
+        return json.loads(raw)
+
+    # Cas 2 : bloc ```json ... ```
+    if "```" in raw:
+        import re
+        match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+
+    # Cas 3 : chercher le premier '[' et le dernier ']'
+    start = raw.find("[")
+    end   = raw.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(raw[start:end + 1])
+
+    raise ValueError(f"Impossible d'extraire un tableau JSON de la réponse Groq: {raw[:200]}")
+
+
+def _validate_questions(questions: list, n: int) -> list:
+    """Valide et normalise les questions. Lève ValueError si trop peu."""
+    valid = []
+    for q in questions:
+        if not isinstance(q, dict):
+            continue
+        if "question" not in q or "choices" not in q or "correct" not in q:
+            continue
+        choices = q["choices"]
+        if not isinstance(choices, list) or len(choices) < 2:
+            continue
+        # Normaliser à 4 choix si besoin
+        while len(choices) < 4:
+            choices.append("D. —")
+        q["choices"] = choices[:4]
+        try:
+            correct = int(q["correct"])
+            if not (0 <= correct <= 3):
+                correct = 0
+            q["correct"] = correct
+        except Exception:
+            q["correct"] = 0
+        valid.append(q)
+
+    if len(valid) < max(1, n // 2):
+        raise ValueError(f"Trop peu de questions valides : {len(valid)}/{n}")
+
+    # Si on a moins que n, on duplique les dernières (rare)
+    while len(valid) < n:
+        valid.append(valid[-1].copy())
+
+    return valid[:n]
+
+
+async def _groq_questions(level: str, domain: str, n: int) -> list | None:
+    if not GROQ_API_KEY:
+        logger.warning("GROQ_API_KEY non définie — fallback local activé")
         return None
+
+    import random
+    domain_label = DOMAINS.get(domain, ("", domain.capitalize()))[1]
+    level_label  = EXAMS[level]["label"]
+
+    for attempt in range(2):  # 2 tentatives
+        seed   = random.randint(1000, 9999)
+        prompt = _build_prompt(level, domain_label, level_label, n, seed)
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.post(
+                    GROQ_URL,
+                    headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                    json={
+                        "model":       "llama-3.3-70b-versatile",
+                        "messages":    [{"role": "user", "content": prompt}],
+                        "temperature": 0.9 + attempt * 0.05,
+                        "max_tokens":  7000,
+                    },
+                )
+            if resp.status_code != 200:
+                logger.error(f"Groq HTTP {resp.status_code}: {resp.text[:300]}")
+                continue
+
+            data = resp.json()
+            raw  = data["choices"][0]["message"]["content"]
+            logger.info(f"Groq raw (attempt {attempt+1}): {raw[:120]}...")
+
+            questions = _parse_groq_raw(raw)
+            validated = _validate_questions(questions, n)
+            logger.info(f"Groq OK — {len(validated)} questions générées pour {level}/{domain}")
+            return validated
+
+        except Exception as e:
+            logger.error(f"Groq tentative {attempt+1} échouée ({level}/{domain}): {e}")
+
+    logger.error(f"Groq complètement échoué pour {level}/{domain} — fallback local")
+    return None
 
 
 # ── /diplome ──────────────────────────────────────────────────────────────────

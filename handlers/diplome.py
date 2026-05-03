@@ -134,31 +134,45 @@ async def _groq_questions(level: str, domain: str, n: int) -> list | None:
     domain_label = DOMAINS.get(domain, ("", domain))[1]
     level_label  = EXAMS[level]["label"]
 
+    import random
+    seed = random.randint(1000, 9999)  # seed aléatoire pour forcer la variété
+
     if level == "bac":
+        themes = [
+            "géographie mondiale", "histoire", "sciences naturelles",
+            "mathématiques de base", "culture générale", "économie de base",
+            "littérature", "sports et records", "gastronomie et culture",
+            "technologie et inventions", "politique mondiale", "astronomie",
+        ]
+        random.shuffle(themes)
+        themes_choisis = ", ".join(themes[:4])
         prompt = (
-            f"Génère exactement {n} questions QCM de culture générale pour un examen de niveau Bac. "
+            f"[SEED:{seed}] Génère exactement {n} questions QCM de culture générale VARIÉES et ORIGINALES "
+            f"pour un examen de niveau Bac. Thèmes à couvrir : {themes_choisis}. "
+            f"Les questions doivent être DIFFÉRENTES à chaque génération. "
             "Réponds UNIQUEMENT avec un tableau JSON valide, sans markdown ni texte autour. "
-            'Format: [{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}]'
+            'Format: [{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}] '
+            "Le champ 'correct' est l'index 0-3 de la bonne réponse."
         )
     else:
         hardness = {"licence": "intermédiaire", "master": "avancé", "mba": "expert"}[level]
         prompt = (
-            f"Génère exactement {n} questions QCM de niveau {hardness} en {domain_label} "
-            f"(niveau académique {level_label}). Questions professionnelles et réalistes. "
+            f"[SEED:{seed}] Génère exactement {n} questions QCM de niveau {hardness} en {domain_label} "
+            f"(niveau académique {level_label}). Questions professionnelles et réalistes, VARIÉES. "
             "Réponds UNIQUEMENT avec un tableau JSON valide, sans markdown ni texte autour. "
             'Format: [{"question":"...","choices":["A. ...","B. ...","C. ...","D. ..."],"correct":0}] '
             "Le champ 'correct' est l'index 0-3 de la bonne réponse."
         )
 
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 GROQ_URL,
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
                 json={
                     "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.7,
+                    "temperature": 0.95,  # plus de variété
                     "max_tokens": 4000,
                 },
             )
@@ -429,35 +443,54 @@ async def _show_question(query, context, uid: int, q_idx: int):
         for i, choice in enumerate(q["choices"])
     ]
 
-    # Stocker le q_idx actif pour détecter si le joueur a déjà répondu
-    data["current_q"] = q_idx
-    deadline = datetime.utcnow().timestamp() + QUESTION_TIMEOUT
-    data["deadline"] = deadline
+    # Marquer la question active + générer un token unique pour ce tour
+    import time
+    turn_token = time.monotonic()
+    data["current_q"]    = q_idx
+    data["turn_token"]   = turn_token
 
     def _build_text(remaining: int) -> str:
         bar = _timer_bar(remaining)
-        header = (
+        return (
             f"{info['emoji']} <b>{info['label']}</b>  ·  Question {q_idx + 1}/{total}\n"
             f"✅ Score : {score}/{q_idx}  |  ⏱ {bar} <b>{remaining}s</b>\n\n"
+            f"❓ <b>{q['question']}</b>"
         )
-        return header + f"❓ <b>{q['question']}</b>"
+
+    async def _edit_msg(msg_obj, text, markup=None):
+        """Édite peu importe si c'est un CallbackQuery ou un Message."""
+        try:
+            if hasattr(msg_obj, "edit_message_text"):
+                await msg_obj.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+            else:
+                await msg_obj.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+        except Exception:
+            pass
 
     # Affichage initial
-    msg = await query.edit_message_text(
-        _build_text(QUESTION_TIMEOUT),
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    await _edit_msg(query, _build_text(QUESTION_TIMEOUT), InlineKeyboardMarkup(buttons))
+
+    # Récupérer l'objet message pour le countdown
+    # On a besoin du vrai Message pour edit_text dans la tâche de fond
+    try:
+        if hasattr(query, "message"):
+            msg = query.message   # CallbackQuery → .message
+        else:
+            msg = query           # déjà un Message
+    except Exception:
+        msg = query
 
     # Countdown en tâche de fond
     async def _countdown():
         try:
             for remaining in range(QUESTION_TIMEOUT - 5, 0, -5):
                 await asyncio.sleep(5)
-                # Vérifier que le joueur n'a pas déjà répondu
                 current_data = context.user_data.get(f"exam_{uid}")
-                if not current_data or current_data.get("current_q") != q_idx:
-                    return  # Répondu, on arrête
+                # Stopper si : session perdue, question changée, ou token différent
+                if (not current_data
+                        or current_data.get("current_q") != q_idx
+                        or current_data.get("turn_token") != turn_token):
+                    return
                 try:
                     await msg.edit_text(
                         _build_text(remaining),
@@ -467,15 +500,19 @@ async def _show_question(query, context, uid: int, q_idx: int):
                 except Exception:
                     pass
 
-            # Timer écoulé — vérifier une dernière fois
+            # Dernier tick — vérifier une ultime fois
             await asyncio.sleep(5)
             current_data = context.user_data.get(f"exam_{uid}")
-            if not current_data or current_data.get("current_q") != q_idx:
-                return  # Répondu entre-temps
+            if (not current_data
+                    or current_data.get("current_q") != q_idx
+                    or current_data.get("turn_token") != turn_token):
+                return  # Le joueur a répondu entre-temps
 
-            # Temps écoulé → question ratée, on avance
-            current_data["current_q"] = -1  # marquer comme traité
+            # Temps écoulé → question ratée
+            current_data["current_q"]  = -1
+            current_data["turn_token"] = None
             next_idx = q_idx + 1
+
             try:
                 await msg.edit_text(
                     f"⏰ <b>Temps écoulé !</b>\n\n"
@@ -488,13 +525,12 @@ async def _show_question(query, context, uid: int, q_idx: int):
 
             await asyncio.sleep(2)
             if next_idx >= current_data["total"]:
-                # Créer un faux query-like pour _finish_exam
                 await _finish_exam(msg, context, uid, current_data)
             else:
                 await _show_question(msg, context, uid, next_idx)
 
         except Exception as e:
-            logger.debug(f"Countdown error: {e}")
+            logger.debug(f"Countdown error q{q_idx}: {e}")
 
     asyncio.create_task(_countdown())
 
@@ -504,19 +540,40 @@ async def _handle_answer(query, context, uid: int, level: str, domain: str, q_id
     if not data:
         return await query.edit_message_text("❌ Session expirée. Refais /diplome pour recommencer.")
 
-    # Si le timer a déjà traité cette question, ignorer
+    # Ignorer si cette question a déjà été traitée (double-clic ou timer)
     if data.get("current_q") != q_idx:
+        try:
+            await query.answer("⚠️ Réponse déjà enregistrée !", show_alert=False)
+        except Exception:
+            pass
         return
 
-    # Marquer comme répondu pour stopper le countdown
-    data["current_q"] = -1
+    # Verrouiller immédiatement pour stopper le countdown
+    data["current_q"]  = -1
+    data["turn_token"] = None
 
     correct = int(data["questions"][q_idx]["correct"])
-    if answer == correct:
+    is_correct = (answer == correct)
+    if is_correct:
         data["score"] += 1
 
-    next_idx = q_idx + 1
+    # Feedback visuel rapide
+    emoji = "✅" if is_correct else "❌"
+    bonne = data["questions"][q_idx]["choices"][correct]
+    try:
+        await query.edit_message_text(
+            f"{emoji} <b>{'Bonne réponse !' if is_correct else 'Mauvaise réponse...'}</b>\n"
+            f"{'✔️' if is_correct else f'La bonne réponse était : <b>{bonne}</b>'}\n\n"
+            f"Score : {data['score']}/{q_idx + 1}",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
 
+    import asyncio
+    await asyncio.sleep(1.5)
+
+    next_idx = q_idx + 1
     if next_idx >= data["total"]:
         await _finish_exam(query, context, uid, data)
     else:

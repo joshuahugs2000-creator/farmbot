@@ -1940,16 +1940,27 @@ async def admindiplome(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not u:
             return await update.message.reply_text("❌ Joueur introuvable.")
 
-        col = f"diplome_{level}"
-        val = "FALSE" if retirer else "TRUE"
-
-        sets = [f"{col} = {val}"]
         params = {"uid": u.user_id}
+        sets   = []
 
-        # Si on accorde une licence/master/mba avec domaine → enregistrer le domaine
-        if not retirer and domaine and level in ("licence", "master", "mba"):
-            sets.append("diplome_domain = :dom")
-            params["dom"] = domaine
+        if retirer:
+            # Cascade : retirer ce niveau ET tous les diplômes au-dessus
+            CASCADE = {
+                "bac":     ["bac", "licence", "master", "mba"],
+                "licence": ["licence", "master", "mba"],
+                "master":  ["master", "mba"],
+                "mba":     ["mba"],
+            }
+            for lvl in CASCADE[level]:
+                sets.append(f"diplome_{lvl} = FALSE")
+            # Réinitialiser le domaine si on retire jusqu'à la licence ou en dessous
+            if level in ("bac", "licence"):
+                sets.append("diplome_domain = NULL")
+        else:
+            sets.append(f"diplome_{level} = TRUE")
+            if domaine and level in ("licence", "master", "mba"):
+                sets.append("diplome_domain = :dom")
+                params["dom"] = domaine
 
         await session.execute(
             text(f"UPDATE users SET {', '.join(sets)} WHERE user_id = :uid"),
@@ -1957,15 +1968,23 @@ async def admindiplome(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await session.commit()
 
-    action = "❌ Retiré" if retirer else "✅ Accordé"
-    dom_str = f" · <b>{domaine.capitalize()}</b>" if domaine and not retirer else ""
     LEVEL_EMOJIS = {"bac": "📄", "licence": "🎓", "master": "🏅", "mba": "👑"}
 
-    await update.message.reply_text(
-        f"{action} le diplôme {LEVEL_EMOJIS[level]} <b>{level.upper()}</b>{dom_str} "
-        f"à <b>@{u.username or u.first_name}</b>.",
-        parse_mode=ParseMode.HTML,
-    )
+    if retirer:
+        CASCADE = {"bac": ["bac","licence","master","mba"], "licence": ["licence","master","mba"], "master": ["master","mba"], "mba": ["mba"]}
+        retiré_str = " + ".join(f"{LEVEL_EMOJIS[l]} {l.upper()}" for l in CASCADE[level])
+        await update.message.reply_text(
+            f"❌ Diplômes retirés : <b>{retiré_str}</b>\n"
+            f"Joueur : <b>@{u.username or u.first_name}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        dom_str = f" · <b>{domaine.capitalize()}</b>" if domaine else ""
+        await update.message.reply_text(
+            f"✅ Diplôme {LEVEL_EMOJIS[level]} <b>{level.upper()}</b>{dom_str} accordé "
+            f"à <b>@{u.username or u.first_name}</b>.",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

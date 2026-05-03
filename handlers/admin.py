@@ -149,7 +149,14 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/adminboites — Vue complète de toutes les entreprises\n"
         "/adminboite nom — Fiche détaillée : employés, salaires, logs\n\n"
         "<b>📈 Utilisation du bot</b>\n"
-        "/statsusers — Actifs par période, nouveaux inscrits, top commandes\n"
+        "/statsusers — Actifs par période, nouveaux inscrits, top commandes\n\n"
+        "<b>🎓 Diplômes & Examens</b>\n"
+        "/admindiplome @user bac|licence|master|mba [domaine] [retirer] — Accorder ou retirer un diplôme\n"
+        "/examinfo @user — Voir niveau, cooldown, ancienneté, domaine, solde\n"
+        "/examreset @user — Supprimer le cooldown (peut repasser immédiatement)\n"
+        "/examanciennete @user jours — Forcer l'ancienneté (débloquer le Master)\n"
+        "/examcoins @user — Donner exactement les coins pour le prochain diplôme\n"
+        "/examunlock @user — TOUT débloquer : cooldown + ancienneté + coins\n"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 

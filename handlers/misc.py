@@ -108,10 +108,10 @@ HELP_TEXT = """
 
 <b>💸 Crime & Braquage</b>
 /cambrioler @joueur — Cambrioler un joueur
-/police @joueur — Signaler un voleur
-/bail @joueur — Payer la caution
-/juge @joueur — Porter plainte
-/security — Protection anti-vol
+/police @joueur — Signaler un voleur récent
+/bail @joueur — Payer la caution de quelqu'un
+/juge @joueur — Porter plainte (jugement)
+/security — Acheter une protection anti-vol
 
 <b>🔨 Enchères</b>
 /bid montant — Enchérir

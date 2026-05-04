@@ -67,8 +67,18 @@ async def init_crime_tables():
                 group_id    BIGINT NOT NULL,
                 amount      BIGINT NOT NULL,
                 success     BOOLEAN NOT NULL,
+                judged      BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at  TIMESTAMP DEFAULT NOW()
             )""",
+            # Migration : ajouter judged si elle n'existe pas encore
+            """DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='crime_rob_log' AND column_name='judged'
+                ) THEN
+                    ALTER TABLE crime_rob_log ADD COLUMN judged BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+            END $$""",
             # Prison
             """CREATE TABLE IF NOT EXISTS crime_prison (
                 id            SERIAL PRIMARY KEY,
@@ -186,16 +196,25 @@ async def _get_recent_rob(session, robber_id: int, group_id: int, minutes: int =
 
 
 async def _get_crimes_last_7days(session, user_id: int):
-    """Retourne tous les crimes d'un joueur dans les 7 derniers jours."""
+    """Retourne tous les crimes NON ENCORE JUGÉS d'un joueur dans les 7 derniers jours."""
     cutoff = datetime.utcnow() - timedelta(days=7)
     r = await session.execute(
         text("""SELECT * FROM crime_rob_log
                 WHERE robber_id = :uid AND success = TRUE
+                AND judged = FALSE
                 AND created_at >= :cutoff
                 ORDER BY created_at DESC"""),
         {"uid": user_id, "cutoff": cutoff}
     )
     return r.fetchall()
+
+
+async def _mark_crimes_judged(session, user_id: int):
+    """Marque tous les crimes non jugés de l'utilisateur comme jugés."""
+    await session.execute(
+        text("UPDATE crime_rob_log SET judged = TRUE WHERE robber_id = :uid AND judged = FALSE"),
+        {"uid": user_id}
+    )
 
 
 # ─── /rob ─────────────────────────────────────────────────────────────────────
@@ -265,18 +284,15 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if success:
             # ── Vol réussi — le voleur s'échappe avec le butin ──────────────
-            # Retirer les coins de la victime
             await session.execute(
                 text("UPDATE users SET coins = GREATEST(CAST(0 AS BIGINT), CAST(coins AS BIGINT) - CAST(:amt AS BIGINT)) WHERE user_id = :uid"),
                 {"amt": amount, "uid": victim.user_id}
             )
-            # Donner les coins au voleur
             await session.execute(
                 text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                 {"amt": amount, "uid": robber.user_id}
             )
 
-            # Logger le vol réussi
             await session.execute(
                 text("""INSERT INTO crime_rob_log (robber_id, victim_id, group_id, amount, success)
                         VALUES (:rid, :vid, :gid, :amt, TRUE)"""),
@@ -284,10 +300,8 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await session.commit()
 
-            # 🎯 Karma : voler = -1 karma pour le voleur
             await adjust_karma(session, robber.user_id, -1)
 
-            # Scénario aléatoire de fuite
             fuites = [
                 "s'est éclipsé dans l'ombre avant que quiconque réagisse",
                 "a disparu dans la foule introuvable",
@@ -317,7 +331,6 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"rid": robber_tg.id, "vid": target_tg.id, "gid": group_id, "amt": amount}
             )
 
-            # Emprisonner directement
             await session.execute(
                 text("""INSERT INTO crime_prison (user_id, group_id, amount_stolen, bail_amount, released_at)
                         VALUES (:uid, :gid, :amt, :bail, :rel)
@@ -328,7 +341,6 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await session.commit()
 
-            # 🎯 Karma : aller en prison = -1 karma
             import asyncio as _aio
             _aio.create_task(adjust_karma(session, robber_tg.id, -1))
 
@@ -355,7 +367,6 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(caller_tg)
 
     async with AsyncSessionLocal() as session:
-        # Bloquer si l'appelant est en prison
         if await _prison_block_message(update, session, caller_tg.id):
             return
 
@@ -380,7 +391,6 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Joueur introuvable.")
             return
 
-        # Vérifier si déjà en prison
         if await _is_in_prison(session, target_tg.id):
             await update.message.reply_text(
                 f"🔒 {mention(suspect)} est déjà en prison !",
@@ -388,7 +398,6 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Chercher un vol récent (5 dernières minutes)
         recent_rob = await _get_recent_rob(session, target_tg.id, group_id, minutes=5)
         if not recent_rob:
             await update.message.reply_text(
@@ -400,14 +409,12 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount = recent_rob.amount
         victim_id = recent_rob.victim_id
 
-        # Intervention de la police : 60% de chance d'attraper
         caught = random.random() < 0.60
 
         if caught:
             bail = amount * 2
             released_at = datetime.utcnow() + timedelta(minutes=_prison_duration(amount))
 
-            # Rembourser la victime
             victim = await get_user(session, victim_id)
             refund_msg = ""
             if victim:
@@ -424,7 +431,6 @@ async def police(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await session.commit()
 
-            # Emprisonner
             await session.execute(
                 text("""INSERT INTO crime_prison (user_id, group_id, amount_stolen, bail_amount, released_at)
                         VALUES (:uid, :gid, :amt, :bail, :rel)
@@ -478,7 +484,6 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     async with AsyncSessionLocal() as session:
-        # Le payeur peut être en prison lui-même, c'est OK (quelqu'un paie pour un autre)
         await ensure_user(target_tg)
         prisoner = await get_user(session, target_tg.id)
         payer = await get_user(session, payer_tg.id)
@@ -490,7 +495,6 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Vérifier si la peine est déjà expirée
         if datetime.utcnow() >= prison_row.released_at:
             await session.execute(
                 text("DELETE FROM crime_prison WHERE user_id = :uid"),
@@ -513,20 +517,16 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Payer la caution
         await session.execute(
             text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": bail_amount, "uid": payer.user_id}
         )
-
-        # Libérer le prisonnier
         await session.execute(
             text("DELETE FROM crime_prison WHERE user_id = :uid"),
             {"uid": target_tg.id}
         )
         await session.commit()
 
-        # 🎯 Karma : payer la caution d'un autre = +2 karma
         await adjust_karma(session, payer.user_id, +2)
 
         await update.message.reply_text(
@@ -540,7 +540,6 @@ async def bail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── /juge ────────────────────────────────────────────────────────────────────
 
-# Dict pour tracker les tâches de timeout de jugement {accused_id: asyncio.Task}
 _judgment_timeouts: dict = {}
 
 
@@ -555,19 +554,20 @@ async def _auto_guilty(accused_id: int, chat_id: int, message_id: int, bot):
         )
         judgment = r.fetchone()
         if not judgment:
-            return  # Déjà traité
+            return
 
         accused = await get_user(session, accused_id)
         amount = judgment.amount
         group_id = judgment.group_id
 
-        # Supprimer le jugement
         await session.execute(
             text("DELETE FROM crime_judgment WHERE accused_id = :uid"),
             {"uid": accused_id}
         )
 
-        # Peine normale (pas de réduction car silence = coupable)
+        # Marquer tous les crimes comme jugés pour éviter double-jugement
+        await _mark_crimes_judged(session, accused_id)
+
         base_duration = _prison_duration(amount)
         released_at = datetime.utcnow() + timedelta(minutes=base_duration)
         bail = amount * 2
@@ -635,7 +635,6 @@ async def juge(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Joueur introuvable.")
             return
 
-        # Vérifier si déjà en prison
         if await _is_in_prison(session, target_tg.id):
             await update.message.reply_text(
                 f"🔒 {mention(accused)} est déjà en prison, il sera jugé à sa sortie.",
@@ -643,7 +642,6 @@ async def juge(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Vérifier si un jugement est déjà en cours
         r = await session.execute(
             text("SELECT id FROM crime_judgment WHERE accused_id = :uid"),
             {"uid": target_tg.id}
@@ -655,7 +653,6 @@ async def juge(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Chercher les crimes des 7 derniers jours
         crimes = await _get_crimes_last_7days(session, target_tg.id)
 
         if not crimes:
@@ -666,11 +663,9 @@ async def juge(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Prendre le crime le plus récent
         latest_crime = crimes[0]
         total_stolen = sum(c.amount for c in crimes)
 
-        # Créer le jugement en attente
         await session.execute(
             text("""INSERT INTO crime_judgment
                     (accused_id, accuser_id, group_id, crime_id, amount)
@@ -700,11 +695,9 @@ async def juge(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML
         )
 
-        # Annuler un timeout précédent s'il existe
         if target_tg.id in _judgment_timeouts:
             _judgment_timeouts[target_tg.id].cancel()
 
-        # Lancer le timeout de 60 secondes
         task = asyncio.create_task(
             _auto_guilty(target_tg.id, update.effective_chat.id, msg.message_id, context.bot)
         )
@@ -722,18 +715,15 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, verdict, accused_id_str = parts
     accused_id = int(accused_id_str)
 
-    # Seul l'accusé peut répondre
     if query.from_user.id != accused_id:
         await query.answer("⚖️ Seul l'accusé peut plaider !", show_alert=True)
         return
 
-    # Annuler le timeout automatique puisque l'accusé a répondu
     if accused_id in _judgment_timeouts:
         _judgment_timeouts[accused_id].cancel()
         _judgment_timeouts.pop(accused_id, None)
 
     async with AsyncSessionLocal() as session:
-        # Récupérer le jugement
         r = await session.execute(
             text("SELECT * FROM crime_judgment WHERE accused_id = :uid"),
             {"uid": accused_id}
@@ -748,18 +738,19 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount = judgment.amount
         group_id = judgment.group_id
 
-        # Supprimer le jugement en attente
         await session.execute(
             text("DELETE FROM crime_judgment WHERE accused_id = :uid"),
             {"uid": accused_id}
         )
 
+        # Marquer tous les crimes comme jugés pour éviter double-jugement
+        await _mark_crimes_judged(session, accused_id)
+
         if verdict == "guilty":
-            # Peine réduite : 50% de la durée normale
             base_duration = _prison_duration(amount)
             reduced = max(1, base_duration // 2)
             released_at = datetime.utcnow() + timedelta(minutes=reduced)
-            bail = amount  # Caution normale (pas doublée car il a avoué)
+            bail = amount
 
             await session.execute(
                 text("""INSERT INTO crime_prison (user_id, group_id, amount_stolen, bail_amount, released_at)
@@ -780,11 +771,10 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML
             )
 
-        else:  # not guilty → jugement aléatoire
+        else:
             roll = random.random()
 
             if roll < 0.40:
-                # Acquitté
                 await session.commit()
                 accused_mention = mention(accused) if accused else f"<a href='tg://user?id={accused_id}'>Accusé</a>"
                 await query.edit_message_text(
@@ -796,7 +786,6 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
             elif roll < 0.75:
-                # Coupable, peine normale
                 base_duration = _prison_duration(amount)
                 released_at = datetime.utcnow() + timedelta(minutes=base_duration)
                 bail = amount * 2
@@ -825,7 +814,6 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
             else:
-                # Coupable, peine x2
                 base_duration = _prison_duration(amount) * 2
                 released_at = datetime.utcnow() + timedelta(minutes=base_duration)
                 bail = amount * 2
@@ -854,14 +842,9 @@ async def juge_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
 
-# ─── /bail_from_judgment (payer caution avec split pour accusateur) ───────────
+# ─── /bail_from_judgment ──────────────────────────────────────────────────────
 
 async def bail_judgment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Payer la caution d'un prisonnier jugé.
-    La moitié va à l'accusateur si le jugement venait de /juge.
-    Utilise /bailjuge @pseudo
-    """
     if update.effective_chat.type not in ("group", "supergroup"):
         await update.message.reply_text("❌ Cette commande est réservée aux groupes.")
         return
@@ -891,7 +874,6 @@ async def bail_judgment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ {target_tg.first_name} n'est pas en prison !")
             return
 
-        # Vérifier si peine expirée
         if datetime.utcnow() >= prison_row.released_at:
             await session.execute(
                 text("DELETE FROM crime_prison WHERE user_id = :uid"),
@@ -918,8 +900,6 @@ async def bail_judgment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": bail_amount, "uid": payer.user_id}
         )
-
-        # Libérer
         await session.execute(
             text("DELETE FROM crime_prison WHERE user_id = :uid"),
             {"uid": target_tg.id}
@@ -940,15 +920,12 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player_tg = update.effective_user
     await ensure_user(player_tg)
 
-    # Fonctionne en groupe ET en privé (group_id = 0 pour les chats privés)
     group_id = update.effective_chat.id if update.effective_chat.type in ("group", "supergroup") else 0
 
     async with AsyncSessionLocal() as session:
-        # En prison ?
         if await _prison_block_message(update, session, player_tg.id):
             return
 
-        # Partie déjà active ?
         r = await session.execute(
             text("SELECT * FROM crime_rebet WHERE user_id = :uid"),
             {"uid": player_tg.id}
@@ -959,7 +936,6 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Lire la mise
         args = context.args
         if not args:
             await update.message.reply_text(
@@ -988,14 +964,12 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Déduire la mise
         await session.execute(
             text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
             {"amt": bet_amount, "uid": player.user_id}
         )
         await session.commit()
 
-        # Lancer le round 1
         risk = random.uniform(0.15, 0.40)
         lost = random.random() < risk
 
@@ -1009,10 +983,8 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Gagné — doubler le pot
         pot = bet_amount * 2
 
-        # Sauvegarder la partie
         await session.execute(
             text("""INSERT INTO crime_rebet (user_id, group_id, pot, round)
                     VALUES (:uid, :gid, :pot, 1)"""),
@@ -1036,7 +1008,6 @@ async def rebet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML
         )
 
-        # Sauvegarder le message_id
         await session.execute(
             text("UPDATE crime_rebet SET message_id = :mid WHERE user_id = :uid"),
             {"mid": msg.message_id, "uid": player_tg.id}
@@ -1074,7 +1045,6 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         player = await get_user(session, player_id)
 
         if action == "take":
-            # Récupérer les gains
             await session.execute(
                 text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                 {"amt": pot, "uid": player_id}
@@ -1095,7 +1065,6 @@ async def rebet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif action == "play":
             next_round = current_round + 1
 
-            # Risque aléatoire croissant
             base_risk = min(0.15 + (current_round * 0.07), 0.70)
             risk = random.uniform(base_risk, min(base_risk + 0.20, 0.95))
             lost = random.random() < risk
@@ -1151,13 +1120,11 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(player_tg)
 
     async with AsyncSessionLocal() as session:
-        # En prison ?
         if await _prison_block_message(update, session, player_tg.id):
             return
 
         player = await get_user(session, player_tg.id)
 
-        # Afficher les agences disponibles
         lines = ["🛡️ <b>AGENCES DE SÉCURITÉ</b>\n"]
 
         sec_row = await _get_security(session, player_tg.id)
@@ -1175,7 +1142,6 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"\n💰 Ton solde : <b>{_fmt(player.coins)} 💰</b>")
         lines.append("\nUtilise <code>/security [numéro]</code> pour acheter une protection.")
 
-        # Si un numéro est fourni
         if context.args:
             try:
                 choice = int(context.args[0]) - 1
@@ -1202,7 +1168,6 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-            # Confirmation si déjà une agence active
             if current_agency:
                 old = next((a for a in SECURITY_AGENCIES if a["id"] == current_agency), None)
                 old_name = old["name"] if old else current_agency
@@ -1221,7 +1186,6 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-            # Acheter directement
             await session.execute(
                 text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
                 {"amt": chosen["price"], "uid": player_tg.id}

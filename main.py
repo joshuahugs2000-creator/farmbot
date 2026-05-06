@@ -90,9 +90,8 @@ from handlers.auction import (
     init_auction_tables, setup_auction_jobs,
 )
 from handlers.wealth_drain import (
-    impots, cambrioler,
+    cambrioler,
     init_drain_tables, setup_drain_jobs, _ensure_cambriolage_cd_table,
-    job_tax_top10, job_tax_top30,
 )
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
@@ -592,7 +591,6 @@ async def main():
     app.add_handler(CallbackQueryHandler(expertise_callback, pattern=r"^auction:(sellnow|keep):"))
 
     # ── Drainage ──────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("impots",          _prison_checked(impots)))
     app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
     setup_drain_jobs(app)
 

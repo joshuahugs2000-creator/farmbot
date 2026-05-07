@@ -32,7 +32,7 @@ def golden_multiplier(group_id: int) -> float:
 
 async def _spawn_chest(context: ContextTypes.DEFAULT_TYPE):
     group_id = context.job.data["group_id"]
-    amount   = random.randint(50_000, 500_000)
+    amount   = random.randint(20_000, 150_000)
 
     _active_chests[group_id] = {
         "active":  True,
@@ -153,13 +153,13 @@ async def _schedule_events(context: ContextTypes.DEFAULT_TYPE):
         return
 
     for group_id in list(_known_groups):
-        if random.random() > 0.30:
+        if random.random() > 0.15:   # 15% de chance au lieu de 30%
             continue
 
         if golden_multiplier(group_id) == 2.0:
             event = "chest"
         else:
-            event = random.choices(["chest", "golden"], weights=[50, 50], k=1)[0]
+            event = random.choices(["chest", "golden"], weights=[75, 25], k=1)[0]  # heure dorée plus rare
 
         job_data = {"group_id": group_id}
 
@@ -182,7 +182,7 @@ def setup_random_events(app: Application):
     """Appeler dans main() pour activer les événements aléatoires (toutes les 4h)."""
     app.job_queue.run_repeating(
         _schedule_events,
-        interval=7_200,   # toutes les 2h (au lieu de 4h)
+        interval=18_000,   # toutes les 5h (au lieu de 2h)
         first=300,
         name="random_events_scheduler",
     )

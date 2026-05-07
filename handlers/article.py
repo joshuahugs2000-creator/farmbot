@@ -1,9 +1,9 @@
 """
 article.py — /article @user | /article hasard
-Génère un article journalistique Breaking News sur un joueur via Groq (gratuit).
+Génère un article journalistique Breaking News sur un joueur via Groq.
 """
 
-import os, random, aiohttp, json
+import os, random, aiohttp, json, html
 from sqlalchemy import select, func, text
 from telegram.constants import ParseMode
 from database.db import AsyncSessionLocal, get_user, get_user_by_username
@@ -16,7 +16,7 @@ from handlers.admin import is_admin
 from config import CURRENCY
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama3-8b-8192"
+GROQ_MODEL   = "llama-3.3-70b-versatile"   # llama3-8b-8192 décommissionné 08/2025
 
 
 def _fmt(n) -> str:
@@ -30,34 +30,43 @@ def _fmt(n) -> str:
         return str(n)
 
 
-async def _collect_player_data(user_id: int) -> dict:
-    """Collecte toutes les données d'un joueur pour l'article."""
-    data = {}
+def _fortune_label(fortune: int) -> str:
+    if fortune >= 10_000_000: return "MÉGA-MILLIARDAIRE LÉGENDAIRE"
+    if fortune >= 1_000_000:  return "MILLIONNAIRE INFLUENT"
+    if fortune >= 500_000:    return "NOTABLE FORTUNÉ"
+    if fortune >= 100_000:    return "BOURGEOIS MONTANT"
+    if fortune >= 10_000:     return "CITOYEN ORDINAIRE"
+    return "QUIDAM DÉSARGENTÉ"
 
+
+async def _collect_player_data(user_id: int) -> dict:
+    data = {}
     async with AsyncSessionLocal() as session:
-        # Infos de base
-        res = await session.execute(
-            select(User).where(User.user_id == user_id)
-        )
+        res = await session.execute(select(User).where(User.user_id == user_id))
         user = res.scalar_one_or_none()
         if not user:
             return {}
 
-        data["name"]       = user.first_name
-        data["username"]   = user.username or user.first_name
-        data["coins"]      = user.coins
+        data["name"]          = user.first_name
+        data["username"]      = user.username or user.first_name
+        data["coins"]         = user.coins
+        data["karma"]         = getattr(user, "karma", 0)
         data["profile_color"] = getattr(user, "profile_color", "inconnu")
 
-        # Banques
-        res2 = await session.execute(
-            select(BankAccount).where(BankAccount.user_id == user_id)
-        )
+        diplomes = []
+        if getattr(user, "diplome_bac",     False): diplomes.append("Bac")
+        if getattr(user, "diplome_licence", False): diplomes.append("Licence")
+        if getattr(user, "diplome_master",  False): diplomes.append("Master")
+        if getattr(user, "diplome_mba",     False): diplomes.append("MBA")
+        data["diplomes"]       = diplomes
+        data["diplome_domain"] = getattr(user, "diplome_domain", None)
+
+        res2 = await session.execute(select(BankAccount).where(BankAccount.user_id == user_id))
         banks = res2.scalars().all()
         data["bank_total"]   = sum(b.balance for b in banks)
         data["bank_count"]   = len(banks)
         data["bank_details"] = [{"bank": b.bank_id, "balance": b.balance} for b in banks]
 
-        # Prêts
         res3 = await session.execute(
             text("SELECT SUM(remaining) FROM loans WHERE user_id = :uid AND status = 'active'"),
             {"uid": user_id}
@@ -65,24 +74,18 @@ async def _collect_player_data(user_id: int) -> dict:
         row3 = res3.fetchone()
         data["loans_total"] = int(row3[0]) if row3 and row3[0] else 0
 
-        # Portfolio
         res4 = await session.execute(
             text("""
                 SELECT asset_id, SUM(quantity) as qty, AVG(buy_price) as avg_price
-                FROM investments
-                WHERE user_id = :uid AND status = 'active'
+                FROM investments WHERE user_id = :uid AND status = 'active'
                 GROUP BY asset_id
             """),
             {"uid": user_id}
         )
         investments = res4.fetchall()
         data["portfolio_count"] = len(investments)
-        data["portfolio"]       = [
-            {"asset": r[0], "qty": int(r[1]), "avg_price": int(r[2])}
-            for r in investments
-        ]
+        data["portfolio"] = [{"asset": r[0], "qty": int(r[1]), "avg_price": int(r[2])} for r in investments]
 
-        # Compte couple
         res5 = await session.execute(
             select(CoupleAccount).where(
                 (CoupleAccount.user1_id == user_id) | (CoupleAccount.user2_id == user_id)
@@ -90,20 +93,17 @@ async def _collect_player_data(user_id: int) -> dict:
         )
         couple_acc = res5.scalar_one_or_none()
         data["couple_account"] = int(couple_acc.balance) if couple_acc else 0
-
-        # Fortune totale
         data["fortune_totale"] = data["coins"] + data["bank_total"] + data["couple_account"]
+        data["fortune_label"]  = _fortune_label(data["fortune_totale"])
 
-        # Relations
         res6 = await session.execute(
             select(Relationship, User)
             .join(User, Relationship.related_user_id == User.user_id)
             .where(Relationship.user_id == user_id)
         )
         relations = res6.all()
-        data["spouse"]   = next((u.first_name for r, u in relations if r.relation_type == RelationType.SPOUSE), None)
-        data["friends"]  = [u.first_name for r, u in relations if r.relation_type == RelationType.FRIEND]
-        data["children"] = []
+        data["spouse"]  = next((u.first_name for r, u in relations if r.relation_type == RelationType.SPOUSE), None)
+        data["friends"] = [u.first_name for r, u in relations if r.relation_type == RelationType.FRIEND]
 
         res7 = await session.execute(
             select(Relationship, User)
@@ -113,81 +113,141 @@ async def _collect_player_data(user_id: int) -> dict:
                 Relationship.relation_type   == RelationType.PARENT
             )
         )
-        children_rels = res7.all()
-        data["children"] = [u.first_name for r, u in children_rels]
+        data["children"] = [u.first_name for r, u in res7.all()]
 
-        # Classement richesse
-        res8 = await session.execute(
-            text("SELECT COUNT(*) FROM users WHERE coins > :c"),
-            {"c": user.coins}
-        )
+        res8 = await session.execute(text("SELECT COUNT(*) FROM users WHERE coins > :c"), {"c": user.coins})
         rank_row = res8.fetchone()
         data["rank"] = int(rank_row[0]) + 1 if rank_row else "?"
 
-        # Nombre total de joueurs
         res9 = await session.execute(text("SELECT COUNT(*) FROM users"))
         data["total_players"] = int(res9.fetchone()[0])
+
+        try:
+            res_emp = await session.execute(
+                text("""
+                    SELECT c.name, ce.role FROM company_employees ce
+                    JOIN companies c ON ce.company_id = c.id
+                    WHERE ce.user_id = :uid AND ce.left_at IS NULL LIMIT 1
+                """),
+                {"uid": user_id}
+            )
+            emp_row = res_emp.fetchone()
+            data["company"]      = emp_row[0] if emp_row else None
+            data["company_role"] = emp_row[1] if emp_row else None
+        except Exception:
+            data["company"]      = None
+            data["company_role"] = None
 
     return data
 
 
-def _build_prompt(data: dict) -> str:
-    famille = []
+ANGLES = [
+    "enquête exclusive sur une fortune mystérieuse qui fait trembler les marchés",
+    "révélations chocs : les secrets financiers d'un personnage controversé",
+    "portrait sans filtre — ascension fulgurante ou chute imminente ?",
+    "les dessous d'un empire bâti dans l'ombre du groupe",
+    "dossier confidentiel : qui est vraiment ce joueur hors du commun ?",
+    "fortune, famille, pouvoir — le portrait d'une figure incontournable",
+    "scandale ou génie ? la vérité sur ce personnage qui divise",
+    "dans les coulisses d'une réussite qui laisse tout le monde bouche bée",
+]
+
+TONS = [
+    "sensationnaliste et dramatique, style TMZ en feu",
+    "grave et solennel comme le journal de 20h un soir de crise nationale",
+    "sarcastique et mordant, style talk-show de fin de soirée",
+    "épique et héroïque comme un documentaire Netflix de prestige",
+    "paranoïaque et conspirationniste, style chaîne d'info en continu à 3h du matin",
+]
+
+
+def _build_prompt(data: dict) -> tuple:
+    famille_parts = []
     if data.get("spouse"):
-        famille.append(f"marié(e) à {data['spouse']}")
+        famille_parts.append(f"en couple avec {data['spouse']}")
     if data.get("children"):
-        famille.append(f"{len(data['children'])} enfant(s) : {', '.join(data['children'])}")
+        famille_parts.append(f"parent de {len(data['children'])} enfant(s) : {', '.join(data['children'])}")
     if data.get("friends"):
-        famille.append(f"{len(data['friends'])} ami(s) proche(s)")
+        famille_parts.append(f"allié(e) à {', '.join(data['friends'][:3])}")
+    famille_str = " · ".join(famille_parts) if famille_parts else "célibataire, sans famille connue"
 
-    portfolio_desc = ""
+    portfolio_str = "aucun investissement boursier"
     if data.get("portfolio"):
-        assets = ", ".join(f"{p['asset']} ({p['qty']} unités)" for p in data["portfolio"][:5])
-        portfolio_desc = f"Portfolio de {data['portfolio_count']} actif(s) : {assets}."
-    else:
-        portfolio_desc = "Aucun investissement en bourse."
+        assets = ", ".join(f"{p['asset']} ×{p['qty']}" for p in data["portfolio"][:4])
+        portfolio_str = f"{data['portfolio_count']} actif(s) : {assets}"
 
-    banques_desc = ""
+    banques_str = "aucun compte bancaire"
     if data.get("bank_details"):
-        banques_desc = ", ".join(
-            f"{b['bank']} ({_fmt(b['balance'])} {CURRENCY})"
-            for b in data["bank_details"][:3]
-        )
-    else:
-        banques_desc = "Aucun compte bancaire"
+        banques_str = " / ".join(f"{b['bank']} : {_fmt(b['balance'])} {CURRENCY}" for b in data["bank_details"][:3])
 
-    prompt = f"""Tu es un journaliste de télévision Breaking News dans un jeu Telegram économique fictif.
-Écris un article de journal télévisé DRAMATIQUE et stylé en français sur ce joueur.
-L'article doit faire entre 200 et 280 mots. Commence directement par le titre sans introduction.
-Utilise des emojis. Sois dramatique, sensationnaliste, comme un vrai journal TV.
-Mentionne sa fortune, ses banques, son rang, sa famille si pertinent.
-Ne mets pas de balises HTML. Commence par un titre accrocheur en majuscules.
+    diplomes_str = "autodidacte sans diplôme"
+    if data["diplomes"]:
+        diplomes_str = ", ".join(data["diplomes"])
+        if data.get("diplome_domain"):
+            diplomes_str += f" en {data['diplome_domain']}"
 
-DONNÉES DU JOUEUR :
-- Nom : {data['name']} (@{data['username']})
-- $ en poche : {_fmt(data['coins'])} $
-- Total banques : {_fmt(data['bank_total'])} $ ({data['bank_count']} compte(s)) — {banques_desc}
-- Compte commun couple : {_fmt(data['couple_account'])} $
-- Dettes actives : {_fmt(data['loans_total'])} $
-- FORTUNE TOTALE : {_fmt(data['fortune_totale'])} $
-- Rang dans le classement : #{data['rank']} sur {data['total_players']} joueurs
-- {portfolio_desc}
-- Situation familiale : {', '.join(famille) if famille else 'célibataire, sans famille connue'}
+    entreprise_str = "sans emploi déclaré"
+    if data.get("company"):
+        entreprise_str = f"{data['company_role']} chez {data['company']}"
 
-Génère un article Breaking News percutant sur ce personnage."""
-    return prompt
+    karma = data.get("karma", 0)
+    karma_str   = f"+{karma}" if karma >= 0 else str(karma)
+    karma_label = "SAINT LOCAL" if karma > 30 else ("PARIA DÉTESTÉ" if karma < -10 else "CITOYEN LAMBDA")
+
+    angle = random.choice(ANGLES)
+    ton   = random.choice(TONS)
+
+    system_prompt = (
+        "Tu es le présentateur vedette d'une chaîne d'info fictive dans un jeu Telegram économique. "
+        "Tu rédiges des articles Breaking News dramatiques, excessifs, divertissants et originaux. "
+        "Chaque article doit sembler unique — varie les formulations, les révélations, le rythme. "
+        "Tu écris UNIQUEMENT le texte de l'article (titre + corps). Pas de méta-commentaires. "
+        "INTERDIT : balises HTML (<b>, <i>, <u>, etc.). "
+        "Utilise les données fournies pour construire une narration cohérente et percutante. "
+        "Les emojis sont autorisés avec parcimonie pour ponctuer les moments forts."
+    )
+
+    user_prompt = f"""ANGLE ÉDITORIAL : {angle}
+TON : {ton}
+
+FICHE CONFIDENTIELLE :
+━━━━━━━━━━━━━━━━━━━━━━━━
+👤 Identité     : {data['name']} (@{data['username']})
+💰 Cash poche   : {_fmt(data['coins'])} {CURRENCY}
+🏦 Banques      : {_fmt(data['bank_total'])} {CURRENCY} ({data['bank_count']} compte(s)) — {banques_str}
+💑 Compte commun: {_fmt(data['couple_account'])} {CURRENCY}
+💳 Dettes       : {_fmt(data['loans_total'])} {CURRENCY}
+💎 FORTUNE TOTALE : {_fmt(data['fortune_totale'])} {CURRENCY} [{data['fortune_label']}]
+🏆 Classement   : #{data['rank']} sur {data['total_players']} joueurs
+⭐ Karma        : {karma_str} [{karma_label}]
+📈 Bourse       : {portfolio_str}
+🎓 Formation    : {diplomes_str}
+🏢 Emploi       : {entreprise_str}
+👨‍👩‍👧 Famille     : {famille_str}
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Rédige un article Breaking News de 220 à 280 mots.
+— Commence DIRECTEMENT par un titre accrocheur tout en MAJUSCULES (une ligne).
+— Ensuite 2 à 3 paragraphes narratifs dans le ton demandé.
+— Aucune balise HTML. Emojis avec parcimonie."""
+
+    return system_prompt, user_prompt
 
 
-async def _call_groq(prompt: str) -> str:
+async def _call_groq(system_prompt: str, user_prompt: str) -> str:
     api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key:
-        return "❌ GROQ_API_KEY non configurée dans les variables d'environnement Render."
+        return "❌ GROQ_API_KEY non configurée dans les variables d'environnement."
 
     payload = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 500,
-        "temperature": 0.9,
+        "model":       GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
+        ],
+        "max_tokens":  700,
+        "temperature": 1.0,
+        "top_p":       0.95,
     }
 
     async with aiohttp.ClientSession() as session:
@@ -198,11 +258,11 @@ async def _call_groq(prompt: str) -> str:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type":  "application/json",
             },
-            timeout=aiohttp.ClientTimeout(total=20),
+            timeout=aiohttp.ClientTimeout(total=25),
         ) as resp:
             if resp.status != 200:
                 text_err = await resp.text()
-                return f"❌ Erreur Groq ({resp.status}) : {text_err[:200]}"
+                return f"❌ Erreur Groq ({resp.status}) : {text_err[:300]}"
             result = await resp.json()
             return result["choices"][0]["message"]["content"].strip()
 
@@ -216,10 +276,6 @@ async def article_cmd(update, context):
 
     args = context.args or []
 
-    # Choisir la cible
-    target_id   = None
-    target_name = None
-
     if not args:
         return await update.message.reply_text(
             "📰 <b>Système Article</b>\n"
@@ -230,6 +286,9 @@ async def article_cmd(update, context):
             parse_mode=ParseMode.HTML
         )
 
+    target_id   = None
+    target_name = None
+
     if args[0].lower() == "hasard":
         async with AsyncSessionLocal() as session:
             res = await session.execute(
@@ -238,37 +297,47 @@ async def article_cmd(update, context):
             rows = res.fetchall()
         if not rows:
             return await update.message.reply_text("❌ Aucun joueur trouvé.")
-        chosen    = random.choice(rows)
-        target_id = chosen[0]
+        chosen      = random.choice(rows)
+        target_id   = chosen[0]
         target_name = chosen[1]
     else:
-        # Mention ou username
         tg_user = await parse_target(update, context)
         if not tg_user:
-            return await update.message.reply_text("❌ Joueur introuvable.")
-        target_id   = tg_user.id
-        target_name = tg_user.first_name
+            raw = args[0].lstrip("@").lower()
+            async with AsyncSessionLocal() as session:
+                db_fallback = await get_user_by_username(session, f"@{raw}")
+            if db_fallback:
+                target_id   = db_fallback.user_id
+                target_name = db_fallback.first_name
+            else:
+                return await update.message.reply_text(
+                    "❌ Joueur introuvable.\n"
+                    "<i>Astuce : le joueur doit avoir utilisé /start au moins une fois.</i>",
+                    parse_mode=ParseMode.HTML
+                )
+        else:
+            target_id   = tg_user.id
+            target_name = tg_user.first_name
 
-    # Message d'attente
     wait_msgs = [
-        "📡 Nos reporters enquêtent sur le terrain...",
-        "🎙️ La rédaction prépare l'article...",
-        "📰 Collecte des données financières en cours...",
-        "🔍 Investigation en cours sur la fortune de la cible...",
+        f"📡 Nos reporters enquêtent sur <b>{html.escape(target_name)}</b>...",
+        f"🎙️ La rédaction prépare l'article sur <b>{html.escape(target_name)}</b>...",
+        f"📰 Collecte des données financières de <b>{html.escape(target_name)}</b>...",
+        f"🔍 Investigation en cours sur <b>{html.escape(target_name)}</b>...",
     ]
-    msg = await update.message.reply_text(random.choice(wait_msgs))
+    msg = await update.message.reply_text(random.choice(wait_msgs), parse_mode=ParseMode.HTML)
 
-    # Collecter les données
     data = await _collect_player_data(target_id)
     if not data:
         await msg.edit_text("❌ Ce joueur n'a pas de profil en base de données.")
         return
 
-    # Générer l'article via Groq
-    prompt  = _build_prompt(data)
-    article = await _call_groq(prompt)
+    system_prompt, user_prompt = _build_prompt(data)
+    article_text = await _call_groq(system_prompt, user_prompt)
 
-    # Formater le message final
+    # Échapper les caractères HTML pour éviter les conflits avec le parse_mode Telegram
+    article_escaped = html.escape(article_text)
+
     jours = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
     mois  = ["janvier","février","mars","avril","mai","juin",
               "juillet","août","septembre","octobre","novembre","décembre"]
@@ -280,13 +349,16 @@ async def article_cmd(update, context):
         f"📺 <b>BREAKING NEWS — ÉDITION SPÉCIALE</b>\n"
         f"🗓️ <i>{date_str}</i>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{article}\n\n"
+        f"{article_escaped}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<i>📡 Reportage exclusif — Rédaction Family Bot News ❤️</i>"
     )
 
+    if len(final) > 4000:
+        final = final[:3960] + "...\n\n<i>📡 Reportage exclusif — Rédaction Family Bot News ❤️</i>"
+
     try:
         await msg.edit_text(final, parse_mode=ParseMode.HTML)
     except Exception:
-        # Si trop long, couper
-        await msg.edit_text(final[:4000] + "...", parse_mode=ParseMode.HTML)
+        # Fallback sans HTML si le parsing échoue malgré l'échappement
+        await msg.edit_text(article_text[:3800])

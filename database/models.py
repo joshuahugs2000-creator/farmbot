@@ -297,3 +297,17 @@ class CompanyLog(Base):
     description = Column(String(500), nullable=False)
     amount      = Column(BigInteger, nullable=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
+
+
+class CompanyShareOffer(Base):
+    """Offre d'achat de parts soumise à l'accord du PDG."""
+    __tablename__ = "company_share_offers"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    buyer_id    = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    quantity    = Column(Integer, nullable=False)
+    price_each  = Column(BigInteger, nullable=False)   # prix par part au moment de l'offre
+    total_price = Column(BigInteger, nullable=False)   # montant bloqué (escrow)
+    status      = Column(String(20), default="pending")  # pending / accepted / rejected / expired
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    expires_at  = Column(DateTime, nullable=False)

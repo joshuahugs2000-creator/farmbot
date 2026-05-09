@@ -3178,3 +3178,184 @@ async def statsusers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"  /{row.command} — {row.nb} fois")
 
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+# ─── /adminparts — Gestion admin des parts d'une entreprise ──────────────────
+
+async def adminparts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /adminparts <NomEntreprise>                       → voir les parts de tous les membres
+    /adminparts <NomEntreprise> add @user <qty>       → ajouter des parts
+    /adminparts <NomEntreprise> remove @user <qty>    → retirer des parts
+    /adminparts <NomEntreprise> set @user <qty>       → définir un montant exact
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    if not context.args:
+        return await update.message.reply_text(
+            "❌ Usage :\n"
+            "<code>/adminparts NomEntreprise</code>\n"
+            "<code>/adminparts NomEntreprise add @user quantite</code>\n"
+            "<code>/adminparts NomEntreprise remove @user quantite</code>\n"
+            "<code>/adminparts NomEntreprise set @user quantite</code>",
+            parse_mode="HTML"
+        )
+
+    # ── Parser les args ──────────────────────────────────────────────────────
+    # Détecter si c'est une action (add/remove/set) ou juste une vue
+    # Format : /adminparts [action?] [company ...] [@user qty?]
+    # On cherche le mot clé action en position 0
+    ACTION_KEYWORDS = {"add", "remove", "set"}
+    action = None
+    target_mention = None
+    qty = None
+    company_name_parts = []
+
+    args = context.args
+
+    # Chercher l'action dans les args
+    if len(args) >= 4 and args[-3].lower() in ACTION_KEYWORDS:
+        action = args[-3].lower()
+        target_mention = args[-2].lstrip("@")
+        try:
+            qty = int(args[-1])
+        except ValueError:
+            return await update.message.reply_text("❌ Quantité invalide.")
+        company_name_parts = args[:-3]
+    else:
+        # Pas d'action → vue seule
+        company_name_parts = args
+
+    company_name = " ".join(company_name_parts)
+    if not company_name:
+        return await update.message.reply_text("❌ Nom d'entreprise manquant.")
+
+    async with AsyncSessionLocal() as session:
+        # Récupérer l'entreprise
+        comp = (await session.execute(
+            text("SELECT * FROM companies WHERE LOWER(name)=LOWER(:n) LIMIT 1"),
+            {"n": company_name}
+        )).fetchone()
+        if not comp:
+            return await update.message.reply_text(
+                f"❌ Entreprise <b>{company_name}</b> introuvable.", parse_mode="HTML"
+            )
+
+        # ── VUE SEULE ────────────────────────────────────────────────────────
+        if action is None:
+            shares = (await session.execute(text(
+                """
+                SELECT cs.owner_id, cs.quantity, u.username, u.first_name
+                FROM company_shares cs
+                LEFT JOIN users u ON u.user_id = cs.owner_id
+                WHERE cs.company_id = :cid AND cs.quantity > 0
+                ORDER BY cs.quantity DESC
+                """
+            ), {"cid": comp.id})).fetchall()
+
+            if not shares:
+                return await update.message.reply_text(
+                    f"📦 Aucune part enregistrée pour <b>{comp.name}</b>.", parse_mode="HTML"
+                )
+
+            price_per = comp.value // comp.total_shares if comp.total_shares else 0
+            lines = [
+                f"📦 <b>ADMIN — Parts de {comp.name}</b>",
+                f"Total : <b>{comp.total_shares} parts</b>  |  💰 Prix/part : <b>{_fmt(price_per)} $</b>",
+                f"PDG actuel : owner_shares=<b>{comp.owner_shares}</b>",
+                "",
+            ]
+            for s in shares:
+                name_d = f"@{s.username}" if s.username else (s.first_name or f"ID:{s.owner_id}")
+                pct = (s.quantity / comp.total_shares * 100) if comp.total_shares else 0
+                valeur = s.quantity * price_per
+                lines.append(
+                    f"• <b>{name_d}</b> (uid:{s.owner_id})\n"
+                    f"  📦 {s.quantity} parts ({pct:.1f}%)  |  💰 Valeur : {_fmt(valeur)} $"
+                )
+
+            lines.append(
+                f"\n💡 Modifier : <code>/adminparts {comp.name} add/remove/set @user quantite</code>"
+            )
+            return await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+        # ── ACTION (add / remove / set) ───────────────────────────────────────
+        if qty is None or qty < 0:
+            return await update.message.reply_text("❌ Quantité invalide (doit être ≥ 0).")
+
+        # Résoudre l'utilisateur cible
+        target_user = (await session.execute(
+            text("SELECT * FROM users WHERE LOWER(username)=LOWER(:u) LIMIT 1"),
+            {"u": target_mention}
+        )).fetchone()
+        if not target_user:
+            return await update.message.reply_text(
+                f"❌ Utilisateur @{target_mention} introuvable (doit avoir utilisé le bot)."
+            )
+
+        target_id = target_user.user_id
+        name_d = f"@{target_user.username}" if target_user.username else target_user.first_name
+
+        # Récupérer la ligne de parts actuelle
+        share_row = (await session.execute(
+            text("SELECT * FROM company_shares WHERE company_id=:cid AND owner_id=:uid LIMIT 1"),
+            {"cid": comp.id, "uid": target_id}
+        )).fetchone()
+        current_qty = share_row.quantity if share_row else 0
+
+        if action == "add":
+            new_qty = current_qty + qty
+        elif action == "remove":
+            new_qty = max(0, current_qty - qty)
+        elif action == "set":
+            new_qty = qty
+        else:
+            return await update.message.reply_text("❌ Action invalide.")
+
+        # Appliquer
+        if share_row:
+            await session.execute(
+                text("UPDATE company_shares SET quantity=:q WHERE company_id=:cid AND owner_id=:uid"),
+                {"q": new_qty, "cid": comp.id, "uid": target_id}
+            )
+        else:
+            await session.execute(
+                text("INSERT INTO company_shares (company_id, owner_id, quantity, acquired_at) VALUES (:cid, :uid, :q, NOW())"),
+                {"cid": comp.id, "uid": target_id, "q": new_qty}
+            )
+
+        # Si c'est le PDG, mettre à jour owner_shares aussi
+        if target_id == comp.owner_id:
+            await session.execute(
+                text("UPDATE companies SET owner_shares=:q WHERE id=:cid"),
+                {"q": new_qty, "cid": comp.id}
+            )
+
+        # Log dans company_logs
+        await session.execute(
+            text(
+                "INSERT INTO company_logs (company_id, event_type, description, created_at) "
+                "VALUES (:cid, 'admin_parts', :desc, NOW())"
+            ),
+            {
+                "cid": comp.id,
+                "desc": f"[ADMIN] {action.upper()} parts {name_d} : {current_qty} → {new_qty}"
+            }
+        )
+
+        await session.commit()
+
+        price_per = comp.value // comp.total_shares if comp.total_shares else 0
+        valeur_new = new_qty * price_per
+        action_emoji = {"add": "➕", "remove": "➖", "set": "🔧"}[action]
+
+        await update.message.reply_text(
+            f"{action_emoji} <b>Parts mises à jour — {comp.name}</b>\n\n"
+            f"👤 {name_d} (uid:{target_id})\n"
+            f"📦 Avant : <b>{current_qty} parts</b>\n"
+            f"📦 Après : <b>{new_qty} parts</b>\n"
+            f"💰 Valeur portefeuille : <b>{_fmt(valeur_new)} $</b>\n\n"
+            f"✅ Modifié et loggé.",
+            parse_mode="HTML"
+        )

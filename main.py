@@ -71,6 +71,7 @@ from handlers.admin    import (
     wipeloans, broadcastdm, topactifs,
     mutecompany, unmutecompany,
     adminboites, adminboite, statsusers,
+    adminparts,
 )
 from handlers.bank     import (
     banks, bankopen, bankdeposit, bankwithdraw,
@@ -106,6 +107,7 @@ from handlers.company import (
     parts_cmd, vendreparts_cmd, acheterparts_cmd,
     licencier_cmd, dissoudreboite_cmd, job_daily_report, job_company_revenues,
     salaireinfo_cmd, employes_cmd,
+    accepteroffre_cmd, refuseroffre_cmd, job_expire_share_offers,
 )
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
@@ -554,6 +556,7 @@ async def main():
     app.add_handler(CommandHandler("adminboites",    adminboites))
     app.add_handler(CommandHandler("adminboite",     adminboite))
     app.add_handler(CommandHandler("statsusers",     statsusers))
+    app.add_handler(CommandHandler("adminparts",     adminparts))
 
     # ── Entreprises ───────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("listeboites",   _prison_checked(listeboites_cmd)))
@@ -574,6 +577,8 @@ async def main():
     app.add_handler(CommandHandler("parts",         _prison_checked(parts_cmd)))
     app.add_handler(CommandHandler("vendreparts",   _prison_checked(vendreparts_cmd)))
     app.add_handler(CommandHandler("acheterparts",  _prison_checked(acheterparts_cmd)))
+    app.add_handler(CommandHandler("accepteroffre", _prison_checked(accepteroffre_cmd)))
+    app.add_handler(CommandHandler("refuseroffre",  _prison_checked(refuseroffre_cmd)))
     app.add_handler(CommandHandler("licencier",      _prison_checked(licencier_cmd)))
     app.add_handler(CommandHandler("employes",       _prison_checked(employes_cmd)))
     app.add_handler(CommandHandler("dissoudreboite",  _prison_checked(dissoudreboite_cmd)))
@@ -622,6 +627,14 @@ async def main():
         interval=timedelta(hours=24),
         first=timedelta(minutes=15),
         name="company_revenues",
+    )
+
+    # ── Job expiration des offres de parts (toutes les heures) ───────────────
+    app.job_queue.run_repeating(
+        job_expire_share_offers,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=5),
+        name="expire_share_offers",
     )
 
     # ── Job rapport quotidien 18h (PDG) ─────────────────────────────────────────

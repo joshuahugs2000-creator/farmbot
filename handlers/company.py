@@ -18,7 +18,7 @@ from telegram.ext import ContextTypes
 from database.db import AsyncSessionLocal, get_user
 from database.models import (
     User, Company, CompanyEmployee, CompanyShare,
-    CompanyApplication, CompanyInvite, CompanyLog,
+    CompanyApplication, CompanyInvite, CompanyLog, CompanyShareOffer,
 )
 
 logger = logging.getLogger(__name__)
@@ -940,6 +940,22 @@ async def accepter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         app.status = "accepted"
         candidate = await session.get(User, target_id)
 
+        # Vérifier capacité avant d'accepter
+        _, _, _, _, max_emp = _level_info(company.level)
+        nb_emp = (await session.execute(
+            select(func.count()).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar()
+        if nb_emp >= max_emp:
+            await update.message.reply_text(
+                f"❌ <b>{company.name}</b> est au complet ({nb_emp}/{max_emp} employés).\n"
+                f"Améliore la réputation de l'entreprise pour augmenter la capacité.",
+                parse_mode="HTML"
+            )
+            return
+
         # Rôle selon diplôme (cohérent avec ROLE_DIPLOMA)
         role = "stagiaire"
         if candidate and candidate.diplome_mba:      role = "directeur"
@@ -1165,6 +1181,22 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"❌ Tu n'as pas d'invitation valide pour <b>{target.name}</b>.\n"
                 f"Postule d'abord avec <code>/postuler {name}</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        # Vérifier capacité avant de rejoindre
+        _, _, _, _, max_emp = _level_info(target.level)
+        nb_emp = (await session.execute(
+            select(func.count()).where(
+                CompanyEmployee.company_id == target.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar()
+        if nb_emp >= max_emp:
+            await update.message.reply_text(
+                f"❌ <b>{target.name}</b> est malheureusement au complet ({nb_emp}/{max_emp}).\n"
+                f"L'invitation reste valide, réessaie si une place se libère.",
                 parse_mode="HTML"
             )
             return
@@ -1673,6 +1705,10 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❌ Quantité invalide.")
         return
+    if qty <= 0:
+        await update.message.reply_text("❌ La quantité doit être supérieure à 0.")
+        return
+
     name = " ".join(context.args[1:])
 
     async with AsyncSessionLocal() as session:
@@ -1681,13 +1717,16 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
             return
 
+        # Parts disponibles à la vente (PDG garde min 51%)
         available = company.owner_shares - ((company.total_shares // 2) + 1)
         if available <= 0:
-            await update.message.reply_text("❌ Le PDG ne vend pas de parts actuellement (garde 51% minimum).")
+            await update.message.reply_text(
+                "❌ Le PDG ne vend pas de parts actuellement (garde 51% minimum)."
+            )
             return
 
         if qty > available:
-            await update.message.reply_text(f"❌ Seulement {available} parts disponibles à l'achat.")
+            await update.message.reply_text(f"❌ Seulement <b>{available}</b> parts disponibles à l'achat.", parse_mode="HTML")
             return
 
         price_per = company.value // company.total_shares
@@ -1696,90 +1735,344 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if db_user.coins < total:
             await update.message.reply_text(
-                f"❌ Tu n'as pas assez. Prix total : {_fmt(total)} $\n"
-                f"Ton solde : {_fmt(db_user.coins)} $",
+                f"❌ Tu n'as pas assez. Prix total : <b>{_fmt(total)} $</b>\n"
+                f"Ton solde : <b>{_fmt(db_user.coins)} $</b>",
                 parse_mode="HTML"
             )
             return
 
-        db_user.coins -= total
-        company.owner_shares -= qty
-        company.treasury += total
-
-        # Ajouter les parts à l'acheteur
-        buyer_share = (await session.execute(
-            select(CompanyShare).where(
-                CompanyShare.company_id == company.id,
-                CompanyShare.owner_id == user.id,
-            )
-        )).scalar_one_or_none()
-        if buyer_share:
-            buyer_share.quantity += qty
-        else:
-            session.add(CompanyShare(company_id=company.id, owner_id=user.id, quantity=qty))
-
-        # Flush pour que _get_shares lise la valeur à jour en DB
-        await session.flush()
-
-        # OPA hostile : bloquée sur les bot companies
+        # ── Entreprise du bot : achat direct (pas de PDG humain) ──────────────
         if company.is_bot_company:
+            db_user.coins -= total
+            company.owner_shares -= qty
+            company.treasury += total
+
+            buyer_share = (await session.execute(
+                select(CompanyShare).where(
+                    CompanyShare.company_id == company.id,
+                    CompanyShare.owner_id == user.id,
+                )
+            )).scalar_one_or_none()
+            if buyer_share:
+                buyer_share.quantity += qty
+            else:
+                session.add(CompanyShare(company_id=company.id, owner_id=user.id, quantity=qty))
+
+            await _add_log(session, company.id, "achat_parts",
+                           f"{user.first_name} a acheté {qty} parts (bot company)", amount=total)
+            await session.commit()
+
             await update.message.reply_text(
                 f"✅ Tu as acheté <b>{qty} parts</b> de <b>{company.name}</b> pour <b>{_fmt(total)} $</b>.\n"
                 f"💡 Les entreprises officielles ne peuvent pas être rachetées.",
                 parse_mode="HTML"
             )
-            await _add_log(session, company.id, "achat_parts",
-                           f"{user.first_name} a acheté {qty} parts", amount=total)
-            await session.commit()
             return
 
-        # OPA hostile : si l'acheteur dépasse 51%
-        my_total = (await _get_shares(session, company.id, user.id) or 0) + qty
-        if my_total > company.total_shares // 2 + 1:
+        # ── Entreprise d'un joueur : offre soumise au PDG ────────────────────
+
+        # Vérifier qu'une offre n'est pas déjà en cours de ce buyer
+        existing_offer = (await session.execute(
+            select(CompanyShareOffer).where(
+                CompanyShareOffer.company_id == company.id,
+                CompanyShareOffer.buyer_id == user.id,
+                CompanyShareOffer.status == "pending",
+            )
+        )).scalar_one_or_none()
+        if existing_offer:
+            await update.message.reply_text(
+                f"⏳ Tu as déjà une offre en attente sur <b>{company.name}</b>.\n"
+                f"Attends la réponse du PDG ou qu'elle expire (48h).",
+                parse_mode="HTML"
+            )
+            return
+
+        # Bloquer les fonds immédiatement (escrow)
+        db_user.coins -= total
+
+        offer = CompanyShareOffer(
+            company_id=company.id,
+            buyer_id=user.id,
+            quantity=qty,
+            price_each=price_per,
+            total_price=total,
+            status="pending",
+            expires_at=datetime.utcnow() + timedelta(hours=48),
+        )
+        session.add(offer)
+        await session.flush()
+
+        await _add_log(session, company.id, "offre_parts",
+                       f"{user.first_name} a soumis une offre pour {qty} parts", amount=total)
+        await session.commit()
+
+        await update.message.reply_text(
+            f"📩 <b>Offre envoyée au PDG de {company.name} !</b>\n\n"
+            f"📦 Parts demandées : <b>{qty}</b>\n"
+            f"💰 Prix total : <b>{_fmt(total)} $</b> (bloqués sur ton compte)\n"
+            f"⏳ Expire dans <b>48h</b> si aucune réponse.\n\n"
+            f"Tu seras remboursé automatiquement en cas de refus.",
+            parse_mode="HTML"
+        )
+
+        # Notifier le PDG en DM
+        try:
+            await context.bot.send_message(
+                chat_id=company.owner_id,
+                text=(
+                    f"💼 <b>Nouvelle offre d'achat de parts !</b>\n\n"
+                    f"👤 <b>{user.first_name}</b> veut acheter <b>{qty} parts</b> de <b>{company.name}</b>\n"
+                    f"💰 Offre : <b>{_fmt(total)} $</b> ({_fmt(price_per)} $/part)\n\n"
+                    f"✅ Accepter : <code>/accepteroffre {offer.id}</code>\n"
+                    f"❌ Refuser : <code>/refuseroffre {offer.id}</code>\n"
+                    f"⏳ Expire dans 48h."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+
+# ─── COMMANDE : /accepteroffre [offer_id] ────────────────────────────────────
+
+async def accepteroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not context.args:
+        await update.message.reply_text("❌ Usage : <code>/accepteroffre [id_offre]</code>", parse_mode="HTML")
+        return
+    try:
+        offer_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ ID invalide.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        offer = await session.get(CompanyShareOffer, offer_id)
+        if not offer or offer.status != "pending":
+            await update.message.reply_text("❌ Offre introuvable ou déjà traitée.")
+            return
+
+        company = await session.get(Company, offer.company_id)
+        if not company or company.owner_id != user.id:
+            await update.message.reply_text("❌ Seul le PDG de cette entreprise peut accepter l'offre.")
+            return
+
+        # Vérifier expiration
+        if datetime.utcnow() > offer.expires_at:
+            offer.status = "expired"
+            # Rembourser l'acheteur
+            buyer = await session.get(User, offer.buyer_id)
+            if buyer:
+                buyer.coins += offer.total_price
+            await session.commit()
+            await update.message.reply_text("❌ Cette offre a expiré. L'acheteur a été remboursé.")
+            return
+
+        # Vérifier que les parts sont toujours disponibles
+        available = company.owner_shares - ((company.total_shares // 2) + 1)
+        if offer.quantity > available:
+            offer.status = "rejected"
+            buyer = await session.get(User, offer.buyer_id)
+            if buyer:
+                buyer.coins += offer.total_price
+            await session.commit()
+            await update.message.reply_text(
+                f"❌ Plus assez de parts disponibles ({available} dispo). Offre annulée, acheteur remboursé.",
+                parse_mode="HTML"
+            )
+            return
+
+        # ── Transaction ──────────────────────────────────────────────────────
+        offer.status = "accepted"
+        qty = offer.quantity
+        total = offer.total_price
+
+        # Le PDG reçoit l'argent
+        pdg_user = await get_user(session, user.id)
+        pdg_user.coins += total
+
+        # Mise à jour des parts
+        company.owner_shares -= qty
+        company.treasury += 0  # le paiement va directement au PDG, pas à la trésorerie
+
+        buyer_share = (await session.execute(
+            select(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.owner_id == offer.buyer_id,
+            )
+        )).scalar_one_or_none()
+        if buyer_share:
+            buyer_share.quantity += qty
+        else:
+            session.add(CompanyShare(company_id=company.id, owner_id=offer.buyer_id, quantity=qty))
+
+        # Mise à jour owner_shares PDG
+        pdg_share = (await session.execute(
+            select(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.owner_id == user.id,
+            )
+        )).scalar_one_or_none()
+        if pdg_share:
+            pdg_share.quantity = max(0, pdg_share.quantity - qty)
+
+        await session.flush()
+
+        # ── Vérifier OPA hostile ─────────────────────────────────────────────
+        buyer_total_shares_row = (await session.execute(
+            select(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.owner_id == offer.buyer_id,
+            )
+        )).scalar_one_or_none()
+        buyer_total = buyer_total_shares_row.quantity if buyer_total_shares_row else qty
+
+        opa_msg = ""
+        if buyer_total > company.total_shares // 2 + 1:
             old_pdg_id = company.owner_id
-            company.owner_id = user.id
-            company.owner_shares = my_total
-            # Changer le rôle
+            company.owner_id = offer.buyer_id
+
             old_pdg_emp = await _get_employee(session, company.id, old_pdg_id)
             if old_pdg_emp:
                 old_pdg_emp.role = "directeur"
-            buyer_emp = await _get_employee(session, company.id, user.id)
+
+            buyer_emp = await _get_employee(session, company.id, offer.buyer_id)
             if buyer_emp:
                 buyer_emp.role = "pdg"
             else:
-                session.add(CompanyEmployee(company_id=company.id, user_id=user.id, role="pdg"))
+                session.add(CompanyEmployee(company_id=company.id, user_id=offer.buyer_id, role="pdg"))
 
             await _add_log(session, company.id, "opa",
-                           f"⚠️ OPA hostile ! {user.first_name} contrôle maintenant {my_total} parts")
-            await update.message.reply_text(
-                f"⚠️ <b>OPA HOSTILE !</b>\n\n"
-                f"Tu contrôles désormais <b>{my_total}/{company.total_shares}</b> parts de <b>{company.name}</b>.\n"
-                f"👑 Tu es le nouveau <b>PDG</b> !",
-                parse_mode="HTML"
-            )
-            # ── Notifier l'ancien PDG en DM ──
+                           f"⚠️ OPA hostile acceptée ! {offer.buyer_id} contrôle {buyer_total} parts")
+            opa_msg = f"\n⚠️ <b>OPA hostile !</b> L'acheteur contrôle désormais {buyer_total} parts et devient PDG."
+
             try:
                 await context.bot.send_message(
-                    chat_id=old_pdg_id,
+                    chat_id=offer.buyer_id,
                     text=(
-                        f"🚨 <b>OPA HOSTILE !</b>\n\n"
-                        f"<b>{user.first_name}</b> a racheté <b>{my_total} parts</b> de <b>{company.name}</b> "
-                        f"et en est désormais le nouveau PDG.\n"
-                        f"Tu conserves tes parts restantes."
+                        f"⚠️ <b>OPA HOSTILE réussie !</b>\n\n"
+                        f"Tu contrôles <b>{buyer_total}/{company.total_shares}</b> parts de <b>{company.name}</b>.\n"
+                        f"👑 Tu es le nouveau <b>PDG</b> !"
                     ),
                     parse_mode="HTML"
                 )
             except Exception:
                 pass
-        else:
-            await update.message.reply_text(
-                f"✅ Tu as acheté <b>{qty} parts</b> de <b>{company.name}</b> pour <b>{_fmt(total)} $</b>.",
-                parse_mode="HTML"
-            )
 
         await _add_log(session, company.id, "achat_parts",
-                       f"{user.first_name} a acheté {qty} parts", amount=total)
+                       f"{offer.buyer_id} a acheté {qty} parts (accord PDG)", amount=total)
         await session.commit()
+
+        await update.message.reply_text(
+            f"✅ Offre acceptée ! <b>{qty} parts</b> vendues pour <b>{_fmt(total)} $</b>.{opa_msg}",
+            parse_mode="HTML"
+        )
+
+        # Notifier l'acheteur
+        try:
+            buyer_user = await session.get(User, offer.buyer_id)
+            await context.bot.send_message(
+                chat_id=offer.buyer_id,
+                text=(
+                    f"🎉 <b>Ton offre a été acceptée !</b>\n\n"
+                    f"📦 Tu as obtenu <b>{qty} parts</b> de <b>{company.name}</b>\n"
+                    f"💰 Montant débité : <b>{_fmt(total)} $</b>"
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+
+# ─── COMMANDE : /refuseroffre [offer_id] ─────────────────────────────────────
+
+async def refuseroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not context.args:
+        await update.message.reply_text("❌ Usage : <code>/refuseroffre [id_offre]</code>", parse_mode="HTML")
+        return
+    try:
+        offer_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ ID invalide.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        offer = await session.get(CompanyShareOffer, offer_id)
+        if not offer or offer.status != "pending":
+            await update.message.reply_text("❌ Offre introuvable ou déjà traitée.")
+            return
+
+        company = await session.get(Company, offer.company_id)
+        if not company or company.owner_id != user.id:
+            await update.message.reply_text("❌ Seul le PDG de cette entreprise peut refuser l'offre.")
+            return
+
+        offer.status = "rejected"
+
+        # Rembourser l'acheteur
+        buyer = await session.get(User, offer.buyer_id)
+        if buyer:
+            buyer.coins += offer.total_price
+
+        await _add_log(session, company.id, "offre_refusee",
+                       f"Offre de {offer.buyer_id} refusée par le PDG ({offer.quantity} parts)")
+        await session.commit()
+
+        await update.message.reply_text(
+            f"✅ Offre refusée. <b>{_fmt(offer.total_price)} $</b> remboursés à l'acheteur.",
+            parse_mode="HTML"
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=offer.buyer_id,
+                text=(
+                    f"😔 Ton offre d'achat de <b>{offer.quantity} parts</b> dans <b>{company.name}</b> "
+                    f"a été <b>refusée</b> par le PDG.\n"
+                    f"💰 <b>{_fmt(offer.total_price)} $</b> remboursés sur ton compte."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+
+# ─── JOB : EXPIRATION DES OFFRES DE PARTS ────────────────────────────────────
+
+async def job_expire_share_offers(context: ContextTypes.DEFAULT_TYPE):
+    """Expire les offres de parts non répondues après 48h et rembourse les acheteurs."""
+    async with AsyncSessionLocal() as session:
+        expired_offers = (await session.execute(
+            select(CompanyShareOffer).where(
+                CompanyShareOffer.status == "pending",
+                CompanyShareOffer.expires_at <= datetime.utcnow(),
+            )
+        )).scalars().all()
+
+        for offer in expired_offers:
+            offer.status = "expired"
+            buyer = await session.get(User, offer.buyer_id)
+            if buyer:
+                buyer.coins += offer.total_price
+            company = await session.get(Company, offer.company_id)
+            company_name = company.name if company else "?"
+
+            try:
+                await context.bot.send_message(
+                    chat_id=offer.buyer_id,
+                    text=(
+                        f"⏰ Ton offre d'achat de <b>{offer.quantity} parts</b> dans <b>{company_name}</b> "
+                        f"a expiré sans réponse.\n"
+                        f"💰 <b>{_fmt(offer.total_price)} $</b> remboursés sur ton compte."
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+        if expired_offers:
+            await session.commit()
 
 # ─── COMMANDE : /licencier @pseudo ────────────────────────────────────────────
 

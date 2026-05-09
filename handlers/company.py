@@ -1891,9 +1891,8 @@ async def accepteroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pdg_user = await get_user(session, user.id)
         pdg_user.coins += total
 
-        # Mise à jour des parts
+        # Mise à jour des parts (l'argent va au compte perso du PDG, pas à la trésorerie)
         company.owner_shares -= qty
-        company.treasury += 0  # le paiement va directement au PDG, pas à la trésorerie
 
         buyer_share = (await session.execute(
             select(CompanyShare).where(

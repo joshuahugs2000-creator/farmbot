@@ -14,7 +14,7 @@ elif _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 DATABASE_URL = _db_url
 
-REQUEST_TIMEOUT = 60  # secondes avant expiration demande
+REQUEST_TIMEOUT = 120  # secondes avant expiration demande (2 minutes)
 
 PLANT_TYPES = {
     "rose":      {"emoji": "🌹", "grow_time": 3600,  "value": 10},

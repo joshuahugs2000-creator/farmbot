@@ -1599,8 +1599,11 @@ async def parts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         price_per_share = company.value // company.total_shares
         lines.append(f"\n💰 Prix par part : <b>{_fmt(price_per_share)} $</b>")
-        lines.append(f"\n💡 <code>/vendreparts [nb] [nom entreprise]</code> pour vendre (prix auto)")
-        lines.append(f"💡 <code>/acheterparts [nb] [nom entreprise]</code> pour acheter au PDG")
+        if not company.is_bot_company:
+            lines.append(f"\n💡 <code>/vendreparts [nb] [nom entreprise]</code> pour vendre (prix auto)")
+            lines.append(f"💡 <code>/acheterparts [nb] [nom entreprise]</code> pour acheter au PDG")
+        else:
+            lines.append(f"\nℹ️ <i>Entreprise officielle — les parts ne sont pas cessibles.</i>")
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
@@ -1644,6 +1647,16 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not emp:
             await update.message.reply_text("❌ Tu ne fais pas partie de cette entreprise.")
+            return
+
+        # ── Entreprise du bot : vente de parts interdite ──────────────────────
+        if company.is_bot_company:
+            await update.message.reply_text(
+                "🚫 <b>Vente impossible.</b>\n\n"
+                f"<b>{company.name}</b> est une entreprise officielle gérée par le système.\n"
+                "Les parts de ces entreprises ne sont pas cessibles.",
+                parse_mode="HTML"
+            )
             return
 
         # Prix calculé automatiquement depuis la valeur de l'entreprise
@@ -1764,30 +1777,12 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # ── Entreprise du bot : achat direct (pas de PDG humain) ──────────────
+        # ── Entreprise du bot : achat de parts interdit ───────────────────────
         if company.is_bot_company:
-            db_user.coins -= total
-            company.owner_shares -= qty
-            company.treasury += total
-
-            buyer_share = (await session.execute(
-                select(CompanyShare).where(
-                    CompanyShare.company_id == company.id,
-                    CompanyShare.owner_id == user.id,
-                )
-            )).scalar_one_or_none()
-            if buyer_share:
-                buyer_share.quantity += qty
-            else:
-                session.add(CompanyShare(company_id=company.id, owner_id=user.id, quantity=qty))
-
-            await _add_log(session, company.id, "achat_parts",
-                           f"{user.first_name} a acheté {qty} parts (bot company)", amount=total)
-            await session.commit()
-
             await update.message.reply_text(
-                f"✅ Tu as acheté <b>{qty} parts</b> de <b>{company.name}</b> pour <b>{_fmt(total)} $</b>.\n"
-                f"💡 Les entreprises officielles ne peuvent pas être rachetées.",
+                f"🚫 <b>Achat impossible.</b>\n\n"
+                f"<b>{company.name}</b> est une entreprise officielle gérée par le système.\n"
+                f"Les parts de ces entreprises ne sont pas cessibles.",
                 parse_mode="HTML"
             )
             return

@@ -1,4 +1,5 @@
 import io, random, logging
+from datetime import datetime
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from handlers.journal import log_event
 from telegram.ext import ContextTypes
@@ -116,8 +117,29 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _ex = await session.execute(
             _sel(_PR).where(_PR.from_user_id == sender.user_id, _PR.request_type == RequestType.MARRY)
         )
-        if _ex.scalar_one_or_none():
-            return await update.message.reply_text("Tu as deja une demande de mariage en attente !")
+        existing_sender = _ex.scalar_one_or_none()
+        if existing_sender:
+            if datetime.utcnow() < existing_sender.expires_at:
+                return await update.message.reply_text("Tu as deja une demande de mariage en attente !")
+            else:
+                await session.delete(existing_sender)
+                await session.commit()
+
+        # Demande en attente sur le target ? (expirée = annulée automatiquement)
+        _ex2 = await session.execute(
+            _sel(_PR).where(_PR.to_user_id == target.user_id, _PR.request_type == RequestType.MARRY)
+        )
+        existing_target = _ex2.scalar_one_or_none()
+        if existing_target:
+            if datetime.utcnow() < existing_target.expires_at:
+                return await update.message.reply_text(
+                    f"💔 {mention(target)} a déjà une demande de mariage en attente. Réessaie dans quelques instants.",
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                # Expirée : on l'annule silencieusement
+                await session.delete(existing_target)
+                await session.commit()
 
         req = await create_request(session, sender.user_id, target.user_id, RequestType.MARRY, group_id, 0)
         msg = await update.message.reply_text(

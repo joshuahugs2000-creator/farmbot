@@ -1599,33 +1599,55 @@ async def parts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         price_per_share = company.value // company.total_shares
         lines.append(f"\n💰 Prix par part : <b>{_fmt(price_per_share)} $</b>")
-        lines.append(f"\n💡 <code>/vendreparts [nb] [entreprise]</code> pour vendre")
-        lines.append(f"💡 <code>/acheterparts [nb] [entreprise]</code> pour acheter au PDG")
+        lines.append(f"\n💡 <code>/vendreparts [nb] [nom entreprise]</code> pour vendre (prix auto)")
+        lines.append(f"💡 <code>/acheterparts [nb] [nom entreprise]</code> pour acheter au PDG")
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
-# ─── COMMANDE : /vendreparts [nb] [prix/part] ────────────────────────────────
+# ─── COMMANDE : /vendreparts [nb] [nom entreprise] ───────────────────────────
 
 async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if len(context.args) < 2:
         await update.message.reply_text(
-            "❌ Usage : <code>/vendreparts [nombre de parts] [prix par part]</code>",
+            "❌ Usage : <code>/vendreparts [nombre de parts] [nom entreprise]</code>",
             parse_mode="HTML"
         )
         return
     try:
         qty = int(context.args[0])
-        price_each = int(context.args[1].replace("_", ""))
     except ValueError:
-        await update.message.reply_text("❌ Paramètres invalides.")
+        await update.message.reply_text("❌ Quantité invalide. Exemple : <code>/vendreparts 5 MonEntreprise</code>", parse_mode="HTML")
         return
 
+    company_name = " ".join(context.args[1:])
+
     async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, user.id)
-        if not company:
-            await update.message.reply_text("❌ Tu n'es dans aucune entreprise.")
+        # Chercher l'entreprise par nom
+        company_by_name = await _get_company_by_name(session, company_name)
+
+        # Récupérer aussi l'entreprise de l'utilisateur pour vérifier le rôle
+        user_company, emp = await _get_user_company(session, user.id)
+
+        if company_by_name:
+            company = company_by_name
+            # Récupérer le rôle dans cette entreprise spécifique
+            if user_company and user_company.id == company.id:
+                pass  # emp est déjà correct
+            else:
+                emp = None  # l'utilisateur n'est pas dans cette entreprise
+        elif user_company:
+            company = user_company
+        else:
+            await update.message.reply_text(f"❌ Entreprise <b>{company_name}</b> introuvable.", parse_mode="HTML")
             return
+
+        if not emp:
+            await update.message.reply_text("❌ Tu ne fais pas partie de cette entreprise.")
+            return
+
+        # Prix calculé automatiquement depuis la valeur de l'entreprise
+        price_each = company.value // company.total_shares if company.total_shares > 0 else 1
 
         my_shares = await _get_shares(session, company.id, user.id)
         # PDG doit garder min 51%
@@ -1685,7 +1707,8 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
 
         await update.message.reply_text(
-            f"✅ <b>{qty} parts</b> vendues pour <b>{_fmt(total)} $</b> !",
+            f"✅ <b>{qty} parts</b> vendues pour <b>{_fmt(total)} $</b> "
+            f"(<b>{_fmt(price_each)} $/part</b>) !",
             parse_mode="HTML"
         )
 

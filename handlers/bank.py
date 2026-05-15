@@ -8,13 +8,13 @@ Système bancaire complet.
 
 Commandes :
   /banks         — liste des banques
-  /bankopen      — ouvrir un compte
-  /bankdeposit   — déposer
-  /bankwithdraw  — retirer
-  /bankbalance   — voir ses comptes
-  /bankloan      — emprunter
-  /bankrepay     — rembourser un prêt
-  /bankloans     — voir ses prêts
+  /openbank      — ouvrir un compte
+  /depositbank   — déposer
+  /withdrawbank  — retirer
+  /balancebank   — voir ses comptes
+  /loanbank      — emprunter
+  /repaybank     — rembourser un prêt
+  /loanbanks     — voir ses prêts
 """
 
 import logging
@@ -118,17 +118,17 @@ async def banks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"  └ Intérêts  : +{b['interest_rate']*100:.1f}% / {INTEREST_INTERVAL_HOURS}h\n"
             f"  └ Prêt max  : {_fmt(b['max_loan'])} {CURRENCY}  (taux {b['loan_rate']*100:.0f}%)\n"
         )
-    lines.append("Utilisez /bankopen [banque] pour ouvrir un compte.")
+    lines.append("Utilisez /openbank [banque] pour ouvrir un compte.")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
-# ─── /bankopen ────────────────────────────────────────────────────────────────
+# ─── /openbank ────────────────────────────────────────────────────────────────
 
-async def bankopen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def openbank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         keys = " | ".join(BANK_KEYS)
         return await update.message.reply_text(
-            f"Usage : /bankopen [banque]\nBanques : {keys}"
+            f"Usage : /openbank [banque]\nBanques : {keys}"
         )
 
     bank_id = context.args[0].lower()
@@ -162,16 +162,16 @@ async def bankopen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Compte ouvert à la <b>{b['name']}</b> !\n"
         f"Dépôt minimum : {_fmt(b['min_deposit'])} {CURRENCY}\n"
         f"Intérêts : +{b['interest_rate']*100:.1f}% toutes les {INTEREST_INTERVAL_HOURS}h\n\n"
-        f"Utilisez /bankdeposit {bank_id} [montant] pour alimenter votre compte.",
+        f"Utilisez /depositbank {bank_id} [montant] pour alimenter votre compte.",
         parse_mode=ParseMode.HTML,
     )
 
 
-# ─── /bankdeposit ─────────────────────────────────────────────────────────────
+# ─── /depositbank ─────────────────────────────────────────────────────────────
 
-async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def depositbank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) < 2:
-        return await update.message.reply_text("Usage : /bankdeposit [banque] [montant]")
+        return await update.message.reply_text("Usage : /depositbank [banque] [montant]")
 
     bank_id = context.args[0].lower()
     if bank_id not in BANKS:
@@ -201,7 +201,7 @@ async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not acc:
             return await update.message.reply_text(
-                f"Tu n'as pas de compte à la {b['name']}. Utilise /bankopen {bank_id}"
+                f"Tu n'as pas de compte à la {b['name']}. Utilise /openbank {bank_id}"
             )
 
         if acc.balance + amount > b["max_deposit"]:
@@ -234,11 +234,11 @@ async def bankdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── /bankwithdraw ────────────────────────────────────────────────────────────
+# ─── /withdrawbank ────────────────────────────────────────────────────────────
 
-async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def withdrawbank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) < 2:
-        return await update.message.reply_text("Usage : /bankwithdraw [banque] [montant]")
+        return await update.message.reply_text("Usage : /withdrawbank [banque] [montant]")
 
     bank_id = context.args[0].lower()
     if bank_id not in BANKS:
@@ -291,9 +291,9 @@ async def bankwithdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── /bankbalance ─────────────────────────────────────────────────────────────
+# ─── /balancebank ─────────────────────────────────────────────────────────────
 
-async def bankbalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def balancebank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = await ensure_user(update.effective_user)
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -324,11 +324,11 @@ async def bankbalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
-# ─── /bankloan ────────────────────────────────────────────────────────────────
+# ─── /loanbank ────────────────────────────────────────────────────────────────
 
-async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def loanbank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) < 2:
-        return await update.message.reply_text("Usage : /bankloan [banque] [montant]")
+        return await update.message.reply_text("Usage : /loanbank [banque] [montant]")
 
     bank_id = context.args[0].lower()
     if bank_id not in BANKS:
@@ -359,7 +359,7 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not acc:
             return await update.message.reply_text(
-                f"Tu dois d'abord ouvrir un compte à la {b['name']} (/bankopen {bank_id})."
+                f"Tu dois d'abord ouvrir un compte à la {b['name']} (/openbank {bank_id})."
             )
 
         # ── RÈGLE 1 : aucun prêt actif autorisé (toutes banques confondues) ──
@@ -377,7 +377,7 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Tu as déjà un prêt actif à la <b>{b_existing.get('name', any_existing_loan.bank_id)}</b> !\n"
                 f"💳 Reste à rembourser : <b>{_fmt(any_existing_loan.remaining)} {CURRENCY}</b>\n\n"
                 f"Tu dois rembourser entièrement avant de pouvoir emprunter à nouveau.\n"
-                f"Utilise : /bankrepay {any_existing_loan.bank_id} [montant]",
+                f"Utilise : /repaybank {any_existing_loan.bank_id} [montant]",
                 parse_mode=ParseMode.HTML,
             )
 
@@ -391,7 +391,7 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"<b>{_fmt(required_collateral)} {CURRENCY}</b> (25%) dans ton compte à la {b['name']}.\n\n"
                 f"💰 Ton solde actuel dans cette banque : <b>{_fmt(total_in_bank)} {CURRENCY}</b>\n"
                 f"📉 Il te manque : <b>{_fmt(required_collateral - total_in_bank)} {CURRENCY}</b>\n\n"
-                f"Dépose d'abord via /bankdeposit {bank_id} [montant].",
+                f"Dépose d'abord via /depositbank {bank_id} [montant].",
                 parse_mode=ParseMode.HTML,
             )
 
@@ -426,16 +426,16 @@ async def bankloan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚠️ Si tu ne rembourses pas avant la date limite, la somme sera déduite "
         f"de ton compte (solde négatif possible).\n\n"
         f"👛 Nouveau solde : {_fmt(new_balance)} {CURRENCY}\n"
-        f"Utilisez /bankrepay {bank_id} [montant] pour rembourser.",
+        f"Utilisez /repaybank {bank_id} [montant] pour rembourser.",
         parse_mode=ParseMode.HTML,
     )
 
 
-# ─── /bankrepay ───────────────────────────────────────────────────────────────
+# ─── /repaybank ───────────────────────────────────────────────────────────────
 
-async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def repaybank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) < 2:
-        return await update.message.reply_text("Usage : /bankrepay [banque] [montant]")
+        return await update.message.reply_text("Usage : /repaybank [banque] [montant]")
 
     bank_id = context.args[0].lower()
     if bank_id not in BANKS:
@@ -491,9 +491,9 @@ async def bankrepay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── /bankloans ───────────────────────────────────────────────────────────────
+# ─── /loanbanks ───────────────────────────────────────────────────────────────
 
-async def bankloans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def loansbank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = await ensure_user(update.effective_user)
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -590,7 +590,7 @@ async def remind_loans(context):
                 f"Tu as un prêt en retard à la <b>{b.get('name', loan.bank_id)}</b> !\n"
                 f"💸 Reste à rembourser : <b>{_fmt(loan.remaining)} {CURRENCY}</b>\n\n"
                 f"Des pénalités de 5% sont appliquées à chaque cycle. "
-                f"Rembourse vite avec /bankrepay {loan.bank_id} [montant] !"
+                f"Rembourse vite avec /repaybank {loan.bank_id} [montant] !"
             )
         else:
             texte = (
@@ -598,7 +598,7 @@ async def remind_loans(context):
                 f"Tu as un prêt actif à la <b>{b.get('name', loan.bank_id)}</b>.\n"
                 f"💳 Reste à rembourser : <b>{_fmt(loan.remaining)} {CURRENCY}</b>\n"
                 f"📅 Date limite dans : <b>{jours_restants} jour(s)</b>\n\n"
-                f"Utilise /bankrepay {loan.bank_id} [montant] pour rembourser."
+                f"Utilise /repaybank {loan.bank_id} [montant] pour rembourser."
             )
 
         try:

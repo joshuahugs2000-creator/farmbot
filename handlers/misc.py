@@ -92,13 +92,13 @@ HELP_TEXT = """
 
 <b>🏦 Banque</b>
 /banks — Banques disponibles
-/bankopen — Ouvrir un compte
-/bankdeposit montant — Déposer (plafond 2B)
-/bankwithdraw montant — Retirer
-/bankbalance — Voir le solde bancaire
-/bankloan montant — Prendre un prêt (max 5M)
-/bankrepay montant — Rembourser un prêt
-/bankloans — Voir tes prêts actifs
+/openbank — Ouvrir un compte
+/depositbank montant — Déposer (plafond 2B)
+/withdrawbank montant — Retirer
+/balancebank — Voir le solde bancaire
+/loanbank montant — Prendre un prêt (max 5M)
+/repaybank montant — Rembourser un prêt
+/loansbank — Voir tes prêts actifs
 
 <b>📈 Investissements</b>
 /market — Voir le marché

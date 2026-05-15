@@ -74,8 +74,8 @@ from handlers.admin    import (
     adminparts,
 )
 from handlers.bank     import (
-    banks, bankopen, bankdeposit, bankwithdraw,
-    bankbalance, bankloan, bankrepay, bankloans,
+    banks, openbank, depositbank, withdrawbank,
+    balancebank, loanbank, repaybank, loansbank,
     pay_interests, remind_loans,
 )
 from handlers.invest   import market, market_callback, buy, sell, portfolio
@@ -487,13 +487,13 @@ async def main():
 
     # ── Banque ────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("banks",        _prison_checked(banks)))
-    app.add_handler(CommandHandler("bankopen",     _prison_checked(bankopen)))
-    app.add_handler(CommandHandler("bankdeposit",  _prison_checked(bankdeposit)))
-    app.add_handler(CommandHandler("bankwithdraw", _prison_checked(bankwithdraw)))
-    app.add_handler(CommandHandler("bankbalance",  _prison_checked(bankbalance)))
-    app.add_handler(CommandHandler("bankloan",     _prison_checked(bankloan)))
-    app.add_handler(CommandHandler("bankrepay",    _prison_checked(bankrepay)))
-    app.add_handler(CommandHandler("bankloans",    _prison_checked(bankloans)))
+    app.add_handler(CommandHandler("openbank",     _prison_checked(openbank)))
+    app.add_handler(CommandHandler("depositbank",  _prison_checked(depositbank)))
+    app.add_handler(CommandHandler("withdrawbank", _prison_checked(withdrawbank)))
+    app.add_handler(CommandHandler("balancebank",  _prison_checked(balancebank)))
+    app.add_handler(CommandHandler("loanbank",     _prison_checked(loanbank)))
+    app.add_handler(CommandHandler("repaybank",    _prison_checked(repaybank)))
+    app.add_handler(CommandHandler("loansbank",    _prison_checked(loansbank)))
 
     # ── Investissements ───────────────────────────────────────────────────────
     app.add_handler(CommandHandler("market",    _prison_checked(market)))

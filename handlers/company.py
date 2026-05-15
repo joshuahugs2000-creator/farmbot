@@ -1244,6 +1244,15 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
                 return
+            # Vérifier que le directeur a le MBA requis pour devenir PDG
+            director_user = await session.get(User, director.user_id)
+            if director_user and not _has_diploma(director_user, "mba"):
+                await update.message.reply_text(
+                    "❌ Le Directeur n'a pas le <b>MBA</b> requis pour reprendre la direction.\n"
+                    "Forme-le ou nomme un autre Directeur qualifié avant de partir.",
+                    parse_mode="HTML"
+                )
+                return
             # Transfert
             director.role = "pdg"
             company.owner_id = director.user_id
@@ -1301,7 +1310,7 @@ async def nommer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mention = context.args[0].lstrip("@")
     new_role = context.args[1].lower()
-    if new_role not in ROLES_ORDER or new_role == "pdg":
+    if new_role not in ROLES_ORDER or new_role in ("pdg", "stagiaire"):
         await update.message.reply_text("❌ Poste invalide. Choix : employe | manager | directeur")
         return
 
@@ -1699,9 +1708,8 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         company.treasury -= total
-        # Seul le PDG rachète ses propres parts
-        if emp.role == "pdg":
-            company.owner_shares += qty
+        # Les parts vendues retournent toujours dans owner_shares (rachat entreprise)
+        company.owner_shares += qty
         db_user.coins += total
 
         # Mettre à jour les parts

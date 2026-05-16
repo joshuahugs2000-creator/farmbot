@@ -99,7 +99,7 @@ from handlers.article import article_cmd
 from handlers.diplome import diplome_cmd, diplome_callback
 from handlers.company import (
     init_company_tables, update_company_activity,
-    listeboites_cmd, infoboite_cmd, creerboite_cmd,
+    listeboites_cmd, listeboites_callback, infoboite_cmd, creerboite_cmd,
     postuler_cmd, candidatures_cmd, accepter_cmd, refuser_cmd,
     recruter_cmd, rejoindre_cmd, demissionner_cmd,
     nommer_cmd, monentreprise_cmd,
@@ -568,6 +568,7 @@ async def main():
 
     # ── Entreprises ───────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("listeboites",   _prison_checked(listeboites_cmd)))
+    app.add_handler(CallbackQueryHandler(listeboites_callback, pattern=r"^lb"))
     app.add_handler(CommandHandler("infoboite",     _prison_checked(infoboite_cmd)))
     app.add_handler(CommandHandler("creerboite",    _prison_checked(creerboite_cmd)))
     app.add_handler(CommandHandler("postuler",      _prison_checked(postuler_cmd)))

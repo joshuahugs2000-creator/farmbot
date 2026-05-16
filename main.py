@@ -72,6 +72,7 @@ from handlers.admin    import (
     mutecompany, unmutecompany,
     adminboites, adminboite, statsusers,
     adminparts,
+    auditboite, setvalue, resetboite,
 )
 from handlers.bank     import (
     banks, openbank, depositbank, withdrawbank,
@@ -567,6 +568,9 @@ async def main():
     app.add_handler(CommandHandler("adminboite",     adminboite))
     app.add_handler(CommandHandler("statsusers",     statsusers))
     app.add_handler(CommandHandler("adminparts",     adminparts))
+    app.add_handler(CommandHandler("auditboite",     auditboite))
+    app.add_handler(CommandHandler("setvalue",       setvalue))
+    app.add_handler(CommandHandler("resetboite",     resetboite))
 
     # ── Entreprises ───────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("listeboites",   _prison_checked(listeboites_cmd)))

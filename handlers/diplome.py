@@ -51,10 +51,10 @@ DOMAINS: dict[str, tuple[str, str]] = {
 }
 
 EXAMS: dict[str, dict] = {
-    "bac":     {"emoji": "📄", "label": "Bac",     "n": 10, "required": 7,  "cost": 0,          "cooldown_fail": 6},
-    "licence": {"emoji": "🎓", "label": "Licence", "n": 10, "required": 8,  "cost": 500_000,    "cooldown_fail": 12},
-    "master":  {"emoji": "🏅", "label": "Master",  "n": 10, "required": 8,  "cost": 5_000_000,  "cooldown_fail": 24},
-    "mba":     {"emoji": "👑", "label": "MBA",      "n": 10, "required": 10, "cost": 50_000_000, "cooldown_fail": 24},
+    "bac":     {"emoji": "📄", "label": "Bac",     "n": 10, "required": 7,  "cost": 0,          "cooldown_fail": 2,  "skip_cost": 50_000},
+    "licence": {"emoji": "🎓", "label": "Licence", "n": 10, "required": 8,  "cost": 500_000,    "cooldown_fail": 4,  "skip_cost": 200_000},
+    "master":  {"emoji": "🏅", "label": "Master",  "n": 10, "required": 8,  "cost": 5_000_000,  "cooldown_fail": 6,  "skip_cost": 1_000_000},
+    "mba":     {"emoji": "👑", "label": "MBA",      "n": 10, "required": 10, "cost": 50_000_000, "cooldown_fail": 8,  "skip_cost": 5_000_000},
 }
 
 WORK_BONUS: dict[str, int] = {
@@ -407,6 +407,16 @@ async def diplome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton(f"📝 Passer le {info['label']}  {cost_str}", callback_data=f"exam:begin:{next_lvl}:{domain or 'general'}")
             ]])
+    elif next_lvl and cd_active:
+        # Cooldown actif → bouton skip payant
+        info = EXAMS[next_lvl]
+        skip_cost = info.get("skip_cost", 500_000)
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                f"⚡ Ignorer l'attente — {_fmt(skip_cost)} 💰",
+                callback_data=f"exam:skip:{next_lvl}"
+            )
+        ]])
     elif current == "mba":
         lines.append("\n🏆 Tu as tous les diplômes ! Félicitations.")
 
@@ -456,6 +466,51 @@ async def diplome_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         answer = int(parts[5])
         await _handle_answer(query, context, uid, level, domain, q_idx, answer)
 
+    elif action == "skip":
+        level = parts[2]
+        await _skip_cooldown(query, uid, level)
+
+
+# ── Skip cooldown payant ──────────────────────────────────────────────────────
+
+async def _skip_cooldown(query, uid: int, level: str):
+    info = EXAMS.get(level)
+    if not info:
+        return await query.edit_message_text("❌ Niveau inconnu.")
+
+    skip_cost = info.get("skip_cost", 500_000)
+
+    async with AsyncSessionLocal() as session:
+        row = await session.execute(text("SELECT * FROM users WHERE user_id = :uid"), {"uid": uid})
+        u   = row.fetchone()
+        if not u:
+            return await query.edit_message_text("❌ Compte introuvable.")
+
+        cd = getattr(u, "exam_cooldown", None)
+        if not cd or cd <= datetime.utcnow():
+            return await query.edit_message_text("✅ Ton cooldown est déjà terminé ! Tape /diplome.")
+
+        if u.coins < skip_cost:
+            return await query.edit_message_text(
+                f"❌ Il te faut <b>{_fmt(skip_cost)} 💰</b> pour ignorer l'attente.\n"
+                f"Ton solde : <b>{_fmt(u.coins)} 💰</b>",
+                parse_mode=ParseMode.HTML,
+            )
+
+        # Déduire les coins et effacer le cooldown
+        await session.execute(
+            text("UPDATE users SET coins = coins - :cost, exam_cooldown = NULL WHERE user_id = :uid"),
+            {"cost": skip_cost, "uid": uid},
+        )
+        await session.commit()
+
+    await query.edit_message_text(
+        f"⚡ <b>Cooldown ignoré !</b>\n\n"
+        f"💸 <b>{_fmt(skip_cost)} 💰</b> déduits de ton compte.\n"
+        f"Tape /diplome pour passer ton examen maintenant.",
+        parse_mode=ParseMode.HTML,
+    )
+
 
 # ── Déroulement de l'examen ───────────────────────────────────────────────────
 
@@ -493,9 +548,9 @@ async def _start_exam(query, context, uid: int, level: str, domain: str):
     # Ancienneté Master (20 jours)
     if level == "master" and u.created_at:
         days = (datetime.utcnow() - u.created_at).days
-        if days < 20:
+        if days < 7:
             return await query.edit_message_text(
-                f"❌ Le Master requiert <b>20 jours</b> d'ancienneté.\nTu en as {days}/20.",
+                f"❌ Le Master requiert <b>7 jours</b> d'ancienneté.\nTu en as {days}/7.",
                 parse_mode=ParseMode.HTML,
             )
 

@@ -100,7 +100,7 @@ from handlers.diplome import diplome_cmd, diplome_callback
 from handlers.company import (
     init_company_tables, update_company_activity,
     listeboites_cmd, listeboites_callback,
-    versersalaires_cmd, presences_cmd, infoboite_cmd, creerboite_cmd,
+    versersalaires_cmd, presences_cmd, offresparts_cmd, infoboite_cmd, creerboite_cmd,
     postuler_cmd, candidatures_cmd, accepter_cmd, refuser_cmd,
     recruter_cmd, rejoindre_cmd, demissionner_cmd,
     nommer_cmd, monentreprise_cmd,
@@ -595,6 +595,7 @@ async def main():
     app.add_handler(CommandHandler("salaireinfo",     _prison_checked(salaireinfo_cmd)))
     app.add_handler(CommandHandler("versersalaires", _prison_checked(versersalaires_cmd)))
     app.add_handler(CommandHandler("presences",      _prison_checked(presences_cmd)))
+    app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
     # ── Secteurs : événements, contrats, classement ───────────────────────────
     app.add_handler(CommandHandler("evenements",      _prison_checked(evenements_cmd)))
     app.add_handler(CommandHandler("classement",      _prison_checked(classement_cmd)))

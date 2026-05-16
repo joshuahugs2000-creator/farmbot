@@ -50,7 +50,7 @@ HELP_TEXT = """
 /diplome — Passer un diplôme (Bac, Licence, Master, MBA)
 
 <b>🏢 Entreprises</b>
-/listeboites — Voir toutes les entreprises
+/listeboites — Voir toutes les entreprises (paginé par secteur)
 /infoboite nom — Détails d'une entreprise
 /employes — Liste des employés de ton entreprise
 /employes nom — Liste des employés d'une autre entreprise
@@ -73,6 +73,15 @@ HELP_TEXT = """
 /parts [nom] — Voir la répartition des parts
 /acheterparts nb nom — Acheter des parts
 /vendreparts nb prix — Vendre des parts
+/versersalaires — 👑 PDG : Déclencher la paie des employés
+/presences — 👑 PDG : Voir l'activité des employés
+/classement — Classement global des entreprises
+/classement secteur — Classement par secteur
+/proposercontrat nom — Proposer un contrat à une autre entreprise
+/acceptercontrat id — Accepter un contrat
+/refusercontrat id — Refuser un contrat
+/mescontrats — Voir les contrats actifs
+/evenements — Voir les événements sectoriels récents
 
 <b>🎮 Jeux</b>
 /crash mise — Multiplicateur jusqu'au crash !

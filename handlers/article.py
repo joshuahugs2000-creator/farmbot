@@ -7,7 +7,7 @@ Utilise Gemini si disponible, sinon fallback template automatique.
 import os, random, aiohttp, json, html
 from sqlalchemy import select, text
 from telegram.constants import ParseMode
-from database.db import AsyncSessionLocal, get_user, get_user_by_username
+from database.db import AsyncSessionLocal, get_user, get_user_by_username, get_all_groups
 from database.models import (
     User, BankAccount, Loan, Investment, Relationship,
     RelationType, CoupleAccount
@@ -199,14 +199,20 @@ def _build_prompt(data: dict) -> tuple:
     angle = random.choice(ANGLES)
     ton   = random.choice(TONS)
 
+    # Surnom court pour éviter la répétition du pseudo complet
+    short_name = data['name'].split()[0] if data['name'] else data['name']
+
     system_prompt = (
         "Tu es le présentateur vedette d'une chaîne d'info fictive dans un jeu Telegram économique. "
-        "Tu rédiges des articles Breaking News dramatiques, excessifs, divertissants et originaux. "
-        "Chaque article doit sembler unique — varie les formulations, les révélations, le rythme. "
-        "Tu écris UNIQUEMENT le texte de l'article (titre + corps). Pas de méta-commentaires. "
-        "INTERDIT : balises HTML (<b>, <i>, <u>, etc.). "
-        "Utilise les données fournies pour construire une narration cohérente et percutante. "
-        "Les emojis sont autorisés avec parcimonie pour ponctuer les moments forts."
+        "Tu rédiges des articles Breaking News dramatiques, percutants et divertissants. "
+        "RÈGLES ABSOLUES :\n"
+        "1. N'écris le nom complet du joueur QU'UNE SEULE FOIS (dans le titre). "
+        "Ensuite utilise uniquement son prénom court, 'notre sujet', 'l'intéressé(e)', 'la source', 'il/elle', etc.\n"
+        "2. Zéro balise HTML. Zéro astérisque markdown.\n"
+        "3. Les chiffres doivent être intégrés dans la narration — pas listés comme un tableau.\n"
+        "4. Chaque article est unique : rythme, révélations et formulations différentes à chaque fois.\n"
+        "5. Emojis autorisés avec parcimonie (2-3 max) pour ponctuer les moments forts.\n"
+        "Tu écris UNIQUEMENT le texte de l'article (titre + corps). Pas de commentaires."
     )
 
     user_prompt = f"""ANGLE ÉDITORIAL : {angle}
@@ -214,24 +220,24 @@ TON : {ton}
 
 FICHE CONFIDENTIELLE :
 ━━━━━━━━━━━━━━━━━━━━━━━━
-👤 Identité     : {data['name']} (@{data['username']})
-💰 Cash poche   : {_fmt(data['coins'])} {CURRENCY}
-🏦 Banques      : {_fmt(data['bank_total'])} {CURRENCY} ({data['bank_count']} compte(s)) — {banques_str}
-💑 Compte commun: {_fmt(data['couple_account'])} {CURRENCY}
-💳 Dettes       : {_fmt(data['loans_total'])} {CURRENCY}
-💎 FORTUNE TOTALE : {_fmt(data['fortune_totale'])} {CURRENCY} [{data['fortune_label']}]
+👤 Nom complet  : {data['name']}
+💎 Fortune totale : {_fmt(data['fortune_totale'])} {CURRENCY} [{data['fortune_label']}]
 🏆 Classement   : #{data['rank']} sur {data['total_players']} joueurs
-⭐ Karma        : {karma_str} [{karma_label}]
+💰 Liquide poche : {_fmt(data['coins'])} {CURRENCY}
+🏦 En banque    : {_fmt(data['bank_total'])} {CURRENCY} ({data['bank_count']} compte(s))
+💳 Dettes       : {_fmt(data['loans_total'])} {CURRENCY}
 📈 Bourse       : {portfolio_str}
+⭐ Karma        : {karma_str} [{karma_label}]
 🎓 Formation    : {diplomes_str}
 🏢 Emploi       : {entreprise_str}
-👨‍👩‍👧 Famille     : {famille_str}
+👨‍👩‍👧 Vie privée  : {famille_str}
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-Rédige un article Breaking News de 220 à 280 mots.
-— Commence DIRECTEMENT par un titre accrocheur tout en MAJUSCULES (une ligne).
-— Ensuite 2 à 3 paragraphes narratifs dans le ton demandé.
-— Aucune balise HTML. Emojis avec parcimonie."""
+Rédige un article Breaking News de 230 à 290 mots.
+— Commence DIRECTEMENT par un titre choc en MAJUSCULES (max 12 mots, utilise le nom complet une seule fois ici).
+— 3 paragraphes narratifs : accroche dramatique / analyse financière intégrée dans la narration / vie privée + chute percutante.
+— Le prénom court à utiliser après le titre : "{short_name}"
+— Aucune balise HTML. Aucun astérisque. Emojis avec parcimonie."""
 
     return system_prompt, user_prompt
 
@@ -273,105 +279,140 @@ async def _call_gemini(system_prompt: str, user_prompt: str) -> str | None:
 # ─── FALLBACK TEMPLATE ────────────────────────────────────────────────────────
 
 TITRES_FB = [
-    "PORTRAIT EXCLUSIF : {NAME}, L'ÉNIGME DU CLASSEMENT",
-    "DOSSIER CONFIDENTIEL : QUI EST VRAIMENT {NAME} ?",
-    "RÉVÉLATIONS : {NAME} ET SA FORTUNE FONT TREMBLER LA COMMUNAUTÉ",
-    "ALERTE FORTUNE : {NAME} ACCUMULE EN SILENCE — JUSQU'À QUAND ?",
-    "ENQUÊTE SPÉCIALE : {NAME}, GÉNIE OU IMPOSTEUR ?",
-    "LE MYSTÈRE {NAME} : NOS REPORTERS ONT TOUT DÉCOUVERT",
-    "FLASH INFO : {NAME} FAIT PARLER TOUTE LA VILLE",
+    "FORTUNE COLOSSALE : {NAME} DANS LE VISEUR DE NOS ENQUÊTEURS",
+    "DOSSIER CONFIDENTIEL : QUI SE CACHE VRAIMENT DERRIÈRE {NAME} ?",
+    "RÉVÉLATIONS EXCLUSIVES : L'EMPIRE SILENCIEUX DE {NAME}",
+    "ALERTE : {NAME} ET SES MILLIARDS FONT TREMBLER LE CLASSEMENT",
+    "ENQUÊTE CHOC : {NAME}, GÉNIE FINANCIER OU SIMPLE COUP DE CHANCE ?",
+    "{NAME} : LA VÉRITÉ QUE PERSONNE N'OSAIT DIRE",
+    "PORTRAIT SANS FILTRE : {NAME} — L'ASCENSION QUI DÉRANGE",
+    "BREAKING : {NAME} PROPULSE LE BOT DANS UNE NOUVELLE ÈRE",
 ]
 
 INTROS_FB = [
-    "Notre rédaction a pu obtenir des informations exclusives sur {name}, personnage aussi discret que redouté dans les hautes sphères du bot.",
-    "Qui se cache derrière ce prénom ? {name} fait l'objet d'une enquête approfondie de notre cellule investigation depuis plusieurs semaines.",
-    "Le nom de {name} circule dans tous les milieux. Nos sources ont parlé. Voici ce que nous savons.",
-    "Notre informateur confidentiel nous a transmis le dossier complet sur {name}. Ce que vous allez lire va vous surprendre.",
-    "On nous demandait de nous pencher sur le cas {name} depuis longtemps. C'est chose faite. Les révélations sont troublantes.",
+    "Nos reporters ont passé plusieurs jours à éplucher les données. Ce qu'ils ont trouvé dépasse tout ce qu'on imaginait.",
+    "Le dossier était sur nos bureaux depuis longtemps. Ce soir, on l'ouvre. Et les révélations sont troublantes.",
+    "Certains noms reviennent en boucle dans les couloirs du pouvoir. Celui-là, on ne pouvait plus l'ignorer.",
+    "Une source anonyme nous a transmis le dossier complet. Après vérification, nous pouvons confirmer : c'est réel.",
+    "Ça fait des semaines que ce nom circule dans les hautes sphères. Notre cellule investigation a enfin le tableau complet.",
 ]
 
 MIDDLES_FB = [
     (
-        "Nos chiffres sont formels : une fortune totale de {fortune} {cur} place {name} au rang "
-        "#{rank} sur {total} joueurs recensés. Le statut de {label} ne laisse personne indifférent. "
-        "En poche : {coins} {cur}. En banque : {bank} {cur}. Les dettes ? {loans} {cur}. "
-        "Certains appellent ça du levier financier. D'autres appellent ça de l'inconscience."
+        "#{rank} sur {total} joueurs — voilà où se situe notre sujet dans la hiérarchie du bot. "
+        "Avec {fortune} {cur} de fortune totale, le statut de {label} n'est pas usurpé. "
+        "L'essentiel tourne en liquide — {coins} {cur} gardés à portée de main — "
+        "pendant que {bank} {cur} dorment sagement en banque. "
+        "{debt_line}"
     ),
     (
-        "Les chiffres parlent d'eux-mêmes : {fortune} {cur} de fortune totale, #{rank} au classement "
-        "général sur {total} joueurs. {coins} {cur} en liquide, {bank} {cur} placés soigneusement en banque. "
-        "On note également {loans} {cur} de dettes en cours — un risque assumé ou une imprudence ? "
-        "La question reste ouverte."
+        "Le chiffre qui retient l'attention : {fortune} {cur} de patrimoine total, "
+        "propulsant notre protagoniste au rang #{rank} sur {total} acteurs du marché. "
+        "{coins} {cur} en cash immédiat, {bank} {cur} placés — une stratégie de liquidité assumée. "
+        "{debt_line}"
     ),
     (
-        "Notre analyse financière révèle une fortune de {fortune} {cur} — suffisant pour s'imposer "
-        "en {label} au classement #{rank}/{total}. La répartition est instructive : {coins} {cur} disponibles, "
-        "{bank} {cur} en banque. Et {loans} {cur} de créances en cours. Un profil atypique qui suscite "
-        "autant de questions que d'admiration."
+        "Quand on parle de {label}, les chiffres doivent suivre. Ils suivent : "
+        "{fortune} {cur} de fortune cumulée, classement #{rank} parmi {total} joueurs recensés. "
+        "La trésorerie personnelle ? {coins} {cur} disponibles, {bank} {cur} en réserve bancaire. "
+        "{debt_line}"
     ),
 ]
 
+DEBT_LINES_FB = {
+    "zero": [
+        "Zéro dette. Aucune créance. Un profil d'une netteté déconcertante.",
+        "Pas un centime de dette à l'horizon. Certains appellent ça de la discipline. D'autres, de la chance.",
+        "Le passif ? Inexistant. Ce niveau de rigueur financière est rarissime.",
+    ],
+    "low": [
+        "Quelques dettes en cours — {loans} {cur} — rien d'alarmant pour un empire de cette envergure.",
+        "{loans} {cur} de créances actives. Un levier mesuré dans une stratégie qui semble maîtrisée.",
+    ],
+    "high": [
+        "L'ombre au tableau : {loans} {cur} de dettes. Qui finance ? Sous quelles conditions ? Les questions s'accumulent.",
+        "{loans} {cur} de passif — une prise de risque considérable qui divise nos analystes.",
+    ],
+}
+
 PERSO_FB = [
-    "Sur le plan personnel, {name} est {famille}. Côté réputation, notre karma-mètre affiche {karma_str} — profil classé {karma_label}. Formation : {diplomes}. Poste occupé : {emploi}.",
-    "La vie privée de {name} ? {famille}. Le karma ne ment pas : {karma_str}, soit un profil {karma_label}. Parcours académique : {diplomes}. Situation professionnelle : {emploi}.",
-    "Qui est {name} derrière les écrans ? {famille}. Karma : {karma_str} ({karma_label}). Diplômes : {diplomes}. Emploi : {emploi}. Un portrait qui intrigue autant qu'il fascine.",
+    "En dehors des marchés, {prenom} mène une vie {karma_vibe}. {famille_line} {karma_line} {emploi_line}",
+    "Le volet humain du dossier : {famille_line} {karma_line} {emploi_line} Un profil qui ne laisse pas indifférent.",
+    "Derrière les chiffres, il y a un individu. {famille_line} {karma_line} {emploi_line}",
 ]
 
 CONCLUSIONS_FB = [
-    "La rédaction continuera de surveiller de près les agissements de {name}. Restez connectés.",
-    "Une chose est sûre : {name} n'a pas fini de faire parler d'eux. Affaire à suivre.",
-    "Nos équipes restent mobilisées. {name} est désormais sur notre radar permanent. Vous êtes prévenus.",
-    "{name} ne peut pas cacher la vérité éternellement. Ce dossier n'est que le début.",
-    "Family Bot News continuera son investigation. {name} — on vous a à l'œil. À très bientôt.",
+    "Family Bot News continuera de surveiller ce dossier. On ne lâche rien.",
+    "L'histoire n'est pas terminée. Nos équipes restent sur le terrain. Restez connectés.",
+    "Ce n'est qu'un début. D'autres révélations arrivent. Vous avez été prévenus.",
+    "Le radar est activé. Rien ne nous échappe. Affaire à suivre.",
+    "On reviendra sur ce cas. Comptez sur nous. Family Bot News, toujours en première ligne.",
 ]
 
 
 def _build_fallback_article(data: dict) -> str:
     name   = data["name"]
+    prenom = name.split()[0] if name else name
     karma  = data.get("karma", 0)
     kstr   = f"+{karma}" if karma >= 0 else str(karma)
+    loans  = data["loans_total"]
 
     if karma > 30:
-        klabel = "saint local apprécié de tous"
+        klabel     = "irréprochable"
+        karma_vibe = "irréprochable"
+        karma_line = f"Son karma à {kstr} en fait l'une des figures les plus respectées du bot."
     elif karma < -10:
-        klabel = "persona non grata redouté de la communauté"
+        klabel     = "persona non grata"
+        karma_vibe = "controversée"
+        karma_line = f"Son karma à {kstr} parle de lui-même — une réputation qui précède et inquiète."
     else:
-        klabel = "citoyen lambda au karma neutre"
+        klabel     = "discrète"
+        karma_vibe = "discrète"
+        karma_line = f"Karma à {kstr} — ni saint, ni paria. Un profil qui sait rester dans l'ombre."
 
-    diplomes_str = "autodidacte sans diplôme officiel"
+    diplomes_str = "autodidacte, sans diplôme officiel référencé"
     if data["diplomes"]:
-        diplomes_str = " & ".join(data["diplomes"])
+        diplomes_str = " puis ".join(data["diplomes"])
         if data.get("diplome_domain"):
-            diplomes_str += f" ({data['diplome_domain']})"
+            diplomes_str += f" en {data['diplome_domain']}"
 
     famille_parts = []
     if data.get("spouse"):
         famille_parts.append(f"en couple avec {data['spouse']}")
     if data.get("children"):
-        famille_parts.append(f"parent de {len(data['children'])} enfant(s)")
+        n = len(data["children"])
+        famille_parts.append(f"parent de {n} enfant{'s' if n > 1 else ''}")
     if data.get("friends"):
         famille_parts.append(f"proche de {data['friends'][0]}")
-    famille_str = ", ".join(famille_parts) if famille_parts else "célibataire et sans attaches connues"
+    famille_line = (", ".join(famille_parts) + ".") if famille_parts else "Aucune attache familiale connue."
 
-    emploi_str = "sans emploi déclaré"
     if data.get("company"):
-        emploi_str = f"{data['company_role']} chez {data['company']}"
+        emploi_line = f"Poste actuel : {data['company_role']} chez {data['company']}. Formation : {diplomes_str}."
+    else:
+        emploi_line = f"Sans emploi déclaré à ce jour. Parcours : {diplomes_str}."
+
+    # Dette
+    if loans == 0:
+        debt_line = random.choice(DEBT_LINES_FB["zero"])
+    elif loans < data["fortune_totale"] * 0.1:
+        debt_line = random.choice(DEBT_LINES_FB["low"]).format(loans=_fmt(loans), cur=CURRENCY)
+    else:
+        debt_line = random.choice(DEBT_LINES_FB["high"]).format(loans=_fmt(loans), cur=CURRENCY)
 
     titre  = random.choice(TITRES_FB).format(NAME=name.upper())
-    intro  = random.choice(INTROS_FB).format(name=name)
+    intro  = random.choice(INTROS_FB)
     middle = random.choice(MIDDLES_FB).format(
-        name=name, fortune=_fmt(data["fortune_totale"]), cur=CURRENCY,
         rank=data["rank"], total=data["total_players"],
+        fortune=_fmt(data["fortune_totale"]), cur=CURRENCY,
         label=data["fortune_label"].lower(),
         coins=_fmt(data["coins"]), bank=_fmt(data["bank_total"]),
-        loans=_fmt(data["loans_total"]),
+        debt_line=debt_line,
     )
     perso  = random.choice(PERSO_FB).format(
-        name=name, famille=famille_str,
-        karma_str=kstr, karma_label=klabel,
-        diplomes=diplomes_str, emploi=emploi_str,
+        prenom=prenom, karma_vibe=karma_vibe,
+        famille_line=famille_line, karma_line=karma_line, emploi_line=emploi_line,
     )
-    conclu = random.choice(CONCLUSIONS_FB).format(name=name)
+    conclu = random.choice(CONCLUSIONS_FB)
 
     return f"{titre}\n\n{intro}\n\n{middle}\n\n{perso}\n\n{conclu}"
 
@@ -478,3 +519,30 @@ async def article_cmd(update, context):
         await msg.edit_text(final, parse_mode=ParseMode.HTML)
     except Exception:
         await msg.edit_text(article_text[:3800])
+
+    # ── Broadcast dans tous les groupes actifs ────────────────────────────────
+    current_chat_id = update.effective_chat.id
+    groups = await get_all_groups(active_only=True)
+
+    sent_ok  = 0
+    sent_err = 0
+    for grp in groups:
+        gid = grp[0]  # group_id est la 1ère colonne
+        if gid == current_chat_id:
+            continue  # déjà envoyé dans ce chat
+        try:
+            await context.bot.send_message(
+                chat_id=gid,
+                text=final,
+                parse_mode=ParseMode.HTML
+            )
+            sent_ok += 1
+        except Exception:
+            sent_err += 1
+
+    if groups:
+        recap = (
+            f"📡 Article diffusé dans <b>{sent_ok}</b> groupe(s)"
+            + (f" — {sent_err} échec(s)" if sent_err else "") + "."
+        )
+        await update.message.reply_text(recap, parse_mode=ParseMode.HTML)

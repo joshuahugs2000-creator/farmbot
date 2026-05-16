@@ -58,7 +58,7 @@ HELP_TEXT = """
 /rejoindre nom — Accepter une invitation
 /demissionner — Quitter son entreprise
 /monentreprise — Ta fiche employé & salaire
-/salaireinfo — Voir ton salaire détaillé
+/salaireinfo — Ton salaire estimé à la prochaine paie (basé sur ton activité)
 /candidatures — Voir les candidatures (PDG/Dir.)
 /accepter id — Accepter une candidature
 /refuser id — Refuser une candidature
@@ -75,6 +75,7 @@ HELP_TEXT = """
 /vendreparts nb prix — Vendre des parts
 /versersalaires — 👑 PDG : Déclencher la paie des employés
 /presences — 👑 PDG : Voir l'activité des employés
+/offresparts — 👑 PDG : Voir les offres de rachat de parts en attente
 /classement — Classement global des entreprises
 /classement secteur — Classement par secteur
 /proposercontrat nom — Proposer un contrat à une autre entreprise
@@ -145,11 +146,15 @@ HELP_TEXT = """
 # ─── TEXTE MISE À JOUR (/nouveautes) ─────────────────────────────────────────
 
 NOUVEAUTES_TEXT = (
-    "🆕 <b>Your Family ❤️ — Nouvelle maj !</b>\n\n"
-    "💥 Deux gros trucs viennent d'arriver dans le jeu :\n\n"
-    "🎓 <b>Les Diplômes</b> — Étudie, passe tes exams, monte en grade !\n"
-    "🏢 <b>Les Entreprises</b> — Crée ta boîte ou rejoint une équipe pour te faire du blé chaque jour 💰\n\n"
-    "Plus t'es diplômé, plus t'as accès à des postes relous bien payés 😈\n\n"
+    "🆕 <b>Your Family ❤️ — Grosse mise à jour Entreprises !</b>\n\n"
+    "💥 Le système entreprise a été entièrement revu :\n\n"
+    "💼 <b>Paie manuelle</b> — Les salaires ne tombent plus automatiquement. "
+    "Le PDG déclenche la paie avec <code>/versersalaires</code> quand il le décide !\n\n"
+    "📊 <b>Salaire basé sur l'activité</b> — Plus tu utilises le bot, plus tu gagnes à la prochaine paie. "
+    "Sois actif, sois récompensé 💪\n\n"
+    "📈 <b>Classement quotidien</b> — Le top 10 des entreprises est envoyé chaque jour à 18h dans tous les groupes !\n\n"
+    "🏆 <b>Récompenses hebdo</b> — Le classement de fin de semaine est basé sur la <b>moyenne de la semaine</b>, "
+    "pas juste la valeur du dimanche. Plus de triche possible 😈\n\n"
     "Clique en dessous pour tout comprendre 👇"
 )
 
@@ -174,7 +179,7 @@ DIPLOME_DETAIL = (
 
 ENTREPRISE_DETAIL = (
     "🏢 <b>Les Entreprises — Fais ta fortune !</b>\n\n"
-    "Tu veux des revenus automatiques chaque jour ? C'est par ici 👇\n\n"
+    "Tu veux gagner de l'argent en jouant ? Rejoins une boîte ou crée la tienne 👇\n\n"
     "🤖 <b>Option 1 — Rejoindre une boîte du jeu</b>\n"
     "NexaTech, CapitalX, TradeHub... postulez et attendez d'être recruté !\n"
     "→ <code>/postuler NexaTech</code>\n"
@@ -183,17 +188,27 @@ ENTREPRISE_DETAIL = (
     "Coût : <b>50 000 000 $</b> + avoir une Licence minimum\n"
     "→ <code>/creerboite MonEntreprise tech</code>\n"
     "Secteurs dispo : tech | finance | commerce | droit | agriculture | securite | immobilier | sante\n\n"
-    "💰 <b>Combien tu gagnes selon ton poste ?</b>\n"
-    "👷 Stagiaire → 0$ (t'es là pour apprendre, pas te la couler 😂)\n"
-    "👷 Employé → 10% des revenus journaliers\n"
-    "💼 Manager → 20%\n"
-    "🏦 Directeur → 35%\n"
-    "👑 PDG → dividendes perso via <code>/retraitboite</code> 🤑\n\n"
+    "💰 <b>Comment tu gagnes ton salaire ?</b>\n"
+    "Ton salaire dépend de ton <b>activité sur le bot</b> depuis la dernière paie !\n"
+    "Plus tu joues et utilises des commandes, plus tu touches à la paie 💪\n\n"
+    "👷 Stagiaire → 0$ (t'es là pour apprendre 😂)\n"
+    "👷 Employé → salaire de base + bonus activité\n"
+    "💼 Manager → salaire de base + bonus activité\n"
+    "🏦 Directeur → salaire de base + bonus activité\n"
+    "👑 PDG → déclenche la paie + dividendes via <code>/retraitboite</code> 🤑\n\n"
+    "⚙️ <b>Comment fonctionne la paie ?</b>\n"
+    "1️⃣ Les revenus s'accumulent automatiquement en trésorerie\n"
+    "2️⃣ Le PDG déclenche la paie manuellement : <code>/versersalaires</code>\n"
+    "3️⃣ Chaque employé reçoit selon son rôle + son activité depuis la dernière paie\n"
+    "4️⃣ Les compteurs d'activité sont remis à zéro — à toi de bosser ! 🔄\n\n"
     "📈 <b>Fais grandir ta boîte :</b>\n"
-    "🏪 Startup → 🏢 PME → 🏬 Société → 🏦 Corporation → 👑 Holding (10 milliards !)\n\n"
+    "🏪 Startup → 🏢 PME → 🏬 Société → 🏦 Corporation → 👑 Holding (10 milliards !)\n"
+    "💡 L'activité de tes employés booste directement la valeur de l'entreprise !\n\n"
     "🕹️ <b>Commandes utiles :</b>\n"
     "<code>/monentreprise</code> — Ta fiche perso\n"
-    "<code>/salaireinfo</code> — Combien t'as gagné\n"
+    "<code>/salaireinfo</code> — Ton salaire estimé à la prochaine paie\n"
+    "<code>/presences</code> — 👑 PDG : activité de chaque employé\n"
+    "<code>/versersalaires</code> — 👑 PDG : déclencher la paie\n"
     "<code>/listeboites</code> — Toutes les boîtes dispo\n"
     "<code>/parts</code> — Qui possède quoi\n"
     "<code>/acheterparts nb nom</code> — OPA ! Rachète une boîte 😈"
@@ -317,7 +332,7 @@ async def nouveautes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if data == "info:diplomes":
         popup = "DIPLOMES\n\nLance /diplome pour passer un exam!\n\nBac - Le debut\nLicence - Manager + secteur\nMaster - Directeur\nMBA - Le graal\n\nMeilleur diplome = meilleur salaire"
     elif data == "info:entreprises":
-        popup = "ENTREPRISES\n\nOption 1 - /postuler NexaTech\nOption 2 - /creerboite MonEntreprise tech (50M + Licence)\n\nSalaires:\nStagiaire 0% | Employe 10% | Manager 20% | Directeur 35% | PDG dividendes\n\nStartup -> PME -> Societe -> Corporation -> Holding"
+        popup = "ENTREPRISES\n\nOption 1 - /postuler NexaTech\nOption 2 - /creerboite MonEntreprise tech (50M + Licence)\n\nSalaire MANUEL par le PDG via /versersalaires\nBasé sur ton activité depuis la dernière paie !\n\nStagiaire 0% | Employé base+activité | Manager base+activité | Directeur base+activité | PDG dividendes\n\nStartup -> PME -> Societe -> Corporation -> Holding"
     else:
         popup = "Section inconnue."
     await query.answer(text=popup, show_alert=True)

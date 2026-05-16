@@ -245,6 +245,7 @@ class Company(Base):
     is_active       = Column(Boolean, default=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
     last_revenue    = Column(DateTime, nullable=True)      # dernier versement revenus
+    last_payroll    = Column(DateTime, nullable=True)      # dernière paie manuelle par le PDG
     last_active     = Column(DateTime, default=datetime.utcnow)  # pour détecter inactivité PDG
 
 
@@ -257,6 +258,7 @@ class CompanyEmployee(Base):
     joined_at   = Column(DateTime, default=datetime.utcnow)
     left_at     = Column(DateTime, nullable=True)          # date de démission (cooldown)
     command_count = Column(Integer, default=0)             # commandes utilisées depuis l'entrée
+    activity_since_payroll = Column(Integer, default=0)    # commandes depuis la dernière paie (reset après /versersalaires)
 
 
 class CompanyShare(Base):
@@ -297,6 +299,18 @@ class CompanyLog(Base):
     description = Column(String(500), nullable=False)
     amount      = Column(BigInteger, nullable=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
+
+
+class CompanyWorkShift(Base):
+    """Pointage de présence d'un employé (nécessaire pour recevoir son salaire)."""
+    __tablename__ = "company_work_shifts"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    user_id     = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    worked_at   = Column(DateTime, default=datetime.utcnow)
+    paid        = Column(Boolean, default=False)       # True une fois le salaire versé
+    paid_at     = Column(DateTime, nullable=True)
+
 
 
 class CompanyShareOffer(Base):

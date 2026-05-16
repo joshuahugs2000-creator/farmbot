@@ -20,6 +20,7 @@ from database.models import (
     User, Company, CompanyEmployee, CompanyShare,
     CompanyApplication, CompanyInvite, CompanyLog, CompanyShareOffer,
 )
+from handlers.journal import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -825,6 +826,7 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
 
         sec_emoji, sec_name = SECTORS[sector]
+        await log_event("company_created", owner=user.first_name, name=new_company.name, sector=sec_name)
         await update.message.reply_text(
             f"✅ <b>{new_company.name}</b> est fondée !\n\n"
             f"{sec_emoji} Secteur : <b>{sec_name}</b>\n"
@@ -2997,6 +2999,7 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await _add_log(session, company.id, "paie",
                        f"Paie manuelle par le PDG — {_fmt(total_to_pay)} $ distribués",
                        amount=total_to_pay)
+        await log_event("company_payroll", pdg=user.first_name, company=company.name, total=_fmt(total_to_pay))
         await session.commit()
 
         result_lines.append("─────────────────────────────")

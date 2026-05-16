@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import select, func
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
 from database.db import AsyncSessionLocal, get_user
@@ -435,6 +435,70 @@ async def update_company_activity(user_id: int):
 
 # ─── COMMANDE : /listeboites ──────────────────────────────────────────────────
 
+PAGE_SIZE = 8  # entreprises par page
+
+def _build_listeboites_page(companies: list, page: int, total: int) -> tuple[str, InlineKeyboardMarkup]:
+    """Construit le message et les boutons de navigation pour une page du classement."""
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_companies = companies[start:end]
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+
+    lvl_icons = {1: "🏪", 2: "🏢", 3: "🏬", 4: "🏦", 5: "👑"}
+    rank_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+    lines = [
+        f"🏢 <b>ANNUAIRE DES ENTREPRISES</b>",
+        f"<i>Page {page + 1}/{total_pages} · {total} entreprises actives</i>",
+        "─────────────────────────────",
+    ]
+
+    for i, c in enumerate(page_companies, start + 1):
+        sec_emoji, sec_name = SECTORS.get(c.sector, ("🏢", c.sector))
+        lvl_emoji = lvl_icons.get(c.level, "🏢")
+        bot_tag = " 🤖" if c.is_bot_company else ""
+        rank_icon = rank_icons.get(i, f"<b>{i}.</b>")
+
+        lines.append(
+            f"{rank_icon} {sec_emoji} <b>{c.name}</b>{bot_tag}\n"
+            f"    {lvl_emoji} · 💰 {_fmt(c.value)} $ · ⭐ {c.reputation:.1f}/5"
+        )
+
+    lines.append("─────────────────────────────")
+    lines.append("💡 <code>/infoboite [nom]</code> · <code>/postuler [nom]</code>")
+
+    # Boutons navigation
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀ Précédent", callback_data=f"lb:{page - 1}"))
+    if end < total:
+        nav_buttons.append(InlineKeyboardButton("Suivant ▶", callback_data=f"lb:{page + 1}"))
+
+    keyboard = []
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    # Boutons secteurs (filtre rapide)
+    sector_row1 = [
+        InlineKeyboardButton("💻", callback_data="lb_sec:tech:0"),
+        InlineKeyboardButton("📈", callback_data="lb_sec:finance:0"),
+        InlineKeyboardButton("🛒", callback_data="lb_sec:commerce:0"),
+        InlineKeyboardButton("🌾", callback_data="lb_sec:agriculture:0"),
+    ]
+    sector_row2 = [
+        InlineKeyboardButton("🏥", callback_data="lb_sec:sante:0"),
+        InlineKeyboardButton("⚖️", callback_data="lb_sec:droit:0"),
+        InlineKeyboardButton("🛡️", callback_data="lb_sec:securite:0"),
+        InlineKeyboardButton("🏗️", callback_data="lb_sec:immobilier:0"),
+    ]
+    keyboard.append(sector_row1)
+    keyboard.append(sector_row2)
+    if "lb_sec:" in "".join(b.callback_data for row in keyboard for b in row):
+        keyboard.append([InlineKeyboardButton("🔄 Tous les secteurs", callback_data="lb:0")])
+
+    return "\n".join(lines), InlineKeyboardMarkup(keyboard)
+
+
 async def listeboites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         companies = (await session.execute(
@@ -445,22 +509,81 @@ async def listeboites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Aucune entreprise active.")
             return
 
-        lines = ["╔══════════════════════════════╗",
-                 "║  🏢  LISTE DES ENTREPRISES   ║",
-                 "╚══════════════════════════════╝\n"]
+        text, markup = _build_listeboites_page(companies, 0, len(companies))
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
 
-        for i, c in enumerate(companies[:20], 1):
-            sec_emoji, _ = SECTORS.get(c.sector, ("🏢", c.sector))
-            lvl_emoji, lvl_name, *_ = _level_info(c.level)
-            bot_tag = " 🤖" if c.is_bot_company else ""
-            lines.append(
-                f"{i}. {sec_emoji} <b>{c.name}</b>{bot_tag}\n"
-                f"   {lvl_emoji} {lvl_name} · 💰 {_fmt(c.value)} · ⭐ {c.reputation:.1f}/5\n"
+
+async def listeboites_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gère la pagination et le filtre secteur de /listeboites."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # "lb:2" ou "lb_sec:tech:1"
+
+    async with AsyncSessionLocal() as session:
+        if data.startswith("lb_sec:"):
+            _, sector, page_str = data.split(":")
+            page = int(page_str)
+            companies = (await session.execute(
+                select(Company).where(
+                    Company.is_active == True,
+                    Company.sector == sector,
+                ).order_by(Company.value.desc())
+            )).scalars().all()
+
+            if not companies:
+                await query.edit_message_text(f"❌ Aucune entreprise dans ce secteur.", parse_mode="HTML")
+                return
+
+            sec_emoji, sec_name = SECTORS.get(sector, ("🏢", sector))
+            total = len(companies)
+            start = page * PAGE_SIZE
+            end = start + PAGE_SIZE
+            page_companies = companies[start:end]
+            total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+            lvl_icons = {1: "🏪", 2: "🏢", 3: "🏬", 4: "🏦", 5: "👑"}
+            rank_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+            lines = [
+                f"{sec_emoji} <b>ENTREPRISES — {sec_name.upper()}</b>",
+                f"<i>Page {page + 1}/{total_pages} · {total} entreprises</i>",
+                "─────────────────────────────",
+            ]
+            for i, c in enumerate(page_companies, start + 1):
+                lvl_emoji = lvl_icons.get(c.level, "🏢")
+                bot_tag = " 🤖" if c.is_bot_company else ""
+                rank_icon = rank_icons.get(i, f"<b>{i}.</b>")
+                lines.append(
+                    f"{rank_icon} <b>{c.name}</b>{bot_tag}\n"
+                    f"    {lvl_emoji} · 💰 {_fmt(c.value)} $ · ⭐ {c.reputation:.1f}/5"
+                )
+            lines.append("─────────────────────────────")
+            lines.append("💡 <code>/infoboite [nom]</code> · <code>/postuler [nom]</code>")
+
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton("◀", callback_data=f"lb_sec:{sector}:{page - 1}"))
+            if end < total:
+                nav_buttons.append(InlineKeyboardButton("▶", callback_data=f"lb_sec:{sector}:{page + 1}"))
+
+            keyboard = []
+            if nav_buttons:
+                keyboard.append(nav_buttons)
+            keyboard.append([InlineKeyboardButton("🔄 Tous les secteurs", callback_data="lb:0")])
+
+            await query.edit_message_text(
+                "\n".join(lines),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
-        lines.append("\n💡 <code>/infoboite [nom]</code> pour plus de détails")
-        lines.append("💡 <code>/postuler [nom]</code> pour rejoindre une entreprise")
-        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        else:  # "lb:page"
+            page = int(data.split(":")[1])
+            companies = (await session.execute(
+                select(Company).where(Company.is_active == True).order_by(Company.value.desc())
+            )).scalars().all()
+
+            text, markup = _build_listeboites_page(companies, page, len(companies))
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
 
 
 # ─── COMMANDE : /infoboite [nom] ──────────────────────────────────────────────

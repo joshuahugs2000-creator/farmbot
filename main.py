@@ -105,7 +105,7 @@ from handlers.company import (
     recruter_cmd, rejoindre_cmd, demissionner_cmd,
     nommer_cmd, monentreprise_cmd,
     depotboite_cmd, retraitboite_cmd, logsboite_cmd,
-    parts_cmd, vendreparts_cmd, acheterparts_cmd,
+    parts_cmd, vendreparts_cmd, acheterparts_cmd, mesparts_cmd,
     licencier_cmd, dissoudreboite_cmd, job_daily_report, job_company_revenues,
     salaireinfo_cmd, employes_cmd,
     accepteroffre_cmd, refuseroffre_cmd, job_expire_share_offers,
@@ -596,6 +596,7 @@ async def main():
     app.add_handler(CommandHandler("versersalaires", _prison_checked(versersalaires_cmd)))
     app.add_handler(CommandHandler("presences",      _prison_checked(presences_cmd)))
     app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
+    app.add_handler(CommandHandler("mesparts",       _prison_checked(mesparts_cmd)))
     # ── Secteurs : événements, contrats, classement ───────────────────────────
     app.add_handler(CommandHandler("evenements",      _prison_checked(evenements_cmd)))
     app.add_handler(CommandHandler("classement",      _prison_checked(classement_cmd)))

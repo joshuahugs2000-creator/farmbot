@@ -109,6 +109,13 @@ from handlers.company import (
     salaireinfo_cmd, employes_cmd,
     accepteroffre_cmd, refuseroffre_cmd, job_expire_share_offers,
 )
+from handlers.company_sector import (
+    init_sector_tables,
+    job_sector_events, evenements_cmd,
+    proposercontrat_cmd, acceptercontrat_cmd, refusercontrat_cmd,
+    mescontrats_cmd, job_expire_contracts,
+    classement_cmd, job_weekly_ranking_reward, job_daily_ranking_broadcast,
+)
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
 
@@ -327,6 +334,7 @@ async def on_startup(application: Application):
     await _ensure_cambriolage_cd_table()
     await init_auction_tables()
     await init_company_tables()
+    await init_sector_tables()
     logger.info("Base de données initialisée.")
 
 
@@ -583,6 +591,13 @@ async def main():
     app.add_handler(CommandHandler("employes",       _prison_checked(employes_cmd)))
     app.add_handler(CommandHandler("dissoudreboite",  _prison_checked(dissoudreboite_cmd)))
     app.add_handler(CommandHandler("salaireinfo",     _prison_checked(salaireinfo_cmd)))
+    # ── Secteurs : événements, contrats, classement ───────────────────────────
+    app.add_handler(CommandHandler("evenements",      _prison_checked(evenements_cmd)))
+    app.add_handler(CommandHandler("classement",      _prison_checked(classement_cmd)))
+    app.add_handler(CommandHandler("proposercontrat", _prison_checked(proposercontrat_cmd)))
+    app.add_handler(CommandHandler("acceptercontrat", _prison_checked(acceptercontrat_cmd)))
+    app.add_handler(CommandHandler("refusercontrat",  _prison_checked(refusercontrat_cmd)))
+    app.add_handler(CommandHandler("mescontrats",     _prison_checked(mescontrats_cmd)))
 
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))
@@ -645,6 +660,38 @@ async def main():
         job_daily_report,
         time=dt_time(hour=18, minute=0, tzinfo=tz_paris),
         name="daily_report",
+    )
+
+    # ── Job événements sectoriels (toutes les 48h) ─────────────────────────────
+    app.job_queue.run_repeating(
+        job_sector_events,
+        interval=timedelta(hours=48),
+        first=timedelta(minutes=30),
+        name="sector_events",
+    )
+
+    # ── Job expiration contrats (toutes les heures) ──────────────────────────
+    app.job_queue.run_repeating(
+        job_expire_contracts,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=10),
+        name="expire_contracts",
+    )
+
+    # ── Job classement hebdo (dimanche 20h) ──────────────────────────────────
+    from datetime import time as dt_time
+    app.job_queue.run_daily(
+        job_weekly_ranking_reward,
+        time=dt_time(hour=20, minute=0, tzinfo=tz_paris),
+        days=(6,),  # dimanche
+        name="weekly_ranking_reward",
+    )
+
+    # ── Job classement quotidien 18h (snapshot + broadcast) ──────────────────────
+    app.job_queue.run_daily(
+        job_daily_ranking_broadcast,
+        time=dt_time(hour=18, minute=0, tzinfo=tz_paris),
+        name="daily_ranking_broadcast",
     )
 
     # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────

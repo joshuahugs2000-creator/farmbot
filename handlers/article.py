@@ -1,10 +1,11 @@
 """
 article.py — /article @user | /article hasard
-Génère un article journalistique Breaking News sur un joueur via Groq.
+Génère un article journalistique Breaking News sur un joueur.
+Utilise Gemini si disponible, sinon fallback template automatique.
 """
 
 import os, random, aiohttp, json, html
-from sqlalchemy import select, func, text
+from sqlalchemy import select, text
 from telegram.constants import ParseMode
 from database.db import AsyncSessionLocal, get_user, get_user_by_username
 from database.models import (
@@ -140,6 +141,8 @@ async def _collect_player_data(user_id: int) -> dict:
     return data
 
 
+# ─── PROMPT GEMINI ────────────────────────────────────────────────────────────
+
 ANGLES = [
     "enquête exclusive sur une fortune mystérieuse qui fait trembler les marchés",
     "révélations chocs : les secrets financiers d'un personnage controversé",
@@ -233,15 +236,15 @@ Rédige un article Breaking News de 220 à 280 mots.
     return system_prompt, user_prompt
 
 
-async def _call_groq(system_prompt: str, user_prompt: str) -> str:
-    """Appelle Google Gemini (API gratuite) pour générer du texte."""
+# ─── APPEL GEMINI ─────────────────────────────────────────────────────────────
+
+async def _call_gemini(system_prompt: str, user_prompt: str) -> str | None:
+    """Appelle Gemini. Retourne None si quota dépassé, erreur ou clé absente."""
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
-        return "❌ GEMINI_API_KEY non configurée dans les variables d'environnement."
+        return None
 
-    # Gemini n'a pas de "system" séparé — on fusionne les deux prompts
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
-
     payload = {
         "contents": [{"parts": [{"text": full_prompt}]}],
         "generationConfig": {
@@ -251,19 +254,129 @@ async def _call_groq(system_prompt: str, user_prompt: str) -> str:
         },
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{GEMINI_API_URL}?key={api_key}",
-            json=payload,
-            headers={"Content-Type": "application/json"},
-            timeout=aiohttp.ClientTimeout(total=25),
-        ) as resp:
-            if resp.status != 200:
-                text_err = await resp.text()
-                return f"❌ Erreur Gemini ({resp.status}) : {text_err[:300]}"
-            result = await resp.json()
-            return result["candidates"][0]["content"]["parts"][0]["text"].strip()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{GEMINI_API_URL}?key={api_key}",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=25),
+            ) as resp:
+                if resp.status != 200:
+                    return None  # 429 quota, 500 erreur → fallback silencieux
+                result = await resp.json()
+                return result["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception:
+        return None
 
+
+# ─── FALLBACK TEMPLATE ────────────────────────────────────────────────────────
+
+TITRES_FB = [
+    "PORTRAIT EXCLUSIF : {NAME}, L'ÉNIGME DU CLASSEMENT",
+    "DOSSIER CONFIDENTIEL : QUI EST VRAIMENT {NAME} ?",
+    "RÉVÉLATIONS : {NAME} ET SA FORTUNE FONT TREMBLER LA COMMUNAUTÉ",
+    "ALERTE FORTUNE : {NAME} ACCUMULE EN SILENCE — JUSQU'À QUAND ?",
+    "ENQUÊTE SPÉCIALE : {NAME}, GÉNIE OU IMPOSTEUR ?",
+    "LE MYSTÈRE {NAME} : NOS REPORTERS ONT TOUT DÉCOUVERT",
+    "FLASH INFO : {NAME} FAIT PARLER TOUTE LA VILLE",
+]
+
+INTROS_FB = [
+    "Notre rédaction a pu obtenir des informations exclusives sur {name}, personnage aussi discret que redouté dans les hautes sphères du bot.",
+    "Qui se cache derrière ce prénom ? {name} fait l'objet d'une enquête approfondie de notre cellule investigation depuis plusieurs semaines.",
+    "Le nom de {name} circule dans tous les milieux. Nos sources ont parlé. Voici ce que nous savons.",
+    "Notre informateur confidentiel nous a transmis le dossier complet sur {name}. Ce que vous allez lire va vous surprendre.",
+    "On nous demandait de nous pencher sur le cas {name} depuis longtemps. C'est chose faite. Les révélations sont troublantes.",
+]
+
+MIDDLES_FB = [
+    (
+        "Nos chiffres sont formels : une fortune totale de {fortune} {cur} place {name} au rang "
+        "#{rank} sur {total} joueurs recensés. Le statut de {label} ne laisse personne indifférent. "
+        "En poche : {coins} {cur}. En banque : {bank} {cur}. Les dettes ? {loans} {cur}. "
+        "Certains appellent ça du levier financier. D'autres appellent ça de l'inconscience."
+    ),
+    (
+        "Les chiffres parlent d'eux-mêmes : {fortune} {cur} de fortune totale, #{rank} au classement "
+        "général sur {total} joueurs. {coins} {cur} en liquide, {bank} {cur} placés soigneusement en banque. "
+        "On note également {loans} {cur} de dettes en cours — un risque assumé ou une imprudence ? "
+        "La question reste ouverte."
+    ),
+    (
+        "Notre analyse financière révèle une fortune de {fortune} {cur} — suffisant pour s'imposer "
+        "en {label} au classement #{rank}/{total}. La répartition est instructive : {coins} {cur} disponibles, "
+        "{bank} {cur} en banque. Et {loans} {cur} de créances en cours. Un profil atypique qui suscite "
+        "autant de questions que d'admiration."
+    ),
+]
+
+PERSO_FB = [
+    "Sur le plan personnel, {name} est {famille}. Côté réputation, notre karma-mètre affiche {karma_str} — profil classé {karma_label}. Formation : {diplomes}. Poste occupé : {emploi}.",
+    "La vie privée de {name} ? {famille}. Le karma ne ment pas : {karma_str}, soit un profil {karma_label}. Parcours académique : {diplomes}. Situation professionnelle : {emploi}.",
+    "Qui est {name} derrière les écrans ? {famille}. Karma : {karma_str} ({karma_label}). Diplômes : {diplomes}. Emploi : {emploi}. Un portrait qui intrigue autant qu'il fascine.",
+]
+
+CONCLUSIONS_FB = [
+    "La rédaction continuera de surveiller de près les agissements de {name}. Restez connectés.",
+    "Une chose est sûre : {name} n'a pas fini de faire parler d'eux. Affaire à suivre.",
+    "Nos équipes restent mobilisées. {name} est désormais sur notre radar permanent. Vous êtes prévenus.",
+    "{name} ne peut pas cacher la vérité éternellement. Ce dossier n'est que le début.",
+    "Family Bot News continuera son investigation. {name} — on vous a à l'œil. À très bientôt.",
+]
+
+
+def _build_fallback_article(data: dict) -> str:
+    name   = data["name"]
+    karma  = data.get("karma", 0)
+    kstr   = f"+{karma}" if karma >= 0 else str(karma)
+
+    if karma > 30:
+        klabel = "saint local apprécié de tous"
+    elif karma < -10:
+        klabel = "persona non grata redouté de la communauté"
+    else:
+        klabel = "citoyen lambda au karma neutre"
+
+    diplomes_str = "autodidacte sans diplôme officiel"
+    if data["diplomes"]:
+        diplomes_str = " & ".join(data["diplomes"])
+        if data.get("diplome_domain"):
+            diplomes_str += f" ({data['diplome_domain']})"
+
+    famille_parts = []
+    if data.get("spouse"):
+        famille_parts.append(f"en couple avec {data['spouse']}")
+    if data.get("children"):
+        famille_parts.append(f"parent de {len(data['children'])} enfant(s)")
+    if data.get("friends"):
+        famille_parts.append(f"proche de {data['friends'][0]}")
+    famille_str = ", ".join(famille_parts) if famille_parts else "célibataire et sans attaches connues"
+
+    emploi_str = "sans emploi déclaré"
+    if data.get("company"):
+        emploi_str = f"{data['company_role']} chez {data['company']}"
+
+    titre  = random.choice(TITRES_FB).format(NAME=name.upper())
+    intro  = random.choice(INTROS_FB).format(name=name)
+    middle = random.choice(MIDDLES_FB).format(
+        name=name, fortune=_fmt(data["fortune_totale"]), cur=CURRENCY,
+        rank=data["rank"], total=data["total_players"],
+        label=data["fortune_label"].lower(),
+        coins=_fmt(data["coins"]), bank=_fmt(data["bank_total"]),
+        loans=_fmt(data["loans_total"]),
+    )
+    perso  = random.choice(PERSO_FB).format(
+        name=name, famille=famille_str,
+        karma_str=kstr, karma_label=klabel,
+        diplomes=diplomes_str, emploi=emploi_str,
+    )
+    conclu = random.choice(CONCLUSIONS_FB).format(name=name)
+
+    return f"{titre}\n\n{intro}\n\n{middle}\n\n{perso}\n\n{conclu}"
+
+
+# ─── COMMANDE /article ────────────────────────────────────────────────────────
 
 async def article_cmd(update, context):
     """/article @user | /article hasard"""
@@ -330,10 +443,14 @@ async def article_cmd(update, context):
         await msg.edit_text("❌ Ce joueur n'a pas de profil en base de données.")
         return
 
+    # Tentative Gemini — fallback template si quota dépassé ou erreur
     system_prompt, user_prompt = _build_prompt(data)
-    article_text = await _call_groq(system_prompt, user_prompt)
+    article_text = await _call_gemini(system_prompt, user_prompt)
 
-    # Échapper les caractères HTML pour éviter les conflits avec le parse_mode Telegram
+    ai_used = article_text is not None
+    if not article_text:
+        article_text = _build_fallback_article(data)
+
     article_escaped = html.escape(article_text)
 
     jours = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
@@ -343,20 +460,21 @@ async def article_cmd(update, context):
     today    = date.today()
     date_str = f"{jours[today.weekday()]} {today.day} {mois[today.month-1]} {today.year}"
 
+    source_line = "📡 Reportage exclusif — Rédaction Family Bot News ❤️" if ai_used else "📰 Rédaction Family Bot News ❤️ — Édition Standard"
+
     final = (
         f"📺 <b>BREAKING NEWS — ÉDITION SPÉCIALE</b>\n"
         f"🗓️ <i>{date_str}</i>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{article_escaped}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>📡 Reportage exclusif — Rédaction Family Bot News ❤️</i>"
+        f"<i>{source_line}</i>"
     )
 
     if len(final) > 4000:
-        final = final[:3960] + "...\n\n<i>📡 Reportage exclusif — Rédaction Family Bot News ❤️</i>"
+        final = final[:3960] + f"...\n\n<i>{source_line}</i>"
 
     try:
         await msg.edit_text(final, parse_mode=ParseMode.HTML)
     except Exception:
-        # Fallback sans HTML si le parsing échoue malgré l'échappement
         await msg.edit_text(article_text[:3800])

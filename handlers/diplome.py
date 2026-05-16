@@ -29,8 +29,8 @@ from utils.helpers import ensure_user
 
 logger = logging.getLogger(__name__)
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_URL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 
 def _fmt(n: int) -> str:
@@ -292,8 +292,9 @@ def _validate_questions(questions: list, n: int) -> list:
 
 
 async def _groq_questions(level: str, domain: str, n: int) -> list | None:
-    if not GROQ_API_KEY:
-        logger.warning("GROQ_API_KEY non définie — fallback local activé")
+    """Génère les questions d'examen via Google Gemini (API gratuite)."""
+    if not GEMINI_API_KEY:
+        logger.warning("GEMINI_API_KEY non définie — fallback local activé")
         return None
 
     import random
@@ -306,32 +307,33 @@ async def _groq_questions(level: str, domain: str, n: int) -> list | None:
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
                 resp = await client.post(
-                    GROQ_URL,
-                    headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                    f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+                    headers={"Content-Type": "application/json"},
                     json={
-                        "model":       "llama-3.3-70b-versatile",
-                        "messages":    [{"role": "user", "content": prompt}],
-                        "temperature": 0.9 + attempt * 0.05,
-                        "max_tokens":  7000,
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.9 + attempt * 0.05,
+                            "maxOutputTokens": 7000,
+                        },
                     },
                 )
             if resp.status_code != 200:
-                logger.error(f"Groq HTTP {resp.status_code}: {resp.text[:300]}")
+                logger.error(f"Gemini HTTP {resp.status_code}: {resp.text[:300]}")
                 continue
 
             data = resp.json()
-            raw  = data["choices"][0]["message"]["content"]
-            logger.info(f"Groq raw (attempt {attempt+1}): {raw[:120]}...")
+            raw  = data["candidates"][0]["content"]["parts"][0]["text"]
+            logger.info(f"Gemini raw (attempt {attempt+1}): {raw[:120]}...")
 
             questions = _parse_groq_raw(raw)
             validated = _validate_questions(questions, n)
-            logger.info(f"Groq OK — {len(validated)} questions générées pour {level}/{domain}")
+            logger.info(f"Gemini OK — {len(validated)} questions générées pour {level}/{domain}")
             return validated
 
         except Exception as e:
-            logger.error(f"Groq tentative {attempt+1} échouée ({level}/{domain}): {e}")
+            logger.error(f"Gemini tentative {attempt+1} échouée ({level}/{domain}): {e}")
 
-    logger.error(f"Groq complètement échoué pour {level}/{domain} — fallback local")
+    logger.error(f"Gemini complètement échoué pour {level}/{domain} — fallback local")
     return None
 
 

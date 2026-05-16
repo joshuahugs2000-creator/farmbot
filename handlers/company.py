@@ -1760,9 +1760,12 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Retrait sans pénalité sur la valeur — la trésorerie et la valeur sont distinctes.
-        # La valeur de l'entreprise reflète ses actifs/réputation, pas ses liquidités disponibles.
+        # Retrait : symétrique au dépôt — la valeur baisse du même montant déposé.
+        # On protège un plancher = valeur initiale du niveau pour éviter de descendre en dessous.
+        _, _, _, _, _ = _level_info(company.level)
+        valeur_plancher = max(50_000_000, company.value - company.treasury)
         company.treasury -= amount
+        company.value = max(valeur_plancher, company.value - amount)
         db_user.coins += amount
         await _add_log(session, company.id, "retrait",
                        f"Retrait PDG ({user.first_name})", amount=amount)

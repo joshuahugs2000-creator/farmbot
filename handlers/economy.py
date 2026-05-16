@@ -460,6 +460,8 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         gain = mise * mult
         msg  = f"🎰 JACKPOT ! x{mult} — +{_fmt(gain)} {CURRENCY} !"
         delta = gain
+        if gain >= 50_000:  # log seulement les gros gains
+            await log_event("casino_big_win", user=update.effective_user.first_name, amount=_fmt(gain))
     elif reels[0] == reels[1] or reels[1] == reels[2]:
         gain  = mise // 2
         msg   = f"Deux identiques ! +{_fmt(gain)} {CURRENCY}."

@@ -226,29 +226,36 @@ async def richlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         top = await get_richlist(session, 10)
 
     def fmt_short(n):
-        if n >= 1_000_000_000: return f"{n/1_000_000_000:.2f}B"
-        if n >= 1_000_000:     return f"{n/1_000_000:.0f}M"
+        if n >= 1_000_000_000_000: return f"{n/1_000_000_000_000:.2f}T"
+        if n >= 1_000_000_000:     return f"{n/1_000_000_000:.2f}B"
+        if n >= 1_000_000:         return f"{n/1_000_000:.0f}M"
         return _fmt(n)
 
-    BADGES = {3:"💎",4:"💎",5:"⭐",6:"⭐",7:"🔥",8:"🔥",9:"🎖️"}
-    PODIUM = [
-        ("🥇", "𝗣𝗟𝗔𝗖𝗘 𝟭"),
-        ("🥈", "𝗣𝗟𝗔𝗖𝗘 𝟮"),
-        ("🥉", "𝗣𝗟𝗔𝗖𝗘 𝟯"),
+    SEP  = "🎰━━━━━━━━━━━━━━━━━━━━🎰"
+    SEP2 = "━━━━━━━━━━━━━━━━━━━━━━━━"
+    PODIUM = ["🥇", "🥈", "🥉"]
+
+    lines = [
+        SEP,
+        "      💸 <b>FORTUNE RANKING</b> 💸",
+        SEP,
+        "",
     ]
 
-    lines = ["💰 <b>Classement des plus riches</b>\n"]
-
     for i, u in enumerate(top):
+        name   = u.first_name or "Inconnu"
+        amount = fmt_short(u.coins)
         if i < 3:
-            medal, place = PODIUM[i]
-            lines.append(f"{medal} <b>{place} — {u.first_name}</b>")
-            lines.append(f"      {_fmt(u.coins)} $")
+            lines.append(f"{PODIUM[i]} <b>{name}</b>")
+            lines.append(f"   ┗━▶ <b>{amount} $</b>")
+            lines.append("")
         else:
             if i == 3:
-                lines.append("──────────────")
-            badge = BADGES.get(i, f"{i+1}")
-            lines.append(f"{i+1} {badge} {u.first_name} — {fmt_short(u.coins)}")
+                lines.append(SEP2)
+            num = f"{i+1:2d}"
+            lines.append(f" {num} ◈ {name} ········ {amount} $")
+
+    lines.append(SEP2)
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 

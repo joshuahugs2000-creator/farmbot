@@ -109,6 +109,7 @@ from handlers.company import (
     licencier_cmd, dissoudreboite_cmd, job_daily_report, job_company_revenues,
     salaireinfo_cmd, employes_cmd,
     accepteroffre_cmd, refuseroffre_cmd, job_expire_share_offers,
+    skipattente_cmd,
 )
 from handlers.company_sector import (
     init_sector_tables,
@@ -597,6 +598,7 @@ async def main():
     app.add_handler(CommandHandler("presences",      _prison_checked(presences_cmd)))
     app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
     app.add_handler(CommandHandler("mesparts",       _prison_checked(mesparts_cmd)))
+    app.add_handler(CommandHandler("skipattente",    _prison_checked(skipattente_cmd)))
     # ── Secteurs : événements, contrats, classement ───────────────────────────
     app.add_handler(CommandHandler("evenements",      _prison_checked(evenements_cmd)))
     app.add_handler(CommandHandler("classement",      _prison_checked(classement_cmd)))

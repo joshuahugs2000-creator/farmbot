@@ -6,6 +6,7 @@ from .models import (
     CoupleAccount, ActivityLog, BotGroup,
     Company, CompanyEmployee, CompanyShare,
     CompanyApplication, CompanyInvite, CompanyLog,
+    CompanyWorkShift, CompanyShareOffer,
 )
 from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TITLES
 from datetime import datetime, timedelta
@@ -127,6 +128,47 @@ async def init_db():
             first_seen   TIMESTAMP DEFAULT NOW(),
             last_seen    TIMESTAMP DEFAULT NOW()
         )""",
+        # ── company_employees : colonnes ajoutées progressivement ─────────────
+        "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS left_at TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS command_count INTEGER DEFAULT 0",
+        "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS activity_since_payroll INTEGER DEFAULT 0",
+        # ── companies : colonnes ajoutées progressivement ────────────────────
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS treasury BIGINT DEFAULT 0",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS total_shares INTEGER DEFAULT 100",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS owner_shares INTEGER DEFAULT 100",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS reputation FLOAT DEFAULT 3.0",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_bot_company BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_revenue TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_payroll TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS description VARCHAR(300) DEFAULT NULL",
+        # ── company_invites : colonnes ────────────────────────────────────────
+        "ALTER TABLE company_invites ADD COLUMN IF NOT EXISTS role VARCHAR(30) DEFAULT 'employe'",
+        "ALTER TABLE company_invites ADD COLUMN IF NOT EXISTS invited_by BIGINT DEFAULT NULL",
+        "ALTER TABLE company_invites ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP DEFAULT (NOW() + INTERVAL '7 days')",
+        # ── Tables company créées après le premier déploiement ────────────────
+        """CREATE TABLE IF NOT EXISTS company_work_shifts (
+            id         SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            user_id    BIGINT  NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            worked_at  TIMESTAMP DEFAULT NOW(),
+            paid       BOOLEAN DEFAULT FALSE,
+            paid_at    TIMESTAMP DEFAULT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS company_share_offers (
+            id          SERIAL PRIMARY KEY,
+            company_id  INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            buyer_id    BIGINT  NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            quantity    INTEGER NOT NULL,
+            price_each  BIGINT  NOT NULL,
+            total_price BIGINT  NOT NULL,
+            status      VARCHAR(20) DEFAULT 'pending',
+            created_at  TIMESTAMP DEFAULT NOW(),
+            expires_at  TIMESTAMP NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_company_employees_user ON company_employees (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_company_employees_company ON company_employees (company_id)",
     ]
     # Chaque migration dans sa propre transaction pour éviter les rollbacks en cascade
     for sql in migrations:

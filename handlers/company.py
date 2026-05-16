@@ -45,7 +45,7 @@ SECTOR_ALLOWED_DOMAINS = {
     "agriculture": ["agriculture"],
     "securite":    ["securite", "management"],
     "immobilier":  ["management", "marketing"],
-    "sante":       ["management"],
+    "sante":       ["sante", "management"],  # Fix : domaine "sante" ajouté
 }
 
 # Format : (emoji, nom, valeur_min, taux_mensuel, max_employes)
@@ -318,7 +318,7 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
             total_bonus_rate = diploma_bonus_rate + contract_bonus_rate
             revenue = int(base_revenue * (1 + total_bonus_rate))
 
-            # Bot company sans employés : pas de revenus en caisse (évite inflation infinie)
+            # Bot company : pas d'accumulation en trésorerie — vider automatiquement
             if company.is_bot_company:
                 emps_check = (await session.execute(
                     select(func.count()).where(
@@ -332,6 +332,26 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
                     await _update_level(session, company)
                     company.last_revenue = datetime.utcnow()
                     continue
+                # Bot company avec employés : payer directement les employés (pas via trésorerie)
+                # pour éviter que la caisse gonfle sans PDG pour la vider
+                emps = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.left_at == None,
+                    )
+                )).scalars().all()
+                for e in emps:
+                    share = ROLE_SHARE.get(e.role, 0)
+                    if share <= 0:
+                        continue
+                    emp_pay = int(revenue * share)
+                    emp_user = await session.get(User, e.user_id)
+                    if emp_user:
+                        emp_user.coins += emp_pay
+                company.value = int(company.value * 1.001)
+                await _update_level(session, company)
+                company.last_revenue = datetime.utcnow()
+                continue
 
             # Récupérer les employés actifs
             emps = (await session.execute(
@@ -340,6 +360,19 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
                     CompanyEmployee.left_at == None,
                 )
             )).scalars().all()
+
+        # Fix 9 : Morale des employés — perte de valeur si PDG ne paie pas depuis 3 jours
+        if not company.is_bot_company:
+            last_pay = company.last_payroll
+            if last_pay:
+                days_since_pay = (datetime.utcnow() - last_pay).days
+                if days_since_pay >= 3:
+                    # -0.5% de valeur par jour sans paie (après 3 jours de grâce)
+                    morale_penalty = 0.005 * (days_since_pay - 2)
+                    morale_penalty = min(morale_penalty, 0.05)  # max -5% par jour
+                    company.value = int(company.value * (1 - morale_penalty))
+                    if company.reputation > 1.0:
+                        company.reputation = max(1.0, company.reputation - 0.05)
 
             # Revenus → 100% en trésorerie (paie manuelle par le PDG)
             company.treasury += revenue
@@ -413,8 +446,35 @@ async def update_company_activity(user_id: int):
         if hasattr(emp, "activity_since_payroll"):
             emp.activity_since_payroll = (emp.activity_since_payroll or 0) + 1
 
-        # +50 000 $ de valeur par commande (activité = croissance de l'entreprise)
-        company.value += 50_000
+        # Fix 11 : Promotion automatique stagiaire → employé après 50 commandes
+        if emp.role == "stagiaire" and emp.command_count >= 50:
+            from database.models import User as UserModel
+            db_user = await session.get(UserModel, user_id)
+            if db_user and db_user.diplome_bac:
+                emp.role = "employe"
+                try:
+                    await __import__("telegram").Bot.get_updates  # just to have a reference
+                except Exception:
+                    pass
+                # On ne peut pas envoyer de message ici sans context.bot — on log juste
+                import logging as _log
+                _log.getLogger(__name__).info(
+                    f"Stagiaire uid={user_id} promu automatiquement → employé (50 cmds)"
+                )
+
+        # Fix 6 : Plafond journalier de +250 000 $ de valeur par utilisateur/jour
+        # Evite le spam de commandes pour gonfler artificiellement la valeur
+        today = datetime.utcnow().date()
+        daily_boost_key = f"_daily_boost_{user_id}_{today}"
+        current_boost = getattr(company, "_runtime_boost", {})
+        boost_today = current_boost.get(daily_boost_key, 0)
+
+        if boost_today < 250_000:
+            gain = min(50_000, 250_000 - boost_today)
+            company.value += gain
+            current_boost[daily_boost_key] = boost_today + gain
+            company._runtime_boost = current_boost
+
         company.last_active = datetime.utcnow()
         await session.commit()
 
@@ -613,7 +673,7 @@ async def infoboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈\n\n"
             f"💰 <b>Valeur</b> : {_fmt(company.value)}\n"
             f"🏦 <b>Trésorerie</b> : {_fmt(company.treasury)}\n"
-            f"📈 <b>Revenus/jour</b> : {_fmt(int(company.value * daily_rate) // 30)} <i>(distribués aux employés)</i>\n"
+            f"📈 <b>Revenus/jour</b> : {_fmt(int(company.value * daily_rate) // 30)} <i>(ajoutés en trésorerie)</i>\n"
             f"⭐ <b>Réputation</b> : {company.reputation:.1f}/5\n"
             f"👤 <b>PDG</b> : {owner_name}\n"
             f"👥 <b>Employés</b> : {nb_emp}/{max_emp}\n"
@@ -1549,9 +1609,13 @@ async def monentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"  ╰┈➤  <b>PDG</b> — dividendes via <code>/retraitboite</code>\n"
             )
         elif personal_revenue > 0:
+            # Fix 7 : estimation basée sur l'activité réelle, pas "X$/jour automatique"
+            activity = getattr(emp, "activity_since_payroll", 0) or 0
+            activity_bonus = min(0.5, activity / 40)
+            estimated = int(personal_revenue * (1 + activity_bonus))
             personal_rev_line = (
-                f"  ╰┈➤  💵 <b>{_fmt(personal_revenue)} $/jour</b> pour toi ({int(personal_share*100)}% du revenu boite)\n"
-                f"  ╰┈➤  🏦 Revenu total boite : {_fmt(total_revenue)} $/jour\n"
+                f"  ╰┈➤  💵 Prochaine paie estimée : ~<b>{_fmt(estimated)} $</b>\n"
+                f"  ╰┈➤  📊 {activity} cmds depuis la dernière paie\n"
             )
         else:
             personal_rev_line = (
@@ -2424,7 +2488,7 @@ async def job_daily_report(context) -> None:
 
             nb_emps = len(emps)
             _, _, _, monthly_rate, max_emp = _level_info(company.level)
-            revenue = int(company.value * monthly_rate) // 30  # mensuel ÷ 30
+            revenue = int(company.value * monthly_rate) // 30
             lvl_emoji, lvl_name, _, _, _ = _level_info(company.level)
             sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
 
@@ -2436,11 +2500,34 @@ async def job_daily_report(context) -> None:
                 )
             )).scalar()
 
-            # Construire le rapport
+            # Fix 10 : Notification trésorerie suffisante pour payer
+            last_pay = company.last_payroll
+            can_pay_now = company.treasury > 0
+            treasury_hint = ""
+            if can_pay_now and (not last_pay or (datetime.utcnow() - last_pay).total_seconds() >= 12 * 3600):
+                treasury_hint = f"\n💡 <b>Tu peux verser les salaires maintenant !</b> (<code>/versersalaires</code>)"
+
+            # Fix 12 : Contrats actifs et leurs bonus
+            contracts_line = ""
+            try:
+                from handlers.company_sector import get_all_active_contracts, get_contract_bonus
+                active_contracts = await get_all_active_contracts(session)
+                contract_bonus = get_contract_bonus(company.id, active_contracts)
+                nb_contracts = len([c for c in active_contracts
+                                    if c.company_a_id == company.id or c.company_b_id == company.id])
+                if nb_contracts > 0:
+                    bonus_pct = int(contract_bonus * 100)
+                    contracts_line = f"\n🤝 Contrats actifs : <b>{nb_contracts}</b> (+{bonus_pct}% revenus)"
+            except Exception:
+                pass
+
             pending_line = (
                 f"\n📩 <b>{pending} candidature(s) en attente</b> — <code>/candidatures</code>"
                 if pending > 0 else ""
             )
+
+            # Fix 3 : Indiquer clairement que les revenus vont en trésorerie
+            last_pay_str = last_pay.strftime("%d/%m %H:%M") if last_pay else "Jamais"
 
             rapport = (
                 f"📊 <b>Rapport quotidien — {company.name}</b>\n"
@@ -2449,10 +2536,13 @@ async def job_daily_report(context) -> None:
                 f"{lvl_emoji} Niveau : <b>{lvl_name}</b>\n\n"
                 f"💰 Valeur : <b>{_fmt(company.value)} $</b>\n"
                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n"
-                f"📈 Revenus/jour : <b>{_fmt(revenue)} $</b> <i>(total distribué)</i>\n\n"
+                f"📈 Revenus/jour : <b>{_fmt(revenue)} $</b> <i>(ajoutés en trésorerie)</i>\n"
+                f"🕒 Dernière paie : <b>{last_pay_str}</b>"
+                f"{contracts_line}\n\n"
                 f"👥 Employés : <b>{nb_emps}/{max_emp}</b>\n"
                 f"⭐ Réputation : <b>{company.reputation:.1f}/5.0</b>"
                 f"{pending_line}"
+                f"{treasury_hint}"
             )
 
             try:
@@ -2463,6 +2553,57 @@ async def job_daily_report(context) -> None:
                 )
             except Exception:
                 pass
+
+# ─── COMMANDE : /offresparts ─────────────────────────────────────────────────
+
+async def offresparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /offresparts — Le PDG voit toutes les offres de rachat de parts en attente.
+    Évite les offres silencieuses si le PDG a les notifs coupées.
+    """
+    user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, user.id)
+        if not company or emp.role != "pdg":
+            await update.message.reply_text("❌ Réservé au PDG de ton entreprise.")
+            return
+
+        offers = (await session.execute(
+            select(CompanyShareOffer).where(
+                CompanyShareOffer.company_id == company.id,
+                CompanyShareOffer.status == "pending",
+            ).order_by(CompanyShareOffer.created_at.desc())
+        )).scalars().all()
+
+        if not offers:
+            await update.message.reply_text(
+                f"📭 <b>Aucune offre en attente</b> sur <b>{company.name}</b>.\n\n"
+                f"💡 Les acheteurs utilisent <code>/acheterparts nb {company.name}</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        price_per = company.value // company.total_shares if company.total_shares > 0 else 0
+        lines = [
+            f"💼 <b>OFFRES DE PARTS — {company.name}</b>",
+            f"<i>{len(offers)} offre(s) en attente · Prix actuel : {_fmt(price_per)} $/part</i>",
+            "─────────────────────────────",
+        ]
+
+        for offer in offers:
+            buyer = await session.get(User, offer.buyer_id)
+            buyer_name = buyer.first_name if buyer else f"uid:{offer.buyer_id}"
+            expires_in = offer.expires_at - datetime.utcnow()
+            h = int(expires_in.total_seconds() // 3600)
+            lines.append(
+                f"👤 <b>{buyer_name}</b> — {offer.quantity} parts · {_fmt(offer.total_price)} $\n"
+                f"   ⏳ Expire dans {h}h\n"
+                f"   ✅ <code>/accepteroffre {offer.id}</code>  ❌ <code>/refuseroffre {offer.id}</code>"
+            )
+
+        lines.append("─────────────────────────────")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
 
 # ─── COMMANDE : /dissoudreboite ───────────────────────────────────────────────
 
@@ -2580,9 +2721,14 @@ async def salaireinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"  ╰┈➤  👑 PDG — touche les dividendes via <code>/retraitboite</code>\n"
             )
         elif personal_revenue > 0:
+            # Fix 7 : affichage basé sur l'activité, plus "X$/jour automatique"
+            activity = getattr(emp, "activity_since_payroll", 0) or 0
+            activity_bonus = min(0.5, activity / 40)
+            estimated = int(personal_revenue * (1 + activity_bonus))
             salaire_line = (
-                f"  ╰┈➤  💵 <b>{_fmt(personal_revenue)} $/jour</b> ({int(personal_share*100)}% du revenu boite)\n"
-                f"  ╰┈➤  📅 Mensuel estimé : <b>{_fmt(personal_revenue * 30)} $</b>\n"
+                f"  ╰┈➤  💵 Estimation prochaine paie : <b>~{_fmt(estimated)} $</b>\n"
+                f"  ╰┈➤  📊 Activité comptabilisée : <b>{activity} commandes</b>\n"
+                f"  ╰┈➤  💡 Plus t'es actif, plus tu touches à la prochaine paie !\n"
             )
         else:
             salaire_line = (
@@ -2681,7 +2827,12 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "─────────────────────────────",
         ]
 
-        total_activity = sum((e.activity_since_payroll or 0) for e in emps if e.role != "stagiaire")
+        # Fix 4 : Exclure PDG et stagiaires du calcul de total_activity (ils ne reçoivent pas de salaire)
+        total_activity = sum(
+            (e.activity_since_payroll or 0)
+            for e in emps
+            if e.role not in ("stagiaire", "pdg")
+        )
 
         for e in sorted(emps, key=lambda x: (x.activity_since_payroll or 0), reverse=True):
             emp_user = await session.get(User, e.user_id)
@@ -2689,17 +2840,19 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             role_emoji = ROLE_EMOJI.get(e.role, "👤")
             activity = e.activity_since_payroll or 0
 
-            if e.role == "stagiaire":
+            if e.role in ("stagiaire", "pdg"):
                 salary_preview = "—"
-            elif total_activity > 0 and e.role != "pdg":
+            elif total_activity > 0:
                 share = ROLE_SHARE.get(e.role, 0)
                 _, _, _, monthly_rate, _ = _level_info(company.level)
                 base_rev = int(company.value * monthly_rate) // 30
-                # Salaire basé sur la part du rôle + bonus d'activité relative
-                activity_ratio = activity / total_activity if total_activity > 0 else 0
-                salary_preview = _fmt(int(base_rev * share * (1 + activity_ratio)))
+                activity_bonus = min(0.5, activity / 40)
+                salary_preview = _fmt(int(base_rev * share * (1 + activity_bonus)))
             else:
-                salary_preview = "—"
+                share = ROLE_SHARE.get(e.role, 0)
+                _, _, _, monthly_rate, _ = _level_info(company.level)
+                base_rev = int(company.value * monthly_rate) // 30
+                salary_preview = _fmt(int(base_rev * share))
 
             bar_full = min(10, activity)
             bar = "█" * bar_full + "░" * (10 - bar_full)

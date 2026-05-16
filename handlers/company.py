@@ -927,10 +927,11 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_bot = last_company.is_bot_company if last_company else False
             if not is_bot:
                 days_passed = (datetime.utcnow() - last_left_row.left_at).days
-                if days_passed < 7:
-                    jours = 7 - days_passed
+                if days_passed < 3:
+                    jours = 3 - days_passed
                     await update.message.reply_text(
-                        f"⏳ Tu dois attendre encore <b>{jours} jour(s)</b> avant de rejoindre une nouvelle entreprise.",
+                        f"⏳ Tu dois attendre encore <b>{jours} jour(s)</b> avant de rejoindre une nouvelle entreprise.\n"
+                        f"💡 Tape <code>/skipattente</code> pour payer et ignorer ce délai.",
                         parse_mode="HTML"
                     )
                     return
@@ -1358,9 +1359,13 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_bot_last = last_co.is_bot_company if last_co else False
             if not is_bot_last:
                 days_passed = (datetime.utcnow() - last_left_emp.left_at).days
-                if days_passed < 7:
-                    jours = 7 - days_passed
-                    await update.message.reply_text(f"⏳ Cooldown : encore {jours} jour(s) avant de rejoindre une entreprise.")
+                if days_passed < 3:
+                    jours = 3 - days_passed
+                    await update.message.reply_text(
+                        f"⏳ Cooldown : encore {jours} jour(s) avant de rejoindre une entreprise.\n"
+                        f"💡 Tape <code>/skipattente</code> pour payer et ignorer ce délai.",
+                        parse_mode="HTML"
+                    )
                     return
 
         # Déjà dans une boite ?
@@ -3093,3 +3098,67 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         result_lines.append(f"⏳ Prochaine paie dans <b>{PAYROLL_COOLDOWN_HOURS}h</b>")
 
         await update.message.reply_text("\n".join(result_lines), parse_mode="HTML")
+
+
+# ─── COMMANDE : /skipattente ────────────────────────────────────────────────────
+
+SKIP_COMPANY_COST = 500_000  # 500K pour ignorer le cooldown démission
+
+async def skipattente_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import text
+        # Chercher le dernier départ non-bot
+        last_left_row = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.user_id == user.id,
+                CompanyEmployee.left_at != None,
+            ).order_by(CompanyEmployee.left_at.desc()).limit(1)
+        )).scalar_one_or_none()
+
+        if not last_left_row or not last_left_row.left_at:
+            await update.message.reply_text("✅ Tu n'as aucun cooldown de démission actif !")
+            return
+
+        last_company = await session.get(Company, last_left_row.company_id)
+        is_bot = last_company.is_bot_company if last_company else False
+
+        if is_bot:
+            await update.message.reply_text("✅ Tu n'as aucun cooldown actif (dernière boîte = bot company).")
+            return
+
+        days_passed = (datetime.utcnow() - last_left_row.left_at).days
+        if days_passed >= 3:
+            await update.message.reply_text("✅ Ton cooldown de démission est déjà terminé !")
+            return
+
+        # Vérifier les coins
+        u = await get_user(session, user.id)
+        if u.coins < SKIP_COMPANY_COST:
+            await update.message.reply_text(
+                f"❌ Il te faut <b>{_fmt(SKIP_COMPANY_COST)} 💰</b> pour ignorer l'attente.\n"
+                f"Ton solde : <b>{_fmt(u.coins)} 💰</b>",
+                parse_mode="HTML",
+            )
+            return
+
+        # Déduire les coins et effacer la date de départ (simule la fin du cooldown)
+        await session.execute(
+            text("UPDATE company_employees SET left_at = :old_date WHERE id = :eid"),
+            {"old_date": datetime.utcnow() - timedelta(days=4), "eid": last_left_row.id},
+        )
+        await session.execute(
+            text("UPDATE users SET coins = coins - :cost WHERE user_id = :uid"),
+            {"cost": SKIP_COMPANY_COST, "uid": user.id},
+        )
+        await session.commit()
+
+    jours_restants = 3 - days_passed
+    await update.message.reply_text(
+        f"⚡ <b>Cooldown ignoré !</b>\n\n"
+        f"💸 <b>{_fmt(SKIP_COMPANY_COST)} 💰</b> déduits.\n"
+        f"(Il te restait <b>{jours_restants} jour(s)</b>)\n\n"
+        f"Tu peux maintenant postuler dans une entreprise avec <code>/postuler [nom]</code>.",
+        parse_mode="HTML",
+    )

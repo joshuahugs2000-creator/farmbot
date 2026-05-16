@@ -341,19 +341,8 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
                 )
             )).scalars().all()
 
-            total_paid = 0
-            for emp in emps:
-                share = ROLE_SHARE.get(emp.role, 0)
-                if share <= 0:
-                    continue
-                amount = int(revenue * share)
-                user = await session.get(User, emp.user_id)
-                if user:
-                    user.coins += amount
-                    total_paid += amount
-
-            # Le reste va dans la caisse
-            company.treasury += max(0, revenue - total_paid)
+            # Revenus → 100% en trésorerie (paie manuelle par le PDG)
+            company.treasury += revenue
             company.last_revenue = datetime.utcnow()
 
             # Ancienneté : +0.1% de valeur par jour
@@ -418,16 +407,13 @@ async def update_company_activity(user_id: int):
         company, emp = await _get_user_company(session, user_id)
         if not company or not emp:
             return
+
         emp.command_count += 1
-        # +50 000 $ par commande, plafonné à 500 000 $/jour par entreprise
-        today = datetime.utcnow().date()
-        last_rev_date = company.last_revenue.date() if company.last_revenue else None
-        if last_rev_date != today:
-            # Nouveau jour : réinitialiser le compteur d'activité implicitement
-            # (on compte via command_count, pas besoin de reset)
-            pass
-        # Limite : max 10 commandes bonifiées par employé par reset quotidien
-        # Simple : on plafonne le gain total via value (pas de champ dédié, on cap à +500k/24h)
+        # Compteur d'activité depuis la dernière paie (pour /versersalaires)
+        if hasattr(emp, "activity_since_payroll"):
+            emp.activity_since_payroll = (emp.activity_since_payroll or 0) + 1
+
+        # +50 000 $ de valeur par commande (activité = croissance de l'entreprise)
         company.value += 50_000
         company.last_active = datetime.utcnow()
         await session.commit()
@@ -2658,3 +2644,211 @@ async def salaireinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💡 Pour envoyer de l'argent : <code>/pay @pseudo [montant]</code>"
         )
         await update.message.reply_text(msg, parse_mode="HTML")
+
+
+# ─── COMMANDE : /presences ────────────────────────────────────────────────────
+
+async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /presences — PDG/Directeur voit l'activité de chaque employé depuis la dernière paie.
+    """
+    user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, user.id)
+
+        if not company:
+            await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.", parse_mode="HTML")
+            return
+        if emp.role not in ("pdg", "directeur"):
+            await update.message.reply_text("❌ Réservé au PDG et Directeur.", parse_mode="HTML")
+            return
+
+        emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalars().all()
+
+        sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
+
+        last_pay_str = company.last_payroll.strftime("%d/%m %H:%M") if company.last_payroll else "Jamais"
+
+        lines = [
+            f"📊 <b>PRÉSENCES — {company.name}</b>",
+            f"<i>Dernière paie : {last_pay_str}</i>",
+            f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>",
+            "─────────────────────────────",
+        ]
+
+        total_activity = sum((e.activity_since_payroll or 0) for e in emps if e.role != "stagiaire")
+
+        for e in sorted(emps, key=lambda x: (x.activity_since_payroll or 0), reverse=True):
+            emp_user = await session.get(User, e.user_id)
+            name = emp_user.first_name if emp_user else "?"
+            role_emoji = ROLE_EMOJI.get(e.role, "👤")
+            activity = e.activity_since_payroll or 0
+
+            if e.role == "stagiaire":
+                salary_preview = "—"
+            elif total_activity > 0 and e.role != "pdg":
+                share = ROLE_SHARE.get(e.role, 0)
+                _, _, _, monthly_rate, _ = _level_info(company.level)
+                base_rev = int(company.value * monthly_rate) // 30
+                # Salaire basé sur la part du rôle + bonus d'activité relative
+                activity_ratio = activity / total_activity if total_activity > 0 else 0
+                salary_preview = _fmt(int(base_rev * share * (1 + activity_ratio)))
+            else:
+                salary_preview = "—"
+
+            bar_full = min(10, activity)
+            bar = "█" * bar_full + "░" * (10 - bar_full)
+
+            lines.append(
+                f"{role_emoji} <b>{name}</b> [{e.role}]\n"
+                f"   {bar} {activity} cmd · 💵 ~{salary_preview} $"
+            )
+
+        lines.append("─────────────────────────────")
+        lines.append("💡 <code>/versersalaires</code> pour déclencher la paie")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+# ─── COMMANDE : /versersalaires ──────────────────────────────────────────────
+
+PAYROLL_COOLDOWN_HOURS = 12   # Le PDG ne peut payer qu'une fois toutes les 12h
+
+async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /versersalaires — Le PDG déclenche manuellement la paie.
+    - Distribue depuis la trésorerie
+    - Chaque employé reçoit selon sa part de rôle × son activité relative depuis la dernière paie
+    - Reset les compteurs d'activité
+    - Cooldown 12h
+    """
+    user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, user.id)
+
+        if not company:
+            await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
+            return
+        if emp.role not in ("pdg",):
+            await update.message.reply_text("❌ Seul le PDG peut déclencher la paie.")
+            return
+
+        # Cooldown
+        if company.last_payroll:
+            delta = datetime.utcnow() - company.last_payroll
+            remaining = timedelta(hours=PAYROLL_COOLDOWN_HOURS) - delta
+            if remaining.total_seconds() > 0:
+                h = int(remaining.total_seconds() // 3600)
+                m = int((remaining.total_seconds() % 3600) // 60)
+                await update.message.reply_text(
+                    f"⏳ Prochaine paie disponible dans <b>{h}h{m:02d}m</b>.",
+                    parse_mode="HTML"
+                )
+                return
+
+        # Trésorerie suffisante ?
+        if company.treasury <= 0:
+            await update.message.reply_text(
+                f"❌ La trésorerie est vide (<b>0 $</b>). Attendez que les revenus s'accumulent.",
+                parse_mode="HTML"
+            )
+            return
+
+        # Récupérer les employés actifs (hors stagiaires)
+        emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+                CompanyEmployee.role.notin_(["stagiaire"]),
+            )
+        )).scalars().all()
+
+        if not emps:
+            await update.message.reply_text("❌ Aucun employé éligible à la paie (hors stagiaires).")
+            return
+
+        _, _, _, monthly_rate, _ = _level_info(company.level)
+        base_rev = int(company.value * monthly_rate) // 30
+
+        # Calculer les salaires selon activité relative par tranche de rôle
+        payroll = []   # (emp, amount)
+        total_to_pay = 0
+
+        for e in emps:
+            share = ROLE_SHARE.get(e.role, 0)
+            if share <= 0:
+                continue
+            activity = e.activity_since_payroll or 0
+            # Salaire de base selon rôle
+            base_salary = int(base_rev * share)
+            # Bonus activité : +50% max si très actif (activité ≥ 20 cmds)
+            activity_bonus = min(0.5, activity / 40)
+            amount = int(base_salary * (1 + activity_bonus))
+            payroll.append((e, amount))
+            total_to_pay += amount
+
+        if not payroll:
+            await update.message.reply_text("❌ Aucun employé à payer.")
+            return
+
+        # Vérifier trésorerie — si insuffisante, payer proportionnellement
+        if company.treasury < total_to_pay:
+            ratio = company.treasury / total_to_pay
+            payroll = [(e, int(a * ratio)) for e, a in payroll]
+            total_to_pay = company.treasury
+
+        # Distribuer
+        result_lines = [
+            f"💼 <b>PAIE — {company.name}</b>",
+            f"<i>{datetime.utcnow().strftime('%d/%m/%Y %H:%M')}</i>",
+            "─────────────────────────────",
+        ]
+
+        for e, amount in payroll:
+            emp_user = await session.get(User, e.user_id)
+            if emp_user:
+                emp_user.coins += amount
+            role_emoji = ROLE_EMOJI.get(e.role, "👤")
+            name = emp_user.first_name if emp_user else "?"
+            activity = e.activity_since_payroll or 0
+            result_lines.append(
+                f"{role_emoji} <b>{name}</b> [{e.role}] — +{_fmt(amount)} $ "
+                f"<i>({activity} cmds)</i>"
+            )
+
+            # Notifier l'employé
+            try:
+                await context.bot.send_message(
+                    chat_id=e.user_id,
+                    text=(
+                        f"💵 <b>Salaire reçu !</b>\n\n"
+                        f"🏢 <b>{company.name}</b> t'a versé <b>{_fmt(amount)} $</b>\n"
+                        f"📊 Activité comptabilisée : {activity} commandes\n"
+                        f"💡 Continue à être actif pour augmenter ta prochaine paie !"
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+            # Reset compteur d'activité
+            e.activity_since_payroll = 0
+
+        company.treasury = max(0, company.treasury - total_to_pay)
+        company.last_payroll = datetime.utcnow()
+
+        await _add_log(session, company.id, "paie",
+                       f"Paie manuelle par le PDG — {_fmt(total_to_pay)} $ distribués",
+                       amount=total_to_pay)
+        await session.commit()
+
+        result_lines.append("─────────────────────────────")
+        result_lines.append(f"💰 Total distribué : <b>{_fmt(total_to_pay)} $</b>")
+        result_lines.append(f"🏦 Trésorerie restante : <b>{_fmt(company.treasury)} $</b>")
+        result_lines.append(f"⏳ Prochaine paie dans <b>{PAYROLL_COOLDOWN_HOURS}h</b>")
+
+        await update.message.reply_text("\n".join(result_lines), parse_mode="HTML")

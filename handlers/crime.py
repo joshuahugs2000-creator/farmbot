@@ -320,6 +320,7 @@ async def rob(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"😈 {robber_tg.first_name} : <i>+{_fmt(amount)} {CURRENCY}</i>",
                 parse_mode=ParseMode.HTML
             )
+            await log_event("rob_success", robber=robber_tg.first_name, victim=victim.first_name, amount=_fmt(amount))
         else:
             # ── Vol raté ────────────────────────────────────────────────────
             bail = amount * 2

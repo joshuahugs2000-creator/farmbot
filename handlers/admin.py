@@ -3359,3 +3359,172 @@ async def adminparts(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Modifié et loggé.",
             parse_mode="HTML"
         )
+
+
+# ─── /auditboite [nom] — Détecter le spam dépôt/retrait ──────────────────────
+
+async def auditboite(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Analyse les logs d'une entreprise et détecte le spam dépôt/retrait."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text(
+            "❌ Usage : <code>/auditboite [nom entreprise]</code>",
+            parse_mode="HTML"
+        )
+
+    name = " ".join(context.args)
+
+    async with AsyncSessionLocal() as session:
+        comp = (await session.execute(
+            text("SELECT * FROM companies WHERE LOWER(name)=LOWER(:n) AND is_active=TRUE LIMIT 1"),
+            {"n": name}
+        )).fetchone()
+        if not comp:
+            return await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
+
+        logs = (await session.execute(text(
+            """
+            SELECT event_type, amount, created_at
+            FROM company_logs
+            WHERE company_id = :cid AND event_type IN ('depot', 'retrait')
+            ORDER BY created_at ASC
+            """
+        ), {"cid": comp.id})).fetchall()
+
+    if not logs:
+        return await update.message.reply_text(
+            f"✅ <b>{comp.name}</b> — Aucun log de dépôt/retrait trouvé.",
+            parse_mode="HTML"
+        )
+
+    # Analyse
+    total_depot   = sum(l.amount or 0 for l in logs if l.event_type == "depot")
+    total_retrait = sum(l.amount or 0 for l in logs if l.event_type == "retrait")
+    nb_depot      = sum(1 for l in logs if l.event_type == "depot")
+    nb_retrait    = sum(1 for l in logs if l.event_type == "retrait")
+
+    # Détecter les cycles rapides (dépôt suivi d'un retrait dans les 60s)
+    cycles_suspects = 0
+    gain_illégitime = 0
+    for i in range(len(logs) - 1):
+        a, b = logs[i], logs[i + 1]
+        if a.event_type == "depot" and b.event_type == "retrait":
+            delta = (b.created_at - a.created_at).total_seconds()
+            if delta < 120:  # moins de 2 minutes = suspect
+                cycles_suspects += 1
+                gain_illégitime += (a.amount or 0)
+
+    # Valeur légitime estimée = valeur actuelle - gain illégitime
+    valeur_actuelle   = comp.value
+    valeur_estimée    = max(50_000_000, valeur_actuelle - gain_illégitime)
+    surplus           = valeur_actuelle - valeur_estimée
+
+    verdict = "🚨 EXPLOIT DÉTECTÉ" if cycles_suspects >= 3 else ("⚠️ Activité suspecte" if cycles_suspects >= 1 else "✅ Aucune anomalie")
+
+    lines = [
+        f"🔍 <b>AUDIT — {comp.name}</b>",
+        f"",
+        f"📊 <b>Résumé des mouvements</b>",
+        f"  💰 Dépôts   : <b>{nb_depot} opérations</b> → <code>{_fmt(total_depot)} $</code>",
+        f"  💸 Retraits : <b>{nb_retrait} opérations</b> → <code>{_fmt(total_retrait)} $</code>",
+        f"  🔁 Cycles suspects (<2min) : <b>{cycles_suspects}</b>",
+        f"",
+        f"📈 <b>Impact sur la valeur</b>",
+        f"  Valeur actuelle   : <code>{_fmt(valeur_actuelle)} $</code>",
+        f"  Gain illégitime ≈ : <code>{_fmt(gain_illégitime)} $</code>",
+        f"  Valeur corrigée ≈ : <code>{_fmt(valeur_estimée)} $</code>",
+        f"",
+        f"<b>Verdict : {verdict}</b>",
+        f"",
+        f"🛠 <b>Actions disponibles :</b>",
+        f"  <code>/setvalue {comp.name} {valeur_estimée}</code> — corriger la valeur",
+        f"  <code>/addvalue {comp.name} -{surplus}</code> — retirer le surplus",
+        f"  <code>/resetboite {comp.name}</code> — reset complet au niveau initial",
+        f"  <code>/deletecompany {comp.name}</code> — supprimer l'entreprise",
+    ]
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+# ─── /setvalue [nom] [montant] — Fixer la valeur exacte ─────────────────────
+
+async def setvalue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fixe la valeur d'une entreprise à un montant exact."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if len(context.args) < 2:
+        return await update.message.reply_text(
+            "❌ Usage : <code>/setvalue [nom] [montant]</code>",
+            parse_mode="HTML"
+        )
+
+    try:
+        montant = int(context.args[-1].replace("_", "").replace(" ", ""))
+    except ValueError:
+        return await update.message.reply_text("❌ Montant invalide.")
+
+    if montant < 1_000_000:
+        return await update.message.reply_text("❌ Valeur minimum : 1 000 000 $")
+
+    name = " ".join(context.args[:-1])
+
+    async with AsyncSessionLocal() as session:
+        result = (await session.execute(
+            text("UPDATE companies SET value=:v WHERE LOWER(name)=LOWER(:n) AND is_active=TRUE RETURNING name, value"),
+            {"v": montant, "n": name}
+        )).fetchone()
+        await session.commit()
+
+    if result:
+        await update.message.reply_text(
+            f"🔧 <b>{result.name}</b> — Valeur fixée à <code>{_fmt(result.value)} $</code>",
+            parse_mode="HTML"
+        )
+    else:
+        await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
+
+
+# ─── /resetboite [nom] — Reset valeur + trésorerie au niveau initial ─────────
+
+LEVEL_BASE_VALUE = {1: 50_000_000, 2: 200_000_000, 3: 500_000_000, 4: 1_000_000_000, 5: 5_000_000_000}
+
+async def resetboite(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remet la valeur et la trésorerie d'une entreprise à l'état initial de son niveau."""
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+    if not context.args:
+        return await update.message.reply_text(
+            "❌ Usage : <code>/resetboite [nom entreprise]</code>",
+            parse_mode="HTML"
+        )
+
+    name = " ".join(context.args)
+
+    async with AsyncSessionLocal() as session:
+        comp = (await session.execute(
+            text("SELECT * FROM companies WHERE LOWER(name)=LOWER(:n) AND is_active=TRUE LIMIT 1"),
+            {"n": name}
+        )).fetchone()
+        if not comp:
+            return await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
+
+        ancienne_valeur = comp.value
+        ancienne_treso  = comp.treasury
+        base_value      = LEVEL_BASE_VALUE.get(comp.level, 50_000_000)
+
+        await session.execute(
+            text("UPDATE companies SET value=:v, treasury=0 WHERE id=:cid"),
+            {"v": base_value, "cid": comp.id}
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"🔄 <b>Reset — {comp.name}</b>\n\n"
+        f"  Valeur avant    : <code>{_fmt(ancienne_valeur)} $</code>\n"
+        f"  Valeur après    : <code>{_fmt(base_value)} $</code>\n"
+        f"  Trésorerie avant: <code>{_fmt(ancienne_treso)} $</code>\n"
+        f"  Trésorerie après: <code>0 $</code>\n\n"
+        f"✅ Entreprise remise à l'état initial du niveau {comp.level}.",
+        parse_mode="HTML"
+    )

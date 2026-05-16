@@ -9,7 +9,7 @@ from config import CURRENCY
 
 # ─── TEXTE D'AIDE COMPLET (utilisateurs) ─────────────────────────────────────
 
-HELP_TEXT = """
+HELP_TEXT_1 = """
 <b>🌳 Your Family ❤️ — Toutes les commandes</b>
 
 <b>👨‍👩‍👧 Famille</b>
@@ -83,6 +83,9 @@ HELP_TEXT = """
 /refusercontrat id — Refuser un contrat
 /mescontrats — Voir les contrats actifs
 /evenements — Voir les événements sectoriels récents
+"""
+
+HELP_TEXT_2 = """<b>🎮 Jeux, Arène, Banque & plus</b>
 
 <b>🎮 Jeux</b>
 /crash mise — Multiplicateur jusqu'au crash !
@@ -140,6 +143,7 @@ HELP_TEXT = """
 /toggle garden — Activer/désactiver le jardin
 /help — Afficher cette aide
 /nouveautes — Voir les dernières mises à jour
+
 """
 
 
@@ -271,7 +275,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(HELP_TEXT, parse_mode=ParseMode.HTML)
+    await update.message.reply_text(HELP_TEXT_1, parse_mode=ParseMode.HTML)
+    await update.message.reply_text(HELP_TEXT_2, parse_mode=ParseMode.HTML)
 
 
 async def nouveautes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

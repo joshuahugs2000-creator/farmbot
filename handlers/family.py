@@ -267,6 +267,7 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = (f"💒 {mention(sender)} et {mention(target)} sont maintenant maries ! 🎉\n"
                     f"Felicitations a la famille {sender.family_name or ''} !\n"
                     f"💝 Cadeau de mariage : <b>{gift:,} {CURRENCY}</b> chacun !")
+            await log_event("marriage", a=sender.first_name, b=target.first_name)
 
         elif req_type_str == "adopt":
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.PARENT, req.group_id)
@@ -274,6 +275,7 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _sync_family_name(session, req.from_user_id, fam)
             relation_type = "adopted"
             text = f"👨‍👦 {mention(sender)} a officiellement adopte {mention(target)} !"
+            await log_event("adoption", a=sender.first_name, b=target.first_name)
 
         else:
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.FRIEND, req.group_id)
@@ -297,6 +299,7 @@ async def divorce(update: Update, context: ContextTypes.DEFAULT_TYPE):
         spouse_id = rel.related_user_id if rel.user_id == user.user_id else rel.user_id
         spouse    = await get_user(session, spouse_id)
         await remove_relationship(session, user.user_id, spouse_id, RelationType.SPOUSE)
+        await log_event("divorce", a=user.first_name, b=spouse.first_name if spouse else "?")
     await update.message.reply_text(
         f"💔 {mention(user)} et {mention(spouse)} ont divorce.",
         parse_mode=ParseMode.HTML,

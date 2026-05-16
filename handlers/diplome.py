@@ -47,6 +47,7 @@ DOMAINS: dict[str, tuple[str, str]] = {
     "management":   ("🏢", "Management"),
     "agriculture":  ("🌾", "Agriculture"),
     "securite":     ("🛡️", "Sécurité"),
+    "sante":        ("🏥", "Santé"),
 }
 
 EXAMS: dict[str, dict] = {

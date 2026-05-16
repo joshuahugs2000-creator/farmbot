@@ -76,12 +76,15 @@ ROLE_DIPLOMA = {
 }
 
 # Revenus par rôle (% des revenus journaliers de l'entreprise)
+# Le PDG reçoit sa part via /versersalaires, comme les autres.
+# /retraitboite reste disponible pour des retraits ponctuels mais ne peut pas
+# entamer la réserve garantissant les salaires des employés.
 ROLE_SHARE = {
     "stagiaire":  0.00,
     "employe":    0.10,
     "manager":    0.20,
-    "directeur":  0.35,
-    "pdg":        0.00,   # PDG touche les dividendes manuellement
+    "directeur":  0.30,
+    "pdg":        0.35,   # PDG touche sa part via /versersalaires
 }
 
 # Entreprises officielles créées par le bot
@@ -674,7 +677,7 @@ async def infoboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈\n\n"
             f"💰 <b>Valeur</b> : {_fmt(company.value)}\n"
             f"🏦 <b>Trésorerie</b> : {_fmt(company.treasury)}\n"
-            f"📈 <b>Revenus/jour</b> : {_fmt(int(company.value * daily_rate) // 30)} <i>(ajoutés en trésorerie)</i>\n"
+            f"📈 <b>Revenus/jour</b> : {_fmt(int(company.value * daily_rate) // 30)} <i>(→ trésorerie, versés via /versersalaires)</i>\n"
             f"⭐ <b>Réputation</b> : {company.reputation:.1f}/5\n"
             f"👤 <b>PDG</b> : {owner_name}\n"
             f"👥 <b>Employés</b> : {nb_emp}/{max_emp}\n"
@@ -1608,7 +1611,8 @@ async def monentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if emp.role == "pdg":
             personal_rev_line = (
-                f"  ╰┈➤  <b>PDG</b> — dividendes via <code>/retraitboite</code>\n"
+                f"  ╰┈➤  👑 <b>PDG</b> — {_fmt(personal_revenue)} $/paie (via <code>/versersalaires</code>)\n"
+                f"  ╰┈➤  💡 <code>/retraitboite</code> pour un retrait ponctuel\n"
             )
         elif personal_revenue > 0:
             # Fix 7 : estimation basée sur l'activité réelle, pas "X$/jour automatique"
@@ -1713,26 +1717,55 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Trésorerie insuffisante. Disponible : {_fmt(company.treasury)} $")
             return
 
-        # Limite : max 20% de la valeur par retrait
-        max_retrait = int(company.value * 0.20)
+        # Limite : max 30% de la valeur par retrait
+        max_retrait = int(company.value * 0.30)
         if amount > max_retrait:
             await update.message.reply_text(
-                f"❌ Tu ne peux pas retirer plus de <b>20%</b> de la valeur de l'entreprise par transaction.\n"
+                f"❌ Tu ne peux pas retirer plus de <b>30%</b> de la valeur de l'entreprise par transaction.\n"
                 f"Max autorisé : {_fmt(max_retrait)} $",
                 parse_mode="HTML"
             )
             return
 
+        # Protection salariale : on garantit que la trésorerie peut couvrir
+        # au moins une paie complète pour tous les employés (hors PDG et stagiaires).
+        emps_actifs = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalars().all()
+        _, _, _, monthly_rate, _ = _level_info(company.level)
+        base_rev = int(company.value * monthly_rate) // 30
+        reserve_salaires = sum(
+            int(base_rev * ROLE_SHARE.get(e.role, 0))
+            for e in emps_actifs
+            if e.role not in ("stagiaire", "pdg")
+        )
+        montant_disponible = max(0, company.treasury - reserve_salaires)
+        if amount > montant_disponible:
+            await update.message.reply_text(
+                f"❌ Ce retrait dépasserait la réserve salariale de tes employés.\n\n"
+                f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n"
+                f"🔒 Réserve salaires employés : <b>{_fmt(reserve_salaires)} $</b>\n"
+                f"💸 Tu peux retirer au maximum : <b>{_fmt(montant_disponible)} $</b>\n\n"
+                f"💡 Utilise <code>/versersalaires</code> pour te payer (PDG inclus) "
+                f"et libérer ensuite les fonds restants.",
+                parse_mode="HTML"
+            )
+            return
+
+        # Retrait sans pénalité sur la valeur — la trésorerie et la valeur sont distinctes.
+        # La valeur de l'entreprise reflète ses actifs/réputation, pas ses liquidités disponibles.
         company.treasury -= amount
-        company.value = max(1_000_000, company.value - int(amount * 0.5))  # Retrait affecte la valeur
         db_user.coins += amount
-        await _update_level(session, company)
         await _add_log(session, company.id, "retrait",
                        f"Retrait PDG ({user.first_name})", amount=amount)
         await session.commit()
 
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> retiré de <b>{company.name}</b>.\n"
+            f"🏦 Trésorerie restante : {_fmt(company.treasury)} $\n"
             f"💰 Ton solde : {_fmt(db_user.coins)} $",
             parse_mode="HTML"
         )
@@ -1843,27 +1876,13 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         # Chercher l'entreprise par nom
-        company_by_name = await _get_company_by_name(session, company_name)
-
-        # Récupérer aussi l'entreprise de l'utilisateur pour vérifier le rôle
-        user_company, emp = await _get_user_company(session, user.id)
-
-        if company_by_name:
-            company = company_by_name
-            # Récupérer le rôle dans cette entreprise spécifique
-            if user_company and user_company.id == company.id:
-                pass  # emp est déjà correct
-            else:
-                emp = None  # l'utilisateur n'est pas dans cette entreprise
-        elif user_company:
-            company = user_company
-        else:
+        company = await _get_company_by_name(session, company_name)
+        if not company:
             await update.message.reply_text(f"❌ Entreprise <b>{company_name}</b> introuvable.", parse_mode="HTML")
             return
 
-        if not emp:
-            await update.message.reply_text("❌ Tu ne fais pas partie de cette entreprise.")
-            return
+        # Récupérer le rôle dans l'entreprise (peut être None si l'user n'est pas employé)
+        emp = await _get_employee(session, company.id, user.id)
 
         # ── Entreprise du bot : vente de parts interdite ──────────────────────
         if company.is_bot_company:
@@ -1879,8 +1898,16 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price_each = company.value // company.total_shares if company.total_shares > 0 else 1
 
         my_shares = await _get_shares(session, company.id, user.id)
+        if my_shares <= 0:
+            await update.message.reply_text(
+                f"❌ Tu ne détiens aucune part dans <b>{company.name}</b>.\n"
+                f"💡 Utilise <code>/parts {company.name}</code> pour voir les actionnaires.",
+                parse_mode="HTML"
+            )
+            return
+
         # PDG doit garder min 51%
-        if emp.role == "pdg":
+        if emp and emp.role == "pdg":
             min_keep = (company.total_shares // 2) + 1
             can_sell = max(0, my_shares - min_keep)
         else:
@@ -1891,7 +1918,7 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if my_shares < qty:
-            await update.message.reply_text(f"❌ Tu n'as que {my_shares} parts.")
+            await update.message.reply_text(f"❌ Tu n'as que {my_shares} parts dans cette entreprise.")
             return
 
         if qty > can_sell:
@@ -1904,22 +1931,22 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total = qty * price_each
         db_user = await get_user(session, user.id)
 
-        # Acheteur = trésorerie de l'entreprise (rachat automatique)
-        # Dans une vraie implem on matcherait avec un acheteur - ici on simplifie
-        if company.treasury < total:
-            await update.message.reply_text(
-                f"❌ La trésorerie n'a pas assez de fonds ({_fmt(company.treasury)} $).\n"
-                f"Le PDG doit déposer plus de capital.",
-                parse_mode="HTML"
-            )
-            return
-
-        company.treasury -= total
-        # Les parts vendues retournent toujours dans owner_shares (rachat entreprise)
-        company.owner_shares += qty
+        # ── RACHAT PAR LE MARCHÉ (pas par la trésorerie) ────────────────────
+        # Le marché rachète les parts : le vendeur reçoit ses coins,
+        # la valeur de l'entreprise diminue proportionnellement,
+        # et le nombre total de parts diminue.
+        # Prix par part reste identique : (value - total) / (total_shares - qty)
+        # → les autres actionnaires ne sont pas lésés.
         db_user.coins += total
+        company.value = max(1_000_000, company.value - total)
+        company.total_shares = max(1, company.total_shares - qty)
+        await _update_level(session, company)
 
-        # Mettre à jour les parts
+        # Si c'est le PDG qui vend, diminuer owner_shares aussi
+        if emp and emp.role == "pdg":
+            company.owner_shares = max(0, company.owner_shares - qty)
+
+        # Mettre à jour les parts du vendeur
         share_row = (await session.execute(
             select(CompanyShare).where(
                 CompanyShare.company_id == company.id,
@@ -1927,16 +1954,18 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )).scalar_one_or_none()
         if share_row:
-            share_row.quantity -= qty
+            share_row.quantity = max(0, share_row.quantity - qty)
 
         await _add_log(session, company.id, "vente_parts",
-                       f"{user.first_name} a vendu {qty} parts à {_fmt(price_each)}/part",
+                       f"{user.first_name} a vendu {qty} parts au marché à {_fmt(price_each)}/part",
                        amount=total)
         await session.commit()
 
         await update.message.reply_text(
-            f"✅ <b>{qty} parts</b> vendues pour <b>{_fmt(total)} $</b> "
-            f"(<b>{_fmt(price_each)} $/part</b>) !",
+            f"✅ <b>{qty} parts</b> vendues au marché pour <b>{_fmt(total)} $</b> "
+            f"(<b>{_fmt(price_each)} $/part</b>) !\n\n"
+            f"💰 Ton solde : <b>{_fmt(db_user.coins)} $</b>\n"
+            f"📉 Valeur de <b>{company.name}</b> : {_fmt(company.value)} $",
             parse_mode="HTML"
         )
 
@@ -2538,7 +2567,7 @@ async def job_daily_report(context) -> None:
                 f"{lvl_emoji} Niveau : <b>{lvl_name}</b>\n\n"
                 f"💰 Valeur : <b>{_fmt(company.value)} $</b>\n"
                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n"
-                f"📈 Revenus/jour : <b>{_fmt(revenue)} $</b> <i>(ajoutés en trésorerie)</i>\n"
+                f"📈 Revenus/jour : <b>{_fmt(revenue)} $</b> <i>(→ trésorerie, PDG inclus dans la paie)</i>\n"
                 f"🕒 Dernière paie : <b>{last_pay_str}</b>"
                 f"{contracts_line}\n\n"
                 f"👥 Employés : <b>{nb_emps}/{max_emp}</b>\n"
@@ -2555,6 +2584,65 @@ async def job_daily_report(context) -> None:
                 )
             except Exception:
                 pass
+
+# ─── COMMANDE : /mesparts ─────────────────────────────────────────────────────
+
+async def mesparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /mesparts — Affiche toutes les parts détenues dans toutes les entreprises.
+    Permet de voir et vendre des parts même sans être employé.
+    """
+    user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        # Chercher toutes les parts de l'utilisateur (qty > 0)
+        all_shares = (await session.execute(
+            select(CompanyShare).where(
+                CompanyShare.owner_id == user.id,
+                CompanyShare.quantity > 0,
+            )
+        )).scalars().all()
+
+        if not all_shares:
+            await update.message.reply_text(
+                "📭 Tu ne détiens aucune part dans une entreprise.\n\n"
+                "💡 Achète des parts avec <code>/acheterparts [nb] [nom entreprise]</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        total_value = 0
+        lines = [
+            "📦 <b>MES PARTS D'ENTREPRISE</b>",
+            "─────────────────────────────",
+        ]
+
+        for s in all_shares:
+            company = await session.get(Company, s.company_id)
+            if not company or not company.is_active:
+                continue
+            sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
+            price_per = company.value // company.total_shares if company.total_shares > 0 else 0
+            val = s.quantity * price_per
+            total_value += val
+            pct = (s.quantity / company.total_shares) * 100
+
+            # Statut dans l'entreprise
+            emp = await _get_employee(session, company.id, user.id)
+            role_tag = f" · {ROLE_EMOJI.get(emp.role, '')} {emp.role.capitalize()}" if emp else " · 🔗 Actionnaire ext."
+
+            lines.append(
+                f"\n{sec_emoji} <b>{company.name}</b>{role_tag}\n"
+                f"   📦 {s.quantity} parts ({pct:.1f}%) · 💰 {_fmt(val)} $\n"
+                f"   📊 Prix/part : {_fmt(price_per)} $ · Total parts : {company.total_shares}\n"
+                f"   💡 <code>/vendreparts {s.quantity} {company.name}</code>"
+            )
+
+        lines.append("\n─────────────────────────────")
+        lines.append(f"💼 Valeur totale de ton portefeuille : <b>{_fmt(total_value)} $</b>")
+        lines.append("ℹ️ La vente de parts ne nécessite pas d'être employé dans l'entreprise.")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
 
 # ─── COMMANDE : /offresparts ─────────────────────────────────────────────────
 
@@ -2720,7 +2808,9 @@ async def salaireinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if emp.role == "pdg":
             salaire_line = (
-                f"  ╰┈➤  👑 PDG — touche les dividendes via <code>/retraitboite</code>\n"
+                f"  ╰┈➤  👑 PDG — <b>~{_fmt(personal_revenue)} $/paie</b>\n"
+                f"  ╰┈➤  Déclenche <code>/versersalaires</code> pour te payer (PDG inclus)\n"
+                f"  ╰┈➤  ou <code>/retraitboite</code> pour un retrait ponctuel (réserve salariale protégée)\n"
             )
         elif personal_revenue > 0:
             # Fix 7 : affichage basé sur l'activité, plus "X$/jour automatique"
@@ -2829,11 +2919,11 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "─────────────────────────────",
         ]
 
-        # Fix 4 : Exclure PDG et stagiaires du calcul de total_activity (ils ne reçoivent pas de salaire)
+        # Fix 4 : Exclure stagiaires du calcul de total_activity (ils ne reçoivent pas de salaire)
         total_activity = sum(
             (e.activity_since_payroll or 0)
             for e in emps
-            if e.role not in ("stagiaire", "pdg")
+            if e.role != "stagiaire"
         )
 
         for e in sorted(emps, key=lambda x: (x.activity_since_payroll or 0), reverse=True):
@@ -2842,19 +2932,14 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             role_emoji = ROLE_EMOJI.get(e.role, "👤")
             activity = e.activity_since_payroll or 0
 
-            if e.role in ("stagiaire", "pdg"):
+            if e.role == "stagiaire":
                 salary_preview = "—"
-            elif total_activity > 0:
+            else:
                 share = ROLE_SHARE.get(e.role, 0)
                 _, _, _, monthly_rate, _ = _level_info(company.level)
                 base_rev = int(company.value * monthly_rate) // 30
                 activity_bonus = min(0.5, activity / 40)
                 salary_preview = _fmt(int(base_rev * share * (1 + activity_bonus)))
-            else:
-                share = ROLE_SHARE.get(e.role, 0)
-                _, _, _, monthly_rate, _ = _level_info(company.level)
-                base_rev = int(company.value * monthly_rate) // 30
-                salary_preview = _fmt(int(base_rev * share))
 
             bar_full = min(10, activity)
             bar = "█" * bar_full + "░" * (10 - bar_full)
@@ -2913,7 +2998,7 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
-        # Récupérer les employés actifs (hors stagiaires)
+        # Récupérer les employés actifs (hors stagiaires) — PDG INCLUS
         emps = (await session.execute(
             select(CompanyEmployee).where(
                 CompanyEmployee.company_id == company.id,

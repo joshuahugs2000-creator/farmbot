@@ -275,16 +275,48 @@ async def init_company_tables():
 
 async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
     """Distribue les revenus des entreprises à tous les employés actifs."""
+    # Importer les systèmes sectoriels (bonus diplôme + contrats)
+    try:
+        from handlers.company_sector import get_diploma_bonus, get_all_active_contracts, get_contract_bonus
+        active_contracts = None  # chargé une seule fois ci-dessous
+    except ImportError:
+        get_diploma_bonus = None
+        active_contracts = None
+
     async with AsyncSessionLocal() as session:
         companies = (await session.execute(
             select(Company).where(Company.is_active == True)
         )).scalars().all()
 
+        # Charger tous les contrats actifs une seule fois
+        if get_diploma_bonus:
+            try:
+                from handlers.company_sector import get_all_active_contracts, get_contract_bonus
+                active_contracts = await get_all_active_contracts(session)
+            except Exception:
+                active_contracts = []
+
         for company in companies:
             _, _, _, monthly_rate, _ = _level_info(company.level)
-            revenue = int(company.value * monthly_rate) // 30  # versement journalier = taux mensuel ÷ 30
-            if revenue <= 0:
+            base_revenue = int(company.value * monthly_rate) // 30  # versement journalier = taux mensuel ÷ 30
+            if base_revenue <= 0:
                 continue
+
+            # ── Bonus diplôme PDG ──────────────────────────────────────────
+            diploma_bonus_rate = 0.0
+            if get_diploma_bonus and not company.is_bot_company:
+                pdg_user = await session.get(User, company.owner_id)
+                if pdg_user:
+                    diploma_bonus_rate = get_diploma_bonus(pdg_user, company.sector)
+
+            # ── Bonus contrats actifs ──────────────────────────────────────
+            contract_bonus_rate = 0.0
+            if active_contracts is not None and not company.is_bot_company:
+                contract_bonus_rate = get_contract_bonus(company.id, active_contracts)
+
+            # ── Revenu final avec tous les bonus ──────────────────────────
+            total_bonus_rate = diploma_bonus_rate + contract_bonus_rate
+            revenue = int(base_revenue * (1 + total_bonus_rate))
 
             # Bot company sans employés : pas de revenus en caisse (évite inflation infinie)
             if company.is_bot_company:

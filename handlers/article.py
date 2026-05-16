@@ -15,8 +15,7 @@ from utils.helpers import ensure_user, parse_target, mention
 from handlers.admin import is_admin
 from config import CURRENCY
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama-3.3-70b-versatile"   # llama3-8b-8192 décommissionné 08/2025
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 
 def _fmt(n) -> str:
@@ -235,36 +234,35 @@ Rédige un article Breaking News de 220 à 280 mots.
 
 
 async def _call_groq(system_prompt: str, user_prompt: str) -> str:
-    api_key = os.getenv("GROQ_API_KEY", "")
+    """Appelle Google Gemini (API gratuite) pour générer du texte."""
+    api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
-        return "❌ GROQ_API_KEY non configurée dans les variables d'environnement."
+        return "❌ GEMINI_API_KEY non configurée dans les variables d'environnement."
+
+    # Gemini n'a pas de "system" séparé — on fusionne les deux prompts
+    full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
     payload = {
-        "model":       GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt},
-        ],
-        "max_tokens":  700,
-        "temperature": 1.0,
-        "top_p":       0.95,
+        "contents": [{"parts": [{"text": full_prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": 700,
+            "temperature":     1.0,
+            "topP":            0.95,
+        },
     }
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            GROQ_API_URL,
+            f"{GEMINI_API_URL}?key={api_key}",
             json=payload,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type":  "application/json",
-            },
+            headers={"Content-Type": "application/json"},
             timeout=aiohttp.ClientTimeout(total=25),
         ) as resp:
             if resp.status != 200:
                 text_err = await resp.text()
-                return f"❌ Erreur Groq ({resp.status}) : {text_err[:300]}"
+                return f"❌ Erreur Gemini ({resp.status}) : {text_err[:300]}"
             result = await resp.json()
-            return result["choices"][0]["message"]["content"].strip()
+            return result["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
 async def article_cmd(update, context):

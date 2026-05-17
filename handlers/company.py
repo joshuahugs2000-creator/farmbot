@@ -3165,3 +3165,175 @@ async def skipattente_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Tu peux maintenant postuler dans une entreprise avec <code>/postuler [nom]</code>.",
         parse_mode="HTML",
     )
+
+
+# ─── /annoncerecrutement — Annonce PDG broadcast dans tous les groupes ─────────
+
+ANNONCE_COOLDOWN = {}  # company_id -> dernière annonce (timestamp)
+ANNONCE_COOLDOWN_SEC = 86400  # 24h
+
+ANNONCE_TYPES = {
+    "recrutement": "📢 Recrutement",
+    "partenariat": "🤝 Partenariat",
+    "promotion":   "🎉 Promotion interne",
+    "flexing":     "💰 Palmarès",
+}
+
+
+def _build_annonce(type_key: str, company: "Company", rank: int, total: int) -> str:
+    sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
+    lvl_emoji, lvl_name, *_ = LEVELS.get(company.level, LEVELS[1])
+    val_str = _fmt(company.value)
+    rep = company.reputation
+
+    if type_key == "recrutement":
+        # Estimation salaire mensuel
+        daily_rate = 0.001 * (1 + (company.level - 1) * 0.002)
+        est_salary = _fmt(int(company.value * daily_rate) // 30)
+        return (
+            f"📢 <b>{company.name} recrute !</b>\n\n"
+            f"{sec_emoji} Secteur : <b>{sec_name}</b> | {lvl_emoji} Niveau : <b>{lvl_name}</b>\n"
+            f"⭐ Réputation : <b>{rep:.1f}/5</b>\n"
+            f"💵 Salaire estimé : <b>~{est_salary} $ / semaine</b>\n\n"
+            f"👉 <code>/postuler {company.name}</code>"
+        )
+    elif type_key == "partenariat":
+        return (
+            f"🤝 <b>{company.name} cherche un partenaire !</b>\n\n"
+            f"{sec_emoji} Secteur : <b>{sec_name}</b>\n"
+            f"⭐ Réputation : <b>{rep:.1f}/5</b> | 💰 Valeur : <b>{val_str} $</b>\n\n"
+            f"Proposez un contrat inter-secteurs :\n"
+            f"👉 <code>/proposercontrat {company.name}</code>"
+        )
+    elif type_key == "promotion":
+        return (
+            f"🎉 <b>{company.name}</b> vient de promouvoir un membre de son équipe !\n\n"
+            f"{sec_emoji} Secteur : <b>{sec_name}</b> | {lvl_emoji} <b>{lvl_name}</b>\n"
+            f"L'équipe s'agrandit et se renforce. Rejoignez l'aventure !\n\n"
+            f"👉 <code>/postuler {company.name}</code>"
+        )
+    elif type_key == "flexing":
+        return (
+            f"💰 <b>{company.name}</b> — #{rank} sur {total} entreprises\n\n"
+            f"Valeur : <b>{val_str} $</b> | {lvl_emoji} <b>{lvl_name}</b>\n"
+            f"⭐ Réputation : <b>{rep:.1f}/5</b>\n\n"
+            f"On recrute les meilleurs. Vous êtes à la hauteur ?\n"
+            f"👉 <code>/postuler {company.name}</code>"
+        )
+    return ""
+
+
+async def annoncerecrutement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /annoncerecrutement — Le PDG choisit un type d'annonce (boutons), le bot l'envoie dans tous les groupes.
+    Cooldown 24h par entreprise.
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    user = update.effective_user
+
+    async with AsyncSessionLocal() as session:
+        result = await _get_user_company(session, user.id)
+        if not result:
+            return await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
+        company, emp = result
+        if emp.role not in ("pdg", "directeur"):
+            return await update.message.reply_text("❌ Seul le PDG ou Directeur peut envoyer une annonce.")
+
+        # Vérifier cooldown
+        import time
+        now = time.time()
+        last = ANNONCE_COOLDOWN.get(company.id, 0)
+        if now - last < ANNONCE_COOLDOWN_SEC:
+            reste = int((ANNONCE_COOLDOWN_SEC - (now - last)) / 3600)
+            return await update.message.reply_text(
+                f"⏳ Annonce déjà envoyée aujourd'hui.\n"
+                f"Prochaine annonce disponible dans <b>{reste}h</b>.",
+                parse_mode="HTML"
+            )
+
+    # Afficher le menu de choix
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Recrutement",     callback_data=f"annonce:{company.id}:recrutement")],
+        [InlineKeyboardButton("🤝 Partenariat",     callback_data=f"annonce:{company.id}:partenariat")],
+        [InlineKeyboardButton("🎉 Promotion interne", callback_data=f"annonce:{company.id}:promotion")],
+        [InlineKeyboardButton("💰 Palmarès",        callback_data=f"annonce:{company.id}:flexing")],
+    ])
+    await update.message.reply_text(
+        f"📣 <b>Quelle annonce veux-tu diffuser pour <i>{company.name}</i> ?</b>\n\n"
+        f"Elle sera envoyée dans tous les groupes actifs du bot.",
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+
+
+async def annoncerecrutement_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback quand le PDG choisit son type d'annonce."""
+    from database.db import get_all_groups
+    import time
+    query = update.callback_query
+    await query.answer()
+
+    _, company_id_str, type_key = query.data.split(":")
+    company_id = int(company_id_str)
+
+    # Vérifier que c'est bien le PDG qui clique
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company_id,
+                CompanyEmployee.user_id == user_id,
+                CompanyEmployee.left_at == None,
+                CompanyEmployee.role.in_(["pdg", "directeur"]),
+            )
+        )).scalar_one_or_none()
+        if not emp:
+            return await query.edit_message_text("❌ Tu n'es plus autorisé à faire cette action.")
+
+        company = await session.get(Company, company_id)
+        if not company or not company.is_active:
+            return await query.edit_message_text("❌ Entreprise introuvable.")
+
+        # Rang de l'entreprise
+        all_companies = (await session.execute(
+            select(Company).where(Company.is_active == True).order_by(Company.value.desc())
+        )).scalars().all()
+        total = len(all_companies)
+        rank = next((i + 1 for i, c in enumerate(all_companies) if c.id == company_id), total)
+
+    # Cooldown
+    now = time.time()
+    last = ANNONCE_COOLDOWN.get(company_id, 0)
+    if now - last < ANNONCE_COOLDOWN_SEC:
+        reste = int((ANNONCE_COOLDOWN_SEC - (now - last)) / 3600)
+        return await query.edit_message_text(
+            f"⏳ Annonce déjà envoyée. Réessaie dans <b>{reste}h</b>.",
+            parse_mode="HTML"
+        )
+
+    ANNONCE_COOLDOWN[company_id] = now
+
+    msg = _build_annonce(type_key, company, rank, total)
+    groups = await get_all_groups(active_only=True)
+
+    sent_ok = 0
+    sent_err = 0
+    current_chat = query.message.chat_id
+    for grp in groups:
+        gid = grp[0]
+        if gid == current_chat:
+            continue
+        try:
+            await context.bot.send_message(chat_id=gid, text=msg, parse_mode="HTML")
+            sent_ok += 1
+        except Exception:
+            sent_err += 1
+
+    label = ANNONCE_TYPES.get(type_key, type_key)
+    await query.edit_message_text(
+        f"✅ <b>Annonce « {label} » diffusée !</b>\n\n"
+        f"📡 Envoyée dans <b>{sent_ok}</b> groupe(s)"
+        + (f" — {sent_err} échec(s)" if sent_err else "") + ".\n"
+        f"⏳ Prochaine annonce disponible dans <b>24h</b>.",
+        parse_mode="HTML"
+    )

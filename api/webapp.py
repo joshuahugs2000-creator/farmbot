@@ -613,11 +613,115 @@ async def webapp_game(request: web.Request) -> web.Response:
             await session.commit()
             return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise'], 'mult': mult})
 
+        # ── APPLE OF FORTUNE ──────────────────────────────────────────────────
+        if game == 'apple_start':
+            if mise < _APPLE_MIN:
+                return web.json_response({'error': f'Mise minimum {_APPLE_MIN:,} $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            user.coins -= mise
+            await session.commit()
+            row = _apple_gen_row(1)
+            _APPLE_SESSIONS[uid] = {'mise': mise, 'level': 1, 'row': row}
+            return web.json_response({'ok': True, 'level': 1, 'bombs': _apple_bombs(1)})
+
+        if game == 'apple_pick':
+            col = int(body.get('col', 0))
+            sess = _APPLE_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            row = sess['row']
+            is_bomb = row[col]
+            if is_bomb:
+                _APPLE_SESSIONS.pop(uid, None)
+                return web.json_response({'ok': True, 'bomb': True, 'row': row})
+            # Safe — avance au niveau suivant
+            level = sess['level']
+            mult = _APPLE_MULTS.get(level, 1.0)
+            gain_now = int(sess['mise'] * mult)
+            if level >= 10:
+                # Gagné tout !
+                _APPLE_SESSIONS.pop(uid, None)
+                user.coins += gain_now
+                await session.commit()
+                return web.json_response({'ok': True, 'bomb': False, 'won': True, 'mult': mult, 'gain': gain_now, 'row': row})
+            # Prochain niveau
+            new_level = level + 1
+            new_row = _apple_gen_row(new_level)
+            sess['level'] = new_level
+            sess['row'] = new_row
+            next_mult = _APPLE_MULTS.get(new_level, 1.0)
+            return web.json_response({'ok': True, 'bomb': False, 'won': False, 'level': new_level, 'mult': mult, 'gain_now': gain_now, 'next_mult': next_mult, 'bombs_next': _apple_bombs(new_level), 'row': row})
+
+        if game == 'apple_cashout':
+            sess = _APPLE_SESSIONS.pop(uid, None)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            level = sess['level'] - 1  # le level passé
+            mult = _APPLE_MULTS.get(level, 1.0)
+            gain = int(sess['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise'], 'mult': mult})
+
+        # ── REBET — Quitte ou Double ──────────────────────────────────────────
+        if game == 'rebet_start':
+            MIN_REBET = 5000
+            if mise < MIN_REBET:
+                return web.json_response({'error': f'Mise minimum {MIN_REBET:,} $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            user.coins -= mise
+            await session.commit()
+            _REBET_SESSIONS[uid] = {'mise': mise, 'gains': mise, 'round': 1}
+            return web.json_response({'ok': True, 'gains': mise, 'round': 1})
+
+        if game == 'rebet_action':
+            action = body.get('action')  # 'cash' ou 'double'
+            sess = _REBET_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            if action == 'cash':
+                gains = sess['gains']
+                _REBET_SESSIONS.pop(uid, None)
+                user.coins += gains
+                await session.commit()
+                return web.json_response({'ok': True, 'gained': gains, 'profit': gains - sess['mise']})
+            elif action == 'double':
+                won = _random_game.random() < 0.5
+                if won:
+                    sess['gains'] *= 2
+                    sess['round'] += 1
+                    return web.json_response({'ok': True, 'won': True, 'gains': sess['gains'], 'round': sess['round']})
+                else:
+                    _REBET_SESSIONS.pop(uid, None)
+                    return web.json_response({'ok': True, 'won': False, 'lost': sess['gains']})
+            return web.json_response({'error': 'Action invalide'})
+
     return web.json_response({'error': 'Jeu inconnu'}, status=400)
 
 
 _CRASH_SESSIONS: dict = {}
 _MINES_SESSIONS: dict = {}
+_APPLE_SESSIONS: dict = {}
+_REBET_SESSIONS: dict = {}
+
+# ── Apple of Fortune constants ────────────────────────────────────────────────
+_APPLE_MULTS = {1:1.50,2:2.10,3:3.20,4:4.80,5:7.00,6:12.00,7:22.00,8:45.00,9:100.00,10:500.00}
+_APPLE_MIN   = 50_000
+
+def _apple_bombs(level: int) -> int:
+    if level <= 2: return 2
+    if level <= 8: return 3
+    return 4
+
+def _apple_gen_row(level: int) -> list:
+    import random as _r
+    n = _apple_bombs(level)
+    row = [False]*5
+    for pos in _r.sample(range(5), n):
+        row[pos] = True
+    return row  # True = bombe
 
 
 def setup_webapp_routes(app: web.Application):

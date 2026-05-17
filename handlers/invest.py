@@ -611,7 +611,61 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── /portfolio ───────────────────────────────────────────────────────────────
+# ─── /portfolio (paginé) ──────────────────────────────────────────────────────
+
+PF_PAGE_SIZE = 5  # investissements par page
+
+
+def _build_portfolio_page(investments: list, page: int, first_name: str, coins: int) -> tuple:
+    """Construit le texte + clavier d'une page du portfolio."""
+    total_pages = max(1, (len(investments) + PF_PAGE_SIZE - 1) // PF_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    slice_ = investments[page * PF_PAGE_SIZE:(page + 1) * PF_PAGE_SIZE]
+
+    total_invested = sum(inv.buy_price * inv.quantity for inv in investments)
+    total_current  = sum(
+        (_current_price(inv.asset_id) if inv.asset_id in ASSETS else inv.buy_price) * inv.quantity
+        for inv in investments
+    )
+    total_pnl = total_current - total_invested
+    pnl_str = f"+{_fmt(total_pnl)}" if total_pnl >= 0 else f"-{_fmt(abs(total_pnl))}"
+    pnl_e   = "🟢" if total_pnl >= 0 else "🔴"
+
+    lines = [
+        f"<b>📈 Portfolio de {first_name}</b>  "
+        f"<i>(page {page + 1}/{total_pages} · {len(investments)} positions)</i>\n"
+    ]
+
+    for inv in slice_:
+        a   = ASSETS.get(inv.asset_id, {})
+        cur = _current_price(inv.asset_id) if inv.asset_id in ASSETS else inv.buy_price
+        invest  = inv.buy_price * inv.quantity
+        cur_val = cur * inv.quantity
+        pnl     = cur_val - invest
+        p_str   = f"+{_fmt(pnl)}" if pnl >= 0 else f"-{_fmt(abs(pnl))}"
+        p_e     = "🟢" if pnl >= 0 else "🔴"
+        lines.append(
+            f"{a.get('emoji', '📊')} <b>#{inv.id} {a.get('name', inv.asset_id)}</b> x{inv.quantity}\n"
+            f"  └ Acheté : {_fmt(inv.buy_price)} {CURRENCY} | Actuel : ~{_fmt(cur)} {CURRENCY}\n"
+            f"  └ P&L : {p_e} {p_str} {CURRENCY}   — /sell {inv.id}\n"
+        )
+
+    lines.append(f"━━━━━━━━━━━━━━━━━━━━━━━━")
+    lines.append(f"💼 Total investi : {_fmt(total_invested)} {CURRENCY}")
+    lines.append(f"📊 Valeur actuelle : ~{_fmt(total_current)} {CURRENCY}")
+    lines.append(f"{pnl_e} P&L total : <b>{pnl_str} {CURRENCY}</b>")
+    lines.append(f"👛 Portefeuille : {_fmt(coins)} {CURRENCY}")
+
+    # Clavier de navigation
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("⬅️ Préc.", callback_data=f"pf:{page - 1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("Suiv. ➡️", callback_data=f"pf:{page + 1}"))
+    keyboard = InlineKeyboardMarkup([nav]) if nav else None
+
+    return "\n".join(lines), keyboard
+
 
 async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = await ensure_user(update.effective_user)
@@ -621,7 +675,7 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             select(Investment).where(
                 Investment.user_id == user.user_id,
                 Investment.status == "active",
-            )
+            ).order_by(Investment.id)
         )
         investments = result.scalars().all()
         u = await get_user(session, user.user_id)
@@ -631,34 +685,37 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Tu n'as aucun investissement actif.\nVoir /market pour acheter."
         )
 
-    lines = [f"<b>📈 Portfolio de {update.effective_user.first_name}</b>\n"]
-    total_invested = 0
-    total_current = 0
+    text, keyboard = _build_portfolio_page(
+        investments, page=0,
+        first_name=update.effective_user.first_name,
+        coins=u.coins if u else 0
+    )
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
-    for inv in investments:
-        a = ASSETS.get(inv.asset_id, {})
-        cur = _current_price(inv.asset_id) if inv.asset_id in ASSETS else inv.buy_price
-        invest = inv.buy_price * inv.quantity
-        cur_val = cur * inv.quantity
-        pnl = cur_val - invest
-        pnl_str = f"+{_fmt(pnl)}" if pnl >= 0 else f"-{_fmt(abs(pnl))}"
-        pnl_e = "🟢" if pnl >= 0 else "🔴"
 
-        lines.append(
-            f"{a.get('emoji', '📊')} <b>#{inv.id} {a.get('name', inv.asset_id)}</b> x{inv.quantity}\n"
-            f"  └ Acheté : {_fmt(inv.buy_price)} {CURRENCY} | Actuel : ~{_fmt(cur)} {CURRENCY}\n"
-            f"  └ P&L : {pnl_e} {pnl_str} {CURRENCY}   — /sell {inv.id}\n"
+async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    page = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Investment).where(
+                Investment.user_id == user_id,
+                Investment.status == "active",
+            ).order_by(Investment.id)
         )
-        total_invested += invest
-        total_current += cur_val
+        investments = result.scalars().all()
+        u = await get_user(session, user_id)
 
-    total_pnl = total_current - total_invested
-    pnl_str = f"+{_fmt(total_pnl)}" if total_pnl >= 0 else f"-{_fmt(abs(total_pnl))}"
-    pnl_e = "🟢" if total_pnl >= 0 else "🔴"
+    if not investments:
+        return await query.edit_message_text("Tu n'as plus d'investissements actifs.")
 
-    lines.append(f"\n💼 Total investi : {_fmt(total_invested)} {CURRENCY}")
-    lines.append(f"📊 Valeur actuelle : ~{_fmt(total_current)} {CURRENCY}")
-    lines.append(f"{pnl_e} P&L total : <b>{pnl_str} {CURRENCY}</b>")
-    lines.append(f"👛 Portefeuille : {_fmt(u.coins if u else 0)} {CURRENCY}")
-
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    text, keyboard = _build_portfolio_page(
+        investments, page=page,
+        first_name=query.from_user.first_name,
+        coins=u.coins if u else 0
+    )
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)

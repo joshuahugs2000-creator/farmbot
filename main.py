@@ -79,7 +79,7 @@ from handlers.bank     import (
     balancebank, loanbank, repaybank, loansbank,
     pay_interests, remind_loans,
 )
-from handlers.invest   import market, market_callback, buy, sell, portfolio
+from handlers.invest   import market, market_callback, buy, sell, portfolio, portfolio_callback
 from handlers.crime    import (
     police, bail, bail_judgment, juge, juge_callback,
     security, security_callback,
@@ -460,6 +460,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(lancer_callback,     pattern=r"^lancer:"))
     app.add_handler(CallbackQueryHandler(mines_callback,      pattern=r"^mines:"))
     app.add_handler(CallbackQueryHandler(market_callback,     pattern=r"^mkt:"))
+    app.add_handler(CallbackQueryHandler(portfolio_callback,  pattern=r"^pf:"))
 
     # ── Admin ─────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("adminhelp",      adminhelp))

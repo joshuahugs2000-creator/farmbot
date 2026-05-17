@@ -464,7 +464,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="card" style="padding:16px 0;overflow:hidden;display:flex;justify-content:center;align-items:center;background:#070714;">
           <div style="position:relative;">
             <canvas id="roue-canvas" width="300" height="300"></canvas>
-            <div style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);font-size:30px;z-index:10;filter:drop-shadow(0 2px 8px #000);">▼</div>
+            <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);z-index:10;">
+              <svg width="24" height="28" viewBox="0 0 24 28"><polygon points="12,28 0,0 24,0" fill="#f7c948" filter="url(#glow)"/><defs><filter id="glow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs></svg>
+            </div>
           </div>
         </div>
         <div class="card" style="margin-top:10px;">
@@ -1754,8 +1756,11 @@ function initCrashCanvas() {
   const c = document.getElementById('crash-canvas');
   if (!c) return;
   const ctx = c.getContext('2d');
-  // Sync canvas size to display size
-  c.width = c.offsetWidth || 360;
+  // Sync canvas resolution to actual display size
+  const displayW = c.clientWidth || 360;
+  const displayH = c.clientHeight || 220;
+  c.width = displayW;
+  c.height = displayH;
   drawCrashIdle(ctx, c);
   const plane = document.getElementById('crash-plane-svg');
   if (plane) { plane.style.display = 'none'; }
@@ -1793,11 +1798,15 @@ function _crashCurveTip(c, mult) {
 function _movePlane(c, tip, angle) {
   const plane = document.getElementById('crash-plane-svg');
   if (!plane) return;
+  const rect = c.getBoundingClientRect();
   const arena = document.getElementById('crash-arena');
-  const scaleX = arena.offsetWidth / c.width;
-  const scaleY = arena.offsetHeight / c.height;
-  const px = tip.x * scaleX - 30;
-  const py = tip.y * scaleY - 20;
+  const arenaRect = arena.getBoundingClientRect();
+  // Scale from canvas logical pixels to display pixels
+  const scaleX = rect.width / c.width;
+  const scaleY = rect.height / c.height;
+  // Position relative to arena
+  const px = (rect.left - arenaRect.left) + tip.x * scaleX - 30;
+  const py = (rect.top  - arenaRect.top)  + tip.y * scaleY - 20;
   plane.style.display = 'block';
   plane.style.left = px + 'px';
   plane.style.top  = py + 'px';
@@ -1826,19 +1835,31 @@ function drawCrashFrame(ctx, c, mult, crashed) {
 
   if (pts.length >= 2) {
     const color = crashed ? '#ff4444' : '#f7c948';
+    // Outer glow pass
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.strokeStyle = crashed ? 'rgba(255,68,68,0.3)' : 'rgba(247,201,72,0.25)';
+    ctx.lineWidth = 10;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 20;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Main trail
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
     ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3.5;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 14;
     ctx.stroke();
     ctx.shadowBlur = 0;
+    // Fill under curve
     ctx.lineTo(pts[pts.length-1].x, c.height - 30);
     ctx.lineTo(pts[0].x, c.height - 30);
     ctx.closePath();
-    ctx.fillStyle = crashed ? 'rgba(255,68,68,0.08)' : 'rgba(247,201,72,0.06)';
+    ctx.fillStyle = crashed ? 'rgba(255,68,68,0.10)' : 'rgba(247,201,72,0.08)';
     ctx.fill();
 
     const tip = pts[pts.length - 1];
@@ -1988,33 +2009,33 @@ function resetCrash() {
 
 // ─── ROUE ────────────────────────────────────────────────────────────────────
 const ROUE_SEGS = [
-  {label:'💀 Ruine',     color:'#1a0000'},
-  {label:'☠️ x0.1',     color:'#2a0a0a'},
-  {label:'😭 x0.2',     color:'#3a1a0a'},
-  {label:'😞 x0.3',     color:'#2a1a00'},
-  {label:'💸 x0.4',     color:'#1a1a10'},
-  {label:'😐 x0.5',     color:'#1a1a2a'},
-  {label:'🔄 IDEM',     color:'#0a1a2a'},
-  {label:'🙂 x0.8',     color:'#0a2a1a'},
-  {label:'💵 +50K',     color:'#0a2a0a'},
-  {label:'💰 x1.2',     color:'#0a2a10'},
-  {label:'💵 +200K',    color:'#0a2a20'},
-  {label:'💰 x1.5',     color:'#103a10'},
-  {label:'🎁 +500K',    color:'#1a3a00'},
-  {label:'🤑 x2.0',     color:'#2a3a00'},
-  {label:'🎯 x3.0',     color:'#3a2a00'},
-  {label:'💵 +1M',      color:'#3a1a00'},
-  {label:'⭐ x5.0',     color:'#f7c94820'},
-  {label:'🔥 x10.0',    color:'#ff6b6b20'},
-  {label:'🌟 x15.0',    color:'#a29bfe30'},
-  {label:'💎 x25.0',    color:'#00cec940'},
+  {label:'💀 Ruine',     color:'#c0392b'},
+  {label:'☠️ x0.1',     color:'#e74c3c'},
+  {label:'😭 x0.2',     color:'#e67e22'},
+  {label:'😞 x0.3',     color:'#d35400'},
+  {label:'💸 x0.4',     color:'#e67e22'},
+  {label:'😐 x0.5',     color:'#f39c12'},
+  {label:'🔄 IDEM',     color:'#2980b9'},
+  {label:'🙂 x0.8',     color:'#16a085'},
+  {label:'💵 +50K',     color:'#27ae60'},
+  {label:'💰 x1.2',     color:'#2ecc71'},
+  {label:'💵 +200K',    color:'#1abc9c'},
+  {label:'💰 x1.5',     color:'#16a085'},
+  {label:'🎁 +500K',    color:'#8e44ad'},
+  {label:'🤑 x2.0',     color:'#9b59b6'},
+  {label:'🎯 x3.0',     color:'#2c3e50'},
+  {label:'💵 +1M',      color:'#3498db'},
+  {label:'⭐ x5.0',     color:'#f1c40f'},
+  {label:'🔥 x10.0',   color:'#e74c3c'},
+  {label:'🌟 x15.0',   color:'#a29bfe'},
+  {label:'💎 x25.0',   color:'#00cec9'},
 ];
 
 const ROUE_ACCENT = [
-  '#3a0000','#4a1a0a','#5a2a0a','#3a2a00','#2a2a10',
-  '#2a2a3a','#0a2a3a','#0a3a2a','#0a3a0a','#0a3a10',
-  '#0a4a20','#104a10','#2a4a00','#3a4a00','#4a3a00',
-  '#4a2a00','#f7c948','#ff6b6b','#a29bfe','#00cec9'
+  '#e74c3c','#c0392b','#d35400','#e67e22','#f39c12',
+  '#f1c40f','#3498db','#1abc9c','#2ecc71','#27ae60',
+  '#16a085','#1abc9c','#8e44ad','#9b59b6','#34495e',
+  '#2980b9','#f7c948','#ff4757','#a29bfe','#00cec9'
 ];
 
 let roueSpin = false;
@@ -2027,66 +2048,95 @@ function initRoueCanvas() {
 }
 
 function drawRoue(ctx, c, angle) {
-  const cx = c.width / 2, cy = c.height / 2, r = cx - 10;
+  const cx = c.width / 2, cy = c.height / 2, r = cx - 12;
   const N = ROUE_SEGS.length;
   const step = (Math.PI * 2) / N;
   ctx.clearRect(0, 0, c.width, c.height);
 
-  // Outer glow
-  const grd = ctx.createRadialGradient(cx, cy, r * 0.7, cx, cy, r + 10);
-  grd.addColorStop(0, 'transparent');
-  grd.addColorStop(1, 'rgba(247,201,72,0.15)');
-  ctx.fillStyle = grd;
+  // Dark background circle
   ctx.beginPath();
-  ctx.arc(cx, cy, r + 10, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r + 14, 0, Math.PI * 2);
+  ctx.fillStyle = '#0d0d20';
   ctx.fill();
 
+  // Segments
   for (let i = 0; i < N; i++) {
     const a0 = angle + i * step;
     const a1 = a0 + step;
+    const midA = a0 + step / 2;
+
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, a0, a1);
     ctx.closePath();
-    ctx.fillStyle = ROUE_ACCENT[i];
+
+    // Radial gradient per segment
+    const gx = cx + Math.cos(midA) * r * 0.5;
+    const gy = cy + Math.sin(midA) * r * 0.5;
+    const grad = ctx.createRadialGradient(gx, gy, 0, cx, cy, r);
+    grad.addColorStop(0, ROUE_ACCENT[i] + 'ff');
+    grad.addColorStop(1, ROUE_SEGS[i].color + 'cc');
+    ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
     // Text
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(a0 + step / 2);
-    ctx.translate(r * 0.62, 0);
+    ctx.translate(r * 0.64, 0);
     ctx.rotate(Math.PI / 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.font = 'bold 9px Nunito, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur = 4;
+    ctx.font = 'bold 10px Nunito, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(ROUE_SEGS[i].label, 0, 4);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
-  // Center
+  // Outer decorative ring
   ctx.beginPath();
-  ctx.arc(cx, cy, 22, 0, Math.PI * 2);
-  ctx.fillStyle = '#0f0f1a';
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(247,201,72,0.7)';
+  ctx.lineWidth = 4;
+  ctx.shadowColor = '#f7c948';
+  ctx.shadowBlur = 12;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Tick marks
+  for (let i = 0; i < N; i++) {
+    const a = angle + i * step;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * (r - 8), cy + Math.sin(a) * (r - 8));
+    ctx.lineTo(cx + Math.cos(a) * (r + 4), cy + Math.sin(a) * (r + 4));
+    ctx.strokeStyle = 'rgba(247,201,72,0.9)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // Center hub
+  const hubGrad = ctx.createRadialGradient(cx - 6, cy - 6, 2, cx, cy, 24);
+  hubGrad.addColorStop(0, '#ffffff');
+  hubGrad.addColorStop(0.4, '#f7c948');
+  hubGrad.addColorStop(1, '#a0740a');
+  ctx.beginPath();
+  ctx.arc(cx, cy, 24, 0, Math.PI * 2);
+  ctx.fillStyle = hubGrad;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(247,201,72,0.6)';
+  ctx.strokeStyle = '#0d0d20';
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.fillStyle = '#f7c948';
-  ctx.font = 'bold 14px Bangers, cursive';
+
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px Bangers, cursive';
   ctx.textAlign = 'center';
   ctx.fillText('🎡', cx, cy + 5);
   ctx.textAlign = 'left';
-
-  // Outer ring
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(247,201,72,0.4)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
 }
 
 async function spinRoue() {

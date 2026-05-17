@@ -111,6 +111,7 @@ from handlers.company import (
     salaireinfo_cmd, employes_cmd,
     accepteroffre_cmd, refuseroffre_cmd, job_expire_share_offers,
     skipattente_cmd,
+    annoncerecrutement_cmd, annoncerecrutement_callback,
 )
 from handlers.company_sector import (
     init_sector_tables,
@@ -592,8 +593,11 @@ async def main():
     app.add_handler(CommandHandler("licencier",      _prison_checked(licencier_cmd)))
     app.add_handler(CommandHandler("employes",       _prison_checked(employes_cmd)))
     app.add_handler(CommandHandler("dissoudreboite",  _prison_checked(dissoudreboite_cmd)))
+    app.add_handler(CommandHandler("annoncerecrutement", _prison_checked(annoncerecrutement_cmd)))
+    app.add_handler(CallbackQueryHandler(annoncerecrutement_callback, pattern=r"^annonce:"))
     app.add_handler(CommandHandler("salaireinfo",     _prison_checked(salaireinfo_cmd)))
     app.add_handler(CommandHandler("versersalaires", _prison_checked(versersalaires_cmd)))
+    app.add_handler(CommandHandler("presences",      _prison_checked(presences_cmd)))
     app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
     app.add_handler(CommandHandler("mesparts",       _prison_checked(mesparts_cmd)))
     # ── Secteurs : événements, contrats, classement ───────────────────────────

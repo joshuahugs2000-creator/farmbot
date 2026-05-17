@@ -386,63 +386,93 @@ if (userId && !WEBAPP_WHITELIST.includes(userId)) {
 // ────────────────────────────────────────────────────────────────────────────
 
 // ════════════════════════════════════════
-//  AVATAR DATA
+//  AVATAR DATA — PREMIUM CHIBI
 // ════════════════════════════════════════
-const SKIN_COLORS = ['#FDDBB4','#F1C27D','#E8A87C','#C68642','#8D5524','#4A2912'];
-const HAIR_COLORS = ['#1a0a00','#3b2314','#8B4513','#D4A017','#F4D03F','#FF6B6B','#A29BFE','#00B4D8','#ffffff'];
+const SKIN_COLORS = [
+  { base:'#FDDBB4', shadow:'#F0BB8A', highlight:'#FFF0D4', blush:'#F4A0A0' },
+  { base:'#F1C27D', shadow:'#D4995A', highlight:'#FFDDA0', blush:'#E8906A' },
+  { base:'#E8A87C', shadow:'#C97A50', highlight:'#FAC89A', blush:'#D97060' },
+  { base:'#C68642', shadow:'#A06030', highlight:'#DCA060', blush:'#B86840' },
+  { base:'#8D5524', shadow:'#6A3C10', highlight:'#A87040', blush:'#7A4420' },
+  { base:'#4A2912', shadow:'#2E1808', highlight:'#6A3C1E', blush:'#3E2010' },
+];
+const HAIR_COLORS = [
+  { base:'#1a0a00', hi:'#3a1a05' },
+  { base:'#3b2314', hi:'#6b4030' },
+  { base:'#8B4513', hi:'#B06030' },
+  { base:'#D4A017', hi:'#F0C040' },
+  { base:'#F4D03F', hi:'#FFF090' },
+  { base:'#FF6B6B', hi:'#FF9090' },
+  { base:'#A29BFE', hi:'#C8C4FF' },
+  { base:'#00B4D8', hi:'#60D8F8' },
+  { base:'#ffffff', hi:'#e0e8f0' },
+];
 
 const HAIR_STYLES_M = [
-  { id:'buzz',    label:'Buzz',    draw: (c,hc) => drawHairBuzzM(c,hc) },
-  { id:'afro',    label:'Afro',    draw: (c,hc) => drawHairAfroM(c,hc) },
-  { id:'straight',label:'Lisse',   draw: (c,hc) => drawHairStraightM(c,hc) },
-  { id:'curly',   label:'Bouclé',  draw: (c,hc) => drawHairCurlyM(c,hc) },
-  { id:'long',    label:'Long',    draw: (c,hc) => drawHairLongM(c,hc) },
-  { id:'mohawk',  label:'Mohawk',  draw: (c,hc) => drawHairMohawk(c,hc) },
+  { id:'buzz',     label:'Buzz'    },
+  { id:'afro',     label:'Afro'    },
+  { id:'straight', label:'Lisse'   },
+  { id:'curly',    label:'Bouclé'  },
+  { id:'long',     label:'Long'    },
+  { id:'mohawk',   label:'Mohawk'  },
+  { id:'fade',     label:'Fade'    },
+  { id:'undercut', label:'Undercut'},
 ];
 const HAIR_STYLES_F = [
-  { id:'ponytail',label:'Queue',   draw: (c,hc) => drawHairPonytail(c,hc) },
-  { id:'afro',    label:'Afro',    draw: (c,hc) => drawHairAfroF(c,hc) },
-  { id:'straight',label:'Lisse',   draw: (c,hc) => drawHairStraightF(c,hc) },
-  { id:'curly',   label:'Bouclé',  draw: (c,hc) => drawHairCurlyF(c,hc) },
-  { id:'bun',     label:'Chignon', draw: (c,hc) => drawHairBun(c,hc) },
-  { id:'long2',   label:'Long',    draw: (c,hc) => drawHairLong2(c,hc) },
+  { id:'ponytail', label:'Queue'   },
+  { id:'afro',     label:'Afro'    },
+  { id:'straight', label:'Lisse'   },
+  { id:'curly',    label:'Bouclé'  },
+  { id:'bun',      label:'Chignon' },
+  { id:'long2',    label:'Long'    },
+  { id:'twin',     label:'Couettes'},
+  { id:'bob',      label:'Bob'     },
 ];
 
 const TOPS_M = [
-  { id:'tshirt',  label:'T-Shirt', colors:['#e74c3c','#3498db','#2ecc71','#9b59b6','#f39c12','#1a1a2e'] },
-  { id:'hoodie',  label:'Hoodie',  colors:['#2c3e50','#c0392b','#27ae60','#8e44ad','#d35400','#ecf0f1'] },
-  { id:'jacket',  label:'Veste',   colors:['#1a1a2e','#2c3e50','#922b21','#1a5276','#145a32','#784212'] },
-  { id:'polo',    label:'Polo',    colors:['#ffffff','#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2'] },
+  { id:'tshirt',   label:'T-Shirt', colors:['#e74c3c','#3498db','#2ecc71','#9b59b6','#f39c12','#1a1a2e','#ffffff','#e67e22'] },
+  { id:'hoodie',   label:'Hoodie',  colors:['#2c3e50','#c0392b','#27ae60','#8e44ad','#d35400','#1a1a2e','#7f8c8d','#16a085'] },
+  { id:'jacket',   label:'Veste',   colors:['#1a1a2e','#2c3e50','#922b21','#1a5276','#145a32','#784212','#4a235a','#0e3d20'] },
+  { id:'polo',     label:'Polo',    colors:['#ffffff','#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2','#abebc6','#fad7a0'] },
+  { id:'suit',     label:'Costume', colors:['#1a1a2e','#2c3e50','#4a235a','#0e6655','#6e2f1a','#17202a','#7b241c','#1a5276'] },
+  { id:'kimono',   label:'Kimono',  colors:['#c0392b','#2c3e50','#8e44ad','#1a5276','#145a32','#7b241c','#d4ac0d','#1b2631'] },
 ];
 const TOPS_F = [
-  { id:'crop',    label:'Crop',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff'] },
-  { id:'hoodie',  label:'Hoodie',  colors:['#2c3e50','#c0392b','#27ae60','#8e44ad','#d35400','#ecf0f1'] },
-  { id:'jacket',  label:'Veste',   colors:['#1a1a2e','#2c3e50','#922b21','#1a5276','#145a32','#784212'] },
-  { id:'top',     label:'Débard.', colors:['#ffffff','#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2'] },
+  { id:'crop',     label:'Crop',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff','#fd79a8','#74b9ff'] },
+  { id:'hoodie',   label:'Hoodie',  colors:['#2c3e50','#c0392b','#27ae60','#8e44ad','#d35400','#1a1a2e','#7f8c8d','#16a085'] },
+  { id:'jacket',   label:'Veste',   colors:['#1a1a2e','#2c3e50','#922b21','#1a5276','#145a32','#784212','#4a235a','#0e3d20'] },
+  { id:'top',      label:'Débard.', colors:['#ffffff','#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2','#abebc6','#fad7a0'] },
+  { id:'dress',    label:'Robe',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff','#fd79a8','#74b9ff'] },
+  { id:'kimono',   label:'Kimono',  colors:['#c0392b','#ff6b9d','#8e44ad','#a29bfe','#55efc4','#fd79a8','#d4ac0d','#e74c3c'] },
 ];
 const BOTTOMS_M = [
-  { id:'jean',    label:'Jean',    colors:['#2c3e50','#1a5276','#6c3483','#1b4f72','#212f3d','#7b7d7d'] },
-  { id:'jogger',  label:'Jogging', colors:['#1a1a2e','#7f8c8d','#922b21','#1a5276','#145a32','#000000'] },
-  { id:'short',   label:'Short',   colors:['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#ecf0f1'] },
-  { id:'chino',   label:'Chino',   colors:['#d5b895','#a9c9a0','#f0c9a0','#c9bfa0','#a0a9c9','#c9a0a0'] },
+  { id:'jean',    label:'Jean',    colors:['#2c3e50','#1a5276','#6c3483','#1b4f72','#212f3d','#7b7d7d','#0b2559','#1c2357'] },
+  { id:'jogger',  label:'Jogging', colors:['#1a1a2e','#7f8c8d','#922b21','#1a5276','#145a32','#000000','#4a235a','#784212'] },
+  { id:'short',   label:'Short',   colors:['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#ecf0f1','#e67e22','#1abc9c'] },
+  { id:'chino',   label:'Chino',   colors:['#d5b895','#a9c9a0','#f0c9a0','#c9bfa0','#a0a9c9','#c9a0a0','#bdc3c7','#e8d5b0'] },
 ];
 const BOTTOMS_F = [
-  { id:'jean',    label:'Jean',    colors:['#2c3e50','#1a5276','#6c3483','#1b4f72','#212f3d','#7b7d7d'] },
-  { id:'jogger',  label:'Jogging', colors:['#1a1a2e','#7f8c8d','#922b21','#1a5276','#145a32','#000000'] },
-  { id:'skirt',   label:'Jupe',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff'] },
-  { id:'short',   label:'Short',   colors:['#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2','#e74c3c'] },
+  { id:'jean',    label:'Jean',    colors:['#2c3e50','#1a5276','#6c3483','#1b4f72','#212f3d','#7b7d7d','#0b2559','#1c2357'] },
+  { id:'jogger',  label:'Jogging', colors:['#1a1a2e','#7f8c8d','#922b21','#1a5276','#145a32','#000000','#4a235a','#784212'] },
+  { id:'skirt',   label:'Jupe',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff','#fd79a8','#74b9ff'] },
+  { id:'short',   label:'Short',   colors:['#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2','#e74c3c','#ff6b9d','#a29bfe'] },
+  { id:'miniskirt',label:'Mini',   colors:['#e74c3c','#1a1a2e','#8e44ad','#2c3e50','#ff6b9d','#ffffff','#f39c12','#1a5276'] },
 ];
 const SHOES = [
-  { id:'sneaker', label:'Sneakers', colors:['#ffffff','#e74c3c','#3498db','#1a1a2e','#2ecc71','#f39c12'] },
-  { id:'boot',    label:'Boots',    colors:['#2c3e50','#7b241c','#784212','#1a1a2e','#117a65','#6c3483'] },
-  { id:'claquette',label:'Claq.',   colors:['#f39c12','#e74c3c','#3498db','#1a1a2e','#ffffff','#2ecc71'] },
+  { id:'sneaker',   label:'Sneakers', colors:['#ffffff','#e74c3c','#3498db','#1a1a2e','#2ecc71','#f39c12','#9b59b6','#fd79a8'] },
+  { id:'boot',      label:'Boots',    colors:['#2c3e50','#7b241c','#784212','#1a1a2e','#117a65','#6c3483','#4a235a','#0e3d20'] },
+  { id:'claquette', label:'Claquettes',colors:['#f39c12','#e74c3c','#3498db','#1a1a2e','#ffffff','#2ecc71','#ff6b9d','#a29bfe'] },
+  { id:'jordan',    label:'Jordan',   colors:['#e74c3c','#1a1a2e','#000000','#2c3e50','#922b21','#f39c12','#ffffff','#2980b9'] },
 ];
 const ACCESSORIES = [
-  { id:'none',    label:'Aucun',   },
-  { id:'glasses', label:'Lunettes',},
-  { id:'cap',     label:'Casquette'},
-  { id:'beanie',  label:'Bonnet',  },
-  { id:'chain',   label:'Chaîne',  },
+  { id:'none',      label:'Aucun'    },
+  { id:'glasses',   label:'Lunettes' },
+  { id:'sunglass',  label:'Soleil'   },
+  { id:'cap',       label:'Casquette'},
+  { id:'beanie',    label:'Bonnet'   },
+  { id:'chain',     label:'Chaîne'   },
+  { id:'earring',   label:'Boucles'  },
+  { id:'mask',      label:'Masque'   },
 ];
 
 // ════════════════════════════════════════
@@ -470,193 +500,499 @@ try {
 let currentTab = 'skin';
 
 // ════════════════════════════════════════
-//  SVG AVATAR DRAWING
+//  PREMIUM CHIBI SVG DRAWING ENGINE
 // ════════════════════════════════════════
 function getAvatarData() {
   const tops    = avatar.gender === 'm' ? TOPS_M    : TOPS_F;
   const bottoms = avatar.gender === 'm' ? BOTTOMS_M : BOTTOMS_F;
   const hairs   = avatar.gender === 'm' ? HAIR_STYLES_M : HAIR_STYLES_F;
   return {
-    skin:    SKIN_COLORS[avatar.skinIndex],
-    hairColor: HAIR_COLORS[avatar.hairColorIndex],
-    hair:    hairs[avatar.hairStyle] || hairs[0],
-    top:     tops[avatar.topStyle] || tops[0],
-    topColor: (tops[avatar.topStyle] || tops[0]).colors[avatar.topColorIndex] || '#e74c3c',
-    bottom:  bottoms[avatar.bottomStyle] || bottoms[0],
-    bottomColor: (bottoms[avatar.bottomStyle] || bottoms[0]).colors[avatar.bottomColorIndex] || '#2c3e50',
-    shoe:    SHOES[avatar.shoeStyle] || SHOES[0],
+    skin:      SKIN_COLORS[avatar.skinIndex] || SKIN_COLORS[0],
+    hairColor: HAIR_COLORS[avatar.hairColorIndex] || HAIR_COLORS[0],
+    hair:      hairs[avatar.hairStyle] || hairs[0],
+    top:       tops[avatar.topStyle] || tops[0],
+    topColor:  (tops[avatar.topStyle] || tops[0]).colors[avatar.topColorIndex] || '#e74c3c',
+    bottom:    bottoms[avatar.bottomStyle] || bottoms[0],
+    bottomColor:(bottoms[avatar.bottomStyle] || bottoms[0]).colors[avatar.bottomColorIndex] || '#2c3e50',
+    shoe:      SHOES[avatar.shoeStyle] || SHOES[0],
     shoeColor: (SHOES[avatar.shoeStyle] || SHOES[0]).colors[avatar.shoeColorIndex] || '#ffffff',
-    acc:     ACCESSORIES[avatar.accessory] || ACCESSORIES[0],
-    isFemale: avatar.gender === 'f',
+    acc:       ACCESSORIES[avatar.accessory] || ACCESSORIES[0],
+    isFemale:  avatar.gender === 'f',
   };
+}
+
+// Darken a hex color by amount (0–1)
+function darken(hex, amt) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  r = Math.max(0, Math.round(r*(1-amt)));
+  g = Math.max(0, Math.round(g*(1-amt)));
+  b = Math.max(0, Math.round(b*(1-amt)));
+  return `rgb(${r},${g},${b})`;
+}
+function lighten(hex, amt) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  r = Math.min(255, Math.round(r + (255-r)*amt));
+  g = Math.min(255, Math.round(g + (255-g)*amt));
+  b = Math.min(255, Math.round(b + (255-b)*amt));
+  return `rgb(${r},${g},${b})`;
 }
 
 function drawAvatar(svgId) {
   const svg = document.getElementById(svgId);
   if (!svg) return;
   const d = getAvatarData();
-  const skin = d.skin;
-  const isFemale = d.isFemale;
-
-  // Body proportions
-  const bodyW = isFemale ? 44 : 50;
-  const bodyX = 80 - bodyW/2;
-  const hipW  = isFemale ? 50 : 48;
-  const hipX  = 80 - hipW/2;
-  const legW  = 18;
-  const shoulderY = 90;
-  const hipY  = 135;
-  const kneeY = 168;
-  const footY = 196;
-
-  let html = '';
-
-  // ── SHOES ──
-  const sc = d.shoeColor;
-  if (d.shoe.id === 'sneaker') {
-    html += `<ellipse cx="67" cy="${footY}" rx="14" ry="7" fill="${sc}"/>
-             <ellipse cx="93" cy="${footY}" rx="14" ry="7" fill="${sc}"/>
-             <rect x="53" y="${footY-7}" width="28" height="7" rx="3" fill="${sc}"/>
-             <rect x="79" y="${footY-7}" width="28" height="7" rx="3" fill="${sc}"/>
-             <line x1="58" y1="${footY-3}" x2="75" y2="${footY-3}" stroke="white" stroke-width="1.5" opacity=".6"/>
-             <line x1="84" y1="${footY-3}" x2="101" y2="${footY-3}" stroke="white" stroke-width="1.5" opacity=".6"/>`;
-  } else if (d.shoe.id === 'boot') {
-    html += `<rect x="53" y="${kneeY+8}" width="26" height="${footY-kneeY-8}" rx="4" fill="${sc}"/>
-             <rect x="79" y="${kneeY+8}" width="26" height="${footY-kneeY-8}" rx="4" fill="${sc}"/>
-             <ellipse cx="66" cy="${footY}" rx="13" ry="6" fill="${sc}"/>
-             <ellipse cx="92" cy="${footY}" rx="13" ry="6" fill="${sc}"/>`;
-  } else {
-    html += `<rect x="57" y="${footY-5}" width="22" height="8" rx="4" fill="${sc}"/>
-             <rect x="83" y="${footY-5}" width="22" height="8" rx="4" fill="${sc}"/>`;
-  }
-
-  // ── LEGS / BOTTOM ──
-  const bc = d.bottomColor;
-  html += `<rect x="${hipX}" y="${hipY}" width="${legW}" height="${kneeY-hipY+8}" rx="6" fill="${bc}"/>
-           <rect x="${hipX+hipW-legW}" y="${hipY}" width="${legW}" height="${kneeY-hipY+8}" rx="6" fill="${bc}"/>`;
-
-  if (d.bottom.id === 'skirt') {
-    html += `<path d="M${hipX} ${hipY} Q80 ${hipY+30} ${hipX+hipW} ${hipY} L${hipX+hipW} ${hipY+40} Q80 ${hipY+20} ${hipX} ${hipY+40} Z" fill="${bc}" opacity=".9"/>`;
-  }
-
-  // ── BODY / TOP ──
+  const sk = d.skin;
+  const F = d.isFemale;
+  const hc = d.hairColor.base;
+  const hiHc = d.hairColor.hi;
   const tc = d.topColor;
-  const topShape = isFemale
-    ? `M${bodyX} ${shoulderY} Q80 ${shoulderY-8} ${bodyX+bodyW} ${shoulderY} L${hipX+hipW} ${hipY} Q80 ${hipY+8} ${hipX} ${hipY} Z`
-    : `M${bodyX} ${shoulderY} L${bodyX+bodyW} ${shoulderY} L${hipX+hipW} ${hipY} L${hipX} ${hipY} Z`;
-  html += `<path d="${topShape}" fill="${tc}"/>`;
+  const tc2 = darken(tc, 0.2);
+  const bc = d.bottomColor;
+  const bc2 = darken(bc, 0.22);
+  const sc = d.shoeColor;
+  const sc2 = darken(sc, 0.25);
 
-  // Sleeves
-  html += `<ellipse cx="${bodyX-6}" cy="${shoulderY+18}" rx="10" ry="16" fill="${tc}" transform="rotate(-10,${bodyX-6},${shoulderY+18})"/>
-           <ellipse cx="${bodyX+bodyW+6}" cy="${shoulderY+18}" rx="10" ry="16" fill="${tc}" transform="rotate(10,${bodyX+bodyW+6},${shoulderY+18})"/>`;
+  const isSmall = svgId === 'profile-avatar-mini';
 
-  // Hands
-  html += `<ellipse cx="${bodyX-14}" cy="${shoulderY+30}" rx="7" ry="8" fill="${skin}"/>
-           <ellipse cx="${bodyX+bodyW+14}" cy="${shoulderY+30}" rx="7" ry="8" fill="${skin}"/>`;
+  // ── DEFS (gradients, filters) ──
+  const uid = svgId.replace(/[^a-z]/gi,'');
+  let defs = `<defs>
+    <radialGradient id="sg${uid}" cx="42%" cy="35%" r="55%">
+      <stop offset="0%" stop-color="${sk.highlight}"/>
+      <stop offset="60%" stop-color="${sk.base}"/>
+      <stop offset="100%" stop-color="${sk.shadow}"/>
+    </radialGradient>
+    <radialGradient id="eg${uid}" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#6ee7ff"/>
+      <stop offset="100%" stop-color="#1a6fa8"/>
+    </radialGradient>
+    <linearGradient id="tg${uid}" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${lighten(tc,0.15)}"/>
+      <stop offset="100%" stop-color="${tc2}"/>
+    </linearGradient>
+    <linearGradient id="bg${uid}" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="${bc}"/>
+      <stop offset="100%" stop-color="${bc2}"/>
+    </linearGradient>
+    <linearGradient id="hg${uid}" x1="0%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="${hiHc}"/>
+      <stop offset="40%" stop-color="${hc}"/>
+      <stop offset="100%" stop-color="${darken(hc,0.3)}"/>
+    </linearGradient>
+    <filter id="sf${uid}" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="2" dy="3" stdDeviation="3" flood-color="rgba(0,0,0,0.25)"/>
+    </filter>
+    <filter id="hf${uid}" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.3)"/>
+    </filter>
+  </defs>`;
 
-  // Neck
-  html += `<rect x="74" y="${shoulderY-12}" width="12" height="14" rx="4" fill="${skin}"/>`;
+  let h = defs;
 
-  // ── HEAD ──
-  const headY = isFemale ? 52 : 54;
-  html += `<ellipse cx="80" cy="${headY}" rx="${isFemale?22:24}" ry="${isFemale?24:26}" fill="${skin}"/>`;
+  // ──────────────────────────────────────
+  //  SHADOW UNDER BODY
+  // ──────────────────────────────────────
+  h += `<ellipse cx="80" cy="206" rx="35" ry="5" fill="rgba(0,0,0,0.18)"/>`;
+
+  // ──────────────────────────────────────
+  //  SHOES
+  // ──────────────────────────────────────
+  if (d.shoe.id === 'sneaker' || d.shoe.id === 'jordan') {
+    // Left shoe
+    h += `<path d="M52,198 Q52,206 68,206 L68,200 Q58,198 56,194 Z" fill="${sc}"/>
+          <path d="M52,194 L68,200 L68,196 Q60,192 54,192 Z" fill="${darken(sc,0.15)}"/>
+          <path d="M53,196 L67,199" stroke="rgba(255,255,255,0.5)" stroke-width="1.2" fill="none"/>`;
+    // Right shoe
+    h += `<path d="M108,198 Q108,206 92,206 L92,200 Q102,198 104,194 Z" fill="${sc}"/>
+          <path d="M108,194 L92,200 L92,196 Q100,192 106,192 Z" fill="${darken(sc,0.15)}"/>
+          <path d="M107,196 L93,199" stroke="rgba(255,255,255,0.5)" stroke-width="1.2" fill="none"/>`;
+    if (d.shoe.id === 'jordan') {
+      h += `<path d="M55,198 Q60,194 66,196" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            <path d="M105,198 Q100,194 94,196" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+    }
+  } else if (d.shoe.id === 'boot') {
+    h += `<path d="M54,174 L62,174 L64,206 Q60,208 52,206 L52,196 Z" fill="${sc}"/>
+          <path d="M54,174 L62,174" stroke="${sc2}" stroke-width="1.5"/>
+          <path d="M106,174 L98,174 L96,206 Q100,208 108,206 L108,196 Z" fill="${sc}"/>
+          <path d="M106,174 L98,174" stroke="${sc2}" stroke-width="1.5"/>
+          <path d="M52,200 L64,202" stroke="${lighten(sc,0.2)}" stroke-width="1" stroke-dasharray="2,2"/>
+          <path d="M108,200 L96,202" stroke="${lighten(sc,0.2)}" stroke-width="1" stroke-dasharray="2,2"/>`;
+  } else { // claquette
+    h += `<rect x="52" y="196" width="18" height="8" rx="4" fill="${sc}"/>
+          <rect x="90" y="196" width="18" height="8" rx="4" fill="${sc}"/>
+          <rect x="57" y="193" width="8" height="5" rx="2" fill="${sc2}"/>
+          <rect x="95" y="193" width="8" height="5" rx="2" fill="${sc2}"/>`;
+  }
+
+  // ──────────────────────────────────────
+  //  LEGS
+  // ──────────────────────────────────────
+  const hipY = F ? 134 : 136;
+  const kneeY = 172;
+
+  if (d.bottom.id === 'short' || d.bottom.id === 'miniskirt') {
+    // Exposed legs
+    h += `<path d="M58,${hipY+20} L62,${kneeY} Q62,${kneeY+8} 60,${kneeY+14} Q58,${kneeY+18} 62,${kneeY+20} Q66,${kneeY+16} 66,${kneeY+8} L68,${hipY+20} Z" fill="url(#sg${uid})"/>
+          <path d="M102,${hipY+20} L98,${kneeY} Q98,${kneeY+8} 100,${kneeY+14} Q102,${kneeY+18} 98,${kneeY+20} Q94,${kneeY+16} 94,${kneeY+8} L92,${hipY+20} Z" fill="url(#sg${uid})"/>`;
+  } else {
+    // Pants
+    h += `<path d="M57,${hipY+4} Q58,${kneeY+4} 58,${kneeY+20} Q60,${kneeY+24} 64,${kneeY+22} Q68,${kneeY+20} 68,${kneeY+6} L70,${hipY+4} Z" fill="url(#bg${uid})"/>
+          <path d="M103,${hipY+4} Q102,${kneeY+4} 102,${kneeY+20} Q100,${kneeY+24} 96,${kneeY+22} Q92,${kneeY+20} 92,${kneeY+6} L90,${hipY+4} Z" fill="url(#bg${uid})"/>
+          <path d="M58,${hipY+10} Q59,${kneeY} 59,${kneeY+10}" stroke="${lighten(bc,0.12)}" stroke-width="1" fill="none" opacity="0.5"/>
+          <path d="M102,${hipY+10} Q101,${kneeY} 101,${kneeY+10}" stroke="${lighten(bc,0.12)}" stroke-width="1" fill="none" opacity="0.5"/>`;
+  }
+
+  // ──────────────────────────────────────
+  //  WAIST / BOTTOM GARMENT
+  // ──────────────────────────────────────
+  if (d.bottom.id === 'skirt' || d.bottom.id === 'miniskirt') {
+    const skirtLen = d.bottom.id === 'miniskirt' ? 30 : 48;
+    h += `<path d="M56,${hipY} Q80,${hipY-6} 104,${hipY} L110,${hipY+skirtLen} Q80,${hipY+skirtLen+10} 50,${hipY+skirtLen} Z" fill="url(#bg${uid})"/>
+          <path d="M56,${hipY} Q80,${hipY+8} 104,${hipY}" fill="${lighten(bc,0.15)}" opacity="0.4"/>
+          <path d="M62,${hipY+10} Q80,${hipY+4} 98,${hipY+10}" stroke="${lighten(bc,0.25)}" stroke-width="0.8" fill="none" opacity="0.6"/>`;
+  } else if (d.bottom.id === 'jean') {
+    // Jean details: waistband, pockets, seam
+    h += `<rect x="56" y="${hipY-4}" width="48" height="8" rx="3" fill="${darken(bc,0.15)}"/>
+          <path d="M68,${hipY+4} L72,${hipY+14} L60,${hipY+14} Z" fill="${darken(bc,0.08)}" opacity="0.5"/>
+          <path d="M92,${hipY+4} L88,${hipY+14} L100,${hipY+14} Z" fill="${darken(bc,0.08)}" opacity="0.5"/>
+          <rect x="76" y="${hipY-2}" width="8" height="4" rx="1" fill="${darken(bc,0.3)}" opacity="0.4"/>`;
+  } else if (d.bottom.id === 'jogger' || d.bottom.id === 'short') {
+    h += `<rect x="56" y="${hipY-4}" width="48" height="6" rx="3" fill="${darken(bc,0.12)}"/>
+          <path d="M78,${hipY-2} L82,${hipY-2}" stroke="${lighten(bc,0.3)}" stroke-width="1.5" stroke-linecap="round"/>`;
+  } else {
+    h += `<rect x="56" y="${hipY-4}" width="48" height="6" rx="2" fill="${darken(bc,0.1)}"/>`;
+  }
+
+  // ──────────────────────────────────────
+  //  ARMS + HANDS
+  // ──────────────────────────────────────
+  const shoulderY = F ? 96 : 98;
+  const armW = F ? 10 : 12;
+
+  // Left arm
+  h += `<path d="M${F?52:50},${shoulderY+4} Q${F?42:40},${shoulderY+18} ${F?44:42},${shoulderY+38} Q${F?46:44},${shoulderY+46} ${F?48:46},${shoulderY+40} Q${F?44:42},${shoulderY+30} ${F?54:52},${shoulderY+10} Z" fill="url(#tg${uid})"/>`;
+  // Right arm
+  h += `<path d="M${F?108:110},${shoulderY+4} Q${F?118:120},${shoulderY+18} ${F?116:118},${shoulderY+38} Q${F?114:116},${shoulderY+46} ${F?112:114},${shoulderY+40} Q${F?116:118},${shoulderY+30} ${F?106:108},${shoulderY+10} Z" fill="url(#tg${uid})"/>`;
+  // Hands (chibi round)
+  h += `<ellipse cx="${F?46:44}" cy="${shoulderY+46}" rx="${F?7:8}" ry="${F?7:8}" fill="url(#sg${uid})"/>
+        <ellipse cx="${F?114:116}" cy="${shoulderY+46}" rx="${F?7:8}" ry="${F?7:8}" fill="url(#sg${uid})"/>
+        <path d="M${F?42:40},${shoulderY+44} Q${F?46:44},${shoulderY+40} ${F?50:52},${shoulderY+44}" stroke="${sk.shadow}" stroke-width="0.8" fill="none" opacity="0.5"/>
+        <path d="M${F?118:120},${shoulderY+44} Q${F?114:116},${shoulderY+40} ${F?110:108},${shoulderY+44}" stroke="${sk.shadow}" stroke-width="0.8" fill="none" opacity="0.5"/>`;
+
+  // ──────────────────────────────────────
+  //  BODY / TOP GARMENT
+  // ──────────────────────────────────────
+  const bodyW = F ? 46 : 52;
+  const bodyX = 80 - bodyW/2;
+
+  if (d.top.id === 'tshirt' || d.top.id === 'crop' || d.top.id === 'top' || d.top.id === 'polo') {
+    // Basic top shape
+    h += `<path d="M${bodyX},${shoulderY} Q${bodyX-4},${shoulderY+4} ${bodyX},${shoulderY+20} L${bodyX},${hipY} L${bodyX+bodyW},${hipY} L${bodyX+bodyW},${shoulderY+20} Q${bodyX+bodyW+4},${shoulderY+4} ${bodyX+bodyW},${shoulderY} Q80,${shoulderY-8} ${bodyX},${shoulderY} Z" fill="url(#tg${uid})"/>`;
+    // Collar
+    if (d.top.id === 'polo') {
+      h += `<path d="M72,${shoulderY} L80,${shoulderY+10} L88,${shoulderY} Q84,${shoulderY-6} 80,${shoulderY-4} Q76,${shoulderY-6} 72,${shoulderY} Z" fill="${tc2}"/>`;
+    } else {
+      h += `<path d="M74,${shoulderY} Q80,${shoulderY+6} 86,${shoulderY} Q83,${shoulderY-4} 80,${shoulderY-3} Q77,${shoulderY-4} 74,${shoulderY} Z" fill="${tc2}" opacity="0.7"/>`;
+    }
+    // Crop top is shorter
+    if (d.top.id === 'crop') {
+      h += `<path d="M${bodyX},${shoulderY+30} L${bodyX+bodyW},${shoulderY+30} L${bodyX+bodyW},${hipY} L${bodyX},${hipY} Z" fill="url(#sg${uid})"/>`;
+    }
+    // Highlight stripe
+    h += `<path d="M${bodyX+6},${shoulderY+4} Q${bodyX+10},${shoulderY+10} ${bodyX+8},${shoulderY+22}" stroke="rgba(255,255,255,0.2)" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+  } else if (d.top.id === 'hoodie') {
+    h += `<path d="M${bodyX},${shoulderY} Q${bodyX-6},${shoulderY+6} ${bodyX},${shoulderY+22} L${bodyX},${hipY} L${bodyX+bodyW},${hipY} L${bodyX+bodyW},${shoulderY+22} Q${bodyX+bodyW+6},${shoulderY+6} ${bodyX+bodyW},${shoulderY} Q80,${shoulderY-10} ${bodyX},${shoulderY} Z" fill="url(#tg${uid})"/>`;
+    // Hood outline
+    h += `<path d="M${bodyX+4},${shoulderY+2} Q72,${shoulderY-12} 80,${shoulderY-8} Q88,${shoulderY-12} ${bodyX+bodyW-4},${shoulderY+2}" stroke="${tc2}" stroke-width="2" fill="none"/>`;
+    // Front pocket
+    h += `<rect x="${80-12}" y="${hipY-20}" width="24" height="16" rx="4" fill="${tc2}" opacity="0.5"/>`;
+    // Hoodie strings
+    h += `<path d="M78,${shoulderY-2} L76,${shoulderY+12}" stroke="${tc2}" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M82,${shoulderY-2} L84,${shoulderY+12}" stroke="${tc2}" stroke-width="1.5" stroke-linecap="round"/>`;
+  } else if (d.top.id === 'jacket') {
+    h += `<path d="M${bodyX},${shoulderY} Q${bodyX-6},${shoulderY+6} ${bodyX},${shoulderY+22} L${bodyX},${hipY} L${bodyX+bodyW},${hipY} L${bodyX+bodyW},${shoulderY+22} Q${bodyX+bodyW+6},${shoulderY+6} ${bodyX+bodyW},${shoulderY} Q80,${shoulderY-10} ${bodyX},${shoulderY} Z" fill="url(#tg${uid})"/>`;
+    // Collar lapels
+    h += `<path d="M${bodyX+4},${shoulderY} L74,${shoulderY+18} L80,${shoulderY+8} L${bodyX+4},${shoulderY} Z" fill="${darken(tc,0.25)}"/>
+          <path d="M${bodyX+bodyW-4},${shoulderY} L86,${shoulderY+18} L80,${shoulderY+8} L${bodyX+bodyW-4},${shoulderY} Z" fill="${darken(tc,0.25)}"/>`;
+    // Center zipper/buttons
+    h += `<path d="M80,${shoulderY+8} L80,${hipY}" stroke="${darken(tc,0.3)}" stroke-width="1.5"/>`;
+    // Chest pocket
+    h += `<rect x="${bodyX+6}" y="${shoulderY+12}" width="14" height="10" rx="2" fill="${darken(tc,0.2)}" opacity="0.6"/>`;
+  } else if (d.top.id === 'suit') {
+    h += `<path d="M${bodyX},${shoulderY} Q${bodyX-6},${shoulderY+6} ${bodyX},${shoulderY+22} L${bodyX},${hipY} L${bodyX+bodyW},${hipY} L${bodyX+bodyW},${shoulderY+22} Q${bodyX+bodyW+6},${shoulderY+6} ${bodyX+bodyW},${shoulderY} Q80,${shoulderY-8} ${bodyX},${shoulderY} Z" fill="url(#tg${uid})"/>`;
+    // White shirt + tie
+    h += `<path d="M74,${shoulderY} L80,${hipY-4} L86,${shoulderY}" fill="rgba(255,255,255,0.9)"/>
+          <path d="M79,${shoulderY+2} L80,${shoulderY+22} L81,${shoulderY+2}" fill="#e74c3c"/>
+          <path d="M79,${shoulderY+22} L77,${shoulderY+30} L80,${shoulderY+28} L83,${shoulderY+30} L81,${shoulderY+22} Z" fill="#c0392b"/>`;
+    // Lapels
+    h += `<path d="M${bodyX+2},${shoulderY} L74,${shoulderY+18} L80,${shoulderY+4} Z" fill="${darken(tc,0.2)}"/>
+          <path d="M${bodyX+bodyW-2},${shoulderY} L86,${shoulderY+18} L80,${shoulderY+4} Z" fill="${darken(tc,0.2)}"/>`;
+  } else if (d.top.id === 'dress') {
+    h += `<path d="M${bodyX+4},${shoulderY} Q${bodyX-2},${shoulderY+10} ${bodyX-6},${hipY+20} Q80,${hipY+34} ${bodyX+bodyW+6},${hipY+20} Q${bodyX+bodyW+2},${shoulderY+10} ${bodyX+bodyW-4},${shoulderY} Q80,${shoulderY-8} ${bodyX+4},${shoulderY} Z" fill="url(#tg${uid})"/>`;
+    h += `<path d="M74,${shoulderY} Q80,${shoulderY+6} 86,${shoulderY}" fill="none" stroke="${tc2}" stroke-width="1.5"/>`;
+    h += `<path d="M${bodyX},${hipY+8} Q80,${hipY+18} ${bodyX+bodyW},${hipY+8}" stroke="${lighten(tc,0.2)}" stroke-width="1" fill="none" opacity="0.5"/>`;
+  } else if (d.top.id === 'kimono') {
+    h += `<path d="M${bodyX-4},${shoulderY-4} Q${bodyX-8},${shoulderY+10} ${bodyX-4},${hipY+10} L${bodyX+bodyW+4},${hipY+10} Q${bodyX+bodyW+8},${shoulderY+10} ${bodyX+bodyW+4},${shoulderY-4} Q80,${shoulderY-14} ${bodyX-4},${shoulderY-4} Z" fill="url(#tg${uid})"/>`;
+    // Kimono crossing
+    h += `<path d="M${bodyX+4},${shoulderY} L78,${hipY+10}" stroke="${tc2}" stroke-width="2.5"/>
+          <path d="M${bodyX+bodyW-4},${shoulderY} L82,${hipY+10}" stroke="${tc2}" stroke-width="2.5"/>`;
+    // Obi belt
+    h += `<rect x="${bodyX}" y="${hipY-8}" width="${bodyW}" height="12" rx="4" fill="${darken(tc,0.3)}"/>
+          <rect x="${bodyX+bodyW/2-8}" y="${hipY-6}" width="16" height="8" rx="3" fill="${darken(tc,0.1)}"/>`;
+    // Patterns on kimono
+    h += `<circle cx="${bodyX+10}" cy="${shoulderY+20}" r="4" fill="${lighten(tc,0.3)}" opacity="0.35"/>
+          <circle cx="${bodyX+bodyW-10}" cy="${shoulderY+20}" r="4" fill="${lighten(tc,0.3)}" opacity="0.35"/>`;
+  }
+
+  // Shoulder seam highlights
+  h += `<path d="M${bodyX},${shoulderY} Q${bodyX+4},${shoulderY-2} ${bodyX+12},${shoulderY}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" fill="none"/>
+        <path d="M${bodyX+bodyW},${shoulderY} Q${bodyX+bodyW-4},${shoulderY-2} ${bodyX+bodyW-12},${shoulderY}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" fill="none"/>`;
+
+  // ──────────────────────────────────────
+  //  NECK
+  // ──────────────────────────────────────
+  h += `<path d="M76,${shoulderY-12} Q74,${shoulderY-2} 75,${shoulderY} L85,${shoulderY} Q86,${shoulderY-2} 84,${shoulderY-12} Q82,${shoulderY-14} 80,${shoulderY-14} Q78,${shoulderY-14} 76,${shoulderY-12} Z" fill="url(#sg${uid})"/>`;
+
+  // ──────────────────────────────────────
+  //  HEAD — CHIBI BIG HEAD
+  // ──────────────────────────────────────
+  const headCY = F ? 50 : 52;
+  const headRX = F ? 28 : 30;
+  const headRY = F ? 30 : 32;
+
+  // Head shape (slightly squished at jaw)
+  h += `<path d="M${80-headRX},${headCY} 
+    Q${80-headRX},${headCY-headRY} 80,${headCY-headRY} 
+    Q${80+headRX},${headCY-headRY} ${80+headRX},${headCY}
+    Q${80+headRX},${headCY+headRY-4} ${80+headRX-6},${headCY+headRY}
+    Q80,${headCY+headRY+6} ${80-headRX+6},${headCY+headRY}
+    Q${80-headRX},${headCY+headRY-4} ${80-headRX},${headCY} Z" 
+    fill="url(#sg${uid})" filter="url(#sf${uid})"/>`;
 
   // Ears
-  html += `<ellipse cx="${80-(isFemale?21:23)}" cy="${headY+2}" rx="5" ry="7" fill="${skin}"/>
-           <ellipse cx="${80+(isFemale?21:23)}" cy="${headY+2}" rx="5" ry="7" fill="${skin}"/>`;
+  h += `<path d="M${80-headRX+2},${headCY-2} Q${80-headRX-6},${headCY} ${80-headRX},${headCY+8}" stroke="${sk.shadow}" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M${80-headRX+2},${headCY-2} Q${80-headRX-6},${headCY} ${80-headRX},${headCY+8}" stroke="${sk.base}" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <path d="M${80+headRX-2},${headCY-2} Q${80+headRX+6},${headCY} ${80+headRX},${headCY+8}" stroke="${sk.shadow}" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M${80+headRX-2},${headCY-2} Q${80+headRX+6},${headCY} ${80+headRX},${headCY+8}" stroke="${sk.base}" stroke-width="3" fill="none" stroke-linecap="round"/>`;
 
-  // Eyes
-  const eyeY = headY + 2;
-  html += `<ellipse cx="72" cy="${eyeY}" rx="4" ry="4.5" fill="white"/>
-           <ellipse cx="88" cy="${eyeY}" rx="4" ry="4.5" fill="white"/>
-           <circle cx="73" cy="${eyeY+.5}" r="2.5" fill="#1a0a00"/>
-           <circle cx="89" cy="${eyeY+.5}" r="2.5" fill="#1a0a00"/>
-           <circle cx="74" cy="${eyeY-.5}" r=".8" fill="white"/>
-           <circle cx="90" cy="${eyeY-.5}" r=".8" fill="white"/>`;
+  // ── EYES (big chibi eyes) ──
+  const eyeY = headCY + 4;
+  const eyeRX = F ? 7.5 : 7;
+  const eyeRY = F ? 9 : 8;
 
-  // Eyebrows
-  html += `<path d="M68 ${eyeY-6} Q72 ${eyeY-8} 76 ${eyeY-6}" stroke="#3b2314" stroke-width="2" fill="none" stroke-linecap="round"/>
-           <path d="M84 ${eyeY-6} Q88 ${eyeY-8} 92 ${eyeY-6}" stroke="#3b2314" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  // Eye whites
+  h += `<ellipse cx="70" cy="${eyeY}" rx="${eyeRX}" ry="${eyeRY}" fill="white"/>
+        <ellipse cx="90" cy="${eyeY}" rx="${eyeRX}" ry="${eyeRY}" fill="white"/>`;
 
-  // Nose
-  html += `<circle cx="78" cy="${headY+8}" r="1.2" fill="rgba(0,0,0,.2)"/>
-           <circle cx="82" cy="${headY+8}" r="1.2" fill="rgba(0,0,0,.2)"/>`;
+  // Iris gradient
+  h += `<ellipse cx="70" cy="${eyeY+1}" rx="${eyeRX-2}" ry="${eyeRY-2}" fill="url(#eg${uid})"/>
+        <ellipse cx="90" cy="${eyeY+1}" rx="${eyeRX-2}" ry="${eyeRY-2}" fill="url(#eg${uid})"/>`;
 
-  // Mouth
-  if (isFemale) {
-    html += `<path d="M74 ${headY+14} Q80 ${headY+18} 86 ${headY+14}" stroke="#c0392b" stroke-width="2" fill="none" stroke-linecap="round"/>`;
-  } else {
-    html += `<path d="M75 ${headY+14} Q80 ${headY+17} 85 ${headY+14}" stroke="#922b21" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  // Pupil
+  h += `<ellipse cx="70" cy="${eyeY+2}" rx="${eyeRX-4}" ry="${eyeRY-3.5}" fill="#0d1b2a"/>
+        <ellipse cx="90" cy="${eyeY+2}" rx="${eyeRX-4}" ry="${eyeRY-3.5}" fill="#0d1b2a"/>`;
+
+  // Sparkle highlights
+  h += `<circle cx="67" cy="${eyeY-1}" r="2.2" fill="rgba(255,255,255,0.95)"/>
+        <circle cx="87" cy="${eyeY-1}" r="2.2" fill="rgba(255,255,255,0.95)"/>
+        <circle cx="72" cy="${eyeY+2}" r="1" fill="rgba(255,255,255,0.6)"/>
+        <circle cx="92" cy="${eyeY+2}" r="1" fill="rgba(255,255,255,0.6)"/>`;
+
+  // Eye top lashes
+  h += `<path d="M${70-eyeRX},${eyeY-eyeRY+1} Q70,${eyeY-eyeRY-3} ${70+eyeRX},${eyeY-eyeRY+1}" fill="${F?'#2d1b00':'#1a0a00'}" opacity="0.9"/>
+        <path d="M${90-eyeRX},${eyeY-eyeRY+1} Q90,${eyeY-eyeRY-3} ${90+eyeRX},${eyeY-eyeRY+1}" fill="${F?'#2d1b00':'#1a0a00'}" opacity="0.9"/>`;
+
+  if (F) {
+    // Female: longer lashes + eyeliner
+    h += `<path d="M${70-eyeRX},${eyeY-eyeRY} L${70-eyeRX-3},${eyeY-eyeRY-3}" stroke="#2d1b00" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M${70+eyeRX},${eyeY-eyeRY} L${70+eyeRX+2},${eyeY-eyeRY-4}" stroke="#2d1b00" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M${90-eyeRX},${eyeY-eyeRY} L${90-eyeRX-3},${eyeY-eyeRY-3}" stroke="#2d1b00" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M${90+eyeRX},${eyeY-eyeRY} L${90+eyeRX+2},${eyeY-eyeRY-4}" stroke="#2d1b00" stroke-width="1.5" stroke-linecap="round"/>`;
+    // Blush
+    h += `<ellipse cx="62" cy="${eyeY+8}" rx="8" ry="4" fill="${sk.blush}" opacity="0.45"/>
+          <ellipse cx="98" cy="${eyeY+8}" rx="8" ry="4" fill="${sk.blush}" opacity="0.45"/>`;
   }
 
-  // ── HAIR ──
-  const hc = d.hairColor;
+  // ── EYEBROWS ──
+  if (F) {
+    h += `<path d="M${70-eyeRX+1},${eyeY-eyeRY-5} Q70,${eyeY-eyeRY-9} ${70+eyeRX-1},${eyeY-eyeRY-5}" stroke="#3b2314" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+          <path d="M${90-eyeRX+1},${eyeY-eyeRY-5} Q90,${eyeY-eyeRY-9} ${90+eyeRX-1},${eyeY-eyeRY-5}" stroke="#3b2314" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+  } else {
+    h += `<path d="M${70-eyeRX},${eyeY-eyeRY-4} Q70,${eyeY-eyeRY-8} ${70+eyeRX},${eyeY-eyeRY-5}" stroke="#2d1b00" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+          <path d="M${90-eyeRX},${eyeY-eyeRY-5} Q90,${eyeY-eyeRY-8} ${90+eyeRX},${eyeY-eyeRY-4}" stroke="#2d1b00" stroke-width="2.5" fill="none" stroke-linecap="round"/>`;
+  }
+
+  // ── NOSE ──
+  h += `<path d="M79,${headCY+13} Q80,${headCY+16} 81,${headCY+13}" stroke="${sk.shadow}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.6"/>`;
+
+  // ── MOUTH ──
+  if (F) {
+    h += `<path d="M75,${headCY+20} Q80,${headCY+24} 85,${headCY+20}" stroke="#d63031" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <path d="M76,${headCY+20} Q80,${headCY+22} 84,${headCY+20}" fill="#e17055" opacity="0.3"/>`;
+  } else {
+    h += `<path d="M75,${headCY+20} Q80,${headCY+24} 85,${headCY+20}" stroke="#922b21" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+  }
+
+  // ── FACE HIGHLIGHT ──
+  h += `<ellipse cx="68" cy="${headCY-8}" rx="6" ry="8" fill="rgba(255,255,255,0.08)" transform="rotate(-20,68,${headCY-8})"/>`;
+
+  // ──────────────────────────────────────
+  //  HAIR
+  // ──────────────────────────────────────
+  const ht = headCY - headRY; // top of head
+  const hl = 80 - headRX;     // left of head
+  const hr = 80 + headRX;     // right of head
+
+  function hairBase(extra='') {
+    return `<path d="M${hl-2},${headCY-4} Q${hl},${ht-4} 80,${ht-6} Q${hr},${ht-4} ${hr+2},${headCY-4} ${extra}" fill="url(#hg${uid})" filter="url(#hf${uid})"/>`;
+  }
+
   switch(d.hair.id) {
     case 'buzz':
-      html += `<path d="M${80-24} ${headY} Q${80-22} ${headY-28} 80 ${headY-30} Q${80+22} ${headY-28} ${80+24} ${headY}" fill="${hc}" opacity=".9"/>`;
+      h += `<path d="M${hl-2},${headCY-4} Q${hl},${ht-4} 80,${ht-6} Q${hr},${ht-4} ${hr+2},${headCY-4}" fill="url(#hg${uid})" stroke="${darken(hc,0.3)}" stroke-width="0.5"/>
+            <path d="M${hl},${ht+6} Q80,${ht-2} ${hr},${ht+6}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.5"/>`;
+      break;
+    case 'fade':
+      h += `<path d="M${hl-2},${headCY-4} Q${hl},${ht-4} 80,${ht-6} Q${hr},${ht-4} ${hr+2},${headCY-4}" fill="url(#hg${uid})"/>
+            <path d="M${hl-2},${headCY-4} Q${hl},${headCY-16} ${hl+6},${headCY-20}" stroke="${darken(hc,0.3)}" stroke-width="8" fill="none" opacity="0.4"/>
+            <path d="M${hr+2},${headCY-4} Q${hr},${headCY-16} ${hr-6},${headCY-20}" stroke="${darken(hc,0.3)}" stroke-width="8" fill="none" opacity="0.4"/>`;
+      break;
+    case 'undercut':
+      h += hairBase();
+      h += `<path d="M80,${ht-6} Q88,${ht-2} ${hr+4},${headCY-8} L${hr+4},${headCY-4} Q88,${headCY-14} 80,${headCY-18} Z" fill="${darken(hc,0.25)}"/>`;
+      h += `<path d="M74,${ht-2} Q80,${ht-10} 86,${ht-4}" stroke="${hiHc}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
       break;
     case 'afro':
-      html += `<ellipse cx="80" cy="${headY-10}" rx="32" ry="30" fill="${hc}"/>`;
+      h += `<ellipse cx="80" cy="${headCY-12}" rx="${headRX+14}" ry="${headRY+12}" fill="url(#hg${uid})" filter="url(#hf${uid})"/>`;
+      // Afro texture circles
+      for(let i=0;i<10;i++) {
+        const ang = (i/10)*Math.PI;
+        const cx2 = 80 + Math.cos(ang)*(headRX+8);
+        const cy2 = headCY-12 + Math.sin(ang-Math.PI)*(headRY+8);
+        h += `<circle cx="${cx2}" cy="${cy2}" r="7" fill="${darken(hc,0.08)}" opacity="0.4"/>`;
+      }
+      h += `<ellipse cx="72" cy="${headCY-22}" rx="5" ry="4" fill="${hiHc}" opacity="0.35"/>`;
       break;
     case 'straight':
-      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>
-               <rect x="${80-26}" y="${headY}" width="8" height="22" rx="4" fill="${hc}"/>
-               <rect x="${80+18}" y="${headY}" width="8" height="22" rx="4" fill="${hc}"/>`;
+      h += hairBase(`L${hr+6},${headCY+14} Q${hr+4},${headCY+18} ${hr},${headCY+16} L${hl},${headCY+16} Q${hl-4},${headCY+18} ${hl-6},${headCY+14}`);
+      h += `<path d="M${hl-4},${headCY-2} L${hl-2},${headCY+14}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.6"/>
+            <path d="M${hr+4},${headCY-2} L${hr+2},${headCY+14}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.6"/>
+            <path d="M76,${ht-4} L77,${headCY+6}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.4"/>`;
       break;
     case 'curly':
-      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>`;
-      for(let i=0;i<8;i++) {
-        const cx = 54 + i*9;
-        html += `<circle cx="${cx}" cy="${headY-22}" r="7" fill="${hc}"/>`;
+      h += hairBase();
+      for(let i=0;i<9;i++) {
+        const cx2 = hl-4 + i*(headRX*2+8)/8;
+        h += `<circle cx="${cx2}" cy="${ht+4}" r="8" fill="url(#hg${uid})"/>`;
       }
+      for(let i=0;i<5;i++) {
+        const cx2 = hl-2 + i*(headRX*2+4)/4;
+        h += `<circle cx="${cx2}" cy="${ht-4}" r="6" fill="url(#hg${uid})"/>`;
+      }
+      h += `<ellipse cx="68" cy="${ht+2}" rx="4" ry="3" fill="${hiHc}" opacity="0.4"/>`;
       break;
     case 'long': case 'long2':
-      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>
-               <rect x="${80-28}" y="${headY}" width="10" height="50" rx="5" fill="${hc}"/>
-               <rect x="${80+18}" y="${headY}" width="10" height="50" rx="5" fill="${hc}"/>`;
+      h += hairBase(`L${hr+8},${headCY+16} Q${hr+10},${shoulderY+10} ${hr+4},${shoulderY+30} Q${hr},${shoulderY+40} ${hr-6},${shoulderY+36} L${hl+6},${shoulderY+36} Q${hl},${shoulderY+40} ${hl-4},${shoulderY+30} Q${hl-10},${shoulderY+10} ${hl-8},${headCY+16}`);
+      h += `<path d="M${hl-6},${headCY+4} Q${hl-8},${shoulderY} ${hl-6},${shoulderY+24}" stroke="${hiHc}" stroke-width="2" fill="none" opacity="0.5"/>
+            <path d="M${hr+6},${headCY+4} Q${hr+8},${shoulderY} ${hr+6},${shoulderY+24}" stroke="${hiHc}" stroke-width="2" fill="none" opacity="0.5"/>`;
       break;
     case 'mohawk':
-      html += `<path d="M${80-24} ${headY} Q${80-20} ${headY-28} 80 ${headY-30} Q${80+20} ${headY-28} ${80+24} ${headY}" fill="${hc}" opacity=".9"/>
-               <rect x="76" y="${headY-46}" width="8" height="24" rx="4" fill="${hc}"/>`;
+      h += hairBase();
+      h += `<path d="M76,${ht-2} Q78,${ht-30} 80,${ht-34} Q82,${ht-30} 84,${ht-2}" fill="url(#hg${uid})"/>
+            <path d="M78,${ht-10} Q80,${ht-28} 82,${ht-10}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.6"/>`;
       break;
     case 'ponytail':
-      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>
-               <rect x="${80+16}" y="${headY-10}" width="8" height="45" rx="4" fill="${hc}" transform="rotate(15,${80+20},${headY})"/>`;
+      h += hairBase(`L${hr+8},${headCY+12} Q${hr+12},${headCY+6} ${hr+8},${headCY+2}`);
+      // Ponytail
+      h += `<path d="M${hr+6},${headCY} Q${hr+16},${headCY+20} ${hr+10},${shoulderY+20} Q${hr+4},${shoulderY+36} ${hr+2},${shoulderY+30} Q${hr+8},${shoulderY+14} ${hr+2},${headCY+4} Z" fill="url(#hg${uid})"/>`;
+      h += `<path d="M${hr+8},${headCY+8} Q${hr+14},${headCY+22} ${hr+8},${shoulderY+16}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.5"/>`;
       break;
     case 'bun':
-      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>
-               <ellipse cx="80" cy="${headY-30}" rx="12" ry="10" fill="${hc}"/>`;
+      h += hairBase();
+      h += `<ellipse cx="80" cy="${ht-8}" rx="14" ry="12" fill="url(#hg${uid})"/>
+            <ellipse cx="80" cy="${ht-8}" rx="10" ry="8" fill="${lighten(hc,0.1)}" opacity="0.3"/>
+            <path d="M74,${ht-4} Q80,${ht-18} 86,${ht-4}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.5"/>`;
       break;
+    case 'twin':
+      h += hairBase(`L${hr+6},${headCY+10} L${hl-6},${headCY+10}`);
+      // Twin tails
+      h += `<path d="M${hl-4},${headCY+4} Q${hl-16},${headCY+14} ${hl-12},${shoulderY+20} Q${hl-8},${shoulderY+34} ${hl-2},${shoulderY+28} Q${hl},${shoulderY+14} ${hl+4},${headCY+10} Z" fill="url(#hg${uid})"/>
+            <path d="M${hr+4},${headCY+4} Q${hr+16},${headCY+14} ${hr+12},${shoulderY+20} Q${hr+8},${shoulderY+34} ${hr+2},${shoulderY+28} Q${hr},${shoulderY+14} ${hr-4},${headCY+10} Z" fill="url(#hg${uid})"/>`;
+      // Ribbons
+      h += `<circle cx="${hl-2}" cy="${headCY+6}" r="5" fill="#ff6b9d" opacity="0.9"/>
+            <circle cx="${hr+2}" cy="${headCY+6}" r="5" fill="#ff6b9d" opacity="0.9"/>`;
+      break;
+    case 'bob':
+      h += `<path d="M${hl-4},${headCY-4} Q${hl},${ht-6} 80,${ht-8} Q${hr},${ht-6} ${hr+4},${headCY-4} L${hr+4},${headCY+16} Q${hr+2},${headCY+20} 80,${headCY+22} Q${hl-2},${headCY+20} ${hl-4},${headCY+16} Z" fill="url(#hg${uid})" filter="url(#hf${uid})"/>
+            <path d="M${hl-2},${headCY+10} Q80,${headCY+22} ${hr+2},${headCY+10}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.4"/>
+            <path d="M76,${ht-2} L77,${headCY+12}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.4"/>`;
+      break;
+    default:
+      h += hairBase();
   }
 
-  // ── ACCESSORY ──
+  // ──────────────────────────────────────
+  //  ACCESSORY
+  // ──────────────────────────────────────
   switch(d.acc.id) {
     case 'glasses':
-      html += `<circle cx="72" cy="${eyeY}" r="7" fill="none" stroke="#1a0a00" stroke-width="2"/>
-               <circle cx="88" cy="${eyeY}" r="7" fill="none" stroke="#1a0a00" stroke-width="2"/>
-               <line x1="79" y1="${eyeY}" x2="81" y2="${eyeY}" stroke="#1a0a00" stroke-width="2"/>
-               <line x1="65" y1="${eyeY}" x2="60" y2="${eyeY-2}" stroke="#1a0a00" stroke-width="2"/>
-               <line x1="95" y1="${eyeY}" x2="100" y2="${eyeY-2}" stroke="#1a0a00" stroke-width="2"/>`;
+      h += `<rect x="61" y="${eyeY-eyeRY}" width="16" height="16" rx="5" fill="none" stroke="#1a0a00" stroke-width="2"/>
+            <rect x="83" y="${eyeY-eyeRY}" width="16" height="16" rx="5" fill="none" stroke="#1a0a00" stroke-width="2"/>
+            <line x1="77" y1="${eyeY}" x2="83" y2="${eyeY}" stroke="#1a0a00" stroke-width="2"/>
+            <line x1="61" y1="${eyeY}" x2="56" y2="${eyeY-2}" stroke="#1a0a00" stroke-width="2"/>
+            <line x1="99" y1="${eyeY}" x2="104" y2="${eyeY-2}" stroke="#1a0a00" stroke-width="2"/>`;
+      break;
+    case 'sunglass':
+      h += `<path d="M61,${eyeY-2} L77,${eyeY-2} L77,${eyeY+8} Q69,${eyeY+12} 61,${eyeY+8} Z" fill="rgba(0,0,0,0.75)"/>
+            <path d="M83,${eyeY-2} L99,${eyeY-2} L99,${eyeY+8} Q91,${eyeY+12} 83,${eyeY+8} Z" fill="rgba(0,0,0,0.75)"/>
+            <path d="M77,${eyeY} L83,${eyeY}" stroke="#333" stroke-width="2.5"/>
+            <line x1="61" y1="${eyeY}" x2="56" y2="${eyeY-2}" stroke="#333" stroke-width="2"/>
+            <line x1="99" y1="${eyeY}" x2="104" y2="${eyeY-2}" stroke="#333" stroke-width="2"/>
+            <path d="M63,${eyeY-1} L75,${eyeY-1}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+            <path d="M85,${eyeY-1} L97,${eyeY-1}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>`;
       break;
     case 'cap':
-      html += `<path d="M56 ${headY-16} Q80 ${headY-38} 104 ${headY-16}" fill="${d.topColor}"/>
-               <rect x="50" y="${headY-18}" width="60" height="8" rx="4" fill="${d.topColor}"/>`;
+      h += `<path d="M${hl-4},${headCY-8} Q${hl-2},${ht-2} 80,${ht-4} Q${hr+2},${ht-2} ${hr+4},${headCY-8} L${hr+4},${headCY-14} Q80,${headCY-22} ${hl-4},${headCY-14} Z" fill="${tc}"/>
+            <path d="M${hl-4},${headCY-14} Q80,${headCY-24} ${hr+4},${headCY-14}" fill="${darken(tc,0.15)}"/>
+            <rect x="${hl-10}" y="${headCY-16}" width="${headRX*2+18}" height="6" rx="3" fill="${tc}"/>
+            <circle cx="80" cy="${headCY-18}" r="3" fill="${darken(tc,0.3)}"/>`;
       break;
     case 'beanie':
-      html += `<path d="M56 ${headY-8} Q80 ${headY-42} 104 ${headY-8}" fill="${hc}"/>
-               <rect x="54" y="${headY-12}" width="52" height="8" rx="4" fill="${hc}" opacity=".8"/>`;
+      h += `<path d="M${hl-4},${headCY-2} Q${hl-2},${ht-4} 80,${ht-6} Q${hr+2},${ht-4} ${hr+4},${headCY-2} L${hr+4},${headCY+6} Q80,${headCY+10} ${hl-4},${headCY+6} Z" fill="${hc}"/>
+            <rect x="${hl-6}" y="${headCY+2}" width="${headRX*2+14}" height="8" rx="4" fill="${darken(hc,0.15)}"/>
+            <ellipse cx="80" cy="${ht-2}" rx="5" ry="5" fill="${hiHc}" opacity="0.7"/>
+            <path d="M${hl-2},${headCY+4} Q80,${headCY+8} ${hr+2},${headCY+4}" stroke="${hiHc}" stroke-width="1" fill="none" opacity="0.5"/>`;
       break;
     case 'chain':
-      html += `<path d="M70 ${shoulderY+5} Q80 ${shoulderY+15} 90 ${shoulderY+5}" stroke="#f7c948" stroke-width="3" fill="none" stroke-linecap="round"/>
-               <circle cx="80" cy="${shoulderY+14}" r="4" fill="#f7c948"/>`;
+      h += `<path d="M66,${shoulderY+8} Q80,${shoulderY+22} 94,${shoulderY+8}" stroke="#f7c948" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <circle cx="80" cy="${shoulderY+22}" r="5" fill="#f7c948"/>
+            <circle cx="80" cy="${shoulderY+22}" r="3" fill="#f39c12"/>
+            <path d="M68,${shoulderY+12} L72,${shoulderY+10}" stroke="#f0c000" stroke-width="1.5"/>
+            <path d="M92,${shoulderY+12} L88,${shoulderY+10}" stroke="#f0c000" stroke-width="1.5"/>`;
+      break;
+    case 'earring':
+      h += `<circle cx="${80-headRX-2}" cy="${headCY+6}" r="3" fill="#f7c948"/>
+            <path d="M${80-headRX-2},${headCY+9} L${80-headRX-4},${headCY+16}" stroke="#f7c948" stroke-width="1.5"/>
+            <circle cx="${80-headRX-4}" cy="${headCY+18}" r="3" fill="#f0c000"/>
+            <circle cx="${80+headRX+2}" cy="${headCY+6}" r="3" fill="#f7c948"/>
+            <path d="M${80+headRX+2},${headCY+9} L${80+headRX+4},${headCY+16}" stroke="#f7c948" stroke-width="1.5"/>
+            <circle cx="${80+headRX+4}" cy="${headCY+18}" r="3" fill="#f0c000"/>`;
+      break;
+    case 'mask':
+      h += `<path d="M62,${headCY+12} Q80,${headCY+30} 98,${headCY+12} L98,${headCY+20} Q80,${headCY+32} 62,${headCY+20} Z" fill="white" opacity="0.95"/>
+            <path d="M66,${headCY+14} Q80,${headCY+28} 94,${headCY+14}" stroke="#e0e0e0" stroke-width="1" fill="none"/>
+            <path d="M64,${headCY+12} L62,${headCY+14}" stroke="#ccc" stroke-width="1.5"/>
+            <path d="M96,${headCY+12} L98,${headCY+14}" stroke="#ccc" stroke-width="1.5"/>`;
       break;
   }
 
-  svg.innerHTML = html;
+  svg.innerHTML = h;
 
   // Also update mini avatar in profile
-  const mini = document.getElementById('profile-avatar-mini');
-  if (mini) mini.innerHTML = html;
+  if (!isSmall) {
+    const mini = document.getElementById('profile-avatar-mini');
+    if (mini && mini !== svg) mini.innerHTML = h;
+  }
 }
 
 // ════════════════════════════════════════
@@ -678,22 +1014,23 @@ function renderOptions() {
   const cont = document.getElementById('options-container');
 
   if (currentTab === 'skin') {
-    cont.innerHTML = `<div class="options-grid">${SKIN_COLORS.map((c,i)=>`
+    cont.innerHTML = `<div class="options-grid">${SKIN_COLORS.map((s,i)=>`
       <button class="opt-btn ${avatar.skinIndex===i?'selected':''}" onclick="selectSkin(${i})">
-        <div class="color-dot" style="background:${c}"></div>
+        <div class="color-dot" style="background:${s.base};box-shadow:inset -3px -3px 6px ${s.shadow},inset 2px 2px 4px ${s.highlight}"></div>
       </button>`).join('')}</div>`;
   }
   else if (currentTab === 'hair') {
+    const hairIcons = ['✂️','🌀','〰️','🔄','💈','⚡','🔪','🎭'];
     cont.innerHTML = `<div class="options-grid">${hairs.map((h,i)=>`
       <button class="opt-btn ${avatar.hairStyle===i?'selected':''}" onclick="selectHair(${i})">
-        <div style="font-size:22px">💇</div>
+        <div style="font-size:20px">${hairIcons[i]||'💇'}</div>
         <span>${h.label}</span>
       </button>`).join('')}</div>`;
   }
   else if (currentTab === 'haircolor') {
     cont.innerHTML = `<div class="options-grid">${HAIR_COLORS.map((c,i)=>`
       <button class="opt-btn ${avatar.hairColorIndex===i?'selected':''}" onclick="selectHairColor(${i})">
-        <div class="color-dot" style="background:${c};border-color:rgba(255,255,255,.3)"></div>
+        <div class="color-dot" style="background:linear-gradient(135deg,${c.hi},${c.base});border-color:rgba(255,255,255,.3)"></div>
       </button>`).join('')}</div>`;
   }
   else if (currentTab === 'top') {
@@ -730,9 +1067,10 @@ function renderOptions() {
       </div>`).join('');
   }
   else if (currentTab === 'accessory') {
+    const accIcons = ['🚫','👓','🕶️','🧢','🎿','⛓️','💎','😷'];
     cont.innerHTML = `<div class="options-grid">${ACCESSORIES.map((a,i)=>`
       <button class="opt-btn ${avatar.accessory===i?'selected':''}" onclick="selectAcc(${i})">
-        <div style="font-size:22px">${a.id==='none'?'🚫':a.id==='glasses'?'👓':a.id==='cap'?'🧢':a.id==='beanie'?'🎿':'⛓️'}</div>
+        <div style="font-size:22px">${accIcons[i]||'✨'}</div>
         <span>${a.label}</span>
       </button>`).join('')}</div>`;
   }

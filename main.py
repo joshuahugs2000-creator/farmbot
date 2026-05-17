@@ -713,9 +713,12 @@ async def main():
         await app.process_update(update)
         return web.Response(text="OK")
 
+    from api.webapp import setup_webapp_routes
+
     webserver = web.Application()
-    webserver.router.add_get("/", health)
+    webserver.router.add_get("/health", health)
     webserver.router.add_post("/webhook", telegram_webhook)
+    setup_webapp_routes(webserver)
 
     await app.initialize()
     await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")

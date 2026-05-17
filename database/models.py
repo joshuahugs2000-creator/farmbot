@@ -247,6 +247,7 @@ class Company(Base):
     last_revenue    = Column(DateTime, nullable=True)      # dernier versement revenus
     last_payroll    = Column(DateTime, nullable=True)      # dernière paie manuelle par le PDG
     last_active     = Column(DateTime, default=datetime.utcnow)  # pour détecter inactivité PDG
+    last_annonce    = Column(DateTime, nullable=True)            # dernière annonce de recrutement
 
 
 class CompanyEmployee(Base):

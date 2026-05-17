@@ -491,6 +491,7 @@ let avatar = {
   accessory: 0,
 };
 
+// Fallback localStorage (utilisé seulement si l'API n'a pas encore répondu)
 try {
   const saved = localStorage.getItem('fb_avatar');
   if (saved) avatar = {...avatar, ...JSON.parse(saved)};
@@ -1072,7 +1073,16 @@ function renderOptions() {
 }
 
 function autoSave() {
+  // Sauvegarde locale immédiate (fallback)
   try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
+  // Sauvegarde distante (source de vérité)
+  if (userId) {
+    fetch('/api/webapp/avatar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, avatar_data: avatar })
+    }).catch(() => {}); // silencieux si pas de réseau
+  }
 }
 
 function selectSkin(i)          { avatar.skinIndex=i;        drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
@@ -1167,6 +1177,21 @@ async function loadData() {
 }
 
 function fillProfile(d) {
+  // ── Avatar depuis le serveur (source de vérité) ──
+  if (d.avatar_data) {
+    try {
+      const serverAvatar = typeof d.avatar_data === 'string'
+        ? JSON.parse(d.avatar_data)
+        : d.avatar_data;
+      avatar = { ...avatar, ...serverAvatar };
+      // Sync localStorage avec les données serveur
+      try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
+      drawAvatar('avatar-canvas');
+      drawAvatar('profile-avatar-mini');
+      renderOptions();
+    } catch(e) {}
+  }
+
   document.getElementById('pf-name').textContent    = d.name || firstName;
   document.getElementById('pf-title').textContent   = d.title || 'Citoyen';
   document.getElementById('pf-coins').textContent   = '💰 ' + fmt(d.coins);

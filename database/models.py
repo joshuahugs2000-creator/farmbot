@@ -46,6 +46,9 @@ class User(Base):
     diplome_domain  = Column(String(50), nullable=True)   # finance, informatique, ...
     exam_cooldown   = Column(DateTime, nullable=True)      # bloqué jusqu'à cette date
 
+    # ─── AVATAR ───────────────────────────────────────────────────────────────
+    avatar_data     = Column(Text, nullable=True)          # JSON stocké côté serveur
+
 
 class GroupSettings(Base):
     __tablename__ = "group_settings"

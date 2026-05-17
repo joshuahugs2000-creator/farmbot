@@ -409,6 +409,217 @@ async def webapp_market_action(request: web.Request) -> web.Response:
         return web.json_response({'error': 'Action invalide'}, status=400)
 
 
+import random as _random_game
+import asyncio as _asyncio_game
+
+# ── Routes Jeux ──────────────────────────────────────────────────────────────
+
+async def webapp_game(request: web.Request) -> web.Response:
+    """POST /api/webapp/game — Jouer à un jeu depuis la webapp."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    game = body.get('game')  # 'crash_start', 'crash_cashout', 'roue', 'mines_start', 'mines_reveal', 'mines_cashout'
+    mise = int(body.get('mise', 0))
+
+    async with AsyncSessionLocal() as session:
+        user_result = await session.execute(select(User).where(User.user_id == uid))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # ── ROUE DE FORTUNE ──────────────────────────────────────────────────
+        if game == 'roue':
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if mise > 6_600_000:
+                return web.json_response({'error': 'Mise maximum 6 600 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': f'Fonds insuffisants (solde: {int(user.coins):,} $)'})
+
+            WHEEL_SEGMENTS = [
+                ("💀 Ruine totale",        "ruine",   0,          6),
+                ("☠️ x0.1",               "mult",    0.1,        10),
+                ("😭 x0.2",               "mult",    0.2,         9),
+                ("😞 x0.3",               "mult",    0.3,        10),
+                ("💸 x0.4",               "mult",    0.4,         9),
+                ("😐 x0.5",               "mult",    0.5,         9),
+                ("🔄 IDEM",               "idem",    0,          10),
+                ("🙂 x0.8",               "mult",    0.8,         9),
+                ("💵 +50 000 $",          "fixed",   50_000,      6),
+                ("💰 x1.2",               "mult",    1.2,         8),
+                ("💵 +200 000 $",         "fixed",   200_000,     6),
+                ("💰 x1.5",               "mult",    1.5,        10),
+                ("🎁 +500 000 $",         "fixed",   500_000,     4),
+                ("🤑 x2.0",               "mult",    2.0,         7),
+                ("🎯 x3.0",               "mult",    3.0,         5),
+                ("💵 +1 000 000 $",       "fixed",   1_000_000,   3),
+                ("⭐ x5.0",               "mult",    5.0,         3),
+                ("🔥 x10.0",              "mult",    10.0,        2),
+                ("🌟 MÉGA CHANCE x15.0",  "mult",    15.0,        1),
+                ("💎 JACKPOT x25.0",      "mult",    25.0,        1),
+            ]
+
+            total_w = sum(s[3] for s in WHEEL_SEGMENTS)
+            r = _random_game.uniform(0, total_w)
+            cum = 0
+            label, kind, val = WHEEL_SEGMENTS[-1][:3]
+            for seg in WHEEL_SEGMENTS:
+                cum += seg[3]
+                if r <= cum:
+                    label, kind, val = seg[0], seg[1], seg[2]
+                    break
+
+            # Trouver l'index du segment pour l'animation
+            seg_index = next(i for i, s in enumerate(WHEEL_SEGMENTS) if s[0] == label)
+
+            if kind == 'ruine':
+                gain = 0
+            elif kind == 'idem':
+                gain = mise
+            elif kind == 'fixed':
+                gain = min(int(val), 100_000_000)
+            else:
+                gain = min(int(mise * val), 100_000_000)
+
+            user.coins -= mise
+            user.coins += gain
+            await session.commit()
+
+            profit = gain - mise
+            return web.json_response({
+                'ok': True,
+                'label': label,
+                'kind': kind,
+                'val': val,
+                'gain': gain,
+                'profit': profit,
+                'seg_index': seg_index,
+                'total_segs': len(WHEEL_SEGMENTS),
+            })
+
+        # ── CRASH ─────────────────────────────────────────────────────────────
+        if game == 'crash_start':
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': f'Fonds insuffisants'})
+
+            # Générer le crash point côté serveur, le cacher
+            r = _random_game.random()
+            if r < 0.05:
+                crash_point = 1.0
+            else:
+                crash_point = round(min(0.99 / (1 - r * 0.95), 100.0), 2)
+
+            user.coins -= mise
+            await session.commit()
+
+            # Stocker en mémoire (clé = uid)
+            _CRASH_SESSIONS[uid] = {'mise': mise, 'crash_point': crash_point}
+
+            return web.json_response({'ok': True, 'crash_point': crash_point})
+
+        if game == 'crash_cashout':
+            mult = float(body.get('mult', 1.0))
+            sess = _CRASH_SESSIONS.pop(uid, None)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie en cours'})
+            if mult >= sess['crash_point']:
+                return web.json_response({'error': 'Trop tard — crash déjà survenu !', 'crashed': True})
+
+            gain = int(sess['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise']})
+
+        # ── MINES ─────────────────────────────────────────────────────────────
+        if game == 'mines_start':
+            nb_mines = int(body.get('nb_mines', 3))
+            if nb_mines < 1 or nb_mines > 24:
+                return web.json_response({'error': 'Mines : 1-24'})
+            if mise < 100:
+                return web.json_response({'error': 'Mise minimum 100 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            grid = ['safe'] * 25
+            for pos in _random_game.sample(range(25), nb_mines):
+                grid[pos] = 'mine'
+
+            user.coins -= mise
+            await session.commit()
+            _MINES_SESSIONS[uid] = {'mise': mise, 'nb_mines': nb_mines, 'grid': grid, 'revealed': []}
+            return web.json_response({'ok': True})
+
+        if game == 'mines_reveal':
+            idx = int(body.get('idx', 0))
+            sess = _MINES_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            if idx in sess['revealed']:
+                return web.json_response({'error': 'Déjà révélé'})
+
+            sess['revealed'].append(idx)
+            is_mine = sess['grid'][idx] == 'mine'
+
+            if is_mine:
+                full_grid = sess['grid']
+                _MINES_SESSIONS.pop(uid, None)
+                return web.json_response({'ok': True, 'mine': True, 'grid': full_grid})
+
+            nb_revealed = len(sess['revealed'])
+            nb_mines = sess['nb_mines']
+            safe = 25 - nb_mines
+            try:
+                prob = 1.0
+                for i in range(nb_revealed):
+                    prob *= (safe - i) / (25 - i)
+                mult = round(0.97 / prob, 2) if prob > 0 else 1.0
+            except Exception:
+                mult = 1.0
+
+            gain_now = int(sess['mise'] * mult)
+            all_safe = nb_revealed >= safe
+            if all_safe:
+                _MINES_SESSIONS.pop(uid, None)
+                user.coins += gain_now
+                await session.commit()
+
+            return web.json_response({'ok': True, 'mine': False, 'mult': mult, 'gain_now': gain_now, 'all_safe': all_safe})
+
+        if game == 'mines_cashout':
+            sess = _MINES_SESSIONS.pop(uid, None)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            nb_revealed = len(sess['revealed'])
+            nb_mines = sess['nb_mines']
+            safe = 25 - nb_mines
+            try:
+                prob = 1.0
+                for i in range(nb_revealed):
+                    prob *= (safe - i) / (25 - i)
+                mult = round(0.97 / prob, 2) if prob > 0 else 1.0
+            except Exception:
+                mult = 1.0
+            gain = int(sess['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise'], 'mult': mult})
+
+    return web.json_response({'error': 'Jeu inconnu'}, status=400)
+
+
+_CRASH_SESSIONS: dict = {}
+_MINES_SESSIONS: dict = {}
+
+
 def setup_webapp_routes(app: web.Application):
     """Enregistre les routes de la Mini App."""
     app.router.add_get('/',                       webapp_index)
@@ -418,3 +629,4 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/api/webapp/market',      webapp_market_catalog)
     app.router.add_get('/api/webapp/portfolio',   webapp_market_portfolio)
     app.router.add_post('/api/webapp/market/action', webapp_market_action)
+    app.router.add_post('/api/webapp/game',       webapp_game)

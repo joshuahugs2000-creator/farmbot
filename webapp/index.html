@@ -240,7 +240,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div class="customizer-tabs" id="ctabs">
       <button class="ctab active" onclick="showTab('skin')">🎨 Peau</button>
       <button class="ctab" onclick="showTab('hair')">💇 Coiffure</button>
-      <button class="ctab" onclick="showTab('haircolor')">🎨 Cheveux</button>
       <button class="ctab" onclick="showTab('top')">👕 Haut</button>
       <button class="ctab" onclick="showTab('bottom')">👖 Bas</button>
       <button class="ctab" onclick="showTab('shoes')">👟 Shoes</button>
@@ -554,8 +553,9 @@ function drawAvatar(svgId) {
 
   const isSmall = svgId === 'profile-avatar-mini';
 
-  // ── DEFS (gradients, filters) ──
-  const uid = svgId.replace(/[^a-z]/gi,'');
+  // ── DEFS (gradients) ──
+  // Use a timestamp-based uid to guarantee unique IDs even when both SVGs render simultaneously
+  const uid = svgId.replace(/[^a-z]/gi,'') + '_' + Date.now();
   let defs = `<defs>
     <radialGradient id="sg${uid}" cx="42%" cy="35%" r="55%">
       <stop offset="0%" stop-color="${sk.highlight}"/>
@@ -579,12 +579,6 @@ function drawAvatar(svgId) {
       <stop offset="40%" stop-color="${hc}"/>
       <stop offset="100%" stop-color="${darken(hc,0.3)}"/>
     </linearGradient>
-    <filter id="sf${uid}" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="2" dy="3" stdDeviation="3" flood-color="rgba(0,0,0,0.25)"/>
-    </filter>
-    <filter id="hf${uid}" x="-5%" y="-5%" width="110%" height="110%">
-      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.3)"/>
-    </filter>
   </defs>`;
 
   let h = defs;
@@ -767,7 +761,7 @@ function drawAvatar(svgId) {
     Q${80+headRX},${headCY+headRY-4} ${80+headRX-6},${headCY+headRY}
     Q80,${headCY+headRY+6} ${80-headRX+6},${headCY+headRY}
     Q${80-headRX},${headCY+headRY-4} ${80-headRX},${headCY} Z" 
-    fill="url(#sg${uid})" filter="url(#sf${uid})"/>`;
+    fill="url(#sg${uid})"/>`;
 
   // Ears
   h += `<path d="M${80-headRX+2},${headCY-2} Q${80-headRX-6},${headCY} ${80-headRX},${headCY+8}" stroke="${sk.shadow}" stroke-width="5" fill="none" stroke-linecap="round"/>
@@ -844,7 +838,7 @@ function drawAvatar(svgId) {
   const hr = 80 + headRX;     // right of head
 
   function hairBase(extra='') {
-    return `<path d="M${hl-2},${headCY-4} Q${hl},${ht-4} 80,${ht-6} Q${hr},${ht-4} ${hr+2},${headCY-4} ${extra}" fill="url(#hg${uid})" filter="url(#hf${uid})"/>`;
+    return `<path d="M${hl-2},${headCY-4} Q${hl},${ht-4} 80,${ht-6} Q${hr},${ht-4} ${hr+2},${headCY-4} ${extra}" fill="url(#hg${uid})"/>`;
   }
 
   switch(d.hair.id) {
@@ -863,7 +857,7 @@ function drawAvatar(svgId) {
       h += `<path d="M74,${ht-2} Q80,${ht-10} 86,${ht-4}" stroke="${hiHc}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
       break;
     case 'afro':
-      h += `<ellipse cx="80" cy="${headCY-12}" rx="${headRX+14}" ry="${headRY+12}" fill="url(#hg${uid})" filter="url(#hf${uid})"/>`;
+      h += `<ellipse cx="80" cy="${headCY-12}" rx="${headRX+14}" ry="${headRY+12}" fill="url(#hg${uid})"/>`;
       // Afro texture circles
       for(let i=0;i<10;i++) {
         const ang = (i/10)*Math.PI;
@@ -923,7 +917,7 @@ function drawAvatar(svgId) {
             <circle cx="${hr+2}" cy="${headCY+6}" r="5" fill="#ff6b9d" opacity="0.9"/>`;
       break;
     case 'bob':
-      h += `<path d="M${hl-4},${headCY-4} Q${hl},${ht-6} 80,${ht-8} Q${hr},${ht-6} ${hr+4},${headCY-4} L${hr+4},${headCY+16} Q${hr+2},${headCY+20} 80,${headCY+22} Q${hl-2},${headCY+20} ${hl-4},${headCY+16} Z" fill="url(#hg${uid})" filter="url(#hf${uid})"/>
+      h += `<path d="M${hl-4},${headCY-4} Q${hl},${ht-6} 80,${ht-8} Q${hr},${ht-6} ${hr+4},${headCY-4} L${hr+4},${headCY+16} Q${hr+2},${headCY+20} 80,${headCY+22} Q${hl-2},${headCY+20} ${hl-4},${headCY+16} Z" fill="url(#hg${uid})"/>
             <path d="M${hl-2},${headCY+10} Q80,${headCY+22} ${hr+2},${headCY+10}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.4"/>
             <path d="M76,${ht-2} L77,${headCY+12}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.4"/>`;
       break;
@@ -988,10 +982,9 @@ function drawAvatar(svgId) {
 
   svg.innerHTML = h;
 
-  // Also update mini avatar in profile
+  // Also update mini avatar in profile — redraw independently to avoid ID conflicts
   if (!isSmall) {
-    const mini = document.getElementById('profile-avatar-mini');
-    if (mini && mini !== svg) mini.innerHTML = h;
+    drawAvatar('profile-avatar-mini');
   }
 }
 
@@ -1001,7 +994,7 @@ function drawAvatar(svgId) {
 function showTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.ctab').forEach((b,i) => {
-    const tabs = ['skin','hair','haircolor','top','bottom','shoes','accessory'];
+    const tabs = ['skin','hair','top','bottom','shoes','accessory'];
     b.classList.toggle('active', tabs[i] === tab);
   });
   renderOptions();
@@ -1021,17 +1014,19 @@ function renderOptions() {
   }
   else if (currentTab === 'hair') {
     const hairIcons = ['✂️','🌀','〰️','🔄','💈','⚡','🔪','🎭'];
-    cont.innerHTML = `<div class="options-grid">${hairs.map((h,i)=>`
-      <button class="opt-btn ${avatar.hairStyle===i?'selected':''}" onclick="selectHair(${i})">
-        <div style="font-size:20px">${hairIcons[i]||'💇'}</div>
-        <span>${h.label}</span>
-      </button>`).join('')}</div>`;
-  }
-  else if (currentTab === 'haircolor') {
-    cont.innerHTML = `<div class="options-grid">${HAIR_COLORS.map((c,i)=>`
-      <button class="opt-btn ${avatar.hairColorIndex===i?'selected':''}" onclick="selectHairColor(${i})">
-        <div class="color-dot" style="background:linear-gradient(135deg,${c.hi},${c.base});border-color:rgba(255,255,255,.3)"></div>
-      </button>`).join('')}</div>`;
+    // Style picker
+    cont.innerHTML = `
+      <div class="card-title" style="margin-bottom:8px">Coiffure</div>
+      <div class="options-grid" style="margin-bottom:16px">${hairs.map((h,i)=>`
+        <button class="opt-btn ${avatar.hairStyle===i?'selected':''}" onclick="selectHair(${i})">
+          <div style="font-size:20px">${hairIcons[i]||'💇'}</div>
+          <span>${h.label}</span>
+        </button>`).join('')}</div>
+      <div class="card-title" style="margin-bottom:8px">Couleur</div>
+      <div class="options-grid">${HAIR_COLORS.map((c,i)=>`
+        <button class="opt-btn ${avatar.hairColorIndex===i?'selected':''}" onclick="selectHairColor(${i})">
+          <div class="color-dot" style="background:linear-gradient(135deg,${c.hi},${c.base});border-color:rgba(255,255,255,.3)"></div>
+        </button>`).join('')}</div>`;
   }
   else if (currentTab === 'top') {
     cont.innerHTML = tops.map((t,ti)=>`
@@ -1076,13 +1071,17 @@ function renderOptions() {
   }
 }
 
-function selectSkin(i)          { avatar.skinIndex=i;        drawAvatar('avatar-canvas'); renderOptions(); }
-function selectHair(i)          { avatar.hairStyle=i;        drawAvatar('avatar-canvas'); renderOptions(); }
-function selectHairColor(i)     { avatar.hairColorIndex=i;   drawAvatar('avatar-canvas'); renderOptions(); }
-function selectTop(ti,ci)       { avatar.topStyle=ti; avatar.topColorIndex=ci;         drawAvatar('avatar-canvas'); renderOptions(); }
-function selectBottom(bi,ci)    { avatar.bottomStyle=bi; avatar.bottomColorIndex=ci;   drawAvatar('avatar-canvas'); renderOptions(); }
-function selectShoe(si,ci)      { avatar.shoeStyle=si; avatar.shoeColorIndex=ci;       drawAvatar('avatar-canvas'); renderOptions(); }
-function selectAcc(i)           { avatar.accessory=i;        drawAvatar('avatar-canvas'); renderOptions(); }
+function autoSave() {
+  try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
+}
+
+function selectSkin(i)          { avatar.skinIndex=i;        drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
+function selectHair(i)          { avatar.hairStyle=i;        drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
+function selectHairColor(i)     { avatar.hairColorIndex=i;   drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
+function selectTop(ti,ci)       { avatar.topStyle=ti; avatar.topColorIndex=ci;         drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
+function selectBottom(bi,ci)    { avatar.bottomStyle=bi; avatar.bottomColorIndex=ci;   drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
+function selectShoe(si,ci)      { avatar.shoeStyle=si; avatar.shoeColorIndex=ci;       drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
+function selectAcc(i)           { avatar.accessory=i;        drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
 
 function setGender(g) {
   avatar.gender = g;
@@ -1093,10 +1092,12 @@ function setGender(g) {
   avatar.bottomStyle = 0;
   drawAvatar('avatar-canvas');
   renderOptions();
+  autoSave();
 }
 
+
 function saveAvatar() {
-  try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
+  autoSave();
   showToast('✅ Avatar sauvegardé !');
   drawAvatar('profile-avatar-mini');
 }

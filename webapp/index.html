@@ -254,165 +254,90 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <!-- ══ PAGE ENTREPRISE ══ -->
   <div class="page" id="page-company">
     <div class="page-title">🏢 Entreprise</div>
-
-    <!-- État : pas dans une boite -->
-    <div id="co-no-company" style="display:none">
-      <div class="card" style="text-align:center;padding:32px 16px">
-        <div style="font-size:48px;margin-bottom:12px">🏗️</div>
-        <div style="font-family:'Bangers',cursive;font-size:22px;color:var(--accent);margin-bottom:8px">Sans Emploi</div>
-        <div style="color:var(--text2);font-size:13px;margin-bottom:20px">Tu ne fais partie d'aucune entreprise.</div>
-        <div style="font-size:12px;color:var(--text2)">Utilise <code style="background:var(--card2);padding:2px 6px;border-radius:6px">/listeboites</code> dans le groupe pour postuler.</div>
+    <div class="card" id="company-card">
+      <div class="company-header">
+        <div class="company-name" id="co-name">—</div>
+        <div class="company-level" id="co-level">—</div>
+        <div class="rep-stars" id="co-stars">—</div>
       </div>
     </div>
-
-    <!-- État : dans une boite -->
-    <div id="co-company-content" style="display:none">
-
-      <!-- Header entreprise -->
-      <div id="co-header-card" class="card" style="background:linear-gradient(135deg,var(--card),var(--card2));margin-bottom:12px;padding:20px 16px">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <div id="co-sector-icon" style="font-size:36px;background:rgba(255,255,255,.05);border-radius:12px;width:56px;height:56px;display:flex;align-items:center;justify-content:center;flex-shrink:0">🏢</div>
-          <div style="flex:1;min-width:0">
-            <div id="co-name" style="font-family:'Bangers',cursive;font-size:24px;color:var(--accent);letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div>
-            <div id="co-sector-name" style="font-size:12px;color:var(--text2);margin-top:2px">—</div>
-          </div>
-          <div id="co-role-badge" style="flex-shrink:0;background:rgba(247,201,72,.15);border:1px solid var(--accent);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:800;color:var(--accent)">—</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-          <div id="co-level-badge" style="display:inline-flex;align-items:center;gap:5px;background:rgba(162,155,254,.12);border:1px solid var(--accent4);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:800;color:var(--accent4)">—</div>
-          <div id="co-stars" style="color:var(--accent);font-size:14px">—</div>
-        </div>
-        <div id="co-description" style="font-size:12px;color:var(--text2);margin-top:8px;font-style:italic"></div>
-      </div>
-
-      <!-- Onglets -->
-      <div class="customizer-tabs" id="co-tabs" style="margin-bottom:14px">
-        <button class="ctab active" onclick="showCoTab('overview',this)">📊 Résumé</button>
-        <button class="ctab" onclick="showCoTab('employees',this)">👥 Équipe</button>
-        <button class="ctab" onclick="showCoTab('shares',this)">📈 Parts</button>
-        <button class="ctab" onclick="showCoTab('logs',this)">📋 Logs</button>
-        <button class="ctab" onclick="showCoTab('actions',this)">⚡ Actions</button>
-      </div>
-
-      <!-- TAB : RÉSUMÉ -->
-      <div id="co-tab-overview">
-        <div class="card">
-          <div class="card-title">💰 Finances</div>
-          <div class="stat-row"><span class="stat-label">Valeur</span><span class="stat-value gold" id="co-value">—</span></div>
-          <div class="stat-row"><span class="stat-label">Trésorerie</span><span class="stat-value gold" id="co-treasury">—</span></div>
-          <div class="stat-row"><span class="stat-label">Revenu/jour</span><span class="stat-value green" id="co-revenue">—</span></div>
-          <div class="stat-row"><span class="stat-label">Prix d'une part</span><span class="stat-value" id="co-share-price">—</span></div>
-          <div class="stat-row"><span class="stat-label">Dernière paie</span><span class="stat-value" id="co-last-payroll" style="font-size:12px">—</span></div>
-        </div>
-        <div class="card">
-          <div class="card-title">👤 Mon Poste</div>
-          <div class="stat-row"><span class="stat-label">Rôle</span><span class="stat-value" id="co-myrole">—</span></div>
-          <div class="stat-row"><span class="stat-label">Ancienneté</span><span class="stat-value" id="co-mydays">—</span></div>
-          <div class="stat-row"><span class="stat-label">Activité (paie)</span><span class="stat-value" id="co-myactivity">—</span></div>
-          <div class="stat-row"><span class="stat-label">Salaire estimé</span><span class="stat-value green" id="co-mysalary">—</span></div>
-          <div class="stat-row"><span class="stat-label">Mes parts</span><span class="stat-value" id="co-myshares">—</span></div>
-        </div>
-      </div>
-
-      <!-- TAB : ÉQUIPE -->
-      <div id="co-tab-employees" style="display:none">
-        <div class="card">
-          <div class="card-title">👥 Employés <span id="co-emp-count" style="color:var(--accent)"></span></div>
-          <div id="co-employees-list"></div>
-        </div>
-        <!-- Candidatures en attente (PDG/Manager) -->
-        <div class="card" id="co-apps-card" style="display:none">
-          <div class="card-title">📥 Candidatures en attente</div>
-          <div id="co-apps-list"></div>
-        </div>
-      </div>
-
-      <!-- TAB : PARTS -->
-      <div id="co-tab-shares" style="display:none">
-        <div class="card">
-          <div class="card-title">📊 Répartition des parts</div>
-          <div id="co-shares-list"></div>
-        </div>
-        <!-- Offres en attente (PDG) -->
-        <div class="card" id="co-offers-card" style="display:none">
-          <div class="card-title">💸 Offres d'achat en attente</div>
-          <div id="co-offers-list"></div>
-        </div>
-      </div>
-
-      <!-- TAB : LOGS -->
-      <div id="co-tab-logs" style="display:none">
-        <div class="card">
-          <div class="card-title">📋 Historique (20 derniers)</div>
-          <div id="co-logs-list"></div>
-        </div>
-      </div>
-
-      <!-- TAB : ACTIONS -->
-      <div id="co-tab-actions" style="display:none">
-        <!-- Actions communes -->
-        <div class="card">
-          <div class="card-title">🚪 Quitter</div>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Démissionner de l'entreprise. (Indisponible pour le PDG)</p>
-          <button class="save-btn" id="co-btn-quit" style="background:linear-gradient(135deg,var(--accent2),#c0392b);font-size:15px;padding:10px" onclick="coAction_quit()">🚪 DÉMISSIONNER</button>
-        </div>
-
-        <!-- Actions PDG/Manager : Trésorerie -->
-        <div class="card" id="co-actions-treasury" style="display:none">
-          <div class="card-title">💰 Trésorerie</div>
-          <div style="display:flex;gap:8px;margin-bottom:10px">
-            <input type="number" id="co-depot-amount" placeholder="Montant à déposer" style="flex:1;background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:13px;font-family:'Nunito',sans-serif"/>
-            <button onclick="coAction_depot()" style="background:var(--success);color:#000;border:none;border-radius:8px;padding:10px 14px;font-weight:800;font-size:13px;cursor:pointer">Déposer</button>
-          </div>
-          <div id="co-actions-retrait-section" style="display:none">
-            <div style="height:1px;background:var(--border);margin:10px 0"></div>
-            <div style="display:flex;gap:8px">
-              <input type="number" id="co-retrait-amount" placeholder="Montant à retirer" style="flex:1;background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:13px;font-family:'Nunito',sans-serif"/>
-              <button onclick="coAction_retrait()" style="background:var(--accent2);color:#fff;border:none;border-radius:8px;padding:10px 14px;font-weight:800;font-size:13px;cursor:pointer">Retirer</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Actions PDG : Salaires -->
-        <div class="card" id="co-actions-payroll" style="display:none">
-          <div class="card-title">💵 Salaires</div>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Distribue les salaires à tous les employés actifs. Cooldown 12h.</p>
-          <button class="save-btn" onclick="coAction_versersalaires()" style="font-size:15px;padding:10px">💵 VERSER LES SALAIRES</button>
-        </div>
-
-        <!-- Actions PDG : Gestion d'équipe -->
-        <div class="card" id="co-actions-team" style="display:none">
-          <div class="card-title">👥 Gestion d'équipe</div>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Sélectionne un employé dans l'onglet Équipe pour le promouvoir ou le licencier.</p>
-          <div id="co-team-selected" style="display:none">
-            <div id="co-team-selected-name" style="font-weight:800;color:var(--accent);margin-bottom:10px"></div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-              <button onclick="coAction_promote('stagiaire')" class="role-btn" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card2);color:var(--text2);cursor:pointer;font-family:'Nunito',sans-serif;font-weight:700">👷 Stagiaire</button>
-              <button onclick="coAction_promote('employe')" class="role-btn" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card2);color:var(--text2);cursor:pointer;font-family:'Nunito',sans-serif;font-weight:700">👷 Employé</button>
-              <button onclick="coAction_promote('manager')" class="role-btn" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card2);color:var(--text2);cursor:pointer;font-family:'Nunito',sans-serif;font-weight:700">💼 Manager</button>
-              <button onclick="coAction_promote('directeur')" class="role-btn" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card2);color:var(--text2);cursor:pointer;font-family:'Nunito',sans-serif;font-weight:700">🏦 Directeur</button>
-            </div>
-            <button onclick="coAction_fire()" style="background:var(--accent2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:800;font-size:12px;cursor:pointer">🔥 Licencier</button>
-          </div>
-          <div id="co-team-hint" style="font-size:12px;color:var(--text2)">👉 Va dans l'onglet Équipe et appuie sur un employé pour le sélectionner.</div>
-        </div>
-      </div>
-
-    </div><!-- /co-company-content -->
+    <div class="card">
+      <div class="card-title">💰 Finances</div>
+      <div class="stat-row"><span class="stat-label">Valeur</span><span class="stat-value gold" id="co-value">—</span></div>
+      <div class="stat-row"><span class="stat-label">Trésorerie</span><span class="stat-value gold" id="co-treasury">—</span></div>
+      <div class="stat-row"><span class="stat-label">Revenu/jour</span><span class="stat-value green" id="co-revenue">—</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">👥 Équipe</div>
+      <div class="stat-row"><span class="stat-label">Employés</span><span class="stat-value" id="co-employees">—</span></div>
+      <div class="stat-row"><span class="stat-label">Mon rôle</span><span class="stat-value" id="co-myrole">—</span></div>
+      <div class="stat-row"><span class="stat-label">PDG</span><span class="stat-value" id="co-owner">—</span></div>
+    </div>
   </div>
 
   <!-- ══ PAGE MARCHÉ ══ -->
   <div class="page" id="page-market">
     <div class="page-title">📈 Marché</div>
-    <div class="card">
-      <div class="card-title">📊 Portfolio</div>
-      <div class="stat-row"><span class="stat-label">Investi</span><span class="stat-value gold" id="mk-invested">—</span></div>
-      <div class="stat-row"><span class="stat-label">Valeur actuelle</span><span class="stat-value gold" id="mk-current">—</span></div>
-      <div class="stat-row"><span class="stat-label">P&L</span><span class="stat-value" id="mk-pnl">—</span></div>
+
+    <!-- onglets -->
+    <div class="tab-bar" id="market-tabs">
+      <button class="tab-btn active" onclick="mktTab('catalog',this)">🏪 Catalogue</button>
+      <button class="tab-btn" onclick="mktTab('portfolio',this)">💼 Portfolio</button>
     </div>
-    <div class="card">
-      <div class="card-title">🏪 Assets disponibles</div>
-      <div id="assets-list"></div>
+
+    <!-- ── CATALOGUE ── -->
+    <div id="mkt-catalog">
+      <!-- filtre catégories -->
+      <div id="mkt-cat-filter" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none;"></div>
+
+      <!-- barre de recherche -->
+      <div style="position:relative;margin-bottom:12px;">
+        <input id="mkt-search" type="text" placeholder="🔍 Rechercher un asset…"
+          oninput="mktFilter()"
+          style="width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 12px;color:var(--text1);font-size:14px;outline:none;">
+      </div>
+
+      <div id="mkt-assets-list"></div>
+    </div>
+
+    <!-- ── PORTFOLIO ── -->
+    <div id="mkt-portfolio" style="display:none;">
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title">📊 Résumé</div>
+        <div class="stat-row"><span class="stat-label">Positions actives</span><span class="stat-value" id="mk-count">—</span></div>
+        <div class="stat-row"><span class="stat-label">Total investi</span><span class="stat-value gold" id="mk-invested">—</span></div>
+        <div class="stat-row"><span class="stat-label">Valeur actuelle</span><span class="stat-value gold" id="mk-current">—</span></div>
+        <div class="stat-row"><span class="stat-label">P&L global</span><span class="stat-value" id="mk-pnl">—</span></div>
+      </div>
+      <div id="mk-positions-list"></div>
+    </div>
+
+    <!-- ── MODAL ACHAT ── -->
+    <div id="mkt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:flex-end;">
+      <div style="background:var(--card);border-radius:20px 20px 0 0;padding:24px;width:100%;box-sizing:border-box;max-height:85vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div id="modal-title" style="font-size:18px;font-weight:700;color:var(--text1);">Asset</div>
+          <button onclick="closeMktModal()" style="background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;">✕</button>
+        </div>
+        <div id="modal-desc" style="color:var(--text2);font-size:13px;margin-bottom:12px;"></div>
+        <div class="stat-row"><span class="stat-label">Prix unitaire</span><span class="stat-value gold" id="modal-price">—</span></div>
+        <div class="stat-row"><span class="stat-label">Risque</span><span class="stat-value" id="modal-risk">—</span></div>
+        <div class="stat-row"><span class="stat-label">Volatilité</span><span class="stat-value" id="modal-vol">—</span></div>
+        <div style="height:1px;background:var(--border);margin:16px 0;"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+          <button onclick="mktQty(-1)" style="width:36px;height:36px;border-radius:50%;background:var(--border);border:none;color:var(--text1);font-size:18px;cursor:pointer;">−</button>
+          <input id="modal-qty" type="number" value="1" min="1"
+            oninput="mktUpdateTotal()"
+            style="flex:1;text-align:center;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px;color:var(--text1);font-size:16px;font-weight:700;">
+          <button onclick="mktQty(1)" style="width:36px;height:36px;border-radius:50%;background:var(--border);border:none;color:var(--text1);font-size:18px;cursor:pointer;">+</button>
+        </div>
+        <div class="stat-row"><span class="stat-label">Total</span><span class="stat-value gold" id="modal-total">—</span></div>
+        <button id="modal-buy-btn" onclick="confirmBuy()"
+          style="width:100%;margin-top:16px;padding:14px;border-radius:12px;border:none;background:var(--success);color:#fff;font-size:16px;font-weight:700;cursor:pointer;">
+          ✅ Acheter
+        </button>
+        <div id="modal-msg" style="text-align:center;margin-top:10px;font-size:13px;color:var(--text2);min-height:18px;"></div>
+      </div>
     </div>
   </div>
 
@@ -474,7 +399,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <button class="nav-btn active" onclick="showPage('profile',this)"><span class="icon">👤</span>Profil</button>
   <button class="nav-btn" onclick="showPage('avatar',this)"><span class="icon">🎨</span>Avatar</button>
   <button class="nav-btn" onclick="showPage('company',this)"><span class="icon">🏢</span>Boite</button>
-  <button class="nav-btn" onclick="showPage('market',this)"><span class="icon">📈</span>Marché</button>
+  <button class="nav-btn" onclick="showPage('market',this);loadMarket()"><span class="icon">📈</span>Marché</button>
   <button class="nav-btn" onclick="showPage('games',this)"><span class="icon">🎮</span>Jeux</button>
 </nav>
 
@@ -492,6 +417,8 @@ if (tg) {
 
 const userId = tg?.initDataUnsafe?.user?.id || null;
 const firstName = tg?.initDataUnsafe?.user?.first_name || 'Joueur';
+const CURRENCY = '$';
+let uid = userId;
 
 // ── Accès restreint ──────────────────────────────────────────────────────────
 const WEBAPP_WHITELIST = [6227863810];
@@ -1247,7 +1174,6 @@ function showPage(name, btn) {
   document.getElementById('page-'+name).classList.add('active');
   btn.classList.add('active');
   if (name === 'avatar') { drawAvatar('avatar-canvas'); renderOptions(); }
-  if (name === 'company') { loadCompanyData(); }
 }
 
 // ════════════════════════════════════════
@@ -1290,7 +1216,6 @@ function stars(r) {
 //  LOAD DATA FROM API
 // ════════════════════════════════════════
 async function loadData() {
-  const uid = userId;
   if (!uid) { fillMock(); return; }
 
   try {
@@ -1329,6 +1254,15 @@ function fillProfile(d) {
   document.getElementById('pf-karma').textContent   = (d.karma>=0?'+':'')+d.karma;
   document.getElementById('pf-rank').textContent    = '#'+d.rank+' / '+d.total_players;
   document.getElementById('pf-diplomes').textContent= d.diplomes || '—';
+  document.getElementById('co-name').textContent    = d.company || '—';
+  document.getElementById('co-level').textContent   = d.company_level || '—';
+  document.getElementById('co-stars').textContent   = d.company_rep ? stars(d.company_rep) : '—';
+  document.getElementById('co-value').textContent   = fmt(d.company_value);
+  document.getElementById('co-treasury').textContent= fmt(d.company_treasury);
+  document.getElementById('co-revenue').textContent = fmt(d.company_revenue_day);
+  document.getElementById('co-employees').textContent= d.company_employees || '—';
+  document.getElementById('co-myrole').textContent  = d.role || '—';
+  document.getElementById('co-owner').textContent   = d.company_owner || '—';
   document.getElementById('pf-company').textContent = d.company || 'Sans emploi';
   document.getElementById('pf-role').textContent    = d.role || '—';
 
@@ -1342,297 +1276,259 @@ function fillProfile(d) {
   }
 }
 
-// ════════════════════════════════════════
-//  ENTREPRISE — STATE & LOADERS
-// ════════════════════════════════════════
-let coData = null;          // données brutes de /api/webapp/company
-let coSelectedEmployee = null; // employé sélectionné dans l'onglet équipe
 
-async function loadCompanyData() {
-  if (!userId) return;
+// ════════════════════════════════════════
+//  MARCHÉ
+// ════════════════════════════════════════
+let _mktCatalog   = {};
+let _mktCats      = [];
+let _mktActiveCat = null;
+let _mktModalAsset = null;
+
+function mktTab(tab, btn) {
+  document.querySelectorAll('#market-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('mkt-catalog').style.display   = tab === 'catalog'   ? '' : 'none';
+  document.getElementById('mkt-portfolio').style.display = tab === 'portfolio' ? '' : 'none';
+  if (tab === 'portfolio') loadPortfolio();
+}
+
+async function loadMarket() {
+  if (_mktCats.length) return; // déjà chargé
   try {
-    const res = await fetch(`/api/webapp/company?user_id=${userId}`);
-    if (res.status === 404) {
-      // Pas dans une boite
-      document.getElementById('co-no-company').style.display = 'block';
-      document.getElementById('co-company-content').style.display = 'none';
-      return;
-    }
-    if (!res.ok) throw new Error();
-    coData = await res.json();
-    document.getElementById('co-no-company').style.display = 'none';
-    document.getElementById('co-company-content').style.display = 'block';
-    fillCompany(coData);
+    const r = await fetch(`/api/webapp/market?user_id=${uid}`);
+    const d = await r.json();
+    _mktCatalog = d.catalog || {};
+    _mktCats    = d.categories || [];
+    _buildCatFilter();
+    if (_mktCats.length) mktSetCat(_mktCats[0]);
   } catch(e) {
-    document.getElementById('co-no-company').style.display = 'block';
-    document.getElementById('co-company-content').style.display = 'none';
+    document.getElementById('mkt-assets-list').innerHTML = '<p style="color:var(--text2);text-align:center;">Erreur chargement marché</p>';
   }
 }
 
-function fillCompany(d) {
-  const c = d.company;
-  const me = d.me;
-
-  // ── Header ──
-  document.getElementById('co-sector-icon').textContent = c.sector_emoji;
-  document.getElementById('co-name').textContent        = c.name;
-  document.getElementById('co-sector-name').textContent = `${c.sector_emoji} ${c.sector_name}`;
-  document.getElementById('co-role-badge').textContent  = `${me.role_emoji} ${me.role.toUpperCase()}`;
-  document.getElementById('co-level-badge').textContent = `${c.level_emoji} ${c.level_name}`;
-  document.getElementById('co-stars').textContent       = stars(c.reputation);
-  document.getElementById('co-description').textContent = c.description || '';
-
-  // ── Tab : Résumé ──
-  document.getElementById('co-value').textContent       = fmt(c.value);
-  document.getElementById('co-treasury').textContent    = fmt(c.treasury);
-  document.getElementById('co-revenue').textContent     = fmt(c.daily_rev);
-  document.getElementById('co-share-price').textContent = fmt(c.share_price) + ' / part';
-  document.getElementById('co-last-payroll').textContent= c.last_payroll;
-  document.getElementById('co-myrole').textContent      = `${me.role_emoji} ${me.role}`;
-  document.getElementById('co-mydays').textContent      = `${me.days} jour(s)`;
-  document.getElementById('co-myactivity').textContent  = `${me.activity} commande(s)`;
-  document.getElementById('co-mysalary').textContent    = me.salary_est > 0 ? fmt(me.salary_est) : '— (stagiaire)';
-  document.getElementById('co-myshares').textContent    = `${me.my_shares} / ${c.total_shares}`;
-
-  // ── Tab : Équipe ──
-  document.getElementById('co-emp-count').textContent = `(${d.employees.length}/${c.max_emp})`;
-  const empList = document.getElementById('co-employees-list');
-  empList.innerHTML = '';
-  d.employees.forEach(e => {
-    const bar = Math.min(10, e.activity);
-    const barHtml = '█'.repeat(bar) + '░'.repeat(10-bar);
-    const el = document.createElement('div');
-    el.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background .2s';
-    el.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="font-weight:800;font-size:14px;color:${e.is_me ? 'var(--accent)':'var(--text)'}">
-          ${e.role_emoji} ${e.name}${e.is_me?' <span style="font-size:10px;background:rgba(247,201,72,.2);border:1px solid var(--accent);border-radius:10px;padding:1px 6px;color:var(--accent)">MOI</span>':''}
-        </span>
-        <span style="font-size:11px;background:rgba(255,255,255,.06);border-radius:8px;padding:2px 8px;color:var(--text2)">${e.role}</span>
-      </div>
-      <div style="font-size:11px;color:var(--text2);display:flex;gap:16px">
-        <span style="font-family:monospace;color:var(--accent4)">${barHtml}</span>
-        <span>${e.activity} cmds</span>
-        ${e.salary_est > 0 ? `<span style="color:var(--success)">~${fmt(e.salary_est)}</span>` : '<span>—</span>'}
-        <span>${e.days}j</span>
-      </div>`;
-    // Sélection pour les actions PDG/directeur
-    if (me.role === 'pdg' || me.role === 'directeur') {
-      el.onclick = () => selectEmployee(e);
-      el.title = 'Cliquer pour sélectionner';
-    }
-    empList.appendChild(el);
+function _buildCatFilter() {
+  const bar = document.getElementById('mkt-cat-filter');
+  bar.innerHTML = '';
+  _mktCats.forEach(cat => {
+    const btn = document.createElement('button');
+    btn.textContent = cat;
+    btn.dataset.cat = cat;
+    btn.style.cssText = 'white-space:nowrap;padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--card);color:var(--text2);font-size:12px;cursor:pointer;flex-shrink:0;';
+    btn.onclick = () => mktSetCat(cat);
+    bar.appendChild(btn);
   });
+}
 
-  // ── Candidatures ──
-  const appsCard = document.getElementById('co-apps-card');
-  if (d.pending_apps && d.pending_apps.length > 0) {
-    appsCard.style.display = 'block';
-    const appsList = document.getElementById('co-apps-list');
-    appsList.innerHTML = '';
-    d.pending_apps.forEach(a => {
-      const el = document.createElement('div');
-      el.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)';
-      el.innerHTML = `
-        <div>
-          <div style="font-weight:800;font-size:14px">${a.name}</div>
-          <div style="font-size:11px;color:var(--text2)">${a.date}</div>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button onclick="coAction_acceptApp(${a.id})" style="background:var(--success);color:#000;border:none;border-radius:8px;padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer">✅</button>
-          <button onclick="coAction_rejectApp(${a.id})" style="background:var(--accent2);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer">❌</button>
+function mktSetCat(cat) {
+  _mktActiveCat = cat;
+  document.querySelectorAll('#mkt-cat-filter button').forEach(b => {
+    const active = b.dataset.cat === cat;
+    b.style.background = active ? 'var(--accent)' : 'var(--card)';
+    b.style.color       = active ? '#fff' : 'var(--text2)';
+    b.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+  });
+  mktFilter();
+}
+
+function mktFilter() {
+  const q = (document.getElementById('mkt-search').value || '').toLowerCase();
+  const list = document.getElementById('mkt-assets-list');
+  list.innerHTML = '';
+
+  let catsToShow = _mktActiveCat ? [_mktActiveCat] : _mktCats;
+  catsToShow.forEach(cat => {
+    const items = (_mktCatalog[cat] || []).filter(a =>
+      !q || a.id.includes(q) || a.name.toLowerCase().includes(q) || a.desc.toLowerCase().includes(q)
+    );
+    if (!items.length) return;
+
+    const header = document.createElement('div');
+    header.style.cssText = 'font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;';
+    header.textContent = cat;
+    list.appendChild(header);
+
+    items.forEach(a => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.cssText = 'margin-bottom:8px;cursor:pointer;padding:12px;';
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div style="flex:1;">
+            <div style="font-weight:700;color:var(--text1);font-size:14px;">${a.emoji} ${a.name.replace(/^[^\s]+\s/, '')}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px;">${a.desc}</div>
+          </div>
+          <div style="text-align:right;margin-left:10px;">
+            <div style="font-weight:700;color:var(--accent);font-size:14px;">${a.price_fmt} <span style="font-size:10px;color:var(--text2);">${CURRENCY}</span></div>
+            <div style="font-size:12px;">${a.risk_emoji} ${a.risk} · ±${a.volatility}%</div>
+          </div>
         </div>`;
-      appsList.appendChild(el);
+      card.onclick = () => openMktModal(a);
+      list.appendChild(card);
     });
-  } else {
-    appsCard.style.display = 'none';
-  }
-
-  // ── Tab : Parts ──
-  const sharesList = document.getElementById('co-shares-list');
-  sharesList.innerHTML = '';
-  if (d.shares.length === 0) {
-    sharesList.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:8px 0">Aucun actionnaire enregistré.</div>';
-  }
-  d.shares.forEach(s => {
-    const pct = s.pct;
-    const el = document.createElement('div');
-    el.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--border)';
-    el.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-weight:800;font-size:14px;color:${s.is_me?'var(--accent)':'var(--text)'}">
-          ${s.name}${s.is_me?' (moi)':''}
-        </span>
-        <span style="font-weight:800;color:var(--accent)">${s.quantity} parts</span>
-      </div>
-      <div style="display:flex;gap:12px;align-items:center">
-        <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-          <div style="width:${pct}%;height:100%;background:${s.is_me?'var(--accent)':'var(--accent4)'};border-radius:3px"></div>
-        </div>
-        <span style="font-size:11px;color:var(--text2);min-width:32px;text-align:right">${pct}%</span>
-        <span style="font-size:12px;color:var(--success)">${fmt(s.value)}</span>
-      </div>`;
-    sharesList.appendChild(el);
   });
 
-  // ── Offres de parts ──
-  const offersCard = document.getElementById('co-offers-card');
-  if (me.role === 'pdg' && d.pending_offers && d.pending_offers.length > 0) {
-    offersCard.style.display = 'block';
-    const offersList = document.getElementById('co-offers-list');
-    offersList.innerHTML = '';
-    d.pending_offers.forEach(o => {
-      const el = document.createElement('div');
-      el.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)';
-      el.innerHTML = `
-        <div>
-          <div style="font-weight:800;font-size:13px">${o.name}</div>
-          <div style="font-size:11px;color:var(--text2)">${o.quantity} parts · ${o.total} $ · exp. ${o.expires}</div>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button onclick="coAction_acceptOffer(${o.id})" style="background:var(--success);color:#000;border:none;border-radius:8px;padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer">✅</button>
-          <button onclick="coAction_rejectOffer(${o.id})" style="background:var(--accent2);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer">❌</button>
-        </div>`;
-      offersList.appendChild(el);
-    });
-  } else {
-    offersCard.style.display = 'none';
-  }
-
-  // ── Tab : Logs ──
-  const logsList = document.getElementById('co-logs-list');
-  logsList.innerHTML = '';
-  const LOG_ICONS = {depot:'💰',retrait:'💸',versersalaires:'💵',recrutement:'🤝',licenciement:'🔥',demission:'🚪',promotion:'⬆️',cession_parts:'📈',default:'📋'};
-  if (d.logs.length === 0) {
-    logsList.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:8px 0">Aucun log disponible.</div>';
-  }
-  d.logs.forEach(l => {
-    const icon = LOG_ICONS[l.type] || LOG_ICONS.default;
-    const el = document.createElement('div');
-    el.style.cssText = 'display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start';
-    el.innerHTML = `
-      <div style="font-size:18px;flex-shrink:0;margin-top:1px">${icon}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;color:var(--text);line-height:1.4">${l.desc}</div>
-        <div style="display:flex;gap:10px;margin-top:3px">
-          <span style="font-size:11px;color:var(--text2)">${l.date}</span>
-          ${l.amount ? `<span style="font-size:11px;color:var(--success);font-weight:700">${l.amount} $</span>` : ''}
-        </div>
-      </div>`;
-    logsList.appendChild(el);
-  });
-
-  // ── Tab : Actions — visibilité selon le rôle ──
-  const isPDG        = me.role === 'pdg';
-  const isManagement = ['pdg', 'directeur', 'manager'].includes(me.role);
-  document.getElementById('co-btn-quit').disabled = isPDG;
-  document.getElementById('co-btn-quit').style.opacity = isPDG ? '0.4' : '1';
-  document.getElementById('co-actions-treasury').style.display = isManagement ? 'block' : 'none';
-  document.getElementById('co-actions-retrait-section').style.display = isPDG ? 'block' : 'none';
-  document.getElementById('co-actions-payroll').style.display  = isPDG ? 'block' : 'none';
-  document.getElementById('co-actions-team').style.display     = (isPDG || me.role === 'directeur') ? 'block' : 'none';
-}
-
-// ── Onglets entreprise ───────────────────────────────────────────────────────
-function showCoTab(name, btn) {
-  ['overview','employees','shares','logs','actions'].forEach(t => {
-    const el = document.getElementById('co-tab-'+t);
-    if (el) el.style.display = t === name ? 'block' : 'none';
-  });
-  document.querySelectorAll('#co-tabs .ctab').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  // Recharge les données si on ouvre l'onglet équipe ou logs
-  if ((name === 'employees' || name === 'logs' || name === 'shares') && userId) {
-    loadCompanyData();
+  if (!list.children.length) {
+    list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Aucun asset trouvé</p>';
   }
 }
 
-// ── Sélection d'un employé ────────────────────────────────────────────────────
-function selectEmployee(e) {
-  coSelectedEmployee = e;
-  document.getElementById('co-team-selected-name').textContent = `${e.role_emoji} ${e.name} (${e.role})`;
-  document.getElementById('co-team-selected').style.display = 'block';
-  document.getElementById('co-team-hint').style.display = 'none';
-  // Switcher sur l'onglet actions
-  document.querySelectorAll('#co-tabs .ctab').forEach((b,i)=>{if(i===4)b.click()});
-  showToast(`👤 ${e.name} sélectionné`);
+function openMktModal(a) {
+  _mktModalAsset = a;
+  document.getElementById('modal-title').textContent  = a.name;
+  document.getElementById('modal-desc').textContent   = a.desc;
+  document.getElementById('modal-price').textContent  = a.price_fmt + ' ' + CURRENCY;
+  document.getElementById('modal-risk').textContent   = a.risk_emoji + ' ' + a.risk;
+  document.getElementById('modal-vol').textContent    = '±' + a.volatility + '%';
+  document.getElementById('modal-qty').value = 1;
+  document.getElementById('modal-msg').textContent = '';
+  mktUpdateTotal();
+  const m = document.getElementById('mkt-modal');
+  m.style.display = 'flex';
+  setTimeout(() => m.style.opacity = '1', 10);
 }
 
-// ── Appels API actions ─────────────────────────────────────────────────────────
-async function coApiAction(payload, successCb) {
+function closeMktModal() {
+  document.getElementById('mkt-modal').style.display = 'none';
+}
+
+function mktQty(delta) {
+  const el = document.getElementById('modal-qty');
+  el.value = Math.max(1, parseInt(el.value || 1) + delta);
+  mktUpdateTotal();
+}
+
+function mktUpdateTotal() {
+  if (!_mktModalAsset) return;
+  const qty = parseInt(document.getElementById('modal-qty').value) || 1;
+  const total = _mktModalAsset.price * qty;
+  document.getElementById('modal-total').textContent = fmtNum(total) + ' ' + CURRENCY;
+}
+
+async function confirmBuy() {
+  if (!_mktModalAsset) return;
+  const qty = parseInt(document.getElementById('modal-qty').value) || 1;
+  const btn = document.getElementById('modal-buy-btn');
+  const msg = document.getElementById('modal-msg');
+  btn.disabled = true;
+  btn.textContent = '⏳ En cours…';
   try {
-    const res = await fetch('/api/webapp/company/action', {
+    const r = await fetch('/api/webapp/market/action', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: userId, ...payload})
+      body: JSON.stringify({ user_id: uid, action: 'buy', asset_id: _mktModalAsset.id, quantity: qty })
     });
-    const data = await res.json();
-    if (data.ok) {
-      showToast(data.msg || '✅ Action effectuée !');
-      if (successCb) successCb();
-      loadCompanyData();
+    const d = await r.json();
+    if (d.ok) {
+      msg.style.color = 'var(--success)';
+      msg.textContent = d.msg;
+      _mktCatalog = {}; _mktCats = []; // force reload prix
+      setTimeout(() => { closeMktModal(); loadData(); }, 1500);
     } else {
-      showToast('❌ ' + (data.error || 'Erreur'));
+      msg.style.color = 'var(--accent2)';
+      msg.textContent = d.error || 'Erreur';
     }
   } catch(e) {
-    showToast('❌ Erreur réseau');
+    msg.style.color = 'var(--accent2)';
+    msg.textContent = 'Erreur réseau';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✅ Acheter';
   }
 }
 
-function coAction_depot() {
-  const amount = parseInt(document.getElementById('co-depot-amount').value);
-  if (!amount || amount <= 0) { showToast('❌ Montant invalide'); return; }
-  coApiAction({action:'depot', amount});
-  document.getElementById('co-depot-amount').value = '';
+async function loadPortfolio() {
+  const list = document.getElementById('mk-positions-list');
+  list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Chargement…</p>';
+  try {
+    const r = await fetch(`/api/webapp/portfolio?user_id=${uid}`);
+    const d = await r.json();
+    const s = d.summary || {};
+    document.getElementById('mk-count').textContent    = s.count || '0';
+    document.getElementById('mk-invested').textContent = s.invested || '—';
+    document.getElementById('mk-current').textContent  = s.current || '—';
+    const pnlEl = document.getElementById('mk-pnl');
+    pnlEl.textContent = s.pnl || '—';
+    pnlEl.className   = 'stat-value ' + (s.pnl_positive ? 'green' : 'red');
+
+    list.innerHTML = '';
+    if (!(d.positions || []).length) {
+      list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Aucune position active</p>';
+      return;
+    }
+    d.positions.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.cssText = 'margin-bottom:8px;padding:12px;';
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+          <div>
+            <div style="font-weight:700;color:var(--text1);">${p.emoji} ${p.name.replace(/^[^\s]+\s/, '')}</div>
+            <div style="font-size:12px;color:var(--text2);">${p.risk_emoji} ${p.risk} · ${p.quantity}x · Acheté le ${p.bought_at}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;color:var(--accent);">${p.cur_total_fmt}</div>
+            <div style="font-size:12px;color:${p.pnl_positive ? 'var(--success)' : 'var(--accent2)'};">${p.pnl_fmt} (${p.pnl_pct > 0 ? '+' : ''}${p.pnl_pct}%)</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:8px;">
+          <span>Achat unit. : ${p.buy_price_fmt}</span>
+          <span>Actuel : ~${p.cur_price_fmt}</span>
+        </div>
+        <button onclick="sellPosition(${p.id})" style="width:100%;padding:8px;border-radius:8px;border:none;background:var(--accent2);color:#fff;font-size:13px;font-weight:700;cursor:pointer;">
+          💸 Vendre (${p.cur_total_fmt})
+        </button>`;
+      list.appendChild(card);
+    });
+  } catch(e) {
+    list.innerHTML = '<p style="color:var(--accent2);text-align:center;">Erreur chargement</p>';
+  }
 }
-function coAction_retrait() {
-  const amount = parseInt(document.getElementById('co-retrait-amount').value);
-  if (!amount || amount <= 0) { showToast('❌ Montant invalide'); return; }
-  coApiAction({action:'retrait', amount});
-  document.getElementById('co-retrait-amount').value = '';
+
+async function sellPosition(invId) {
+  if (!confirm('Confirmer la vente de cette position ?')) return;
+  try {
+    const r = await fetch('/api/webapp/market/action', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, action: 'sell', inv_id: invId })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showToast(d.msg);
+      loadPortfolio();
+      loadData();
+    } else {
+      showToast(d.error || 'Erreur', true);
+    }
+  } catch(e) {
+    showToast('Erreur réseau', true);
+  }
 }
-function coAction_versersalaires() {
-  if (!confirm('Verser les salaires à tous les employés actifs ?')) return;
-  coApiAction({action:'versersalaires'});
+
+function showToast(msg, isErr = false) {
+  let t = document.getElementById('toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:999;transition:opacity .3s;';
+    document.body.appendChild(t);
+  }
+  t.style.background = isErr ? 'var(--accent2)' : 'var(--success)';
+  t.style.color = '#fff';
+  t.textContent = msg;
+  t.style.opacity = '1';
+  setTimeout(() => { t.style.opacity = '0'; }, 2500);
 }
-function coAction_quit() {
-  if (!confirm('Confirmer ta démission ?')) return;
-  coApiAction({action:'quit'}, () => {
-    document.getElementById('co-no-company').style.display = 'block';
-    document.getElementById('co-company-content').style.display = 'none';
-  });
+
+function fmtNum(n) {
+  if (typeof fmt === 'function') return fmt(n);
+  return n.toLocaleString('fr-FR');
 }
-function coAction_acceptApp(appId) {
-  coApiAction({action:'accept_app', app_id: appId});
-}
-function coAction_rejectApp(appId) {
-  coApiAction({action:'reject_app', app_id: appId});
-}
-function coAction_acceptOffer(offerId) {
-  if (!confirm('Accepter cette offre de parts ?')) return;
-  coApiAction({action:'accept_offer', offer_id: offerId});
-}
-function coAction_rejectOffer(offerId) {
-  coApiAction({action:'reject_offer', offer_id: offerId});
-}
-function coAction_fire() {
-  if (!coSelectedEmployee) { showToast('❌ Sélectionne un employé'); return; }
-  if (!confirm(`Licencier ${coSelectedEmployee.name} ?`)) return;
-  coApiAction({action:'fire', target_id: coSelectedEmployee.user_id}, () => {
-    coSelectedEmployee = null;
-    document.getElementById('co-team-selected').style.display = 'none';
-    document.getElementById('co-team-hint').style.display = 'block';
-  });
-}
-function coAction_promote(newRole) {
-  if (!coSelectedEmployee) { showToast('❌ Sélectionne un employé'); return; }
-  if (!confirm(`Nommer ${coSelectedEmployee.name} au poste de ${newRole} ?`)) return;
-  coApiAction({action:'promote', target_id: coSelectedEmployee.user_id, new_role: newRole}, () => {
-    coSelectedEmployee = null;
-    document.getElementById('co-team-selected').style.display = 'none';
-    document.getElementById('co-team-hint').style.display = 'block';
-  });
-}
+
+document.getElementById('mkt-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeMktModal();
+});
 
 function fillMock() {
   document.getElementById('pf-name').textContent    = firstName;

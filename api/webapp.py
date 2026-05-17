@@ -175,6 +175,7 @@ async def webapp_user(request: web.Request) -> web.Response:
             'rank':          rank,
             'total_players': total_players,
             'diplomes':      diplomes_str,
+            'avatar_data':   user.avatar_data or None,
             'portfolio': {
                 'invested': _fmt(invested),
                 'current':  _fmt(current),
@@ -184,6 +185,47 @@ async def webapp_user(request: web.Request) -> web.Response:
         }
 
     return web.json_response(payload)
+
+
+async def webapp_save_avatar(request: web.Request) -> web.Response:
+    """POST /api/webapp/avatar — Sauvegarde l'avatar en base de données."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid JSON'}, status=400)
+
+    user_id_raw = body.get('user_id')
+    avatar_data = body.get('avatar_data')
+
+    if not user_id_raw or not avatar_data:
+        return web.json_response({'error': 'missing user_id or avatar_data'}, status=400)
+
+    try:
+        uid = int(user_id_raw)
+    except (ValueError, TypeError):
+        return web.json_response({'error': 'invalid user_id'}, status=400)
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'access denied'}, status=403)
+
+    # Valider que avatar_data est bien du JSON sérialisable
+    try:
+        json_str = json.dumps(avatar_data)
+    except Exception:
+        return web.json_response({'error': 'invalid avatar_data'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        user.avatar_data = json_str
+        await session.commit()
+
+    return web.json_response({'ok': True})
 
 
 async def webapp_index(request: web.Request) -> web.Response:
@@ -206,6 +248,7 @@ async def webapp_index(request: web.Request) -> web.Response:
 
 def setup_webapp_routes(app: web.Application):
     """Enregistre les routes de la Mini App."""
-    app.router.add_get('/',                  webapp_index)
-    app.router.add_get('/webapp',            webapp_index)
-    app.router.add_get('/api/webapp/user',   webapp_user)
+    app.router.add_get('/',                    webapp_index)
+    app.router.add_get('/webapp',              webapp_index)
+    app.router.add_get('/api/webapp/user',     webapp_user)
+    app.router.add_post('/api/webapp/avatar',  webapp_save_avatar)

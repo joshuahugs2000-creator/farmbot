@@ -175,6 +175,28 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   font-weight: 800; font-size: 13px; opacity: 0; transition: all .3s; z-index: 200; white-space: nowrap;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── GAME TABS ── */
+.game-tab {
+  padding: 8px 16px; border-radius: 20px; border: 1.5px solid var(--border);
+  background: var(--card2); color: var(--text2); font-family: 'Nunito', sans-serif;
+  font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  transition: all .2s;
+}
+.game-tab.active { background: var(--accent); color: #000; border-color: var(--accent); }
+.game-panel { animation: fadeIn .3s ease; }
+
+/* ── MINES CELLS ── */
+.mine-cell {
+  aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--border);
+  background: var(--card2); display: flex; align-items: center; justify-content: center;
+  font-size: 22px; cursor: pointer; transition: all .15s; user-select: none;
+}
+.mine-cell:active { transform: scale(.92); }
+.mine-cell.revealed-safe { background: #0a2a0a; border-color: var(--success); cursor: default; }
+.mine-cell.revealed-mine { background: #2a0a0a; border-color: var(--accent2); cursor: default; animation: boom .4s ease; }
+.mine-cell.hidden-inactive { cursor: default; opacity: .5; }
+@keyframes boom { 0%{transform:scale(1)} 40%{transform:scale(1.3)} 100%{transform:scale(1)} }
 </style>
 </head>
 <body>
@@ -343,51 +365,84 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE JEUX ══ -->
   <div class="page" id="page-games">
-    <div class="page-title">🎮 Jeux</div>
-    <div class="card">
-      <div class="card-title">⚡ Lancer une commande</div>
-      <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">Tape la commande dans le groupe pour jouer.</p>
-      <div class="games-grid">
-        <div class="game-card" onclick="copyCmd('/slots')">
-          <div class="game-icon">🎰</div>
-          <div class="game-name">SLOTS</div>
-          <div class="game-desc">Machine à sous</div>
+    <div class="page-title">🎮 Casino</div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px;overflow-x:auto;padding-bottom:4px;">
+      <button class="game-tab active" onclick="switchGame('crash',this)">🚀 Crash</button>
+      <button class="game-tab" onclick="switchGame('roue',this)">🎡 Roue</button>
+      <button class="game-tab" onclick="switchGame('mines',this)">💣 Mines</button>
+    </div>
+
+    <!-- CRASH -->
+    <div id="game-crash" class="game-panel">
+      <div class="card" style="padding:0;overflow:hidden;">
+        <canvas id="crash-canvas" width="360" height="220" style="width:100%;display:block;background:#070714;"></canvas>
+      </div>
+      <div class="card" style="margin-top:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span style="font-family:'Bangers',cursive;font-size:28px;color:var(--accent);letter-spacing:2px;" id="crash-mult-display">x1.00</span>
+          <span id="crash-status-badge" style="font-size:12px;padding:4px 10px;border-radius:20px;background:var(--card2);color:var(--text2);">En attente</span>
         </div>
-        <div class="game-card" onclick="copyCmd('/crash')">
-          <div class="game-icon">🚀</div>
-          <div class="game-name">CRASH</div>
-          <div class="game-desc">Multiplicateur</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <input id="crash-mise" type="number" placeholder="Mise ($)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <button onclick="setCrashMise(0.5)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">½</button>
+            <button onclick="setCrashMise(2)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">x2</button>
+          </div>
         </div>
-        <div class="game-card" onclick="copyCmd('/blackjack')">
-          <div class="game-icon">🃏</div>
-          <div class="game-name">BLACKJACK</div>
-          <div class="game-desc">21 ou rien</div>
+        <div style="display:flex;gap:8px;">
+          <button id="crash-bet-btn" onclick="crashBet()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">MISER 🚀</button>
+          <button id="crash-cashout-btn" onclick="crashCashOut()" disabled style="flex:1;padding:13px;border-radius:12px;border:none;background:#1a2a1a;color:#333;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:not-allowed;transition:all .3s;">CASH OUT</button>
         </div>
-        <div class="game-card" onclick="copyCmd('/roue')">
-          <div class="game-icon">🎡</div>
-          <div class="game-name">ROUE</div>
-          <div class="game-desc">Tente ta chance</div>
+        <div id="crash-result" style="margin-top:10px;text-align:center;font-weight:700;min-height:22px;font-size:15px;"></div>
+      </div>
+    </div>
+
+    <!-- ROUE -->
+    <div id="game-roue" class="game-panel" style="display:none;">
+      <div class="card" style="padding:16px 0;overflow:hidden;display:flex;justify-content:center;align-items:center;background:#070714;">
+        <div style="position:relative;">
+          <canvas id="roue-canvas" width="300" height="300"></canvas>
+          <div style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);font-size:30px;z-index:10;filter:drop-shadow(0 2px 8px #000);">▼</div>
         </div>
-        <div class="game-card" onclick="copyCmd('/mines')">
-          <div class="game-icon">💣</div>
-          <div class="game-name">MINES</div>
-          <div class="game-desc">Évite les bombes</div>
+      </div>
+      <div class="card" style="margin-top:10px;">
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <input id="roue-mise" type="number" placeholder="Mise ($)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <button onclick="document.getElementById('roue-mise').value=Math.floor((+document.getElementById('roue-mise').value||0)*0.5)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">½</button>
+            <button onclick="document.getElementById('roue-mise').value=Math.min((+document.getElementById('roue-mise').value||0)*2,6600000)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">x2</button>
+          </div>
         </div>
-        <div class="game-card" onclick="copyCmd('/roulette')">
-          <div class="game-icon">🎲</div>
-          <div class="game-name">ROULETTE</div>
-          <div class="game-desc">Rouge ou noir</div>
+        <button id="roue-spin-btn" onclick="spinRoue()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#f7c948,#ff6b6b);color:#000;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🎡 TOURNER !</button>
+        <div id="roue-result" style="margin-top:12px;text-align:center;font-weight:700;min-height:22px;font-size:15px;"></div>
+      </div>
+    </div>
+
+    <!-- MINES -->
+    <div id="game-mines" class="game-panel" style="display:none;">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span id="mines-mult-label" style="font-family:'Bangers',cursive;font-size:24px;color:var(--accent);">x1.00</span>
+          <span id="mines-gain-label" style="font-size:13px;color:var(--text2);">Gain potentiel : 0 $</span>
         </div>
-        <div class="game-card" onclick="copyCmd('/ppc')">
-          <div class="game-icon">✂️</div>
-          <div class="game-name">PPC</div>
-          <div class="game-desc">Pierre Papier Ciseaux</div>
+        <div id="mines-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;"></div>
+        <div id="mines-controls">
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <input id="mines-mise" type="number" placeholder="Mise ($)" min="100" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
+            <select id="mines-nb" style="padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;outline:none;">
+              <option value="1">1 💣</option>
+              <option value="3" selected>3 💣</option>
+              <option value="5">5 💣</option>
+              <option value="10">10 💣</option>
+              <option value="15">15 💣</option>
+              <option value="20">20 💣</option>
+            </select>
+          </div>
+          <button onclick="minesStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💣 JOUER</button>
         </div>
-        <div class="game-card" onclick="copyCmd('/cockfight')">
-          <div class="game-icon">🐓</div>
-          <div class="game-name">COQS</div>
-          <div class="game-desc">Combat de coqs</div>
-        </div>
+        <button id="mines-cashout-btn" onclick="minesCashOut()" style="display:none;width:100%;padding:13px;border-radius:12px;border:none;background:var(--success);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💰 ENCAISSER</button>
+        <div id="mines-result" style="margin-top:10px;text-align:center;font-weight:700;min-height:22px;font-size:15px;"></div>
       </div>
     </div>
   </div>
@@ -400,7 +455,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <button class="nav-btn" onclick="showPage('avatar',this)"><span class="icon">🎨</span>Avatar</button>
   <button class="nav-btn" onclick="showPage('company',this)"><span class="icon">🏢</span>Boite</button>
   <button class="nav-btn" onclick="showPage('market',this);loadMarket()"><span class="icon">📈</span>Marché</button>
-  <button class="nav-btn" onclick="showPage('games',this)"><span class="icon">🎮</span>Jeux</button>
+  <button class="nav-btn" onclick="showPage('games',this);setTimeout(initCrashCanvas,50)"><span class="icon">🎮</span>Jeux</button>
 </nav>
 
 <script>
@@ -1529,6 +1584,519 @@ function fmtNum(n) {
 document.getElementById('mkt-modal').addEventListener('click', function(e) {
   if (e.target === this) closeMktModal();
 });
+
+
+// ════════════════════════════════════════
+//  GAMES — Crash / Roue / Mines
+// ════════════════════════════════════════
+
+function switchGame(name, btn) {
+  document.querySelectorAll('.game-panel').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.game-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('game-' + name).style.display = 'block';
+  btn.classList.add('active');
+  if (name === 'crash') initCrashCanvas();
+  if (name === 'roue') initRoueCanvas();
+  if (name === 'mines') initMinesGrid();
+}
+
+async function gamePost(payload) {
+  const r = await fetch('/api/webapp/game', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({user_id: uid, ...payload})
+  });
+  return r.json();
+}
+
+// ─── CRASH ────────────────────────────────────────────────────────────────────
+let crashState = 'idle'; // idle | running | crashed
+let crashMult  = 1.0;
+let crashRAF   = null;
+let crashMise  = 0;
+let crashCrashPoint = 0;
+let crashCashedOut  = false;
+let crashStartTime  = 0;
+
+function initCrashCanvas() {
+  const c = document.getElementById('crash-canvas');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  drawCrashIdle(ctx, c);
+}
+
+function drawCrashIdle(ctx, c) {
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#070714';
+  ctx.fillRect(0, 0, c.width, c.height);
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < c.width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,c.height); ctx.stroke(); }
+  for (let y = 0; y < c.height; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(c.width,y); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(247,201,72,0.15)';
+  ctx.font = 'bold 28px Bangers, cursive';
+  ctx.textAlign = 'center';
+  ctx.fillText('CRASH', c.width/2, c.height/2 - 10);
+  ctx.font = '14px Nunito, sans-serif';
+  ctx.fillStyle = 'rgba(160,160,176,0.6)';
+  ctx.fillText('Mise ta mise et attends le crash !', c.width/2, c.height/2 + 20);
+  ctx.textAlign = 'left';
+}
+
+function drawCrashFrame(ctx, c, mult, crashed) {
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#070714';
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < c.width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,c.height); ctx.stroke(); }
+  for (let y = 0; y < c.height; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(c.width,y); ctx.stroke(); }
+
+  // Curve
+  const progress = Math.min((mult - 1) / 15, 1);
+  const pts = [];
+  const N = 60;
+  for (let i = 0; i <= N; i++) {
+    const t = (i / N) * progress;
+    const x = 30 + t * (c.width - 60);
+    const curveY = Math.pow(t, 1.5);
+    const y = c.height - 30 - curveY * (c.height - 60);
+    pts.push({x, y});
+  }
+
+  if (pts.length >= 2) {
+    const color = crashed ? '#ff4444' : '#f7c948';
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Fill below
+    ctx.lineTo(pts[pts.length-1].x, c.height - 30);
+    ctx.lineTo(pts[0].x, c.height - 30);
+    ctx.closePath();
+    ctx.fillStyle = crashed ? 'rgba(255,68,68,0.08)' : 'rgba(247,201,72,0.06)';
+    ctx.fill();
+
+    // Rocket or explosion
+    const tip = pts[pts.length - 1];
+    if (!crashed) {
+      ctx.font = '22px serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🚀', tip.x, tip.y - 10);
+      ctx.textAlign = 'left';
+    } else {
+      ctx.font = '26px serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('💥', tip.x, tip.y - 12);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // Multiplier display
+  const color = crashed ? '#ff4444' : '#f7c948';
+  ctx.font = 'bold 36px Bangers, cursive';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 20;
+  ctx.fillText('x' + mult.toFixed(2), c.width/2, 50);
+  ctx.shadowBlur = 0;
+  ctx.textAlign = 'left';
+}
+
+function setCrashMise(factor) {
+  const inp = document.getElementById('crash-mise');
+  const v = parseFloat(inp.value) || 0;
+  inp.value = Math.max(1000, Math.floor(v * factor));
+}
+
+async function crashBet() {
+  if (crashState !== 'idle') return;
+  const mise = parseInt(document.getElementById('crash-mise').value);
+  if (!mise || mise < 1000) return showToast('Mise minimum 1 000 $', true);
+
+  const d = await gamePost({game:'crash_start', mise});
+  if (!d.ok) return showToast(d.error || 'Erreur', true);
+
+  crashMise = mise;
+  crashCrashPoint = d.crash_point;
+  crashMult = 1.0;
+  crashCashedOut = false;
+  crashState = 'running';
+  crashStartTime = Date.now();
+
+  document.getElementById('crash-bet-btn').disabled = true;
+  document.getElementById('crash-bet-btn').style.opacity = '.4';
+  const coBtn = document.getElementById('crash-cashout-btn');
+  coBtn.disabled = false;
+  coBtn.style.background = 'var(--success)';
+  coBtn.style.color = '#000';
+  coBtn.style.cursor = 'pointer';
+  document.getElementById('crash-status-badge').textContent = '🚀 En cours';
+  document.getElementById('crash-status-badge').style.color = 'var(--accent)';
+  document.getElementById('crash-result').textContent = '';
+
+  runCrash();
+  loadData();
+}
+
+function runCrash() {
+  const c = document.getElementById('crash-canvas');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+
+  function tick() {
+    if (crashState !== 'running') return;
+    const elapsed = (Date.now() - crashStartTime) / 1000;
+    crashMult = parseFloat((1 + elapsed * 0.12 + Math.pow(elapsed, 1.5) * 0.04).toFixed(2));
+
+    if (crashMult >= crashCrashPoint) {
+      crashMult = crashCrashPoint;
+      drawCrashFrame(ctx, c, crashMult, true);
+      crashState = 'crashed';
+      document.getElementById('crash-mult-display').textContent = 'x' + crashMult.toFixed(2);
+      document.getElementById('crash-mult-display').style.color = '#ff4444';
+      document.getElementById('crash-status-badge').textContent = '💥 CRASH !';
+      document.getElementById('crash-status-badge').style.color = '#ff4444';
+      const coBtn = document.getElementById('crash-cashout-btn');
+      coBtn.disabled = true;
+      coBtn.style.background = '#1a0a0a';
+      coBtn.style.color = '#333';
+      coBtn.style.cursor = 'not-allowed';
+      if (!crashCashedOut) {
+        document.getElementById('crash-result').style.color = '#ff4444';
+        document.getElementById('crash-result').textContent = `💸 PERDU — -${crashMise.toLocaleString('fr-FR')} $`;
+      }
+      setTimeout(resetCrash, 3000);
+      return;
+    }
+
+    drawCrashFrame(ctx, c, crashMult, false);
+    document.getElementById('crash-mult-display').textContent = 'x' + crashMult.toFixed(2);
+    crashRAF = requestAnimationFrame(tick);
+  }
+  crashRAF = requestAnimationFrame(tick);
+}
+
+async function crashCashOut() {
+  if (crashState !== 'running' || crashCashedOut) return;
+  crashCashedOut = true;
+  const mult = crashMult;
+  const d = await gamePost({game:'crash_cashout', mult});
+  if (d.error && d.crashed) {
+    document.getElementById('crash-result').style.color = '#ff4444';
+    document.getElementById('crash-result').textContent = '💥 Trop tard !';
+    return;
+  }
+  if (d.ok) {
+    const sign = d.profit >= 0 ? '+' : '';
+    document.getElementById('crash-result').style.color = d.profit >= 0 ? 'var(--success)' : 'var(--accent2)';
+    document.getElementById('crash-result').textContent = `💰 Cash Out x${mult.toFixed(2)} — ${sign}${d.profit.toLocaleString('fr-FR')} $`;
+    document.getElementById('crash-cashout-btn').disabled = true;
+    document.getElementById('crash-cashout-btn').style.opacity = '.5';
+    loadData();
+  }
+}
+
+function resetCrash() {
+  crashState = 'idle';
+  crashMult = 1.0;
+  document.getElementById('crash-mult-display').textContent = 'x1.00';
+  document.getElementById('crash-mult-display').style.color = 'var(--accent)';
+  document.getElementById('crash-status-badge').textContent = 'En attente';
+  document.getElementById('crash-status-badge').style.color = 'var(--text2)';
+  const betBtn = document.getElementById('crash-bet-btn');
+  betBtn.disabled = false;
+  betBtn.style.opacity = '1';
+  const coBtn = document.getElementById('crash-cashout-btn');
+  coBtn.disabled = true;
+  coBtn.style.background = '#1a2a1a';
+  coBtn.style.color = '#333';
+  coBtn.style.cursor = 'not-allowed';
+  const c = document.getElementById('crash-canvas');
+  if (c) drawCrashIdle(c.getContext('2d'), c);
+}
+
+// ─── ROUE ────────────────────────────────────────────────────────────────────
+const ROUE_SEGS = [
+  {label:'💀 Ruine',     color:'#1a0000'},
+  {label:'☠️ x0.1',     color:'#2a0a0a'},
+  {label:'😭 x0.2',     color:'#3a1a0a'},
+  {label:'😞 x0.3',     color:'#2a1a00'},
+  {label:'💸 x0.4',     color:'#1a1a10'},
+  {label:'😐 x0.5',     color:'#1a1a2a'},
+  {label:'🔄 IDEM',     color:'#0a1a2a'},
+  {label:'🙂 x0.8',     color:'#0a2a1a'},
+  {label:'💵 +50K',     color:'#0a2a0a'},
+  {label:'💰 x1.2',     color:'#0a2a10'},
+  {label:'💵 +200K',    color:'#0a2a20'},
+  {label:'💰 x1.5',     color:'#103a10'},
+  {label:'🎁 +500K',    color:'#1a3a00'},
+  {label:'🤑 x2.0',     color:'#2a3a00'},
+  {label:'🎯 x3.0',     color:'#3a2a00'},
+  {label:'💵 +1M',      color:'#3a1a00'},
+  {label:'⭐ x5.0',     color:'#f7c94820'},
+  {label:'🔥 x10.0',    color:'#ff6b6b20'},
+  {label:'🌟 x15.0',    color:'#a29bfe30'},
+  {label:'💎 x25.0',    color:'#00cec940'},
+];
+
+const ROUE_ACCENT = [
+  '#3a0000','#4a1a0a','#5a2a0a','#3a2a00','#2a2a10',
+  '#2a2a3a','#0a2a3a','#0a3a2a','#0a3a0a','#0a3a10',
+  '#0a4a20','#104a10','#2a4a00','#3a4a00','#4a3a00',
+  '#4a2a00','#f7c948','#ff6b6b','#a29bfe','#00cec9'
+];
+
+let roueSpin = false;
+let roueAngle = 0;
+
+function initRoueCanvas() {
+  const c = document.getElementById('roue-canvas');
+  if (!c) return;
+  drawRoue(c.getContext('2d'), c, roueAngle);
+}
+
+function drawRoue(ctx, c, angle) {
+  const cx = c.width / 2, cy = c.height / 2, r = cx - 10;
+  const N = ROUE_SEGS.length;
+  const step = (Math.PI * 2) / N;
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  // Outer glow
+  const grd = ctx.createRadialGradient(cx, cy, r * 0.7, cx, cy, r + 10);
+  grd.addColorStop(0, 'transparent');
+  grd.addColorStop(1, 'rgba(247,201,72,0.15)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (let i = 0; i < N; i++) {
+    const a0 = angle + i * step;
+    const a1 = a0 + step;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, a0, a1);
+    ctx.closePath();
+    ctx.fillStyle = ROUE_ACCENT[i];
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Text
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(a0 + step / 2);
+    ctx.translate(r * 0.62, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = 'bold 9px Nunito, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(ROUE_SEGS[i].label, 0, 4);
+    ctx.restore();
+  }
+
+  // Center
+  ctx.beginPath();
+  ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+  ctx.fillStyle = '#0f0f1a';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(247,201,72,0.6)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#f7c948';
+  ctx.font = 'bold 14px Bangers, cursive';
+  ctx.textAlign = 'center';
+  ctx.fillText('🎡', cx, cy + 5);
+  ctx.textAlign = 'left';
+
+  // Outer ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(247,201,72,0.4)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+}
+
+async function spinRoue() {
+  if (roueSpin) return;
+  const mise = parseInt(document.getElementById('roue-mise').value);
+  if (!mise || mise < 1000) return showToast('Mise minimum 1 000 $', true);
+  if (mise > 6600000) return showToast('Mise maximum 6 600 000 $', true);
+
+  const btn = document.getElementById('roue-spin-btn');
+  btn.disabled = true;
+  document.getElementById('roue-result').textContent = '';
+  roueSpin = true;
+
+  const d = await gamePost({game:'roue', mise});
+  if (!d.ok) {
+    roueSpin = false;
+    btn.disabled = false;
+    return showToast(d.error || 'Erreur', true);
+  }
+
+  // Animate to the target segment
+  const N = ROUE_SEGS.length;
+  const step = (Math.PI * 2) / N;
+  const targetIdx = d.seg_index;
+  // We want targetIdx to land at top (= -PI/2 offset from arrow which is at top)
+  const targetAngle = -Math.PI / 2 - (targetIdx * step + step / 2);
+  const spins = 5 + Math.random() * 3;
+  const finalAngle = roueAngle + spins * Math.PI * 2 + (targetAngle - roueAngle % (Math.PI * 2));
+
+  const c = document.getElementById('roue-canvas');
+  const ctx = c.getContext('2d');
+  const duration = 4500;
+  const start = Date.now();
+  const startAngle = roueAngle;
+
+  function ease(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; }
+
+  function animFrame() {
+    const elapsed = Date.now() - start;
+    const t = Math.min(elapsed / duration, 1);
+    roueAngle = startAngle + (finalAngle - startAngle) * ease(t);
+    drawRoue(ctx, c, roueAngle);
+    if (t < 1) {
+      requestAnimationFrame(animFrame);
+    } else {
+      roueSpin = false;
+      btn.disabled = false;
+      // Show result
+      const profit = d.profit;
+      const sign = profit >= 0 ? '+' : '';
+      const color = profit >= 0 ? 'var(--success)' : 'var(--accent2)';
+      const el = document.getElementById('roue-result');
+      el.style.color = color;
+      el.textContent = `${d.label} — Gain: ${d.gain.toLocaleString('fr-FR')} $ (${sign}${profit.toLocaleString('fr-FR')} $)`;
+      loadData();
+    }
+  }
+  requestAnimationFrame(animFrame);
+}
+
+// ─── MINES ────────────────────────────────────────────────────────────────────
+let minesActive = false;
+let minesNb = 3;
+let minesMise = 0;
+let minesRevealed = [];
+
+function initMinesGrid() {
+  const grid = document.getElementById('mines-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  for (let i = 0; i < 25; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'mine-cell';
+    cell.id = 'mine-' + i;
+    cell.textContent = '⬜';
+    cell.onclick = () => minesReveal(i);
+    grid.appendChild(cell);
+  }
+}
+
+async function minesStart() {
+  const mise = parseInt(document.getElementById('mines-mise').value);
+  const nb = parseInt(document.getElementById('mines-nb').value);
+  if (!mise || mise < 100) return showToast('Mise minimum 100 $', true);
+
+  const d = await gamePost({game:'mines_start', mise, nb_mines:nb});
+  if (!d.ok) return showToast(d.error || 'Erreur', true);
+
+  minesActive = true;
+  minesMise = mise;
+  minesNb = nb;
+  minesRevealed = [];
+
+  document.getElementById('mines-controls').style.display = 'none';
+  document.getElementById('mines-cashout-btn').style.display = 'block';
+  document.getElementById('mines-result').textContent = '';
+  document.getElementById('mines-mult-label').textContent = 'x1.00';
+  document.getElementById('mines-gain-label').textContent = 'Gain potentiel : 0 $';
+
+  initMinesGrid();
+  loadData();
+}
+
+async function minesReveal(idx) {
+  if (!minesActive) return;
+  if (minesRevealed.includes(idx)) return;
+
+  const cell = document.getElementById('mine-' + idx);
+  cell.style.opacity = '.5';
+
+  const d = await gamePost({game:'mines_reveal', idx});
+  cell.style.opacity = '1';
+
+  if (!d.ok) return;
+
+  minesRevealed.push(idx);
+
+  if (d.mine) {
+    cell.className = 'mine-cell revealed-mine';
+    cell.textContent = '💣';
+    // Show all mines
+    if (d.grid) {
+      d.grid.forEach((type, i) => {
+        if (type === 'mine') {
+          const c = document.getElementById('mine-' + i);
+          c.className = 'mine-cell revealed-mine';
+          c.textContent = '💣';
+        }
+      });
+    }
+    minesActive = false;
+    document.getElementById('mines-cashout-btn').style.display = 'none';
+    document.getElementById('mines-controls').style.display = 'block';
+    document.getElementById('mines-result').style.color = 'var(--accent2)';
+    document.getElementById('mines-result').textContent = `💥 BOOM ! -${minesMise.toLocaleString('fr-FR')} $`;
+    document.getElementById('mines-mult-label').textContent = 'x0.00';
+    loadData();
+  } else {
+    cell.className = 'mine-cell revealed-safe';
+    cell.textContent = '💎';
+    document.getElementById('mines-mult-label').textContent = 'x' + d.mult;
+    document.getElementById('mines-gain-label').textContent = 'Gain potentiel : ' + d.gain_now.toLocaleString('fr-FR') + ' $';
+    if (d.all_safe) {
+      minesActive = false;
+      document.getElementById('mines-cashout-btn').style.display = 'none';
+      document.getElementById('mines-controls').style.display = 'block';
+      document.getElementById('mines-result').style.color = 'var(--success)';
+      document.getElementById('mines-result').textContent = `🏆 PERFECT ! +${(d.gain_now - minesMise).toLocaleString('fr-FR')} $`;
+      loadData();
+    }
+  }
+}
+
+async function minesCashOut() {
+  if (!minesActive) return;
+  const d = await gamePost({game:'mines_cashout'});
+  if (!d.ok) return showToast(d.error || 'Erreur', true);
+
+  minesActive = false;
+  document.getElementById('mines-cashout-btn').style.display = 'none';
+  document.getElementById('mines-controls').style.display = 'block';
+  const sign = d.profit >= 0 ? '+' : '';
+  document.getElementById('mines-result').style.color = d.profit >= 0 ? 'var(--success)' : 'var(--accent2)';
+  document.getElementById('mines-result').textContent = `💰 x${d.mult} — ${sign}${d.profit.toLocaleString('fr-FR')} $`;
+  // Disable remaining cells
+  document.querySelectorAll('.mine-cell').forEach(c => {
+    if (!c.className.includes('revealed')) c.className = 'mine-cell hidden-inactive';
+  });
+  loadData();
+}
 
 function fillMock() {
   document.getElementById('pf-name').textContent    = firstName;

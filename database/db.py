@@ -44,6 +44,7 @@ async def init_db():
         ("diplome_mba",     "BOOLEAN DEFAULT FALSE"),
         ("diplome_domain",  "VARCHAR(50) DEFAULT NULL"),
         ("exam_cooldown",   "TIMESTAMP DEFAULT NULL"),
+        ("avatar_data",     "TEXT DEFAULT NULL"),
     ]
     try:
         async with engine.begin() as conn:
@@ -74,6 +75,7 @@ async def init_db():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS diplome_mba      BOOLEAN   DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS diplome_domain   VARCHAR(50) DEFAULT NULL",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS exam_cooldown    TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data      TEXT DEFAULT NULL",
         "UPDATE users SET coins = 10000 WHERE coins IS NULL OR coins < 10000",
         # karma & harvest
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS karma         INTEGER DEFAULT 0",

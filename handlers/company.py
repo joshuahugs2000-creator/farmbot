@@ -3169,8 +3169,7 @@ async def skipattente_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── /annoncerecrutement — Annonce PDG broadcast dans tous les groupes ─────────
 
-ANNONCE_COOLDOWN = {}  # company_id -> dernière annonce (timestamp)
-ANNONCE_COOLDOWN_SEC = 86400  # 24h
+ANNONCE_COOLDOWN_DAYS = 7  # 1 annonce par semaine
 
 ANNONCE_TYPES = {
     "recrutement": "📢 Recrutement",
@@ -3239,17 +3238,16 @@ async def annoncerecrutement_cmd(update: Update, context: ContextTypes.DEFAULT_T
         if emp.role not in ("pdg", "directeur"):
             return await update.message.reply_text("❌ Seul le PDG ou Directeur peut envoyer une annonce.")
 
-        # Vérifier cooldown
-        import time
-        now = time.time()
-        last = ANNONCE_COOLDOWN.get(company.id, 0)
-        if now - last < ANNONCE_COOLDOWN_SEC:
-            reste = int((ANNONCE_COOLDOWN_SEC - (now - last)) / 3600)
-            return await update.message.reply_text(
-                f"⏳ Annonce déjà envoyée aujourd'hui.\n"
-                f"Prochaine annonce disponible dans <b>{reste}h</b>.",
-                parse_mode="HTML"
-            )
+        # Vérifier cooldown (persisté en base)
+        if company.last_annonce:
+            delta = datetime.utcnow() - company.last_annonce
+            if delta.days < ANNONCE_COOLDOWN_DAYS:
+                reste = ANNONCE_COOLDOWN_DAYS - delta.days
+                return await update.message.reply_text(
+                    f"⏳ Annonce déjà envoyée cette semaine.\n"
+                    f"Prochaine annonce disponible dans <b>{reste} jour(s)</b>.",
+                    parse_mode="HTML"
+                )
 
     # Afficher le menu de choix
     keyboard = InlineKeyboardMarkup([
@@ -3269,15 +3267,16 @@ async def annoncerecrutement_cmd(update: Update, context: ContextTypes.DEFAULT_T
 async def annoncerecrutement_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Callback quand le PDG choisit son type d'annonce."""
     from database.db import get_all_groups
-    import time
     query = update.callback_query
     await query.answer()
 
     _, company_id_str, type_key = query.data.split(":")
     company_id = int(company_id_str)
 
-    # Vérifier que c'est bien le PDG qui clique
+    # Vérifier autorisation + cooldown + marquer l'annonce
     user_id = query.from_user.id
+    rank = 0
+    total = 0
     async with AsyncSessionLocal() as session:
         emp = (await session.execute(
             select(CompanyEmployee).where(
@@ -3294,6 +3293,16 @@ async def annoncerecrutement_callback(update: Update, context: ContextTypes.DEFA
         if not company or not company.is_active:
             return await query.edit_message_text("❌ Entreprise introuvable.")
 
+        # Cooldown 7 jours
+        if company.last_annonce:
+            delta = datetime.utcnow() - company.last_annonce
+            if delta.days < ANNONCE_COOLDOWN_DAYS:
+                reste = ANNONCE_COOLDOWN_DAYS - delta.days
+                return await query.edit_message_text(
+                    f"⏳ Annonce déjà envoyée cette semaine. Réessaie dans <b>{reste} jour(s)</b>.",
+                    parse_mode="HTML"
+                )
+
         # Rang de l'entreprise
         all_companies = (await session.execute(
             select(Company).where(Company.is_active == True).order_by(Company.value.desc())
@@ -3301,17 +3310,8 @@ async def annoncerecrutement_callback(update: Update, context: ContextTypes.DEFA
         total = len(all_companies)
         rank = next((i + 1 for i, c in enumerate(all_companies) if c.id == company_id), total)
 
-    # Cooldown
-    now = time.time()
-    last = ANNONCE_COOLDOWN.get(company_id, 0)
-    if now - last < ANNONCE_COOLDOWN_SEC:
-        reste = int((ANNONCE_COOLDOWN_SEC - (now - last)) / 3600)
-        return await query.edit_message_text(
-            f"⏳ Annonce déjà envoyée. Réessaie dans <b>{reste}h</b>.",
-            parse_mode="HTML"
-        )
-
-    ANNONCE_COOLDOWN[company_id] = now
+        company.last_annonce = datetime.utcnow()
+        await session.commit()
 
     msg = _build_annonce(type_key, company, rank, total)
     groups = await get_all_groups(active_only=True)
@@ -3334,6 +3334,6 @@ async def annoncerecrutement_callback(update: Update, context: ContextTypes.DEFA
         f"✅ <b>Annonce « {label} » diffusée !</b>\n\n"
         f"📡 Envoyée dans <b>{sent_ok}</b> groupe(s)"
         + (f" — {sent_err} échec(s)" if sent_err else "") + ".\n"
-        f"⏳ Prochaine annonce disponible dans <b>24h</b>.",
+        f"⏳ Prochaine annonce disponible dans <b>7 jours</b>.",
         parse_mode="HTML"
     )

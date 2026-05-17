@@ -598,6 +598,7 @@ async def main():
     app.add_handler(CommandHandler("salaireinfo",     _prison_checked(salaireinfo_cmd)))
     app.add_handler(CommandHandler("versersalaires", _prison_checked(versersalaires_cmd)))
     app.add_handler(CommandHandler("presences",      _prison_checked(presences_cmd)))
+    app.add_handler(CommandHandler("skipattente",    _prison_checked(skipattente_cmd)))
     app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
     app.add_handler(CommandHandler("mesparts",       _prison_checked(mesparts_cmd)))
     # ── Secteurs : événements, contrats, classement ───────────────────────────

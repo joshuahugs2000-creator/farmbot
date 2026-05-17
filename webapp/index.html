@@ -368,6 +368,23 @@ if (tg) {
 const userId = tg?.initDataUnsafe?.user?.id || null;
 const firstName = tg?.initDataUnsafe?.user?.first_name || 'Joueur';
 
+// ── Accès restreint ──────────────────────────────────────────────────────────
+const WEBAPP_WHITELIST = [6227863810];
+if (userId && !WEBAPP_WHITELIST.includes(userId)) {
+  document.getElementById('loading').innerHTML = `
+    <div style="text-align:center;padding:40px 24px">
+      <div style="font-size:64px">🚧</div>
+      <div style="font-family:'Bangers',cursive;font-size:34px;color:#f7c948;margin-top:16px;letter-spacing:3px">BIENTÔT DISPONIBLE</div>
+      <div style="color:#a0a0b0;font-size:14px;margin-top:14px;line-height:1.8">
+        La Mini App <b style="color:#f0f0f0">Family Bot</b> est en cours de développement.<br>
+        Elle sera disponible pour tout le monde très bientôt ! 🎮
+      </div>
+    </div>`;
+  // stop tout le reste du script
+  throw new Error('not allowed');
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 // ════════════════════════════════════════
 //  AVATAR DATA
 // ════════════════════════════════════════

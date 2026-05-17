@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>Family Bot</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #0f0f1a;
+  --card: #1a1a2e;
+  --card2: #16213e;
+  --accent: #f7c948;
+  --accent2: #ff6b6b;
+  --accent3: #4ecdc4;
+  --accent4: #a29bfe;
+  --text: #f0f0f0;
+  --text2: #a0a0b0;
+  --border: #2a2a4a;
+  --success: #55efc4;
+  --radius: 16px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Nunito', sans-serif; overflow: hidden; }
+
+/* ── NAV ── */
+#nav {
+  display: flex; justify-content: space-around; align-items: center;
+  background: var(--card); border-top: 2px solid var(--border);
+  padding: 8px 0 12px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+}
+.nav-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: none; border: none; color: var(--text2); font-family: 'Nunito', sans-serif;
+  font-size: 10px; font-weight: 700; cursor: pointer; padding: 4px 12px;
+  border-radius: 12px; transition: all .2s;
+}
+.nav-btn .icon { font-size: 22px; }
+.nav-btn.active { color: var(--accent); }
+.nav-btn.active .icon { filter: drop-shadow(0 0 6px var(--accent)); }
+
+/* ── PAGES ── */
+#app { height: 100%; padding-bottom: 70px; overflow-y: auto; }
+.page { display: none; padding: 16px; animation: fadeIn .3s ease; }
+.page.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── HEADER ── */
+.page-title {
+  font-family: 'Bangers', cursive; font-size: 28px; letter-spacing: 2px;
+  color: var(--accent); text-shadow: 2px 2px 0 rgba(0,0,0,.5);
+  margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+}
+
+/* ── CARDS ── */
+.card {
+  background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
+  padding: 16px; margin-bottom: 12px;
+}
+.card-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text2); margin-bottom: 12px; }
+
+/* ── STAT ROW ── */
+.stat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.stat-row:last-child { border-bottom: none; }
+.stat-label { font-size: 13px; color: var(--text2); }
+.stat-value { font-size: 14px; font-weight: 800; color: var(--text); }
+.stat-value.gold { color: var(--accent); }
+.stat-value.green { color: var(--success); }
+.stat-value.red { color: var(--accent2); }
+
+/* ── BADGE ── */
+.badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 800; background: var(--accent); color: #000; }
+
+/* ── AVATAR SECTION ── */
+#avatar-stage {
+  display: flex; justify-content: center; align-items: flex-end;
+  height: 220px; margin-bottom: 16px; position: relative;
+}
+#avatar-canvas { width: 160px; height: 210px; }
+
+.customizer-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 4px; }
+.customizer-tabs::-webkit-scrollbar { display: none; }
+.ctab {
+  flex-shrink: 0; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 800;
+  border: 2px solid var(--border); background: var(--card2); color: var(--text2); cursor: pointer; transition: all .2s;
+}
+.ctab.active { background: var(--accent); border-color: var(--accent); color: #000; }
+
+.options-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.opt-btn {
+  aspect-ratio: 1; border-radius: 12px; border: 2px solid var(--border);
+  background: var(--card2); cursor: pointer; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px; font-size: 10px;
+  font-weight: 700; color: var(--text2); transition: all .2s; padding: 4px;
+}
+.opt-btn:hover { border-color: var(--accent); }
+.opt-btn.selected { border-color: var(--accent); background: rgba(247,201,72,.15); color: var(--accent); }
+.opt-btn .opt-preview { width: 32px; height: 32px; border-radius: 8px; }
+.color-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); }
+
+/* ── GENDER TOGGLE ── */
+.gender-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
+.gender-btn {
+  flex: 1; padding: 10px; border-radius: 12px; border: 2px solid var(--border);
+  background: var(--card2); color: var(--text2); font-family: 'Nunito', sans-serif;
+  font-size: 14px; font-weight: 800; cursor: pointer; transition: all .2s; text-align: center;
+}
+.gender-btn.active { border-color: var(--accent4); background: rgba(162,155,254,.15); color: var(--accent4); }
+
+/* ── SAVE BTN ── */
+.save-btn {
+  width: 100%; padding: 14px; border-radius: var(--radius); border: none;
+  background: linear-gradient(135deg, var(--accent), #f39c12); color: #000;
+  font-family: 'Bangers', cursive; font-size: 20px; letter-spacing: 2px;
+  cursor: pointer; margin-top: 16px; box-shadow: 0 4px 15px rgba(247,201,72,.4);
+  transition: all .2s;
+}
+.save-btn:active { transform: scale(.97); }
+
+/* ── MARKET ── */
+.asset-card {
+  background: var(--card2); border-radius: 12px; border: 1px solid var(--border);
+  padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;
+}
+.asset-name { font-weight: 800; font-size: 14px; }
+.asset-price { font-size: 13px; color: var(--accent); font-weight: 700; }
+.asset-change.up { color: var(--success); font-size: 12px; font-weight: 700; }
+.asset-change.down { color: var(--accent2); font-size: 12px; font-weight: 700; }
+
+/* ── COMPANY ── */
+.company-header { text-align: center; padding: 20px 0; }
+.company-name { font-family: 'Bangers', cursive; font-size: 32px; color: var(--accent); letter-spacing: 2px; }
+.company-level { color: var(--text2); font-size: 13px; margin-top: 4px; }
+.rep-stars { color: var(--accent); font-size: 18px; margin-top: 6px; }
+
+/* ── GAMES ── */
+.games-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.game-card {
+  background: var(--card2); border-radius: var(--radius); border: 1px solid var(--border);
+  padding: 20px 12px; text-align: center; cursor: pointer; transition: all .2s;
+}
+.game-card:active { transform: scale(.96); }
+.game-card .game-icon { font-size: 36px; margin-bottom: 8px; }
+.game-card .game-name { font-family: 'Bangers', cursive; font-size: 16px; letter-spacing: 1px; color: var(--accent); }
+.game-card .game-desc { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* ── PROFILE HEADER ── */
+.profile-header {
+  display: flex; align-items: center; gap: 14px;
+  background: linear-gradient(135deg, var(--card), var(--card2));
+  border-radius: var(--radius); border: 1px solid var(--border);
+  padding: 16px; margin-bottom: 12px;
+}
+.profile-avatar-small { width: 64px; height: 64px; border-radius: 50%; border: 3px solid var(--accent); overflow: hidden; }
+.profile-name { font-family: 'Bangers', cursive; font-size: 22px; color: var(--accent); letter-spacing: 1px; }
+.profile-title { font-size: 12px; color: var(--accent4); font-weight: 700; margin-top: 2px; }
+.profile-coins { font-size: 18px; font-weight: 900; color: var(--success); margin-top: 4px; }
+
+/* ── LOADING ── */
+#loading {
+  position: fixed; inset: 0; background: var(--bg); display: flex;
+  flex-direction: column; align-items: center; justify-content: center; z-index: 999;
+}
+.loading-logo { font-family: 'Bangers', cursive; font-size: 48px; color: var(--accent); letter-spacing: 4px; text-shadow: 0 0 30px rgba(247,201,72,.5); }
+.loading-sub { font-size: 14px; color: var(--text2); margin-top: 8px; }
+.loader { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin-top: 24px; overflow: hidden; }
+.loader-bar { height: 100%; background: var(--accent); border-radius: 2px; animation: load 1.5s ease infinite; }
+@keyframes load { 0% { width: 0; } 100% { width: 100%; } }
+
+/* ── TOAST ── */
+#toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--success); color: #000; padding: 10px 20px; border-radius: 20px;
+  font-weight: 800; font-size: 13px; opacity: 0; transition: all .3s; z-index: 200; white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="loading-logo">FAMILY BOT</div>
+  <div class="loading-sub">Chargement de ton empire...</div>
+  <div class="loader"><div class="loader-bar"></div></div>
+</div>
+
+<div id="toast"></div>
+
+<div id="app">
+
+  <!-- ══ PAGE PROFIL ══ -->
+  <div class="page active" id="page-profile">
+    <div class="page-title">👤 Profil</div>
+
+    <div class="profile-header" id="profile-header">
+      <svg id="profile-avatar-mini" width="64" height="64" viewBox="0 0 160 210"></svg>
+      <div>
+        <div class="profile-name" id="pf-name">—</div>
+        <div class="profile-title" id="pf-title">Citoyen</div>
+        <div class="profile-coins" id="pf-coins">💰 —</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💰 Finances</div>
+      <div class="stat-row"><span class="stat-label">En poche</span><span class="stat-value gold" id="pf-cash">—</span></div>
+      <div class="stat-row"><span class="stat-label">En banque</span><span class="stat-value gold" id="pf-bank">—</span></div>
+      <div class="stat-row"><span class="stat-label">Dettes</span><span class="stat-value red" id="pf-debt">—</span></div>
+      <div class="stat-row"><span class="stat-label">Fortune totale</span><span class="stat-value gold" id="pf-total">—</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⭐ Réputation & Rang</div>
+      <div class="stat-row"><span class="stat-label">Karma</span><span class="stat-value" id="pf-karma">—</span></div>
+      <div class="stat-row"><span class="stat-label">Classement</span><span class="stat-value" id="pf-rank">—</span></div>
+      <div class="stat-row"><span class="stat-label">Diplômes</span><span class="stat-value" id="pf-diplomes">—</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🏢 Emploi</div>
+      <div class="stat-row"><span class="stat-label">Entreprise</span><span class="stat-value" id="pf-company">—</span></div>
+      <div class="stat-row"><span class="stat-label">Poste</span><span class="stat-value" id="pf-role">—</span></div>
+    </div>
+  </div>
+
+  <!-- ══ PAGE AVATAR ══ -->
+  <div class="page" id="page-avatar">
+    <div class="page-title">🎨 Avatar</div>
+
+    <div class="gender-toggle">
+      <button class="gender-btn active" id="btn-m" onclick="setGender('m')">👦 Masculin</button>
+      <button class="gender-btn" id="btn-f" onclick="setGender('f')">👧 Féminin</button>
+    </div>
+
+    <div id="avatar-stage">
+      <svg id="avatar-canvas" viewBox="0 0 160 210" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+
+    <div class="customizer-tabs" id="ctabs">
+      <button class="ctab active" onclick="showTab('skin')">🎨 Peau</button>
+      <button class="ctab" onclick="showTab('hair')">💇 Coiffure</button>
+      <button class="ctab" onclick="showTab('haircolor')">🎨 Cheveux</button>
+      <button class="ctab" onclick="showTab('top')">👕 Haut</button>
+      <button class="ctab" onclick="showTab('bottom')">👖 Bas</button>
+      <button class="ctab" onclick="showTab('shoes')">👟 Shoes</button>
+      <button class="ctab" onclick="showTab('accessory')">😎 Accès.</button>
+    </div>
+
+    <div id="options-container"></div>
+
+    <button class="save-btn" onclick="saveAvatar()">💾 SAUVEGARDER</button>
+  </div>
+
+  <!-- ══ PAGE ENTREPRISE ══ -->
+  <div class="page" id="page-company">
+    <div class="page-title">🏢 Entreprise</div>
+    <div class="card" id="company-card">
+      <div class="company-header">
+        <div class="company-name" id="co-name">—</div>
+        <div class="company-level" id="co-level">—</div>
+        <div class="rep-stars" id="co-stars">—</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">💰 Finances</div>
+      <div class="stat-row"><span class="stat-label">Valeur</span><span class="stat-value gold" id="co-value">—</span></div>
+      <div class="stat-row"><span class="stat-label">Trésorerie</span><span class="stat-value gold" id="co-treasury">—</span></div>
+      <div class="stat-row"><span class="stat-label">Revenu/jour</span><span class="stat-value green" id="co-revenue">—</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">👥 Équipe</div>
+      <div class="stat-row"><span class="stat-label">Employés</span><span class="stat-value" id="co-employees">—</span></div>
+      <div class="stat-row"><span class="stat-label">Mon rôle</span><span class="stat-value" id="co-myrole">—</span></div>
+      <div class="stat-row"><span class="stat-label">PDG</span><span class="stat-value" id="co-owner">—</span></div>
+    </div>
+  </div>
+
+  <!-- ══ PAGE MARCHÉ ══ -->
+  <div class="page" id="page-market">
+    <div class="page-title">📈 Marché</div>
+    <div class="card">
+      <div class="card-title">📊 Portfolio</div>
+      <div class="stat-row"><span class="stat-label">Investi</span><span class="stat-value gold" id="mk-invested">—</span></div>
+      <div class="stat-row"><span class="stat-label">Valeur actuelle</span><span class="stat-value gold" id="mk-current">—</span></div>
+      <div class="stat-row"><span class="stat-label">P&L</span><span class="stat-value" id="mk-pnl">—</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🏪 Assets disponibles</div>
+      <div id="assets-list"></div>
+    </div>
+  </div>
+
+  <!-- ══ PAGE JEUX ══ -->
+  <div class="page" id="page-games">
+    <div class="page-title">🎮 Jeux</div>
+    <div class="card">
+      <div class="card-title">⚡ Lancer une commande</div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">Tape la commande dans le groupe pour jouer.</p>
+      <div class="games-grid">
+        <div class="game-card" onclick="copyCmd('/slots')">
+          <div class="game-icon">🎰</div>
+          <div class="game-name">SLOTS</div>
+          <div class="game-desc">Machine à sous</div>
+        </div>
+        <div class="game-card" onclick="copyCmd('/crash')">
+          <div class="game-icon">🚀</div>
+          <div class="game-name">CRASH</div>
+          <div class="game-desc">Multiplicateur</div>
+        </div>
+        <div class="game-card" onclick="copyCmd('/blackjack')">
+          <div class="game-icon">🃏</div>
+          <div class="game-name">BLACKJACK</div>
+          <div class="game-desc">21 ou rien</div>
+        </div>
+        <div class="game-card" onclick="copyCmd('/roue')">
+          <div class="game-icon">🎡</div>
+          <div class="game-name">ROUE</div>
+          <div class="game-desc">Tente ta chance</div>
+        </div>
+        <div class="game-card" onclick="copyCmd('/mines')">
+          <div class="game-icon">💣</div>
+          <div class="game-name">MINES</div>
+          <div class="game-desc">Évite les bombes</div>
+        </div>
+        <div class="game-card" onclick="copyCmd('/roulette')">
+          <div class="game-icon">🎲</div>
+          <div class="game-name">ROULETTE</div>
+          <div class="game-desc">Rouge ou noir</div>
+        </div>
+        <div class="game-card" onclick="copyCmd('/ppc')">
+          <div class="game-icon">✂️</div>
+          <div class="game-name">PPC</div>
+          <div class="game-desc">Pierre Papier Ciseaux</div>
+        </div>
+        <div class="game-card" onclick="copyCmd('/cockfight')">
+          <div class="game-icon">🐓</div>
+          <div class="game-name">COQS</div>
+          <div class="game-desc">Combat de coqs</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── NAV BAR ── -->
+<nav id="nav">
+  <button class="nav-btn active" onclick="showPage('profile',this)"><span class="icon">👤</span>Profil</button>
+  <button class="nav-btn" onclick="showPage('avatar',this)"><span class="icon">🎨</span>Avatar</button>
+  <button class="nav-btn" onclick="showPage('company',this)"><span class="icon">🏢</span>Boite</button>
+  <button class="nav-btn" onclick="showPage('market',this)"><span class="icon">📈</span>Marché</button>
+  <button class="nav-btn" onclick="showPage('games',this)"><span class="icon">🎮</span>Jeux</button>
+</nav>
+
+<script>
+// ════════════════════════════════════════
+//  TELEGRAM INIT
+// ════════════════════════════════════════
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+  tg.setHeaderColor('#0f0f1a');
+  tg.setBackgroundColor('#0f0f1a');
+}
+
+const userId = tg?.initDataUnsafe?.user?.id || null;
+const firstName = tg?.initDataUnsafe?.user?.first_name || 'Joueur';
+
+// ════════════════════════════════════════
+//  AVATAR DATA
+// ════════════════════════════════════════
+const SKIN_COLORS = ['#FDDBB4','#F1C27D','#E8A87C','#C68642','#8D5524','#4A2912'];
+const HAIR_COLORS = ['#1a0a00','#3b2314','#8B4513','#D4A017','#F4D03F','#FF6B6B','#A29BFE','#00B4D8','#ffffff'];
+
+const HAIR_STYLES_M = [
+  { id:'buzz',    label:'Buzz',    draw: (c,hc) => drawHairBuzzM(c,hc) },
+  { id:'afro',    label:'Afro',    draw: (c,hc) => drawHairAfroM(c,hc) },
+  { id:'straight',label:'Lisse',   draw: (c,hc) => drawHairStraightM(c,hc) },
+  { id:'curly',   label:'Bouclé',  draw: (c,hc) => drawHairCurlyM(c,hc) },
+  { id:'long',    label:'Long',    draw: (c,hc) => drawHairLongM(c,hc) },
+  { id:'mohawk',  label:'Mohawk',  draw: (c,hc) => drawHairMohawk(c,hc) },
+];
+const HAIR_STYLES_F = [
+  { id:'ponytail',label:'Queue',   draw: (c,hc) => drawHairPonytail(c,hc) },
+  { id:'afro',    label:'Afro',    draw: (c,hc) => drawHairAfroF(c,hc) },
+  { id:'straight',label:'Lisse',   draw: (c,hc) => drawHairStraightF(c,hc) },
+  { id:'curly',   label:'Bouclé',  draw: (c,hc) => drawHairCurlyF(c,hc) },
+  { id:'bun',     label:'Chignon', draw: (c,hc) => drawHairBun(c,hc) },
+  { id:'long2',   label:'Long',    draw: (c,hc) => drawHairLong2(c,hc) },
+];
+
+const TOPS_M = [
+  { id:'tshirt',  label:'T-Shirt', colors:['#e74c3c','#3498db','#2ecc71','#9b59b6','#f39c12','#1a1a2e'] },
+  { id:'hoodie',  label:'Hoodie',  colors:['#2c3e50','#c0392b','#27ae60','#8e44ad','#d35400','#ecf0f1'] },
+  { id:'jacket',  label:'Veste',   colors:['#1a1a2e','#2c3e50','#922b21','#1a5276','#145a32','#784212'] },
+  { id:'polo',    label:'Polo',    colors:['#ffffff','#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2'] },
+];
+const TOPS_F = [
+  { id:'crop',    label:'Crop',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff'] },
+  { id:'hoodie',  label:'Hoodie',  colors:['#2c3e50','#c0392b','#27ae60','#8e44ad','#d35400','#ecf0f1'] },
+  { id:'jacket',  label:'Veste',   colors:['#1a1a2e','#2c3e50','#922b21','#1a5276','#145a32','#784212'] },
+  { id:'top',     label:'Débard.', colors:['#ffffff','#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2'] },
+];
+const BOTTOMS_M = [
+  { id:'jean',    label:'Jean',    colors:['#2c3e50','#1a5276','#6c3483','#1b4f72','#212f3d','#7b7d7d'] },
+  { id:'jogger',  label:'Jogging', colors:['#1a1a2e','#7f8c8d','#922b21','#1a5276','#145a32','#000000'] },
+  { id:'short',   label:'Short',   colors:['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#ecf0f1'] },
+  { id:'chino',   label:'Chino',   colors:['#d5b895','#a9c9a0','#f0c9a0','#c9bfa0','#a0a9c9','#c9a0a0'] },
+];
+const BOTTOMS_F = [
+  { id:'jean',    label:'Jean',    colors:['#2c3e50','#1a5276','#6c3483','#1b4f72','#212f3d','#7b7d7d'] },
+  { id:'jogger',  label:'Jogging', colors:['#1a1a2e','#7f8c8d','#922b21','#1a5276','#145a32','#000000'] },
+  { id:'skirt',   label:'Jupe',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff'] },
+  { id:'short',   label:'Short',   colors:['#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2','#e74c3c'] },
+];
+const SHOES = [
+  { id:'sneaker', label:'Sneakers', colors:['#ffffff','#e74c3c','#3498db','#1a1a2e','#2ecc71','#f39c12'] },
+  { id:'boot',    label:'Boots',    colors:['#2c3e50','#7b241c','#784212','#1a1a2e','#117a65','#6c3483'] },
+  { id:'claquette',label:'Claq.',   colors:['#f39c12','#e74c3c','#3498db','#1a1a2e','#ffffff','#2ecc71'] },
+];
+const ACCESSORIES = [
+  { id:'none',    label:'Aucun',   },
+  { id:'glasses', label:'Lunettes',},
+  { id:'cap',     label:'Casquette'},
+  { id:'beanie',  label:'Bonnet',  },
+  { id:'chain',   label:'Chaîne',  },
+];
+
+// ════════════════════════════════════════
+//  AVATAR STATE
+// ════════════════════════════════════════
+let avatar = {
+  gender: 'm',
+  skinIndex: 0,
+  hairStyle: 0,
+  hairColorIndex: 0,
+  topStyle: 0,
+  topColorIndex: 0,
+  bottomStyle: 0,
+  bottomColorIndex: 0,
+  shoeStyle: 0,
+  shoeColorIndex: 0,
+  accessory: 0,
+};
+
+try {
+  const saved = localStorage.getItem('fb_avatar');
+  if (saved) avatar = {...avatar, ...JSON.parse(saved)};
+} catch(e) {}
+
+let currentTab = 'skin';
+
+// ════════════════════════════════════════
+//  SVG AVATAR DRAWING
+// ════════════════════════════════════════
+function getAvatarData() {
+  const tops    = avatar.gender === 'm' ? TOPS_M    : TOPS_F;
+  const bottoms = avatar.gender === 'm' ? BOTTOMS_M : BOTTOMS_F;
+  const hairs   = avatar.gender === 'm' ? HAIR_STYLES_M : HAIR_STYLES_F;
+  return {
+    skin:    SKIN_COLORS[avatar.skinIndex],
+    hairColor: HAIR_COLORS[avatar.hairColorIndex],
+    hair:    hairs[avatar.hairStyle] || hairs[0],
+    top:     tops[avatar.topStyle] || tops[0],
+    topColor: (tops[avatar.topStyle] || tops[0]).colors[avatar.topColorIndex] || '#e74c3c',
+    bottom:  bottoms[avatar.bottomStyle] || bottoms[0],
+    bottomColor: (bottoms[avatar.bottomStyle] || bottoms[0]).colors[avatar.bottomColorIndex] || '#2c3e50',
+    shoe:    SHOES[avatar.shoeStyle] || SHOES[0],
+    shoeColor: (SHOES[avatar.shoeStyle] || SHOES[0]).colors[avatar.shoeColorIndex] || '#ffffff',
+    acc:     ACCESSORIES[avatar.accessory] || ACCESSORIES[0],
+    isFemale: avatar.gender === 'f',
+  };
+}
+
+function drawAvatar(svgId) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  const d = getAvatarData();
+  const skin = d.skin;
+  const isFemale = d.isFemale;
+
+  // Body proportions
+  const bodyW = isFemale ? 44 : 50;
+  const bodyX = 80 - bodyW/2;
+  const hipW  = isFemale ? 50 : 48;
+  const hipX  = 80 - hipW/2;
+  const legW  = 18;
+  const shoulderY = 90;
+  const hipY  = 135;
+  const kneeY = 168;
+  const footY = 196;
+
+  let html = '';
+
+  // ── SHOES ──
+  const sc = d.shoeColor;
+  if (d.shoe.id === 'sneaker') {
+    html += `<ellipse cx="67" cy="${footY}" rx="14" ry="7" fill="${sc}"/>
+             <ellipse cx="93" cy="${footY}" rx="14" ry="7" fill="${sc}"/>
+             <rect x="53" y="${footY-7}" width="28" height="7" rx="3" fill="${sc}"/>
+             <rect x="79" y="${footY-7}" width="28" height="7" rx="3" fill="${sc}"/>
+             <line x1="58" y1="${footY-3}" x2="75" y2="${footY-3}" stroke="white" stroke-width="1.5" opacity=".6"/>
+             <line x1="84" y1="${footY-3}" x2="101" y2="${footY-3}" stroke="white" stroke-width="1.5" opacity=".6"/>`;
+  } else if (d.shoe.id === 'boot') {
+    html += `<rect x="53" y="${kneeY+8}" width="26" height="${footY-kneeY-8}" rx="4" fill="${sc}"/>
+             <rect x="79" y="${kneeY+8}" width="26" height="${footY-kneeY-8}" rx="4" fill="${sc}"/>
+             <ellipse cx="66" cy="${footY}" rx="13" ry="6" fill="${sc}"/>
+             <ellipse cx="92" cy="${footY}" rx="13" ry="6" fill="${sc}"/>`;
+  } else {
+    html += `<rect x="57" y="${footY-5}" width="22" height="8" rx="4" fill="${sc}"/>
+             <rect x="83" y="${footY-5}" width="22" height="8" rx="4" fill="${sc}"/>`;
+  }
+
+  // ── LEGS / BOTTOM ──
+  const bc = d.bottomColor;
+  html += `<rect x="${hipX}" y="${hipY}" width="${legW}" height="${kneeY-hipY+8}" rx="6" fill="${bc}"/>
+           <rect x="${hipX+hipW-legW}" y="${hipY}" width="${legW}" height="${kneeY-hipY+8}" rx="6" fill="${bc}"/>`;
+
+  if (d.bottom.id === 'skirt') {
+    html += `<path d="M${hipX} ${hipY} Q80 ${hipY+30} ${hipX+hipW} ${hipY} L${hipX+hipW} ${hipY+40} Q80 ${hipY+20} ${hipX} ${hipY+40} Z" fill="${bc}" opacity=".9"/>`;
+  }
+
+  // ── BODY / TOP ──
+  const tc = d.topColor;
+  const topShape = isFemale
+    ? `M${bodyX} ${shoulderY} Q80 ${shoulderY-8} ${bodyX+bodyW} ${shoulderY} L${hipX+hipW} ${hipY} Q80 ${hipY+8} ${hipX} ${hipY} Z`
+    : `M${bodyX} ${shoulderY} L${bodyX+bodyW} ${shoulderY} L${hipX+hipW} ${hipY} L${hipX} ${hipY} Z`;
+  html += `<path d="${topShape}" fill="${tc}"/>`;
+
+  // Sleeves
+  html += `<ellipse cx="${bodyX-6}" cy="${shoulderY+18}" rx="10" ry="16" fill="${tc}" transform="rotate(-10,${bodyX-6},${shoulderY+18})"/>
+           <ellipse cx="${bodyX+bodyW+6}" cy="${shoulderY+18}" rx="10" ry="16" fill="${tc}" transform="rotate(10,${bodyX+bodyW+6},${shoulderY+18})"/>`;
+
+  // Hands
+  html += `<ellipse cx="${bodyX-14}" cy="${shoulderY+30}" rx="7" ry="8" fill="${skin}"/>
+           <ellipse cx="${bodyX+bodyW+14}" cy="${shoulderY+30}" rx="7" ry="8" fill="${skin}"/>`;
+
+  // Neck
+  html += `<rect x="74" y="${shoulderY-12}" width="12" height="14" rx="4" fill="${skin}"/>`;
+
+  // ── HEAD ──
+  const headY = isFemale ? 52 : 54;
+  html += `<ellipse cx="80" cy="${headY}" rx="${isFemale?22:24}" ry="${isFemale?24:26}" fill="${skin}"/>`;
+
+  // Ears
+  html += `<ellipse cx="${80-(isFemale?21:23)}" cy="${headY+2}" rx="5" ry="7" fill="${skin}"/>
+           <ellipse cx="${80+(isFemale?21:23)}" cy="${headY+2}" rx="5" ry="7" fill="${skin}"/>`;
+
+  // Eyes
+  const eyeY = headY + 2;
+  html += `<ellipse cx="72" cy="${eyeY}" rx="4" ry="4.5" fill="white"/>
+           <ellipse cx="88" cy="${eyeY}" rx="4" ry="4.5" fill="white"/>
+           <circle cx="73" cy="${eyeY+.5}" r="2.5" fill="#1a0a00"/>
+           <circle cx="89" cy="${eyeY+.5}" r="2.5" fill="#1a0a00"/>
+           <circle cx="74" cy="${eyeY-.5}" r=".8" fill="white"/>
+           <circle cx="90" cy="${eyeY-.5}" r=".8" fill="white"/>`;
+
+  // Eyebrows
+  html += `<path d="M68 ${eyeY-6} Q72 ${eyeY-8} 76 ${eyeY-6}" stroke="#3b2314" stroke-width="2" fill="none" stroke-linecap="round"/>
+           <path d="M84 ${eyeY-6} Q88 ${eyeY-8} 92 ${eyeY-6}" stroke="#3b2314" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+
+  // Nose
+  html += `<circle cx="78" cy="${headY+8}" r="1.2" fill="rgba(0,0,0,.2)"/>
+           <circle cx="82" cy="${headY+8}" r="1.2" fill="rgba(0,0,0,.2)"/>`;
+
+  // Mouth
+  if (isFemale) {
+    html += `<path d="M74 ${headY+14} Q80 ${headY+18} 86 ${headY+14}" stroke="#c0392b" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  } else {
+    html += `<path d="M75 ${headY+14} Q80 ${headY+17} 85 ${headY+14}" stroke="#922b21" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  }
+
+  // ── HAIR ──
+  const hc = d.hairColor;
+  switch(d.hair.id) {
+    case 'buzz':
+      html += `<path d="M${80-24} ${headY} Q${80-22} ${headY-28} 80 ${headY-30} Q${80+22} ${headY-28} ${80+24} ${headY}" fill="${hc}" opacity=".9"/>`;
+      break;
+    case 'afro':
+      html += `<ellipse cx="80" cy="${headY-10}" rx="32" ry="30" fill="${hc}"/>`;
+      break;
+    case 'straight':
+      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>
+               <rect x="${80-26}" y="${headY}" width="8" height="22" rx="4" fill="${hc}"/>
+               <rect x="${80+18}" y="${headY}" width="8" height="22" rx="4" fill="${hc}"/>`;
+      break;
+    case 'curly':
+      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>`;
+      for(let i=0;i<8;i++) {
+        const cx = 54 + i*9;
+        html += `<circle cx="${cx}" cy="${headY-22}" r="7" fill="${hc}"/>`;
+      }
+      break;
+    case 'long': case 'long2':
+      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>
+               <rect x="${80-28}" y="${headY}" width="10" height="50" rx="5" fill="${hc}"/>
+               <rect x="${80+18}" y="${headY}" width="10" height="50" rx="5" fill="${hc}"/>`;
+      break;
+    case 'mohawk':
+      html += `<path d="M${80-24} ${headY} Q${80-20} ${headY-28} 80 ${headY-30} Q${80+20} ${headY-28} ${80+24} ${headY}" fill="${hc}" opacity=".9"/>
+               <rect x="76" y="${headY-46}" width="8" height="24" rx="4" fill="${hc}"/>`;
+      break;
+    case 'ponytail':
+      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>
+               <rect x="${80+16}" y="${headY-10}" width="8" height="45" rx="4" fill="${hc}" transform="rotate(15,${80+20},${headY})"/>`;
+      break;
+    case 'bun':
+      html += `<path d="M${80-26} ${headY+5} Q${80-24} ${headY-30} 80 ${headY-32} Q${80+24} ${headY-30} ${80+26} ${headY+5}" fill="${hc}"/>
+               <ellipse cx="80" cy="${headY-30}" rx="12" ry="10" fill="${hc}"/>`;
+      break;
+  }
+
+  // ── ACCESSORY ──
+  switch(d.acc.id) {
+    case 'glasses':
+      html += `<circle cx="72" cy="${eyeY}" r="7" fill="none" stroke="#1a0a00" stroke-width="2"/>
+               <circle cx="88" cy="${eyeY}" r="7" fill="none" stroke="#1a0a00" stroke-width="2"/>
+               <line x1="79" y1="${eyeY}" x2="81" y2="${eyeY}" stroke="#1a0a00" stroke-width="2"/>
+               <line x1="65" y1="${eyeY}" x2="60" y2="${eyeY-2}" stroke="#1a0a00" stroke-width="2"/>
+               <line x1="95" y1="${eyeY}" x2="100" y2="${eyeY-2}" stroke="#1a0a00" stroke-width="2"/>`;
+      break;
+    case 'cap':
+      html += `<path d="M56 ${headY-16} Q80 ${headY-38} 104 ${headY-16}" fill="${d.topColor}"/>
+               <rect x="50" y="${headY-18}" width="60" height="8" rx="4" fill="${d.topColor}"/>`;
+      break;
+    case 'beanie':
+      html += `<path d="M56 ${headY-8} Q80 ${headY-42} 104 ${headY-8}" fill="${hc}"/>
+               <rect x="54" y="${headY-12}" width="52" height="8" rx="4" fill="${hc}" opacity=".8"/>`;
+      break;
+    case 'chain':
+      html += `<path d="M70 ${shoulderY+5} Q80 ${shoulderY+15} 90 ${shoulderY+5}" stroke="#f7c948" stroke-width="3" fill="none" stroke-linecap="round"/>
+               <circle cx="80" cy="${shoulderY+14}" r="4" fill="#f7c948"/>`;
+      break;
+  }
+
+  svg.innerHTML = html;
+
+  // Also update mini avatar in profile
+  const mini = document.getElementById('profile-avatar-mini');
+  if (mini) mini.innerHTML = html;
+}
+
+// ════════════════════════════════════════
+//  CUSTOMIZER UI
+// ════════════════════════════════════════
+function showTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.ctab').forEach((b,i) => {
+    const tabs = ['skin','hair','haircolor','top','bottom','shoes','accessory'];
+    b.classList.toggle('active', tabs[i] === tab);
+  });
+  renderOptions();
+}
+
+function renderOptions() {
+  const tops    = avatar.gender === 'm' ? TOPS_M    : TOPS_F;
+  const bottoms = avatar.gender === 'm' ? BOTTOMS_M : BOTTOMS_F;
+  const hairs   = avatar.gender === 'm' ? HAIR_STYLES_M : HAIR_STYLES_F;
+  const cont = document.getElementById('options-container');
+
+  if (currentTab === 'skin') {
+    cont.innerHTML = `<div class="options-grid">${SKIN_COLORS.map((c,i)=>`
+      <button class="opt-btn ${avatar.skinIndex===i?'selected':''}" onclick="selectSkin(${i})">
+        <div class="color-dot" style="background:${c}"></div>
+      </button>`).join('')}</div>`;
+  }
+  else if (currentTab === 'hair') {
+    cont.innerHTML = `<div class="options-grid">${hairs.map((h,i)=>`
+      <button class="opt-btn ${avatar.hairStyle===i?'selected':''}" onclick="selectHair(${i})">
+        <div style="font-size:22px">💇</div>
+        <span>${h.label}</span>
+      </button>`).join('')}</div>`;
+  }
+  else if (currentTab === 'haircolor') {
+    cont.innerHTML = `<div class="options-grid">${HAIR_COLORS.map((c,i)=>`
+      <button class="opt-btn ${avatar.hairColorIndex===i?'selected':''}" onclick="selectHairColor(${i})">
+        <div class="color-dot" style="background:${c};border-color:rgba(255,255,255,.3)"></div>
+      </button>`).join('')}</div>`;
+  }
+  else if (currentTab === 'top') {
+    cont.innerHTML = tops.map((t,ti)=>`
+      <div style="margin-bottom:12px">
+        <div class="card-title" style="margin-bottom:8px">${t.label}</div>
+        <div class="options-grid">${t.colors.map((c,ci)=>`
+          <button class="opt-btn ${avatar.topStyle===ti&&avatar.topColorIndex===ci?'selected':''}" onclick="selectTop(${ti},${ci})">
+            <div class="color-dot" style="background:${c}"></div>
+            <span>${t.label}</span>
+          </button>`).join('')}</div>
+      </div>`).join('');
+  }
+  else if (currentTab === 'bottom') {
+    cont.innerHTML = bottoms.map((b,bi)=>`
+      <div style="margin-bottom:12px">
+        <div class="card-title" style="margin-bottom:8px">${b.label}</div>
+        <div class="options-grid">${b.colors.map((c,ci)=>`
+          <button class="opt-btn ${avatar.bottomStyle===bi&&avatar.bottomColorIndex===ci?'selected':''}" onclick="selectBottom(${bi},${ci})">
+            <div class="color-dot" style="background:${c}"></div>
+            <span>${b.label}</span>
+          </button>`).join('')}</div>
+      </div>`).join('');
+  }
+  else if (currentTab === 'shoes') {
+    cont.innerHTML = SHOES.map((s,si)=>`
+      <div style="margin-bottom:12px">
+        <div class="card-title" style="margin-bottom:8px">${s.label}</div>
+        <div class="options-grid">${s.colors.map((c,ci)=>`
+          <button class="opt-btn ${avatar.shoeStyle===si&&avatar.shoeColorIndex===ci?'selected':''}" onclick="selectShoe(${si},${ci})">
+            <div class="color-dot" style="background:${c}"></div>
+            <span>${s.label}</span>
+          </button>`).join('')}</div>
+      </div>`).join('');
+  }
+  else if (currentTab === 'accessory') {
+    cont.innerHTML = `<div class="options-grid">${ACCESSORIES.map((a,i)=>`
+      <button class="opt-btn ${avatar.accessory===i?'selected':''}" onclick="selectAcc(${i})">
+        <div style="font-size:22px">${a.id==='none'?'🚫':a.id==='glasses'?'👓':a.id==='cap'?'🧢':a.id==='beanie'?'🎿':'⛓️'}</div>
+        <span>${a.label}</span>
+      </button>`).join('')}</div>`;
+  }
+}
+
+function selectSkin(i)          { avatar.skinIndex=i;        drawAvatar('avatar-canvas'); renderOptions(); }
+function selectHair(i)          { avatar.hairStyle=i;        drawAvatar('avatar-canvas'); renderOptions(); }
+function selectHairColor(i)     { avatar.hairColorIndex=i;   drawAvatar('avatar-canvas'); renderOptions(); }
+function selectTop(ti,ci)       { avatar.topStyle=ti; avatar.topColorIndex=ci;         drawAvatar('avatar-canvas'); renderOptions(); }
+function selectBottom(bi,ci)    { avatar.bottomStyle=bi; avatar.bottomColorIndex=ci;   drawAvatar('avatar-canvas'); renderOptions(); }
+function selectShoe(si,ci)      { avatar.shoeStyle=si; avatar.shoeColorIndex=ci;       drawAvatar('avatar-canvas'); renderOptions(); }
+function selectAcc(i)           { avatar.accessory=i;        drawAvatar('avatar-canvas'); renderOptions(); }
+
+function setGender(g) {
+  avatar.gender = g;
+  document.getElementById('btn-m').classList.toggle('active', g==='m');
+  document.getElementById('btn-f').classList.toggle('active', g==='f');
+  avatar.hairStyle = 0;
+  avatar.topStyle = 0;
+  avatar.bottomStyle = 0;
+  drawAvatar('avatar-canvas');
+  renderOptions();
+}
+
+function saveAvatar() {
+  try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
+  showToast('✅ Avatar sauvegardé !');
+  drawAvatar('profile-avatar-mini');
+}
+
+// ════════════════════════════════════════
+//  NAV
+// ════════════════════════════════════════
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'avatar') { drawAvatar('avatar-canvas'); renderOptions(); }
+}
+
+// ════════════════════════════════════════
+//  TOAST
+// ════════════════════════════════════════
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ════════════════════════════════════════
+//  COPY CMD
+// ════════════════════════════════════════
+function copyCmd(cmd) {
+  navigator.clipboard?.writeText(cmd).catch(()=>{});
+  showToast(`📋 ${cmd} copié !`);
+}
+
+// ════════════════════════════════════════
+//  FORMAT
+// ════════════════════════════════════════
+function fmt(n) {
+  if (!n && n!==0) return '—';
+  n = parseInt(n);
+  if (n >= 1e9) return (n/1e9).toFixed(1)+'Mds $';
+  if (n >= 1e6) return (n/1e6).toFixed(1)+'M $';
+  if (n >= 1e3) return (n/1e3).toFixed(0)+'K $';
+  return n.toLocaleString()+' $';
+}
+function stars(r) {
+  const s = Math.round(r*2)/2;
+  let out='';
+  for(let i=1;i<=5;i++) out += i<=s?'⭐':'☆';
+  return out;
+}
+
+// ════════════════════════════════════════
+//  LOAD DATA FROM API
+// ════════════════════════════════════════
+async function loadData() {
+  const uid = userId;
+  if (!uid) { fillMock(); return; }
+
+  try {
+    const res = await fetch(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    fillProfile(data);
+  } catch(e) {
+    fillMock();
+  }
+}
+
+function fillProfile(d) {
+  document.getElementById('pf-name').textContent    = d.name || firstName;
+  document.getElementById('pf-title').textContent   = d.title || 'Citoyen';
+  document.getElementById('pf-coins').textContent   = '💰 ' + fmt(d.coins);
+  document.getElementById('pf-cash').textContent    = fmt(d.coins);
+  document.getElementById('pf-bank').textContent    = fmt(d.bank_total);
+  document.getElementById('pf-debt').textContent    = fmt(d.loans_total);
+  document.getElementById('pf-total').textContent   = fmt(d.fortune_totale);
+  document.getElementById('pf-karma').textContent   = (d.karma>=0?'+':'')+d.karma;
+  document.getElementById('pf-rank').textContent    = '#'+d.rank+' / '+d.total_players;
+  document.getElementById('pf-diplomes').textContent= d.diplomes || '—';
+  document.getElementById('co-name').textContent    = d.company || '—';
+  document.getElementById('co-level').textContent   = d.company_level || '—';
+  document.getElementById('co-stars').textContent   = d.company_rep ? stars(d.company_rep) : '—';
+  document.getElementById('co-value').textContent   = fmt(d.company_value);
+  document.getElementById('co-treasury').textContent= fmt(d.company_treasury);
+  document.getElementById('co-revenue').textContent = fmt(d.company_revenue_day);
+  document.getElementById('co-employees').textContent= d.company_employees || '—';
+  document.getElementById('co-myrole').textContent  = d.role || '—';
+  document.getElementById('co-owner').textContent   = d.company_owner || '—';
+  document.getElementById('pf-company').textContent = d.company || 'Sans emploi';
+  document.getElementById('pf-role').textContent    = d.role || '—';
+
+  if (d.portfolio) {
+    document.getElementById('mk-invested').textContent = fmt(d.portfolio.invested);
+    document.getElementById('mk-current').textContent  = fmt(d.portfolio.current);
+    const pnl = d.portfolio.pnl;
+    const el = document.getElementById('mk-pnl');
+    el.textContent = (pnl>=0?'+':'')+fmt(Math.abs(pnl));
+    el.className = 'stat-value '+(pnl>=0?'green':'red');
+  }
+}
+
+function fillMock() {
+  document.getElementById('pf-name').textContent    = firstName;
+  document.getElementById('pf-title').textContent   = '👤 Citoyen';
+  document.getElementById('pf-coins').textContent   = '💰 —';
+  document.getElementById('pf-cash').textContent    = '—';
+  document.getElementById('pf-bank').textContent    = '—';
+  document.getElementById('pf-debt').textContent    = '—';
+  document.getElementById('pf-total').textContent   = '—';
+  document.getElementById('pf-karma').textContent   = '—';
+  document.getElementById('pf-rank').textContent    = '—';
+}
+
+// ════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════
+window.addEventListener('load', () => {
+  drawAvatar('avatar-canvas');
+  drawAvatar('profile-avatar-mini');
+  renderOptions();
+  loadData();
+  setTimeout(() => {
+    document.getElementById('loading').style.opacity = '0';
+    setTimeout(() => document.getElementById('loading').style.display = 'none', 300);
+  }, 1200);
+});
+</script>
+</body>
+</html>

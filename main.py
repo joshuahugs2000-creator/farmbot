@@ -391,9 +391,6 @@ async def main():
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("help",        help_cmd))
     app.add_handler(CommandHandler("leaderboard", _prison_checked(leaderboard)))
-    app.add_handler(CommandHandler("mode",        _prison_checked(mode)))
-    app.add_handler(CommandHandler("toggle",      _prison_checked(toggle)))
-    app.add_handler(CommandHandler("nouveautes",  nouveautes_cmd))
     app.add_handler(CallbackQueryHandler(nouveautes_callback, pattern=r"^info:"))
 
     # ── Famille ───────────────────────────────────────────────────────────────
@@ -403,9 +400,7 @@ async def main():
     app.add_handler(CommandHandler("divorce",       _prison_checked(divorce)))
     app.add_handler(CommandHandler("disown",        _prison_checked(disown)))
     app.add_handler(CommandHandler("unfriend",      _prison_checked(unfriend)))
-    app.add_handler(CommandHandler("setfamilyname", _prison_checked(setfamilyname)))
     app.add_handler(CommandHandler("leave",         _prison_checked(leave)))
-    app.add_handler(CommandHandler("familyphoto",   _prison_checked(familyphoto)))
 
     # ── Arbre ─────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("tree",    _prison_checked(tree)))
@@ -420,7 +415,6 @@ async def main():
     app.add_handler(CommandHandler("setpic",    _prison_checked(setpic)))
     app.add_handler(CommandHandler("customize", _prison_checked(customize)))
     app.add_handler(CommandHandler("titles",    _prison_checked(titles)))
-    app.add_handler(CommandHandler("karmainfo", karmainfo))
 
     # ── Économie ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("acc",        _prison_checked(acc)))
@@ -600,10 +594,8 @@ async def main():
     app.add_handler(CommandHandler("dissoudreboite",  _prison_checked(dissoudreboite_cmd)))
     app.add_handler(CommandHandler("salaireinfo",     _prison_checked(salaireinfo_cmd)))
     app.add_handler(CommandHandler("versersalaires", _prison_checked(versersalaires_cmd)))
-    app.add_handler(CommandHandler("presences",      _prison_checked(presences_cmd)))
     app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
     app.add_handler(CommandHandler("mesparts",       _prison_checked(mesparts_cmd)))
-    app.add_handler(CommandHandler("skipattente",    _prison_checked(skipattente_cmd)))
     # ── Secteurs : événements, contrats, classement ───────────────────────────
     app.add_handler(CommandHandler("evenements",      _prison_checked(evenements_cmd)))
     app.add_handler(CommandHandler("classement",      _prison_checked(classement_cmd)))
@@ -624,7 +616,6 @@ async def main():
     app.add_handler(CallbackQueryHandler(expertise_callback, pattern=r"^auction:(sellnow|keep):"))
 
     # ── Drainage ──────────────────────────────────────────────────────────────
-    app.add_handler(CommandHandler("cambrioler",      _prison_checked(cambrioler)))
     setup_drain_jobs(app)
 
     # ── Jobs ──────────────────────────────────────────────────────────────────

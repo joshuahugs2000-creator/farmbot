@@ -3,7 +3,10 @@ handlers/company.py — Système d'entreprises complet
 Commandes : /entreprise, /creerboite, /postuler, /recruter, /demissionner,
             /nommer, /parts, /vendreparts, /acheterparts,
             /depotboite, /retraitboite, /infoboite, /logsboite,
-            /candidatures, /licencier, /listeboites
+            /candidatures, /licencier, /listeboites, /cederentreprise
+
+Hiérarchie des postes (du plus bas au plus haut) :
+  🔰 Stagiaire → 🗂️ Secrétaire → 👷 Employé → 💼 Manager → 🏦 Directeur → 👑 PDG → 💎 CEO
 """
 from __future__ import annotations
 
@@ -59,33 +62,47 @@ LEVELS = {
     5: ("👑", "Holding",    10_000_000_000,  0.12, 200),  # 12%/mois → ~4%/jour
 }
 
-ROLES_ORDER = ["stagiaire", "employe", "manager", "directeur", "pdg"]
+ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg", "ceo"]
 ROLE_EMOJI  = {
-    "stagiaire":  "👷",
+    "stagiaire":  "🔰",
+    "secretaire": "🗂️",
     "employe":    "👷",
     "manager":    "💼",
     "directeur":  "🏦",
     "pdg":        "👑",
+    "ceo":        "💎",
 }
 ROLE_DIPLOMA = {
     "stagiaire":  None,
+    "secretaire": "bac",
     "employe":    "bac",
     "manager":    "licence",
     "directeur":  "master",
     "pdg":        "mba",
+    "ceo":        "mba",
 }
 
 # Revenus par rôle (% des revenus journaliers de l'entreprise)
-# Le PDG reçoit sa part via /versersalaires, comme les autres.
-# /retraitboite reste disponible pour des retraits ponctuels mais ne peut pas
-# entamer la réserve garantissant les salaires des employés.
+# Le PDG et le CEO reçoivent leur part via /versersalaires.
+# /retraitboite reste disponible pour des retraits ponctuels.
 ROLE_SHARE = {
     "stagiaire":  0.00,
+    "secretaire": 0.05,
     "employe":    0.10,
     "manager":    0.20,
     "directeur":  0.30,
-    "pdg":        0.35,   # PDG touche sa part via /versersalaires
+    "pdg":        0.35,
+    "ceo":        0.40,
 }
+
+# Rôles autorisés à déclencher /versersalaires
+PAYROLL_ROLES = ("pdg", "ceo")
+
+# Rôles de direction (candidatures, recrutement, licenciement)
+DIRECTION_ROLES = ("pdg", "ceo", "directeur")
+
+# Rôles pouvant nommer des employés
+MANAGEMENT_ROLES = ("pdg", "ceo", "directeur", "manager")
 
 # Entreprises officielles créées par le bot
 BOT_COMPANIES = [
@@ -679,7 +696,7 @@ async def infoboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🏦 <b>Trésorerie</b> : {_fmt(company.treasury)}\n"
             f"📈 <b>Revenus/jour</b> : {_fmt(int(company.value * daily_rate) // 30)} <i>(→ trésorerie, versés via /versersalaires)</i>\n"
             f"⭐ <b>Réputation</b> : {company.reputation:.1f}/5\n"
-            f"👤 <b>PDG</b> : {owner_name}\n"
+            f"💎 <b>CEO / PDG</b> : {owner_name}\n"
             f"👥 <b>Employés</b> : {nb_emp}/{max_emp}\n"
             f"🎂 <b>Fondée le</b> : {company.created_at.strftime('%d/%m/%Y')}\n\n"
             f"◈━━━━━━━━━━━━━━━━━━━━━━━━◈\n"
@@ -808,11 +825,11 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Le fondateur devient PDG
+        # Le fondateur devient CEO (rang maximum, fondateur de l'entreprise)
         pdg_emp = CompanyEmployee(
             company_id=new_company.id,
             user_id=user.id,
-            role="pdg",
+            role="ceo",
         )
         session.add(pdg_emp)
 
@@ -835,7 +852,7 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{sec_emoji} Secteur : <b>{sec_name}</b>\n"
             f"💰 Capital initial : <b>50 000 000 $</b>\n"
             f"📦 Parts : <b>100/100</b> (tu détiens tout)\n"
-            f"👑 Tu es le <b>PDG</b>\n\n"
+            f"💎 Tu es le <b>CEO</b> (fondateur)\n\n"
             f"👥 Recrute des employés avec <code>/recruter @pseudo</code>\n"
             f"📊 Infos avec <code>/infoboite {name}</code>",
             parse_mode="HTML"
@@ -1083,7 +1100,7 @@ async def candidatures_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     async with AsyncSessionLocal() as session:
         company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg", "directeur"):
+        if not company or emp.role not in DIRECTION_ROLES:
             await update.message.reply_text("❌ Tu dois être PDG ou Directeur pour voir les candidatures.")
             return
 
@@ -1129,7 +1146,7 @@ async def accepter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg", "directeur"):
+        if not company or emp.role not in DIRECTION_ROLES:
             await update.message.reply_text("❌ Réservé au PDG et Directeur.")
             return
 
@@ -1216,7 +1233,7 @@ async def refuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg", "directeur"):
+        if not company or emp.role not in DIRECTION_ROLES:
             await update.message.reply_text("❌ Réservé au PDG et Directeur.")
             return
 
@@ -1261,14 +1278,14 @@ async def recruter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg", "directeur", "manager"):
+        if not company or emp.role not in MANAGEMENT_ROLES:
             await update.message.reply_text("❌ Tu dois être au moins Manager pour recruter.")
             return
 
         # Parser la cible
         mention = context.args[0].lstrip("@")
         role_arg = context.args[1].lower() if len(context.args) > 1 else "employe"
-        if role_arg not in ROLES_ORDER or role_arg == "pdg":
+        if role_arg not in ROLES_ORDER or role_arg in ("ceo", "pdg"):
             role_arg = "employe"
 
         # Trouver l'utilisateur
@@ -1440,7 +1457,7 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
             return
 
-        if emp.role == "pdg":
+        if emp.role in ("pdg", "ceo"):
             # Vérifier qu'il y a un directeur pour reprendre
             director = (await session.execute(
                 select(CompanyEmployee).where(
@@ -1451,7 +1468,7 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )).scalar_one_or_none()
             if not director:
                 await update.message.reply_text(
-                    "❌ En tant que PDG, tu dois d'abord nommer un <b>Directeur</b> avant de partir.",
+                    "❌ En tant que PDG/CEO, tu dois d'abord nommer un <b>Directeur</b> avant de partir.",
                     parse_mode="HTML"
                 )
                 return
@@ -1464,7 +1481,7 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
                 return
-            # Transfert
+            # Transfert → le directeur devient PDG (pas CEO, le titre CEO part avec le fondateur)
             director.role = "pdg"
             company.owner_id = director.user_id
             new_pdg = await session.get(User, director.user_id)
@@ -1514,20 +1531,20 @@ async def nommer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.message.reply_text(
             "❌ Usage : <code>/nommer @pseudo [poste]</code>\n"
-            "Postes : employe | manager | directeur",
+            "Postes : secretaire | employe | manager | directeur",
             parse_mode="HTML"
         )
         return
 
     mention = context.args[0].lstrip("@")
     new_role = context.args[1].lower()
-    if new_role not in ROLES_ORDER or new_role in ("pdg", "stagiaire"):
-        await update.message.reply_text("❌ Poste invalide. Choix : employe | manager | directeur")
+    if new_role not in ROLES_ORDER or new_role in ("ceo", "pdg", "stagiaire"):
+        await update.message.reply_text("❌ Poste invalide. Choix : secretaire | employe | manager | directeur")
         return
 
     async with AsyncSessionLocal() as session:
         company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg", "directeur", "manager"):
+        if not company or emp.role not in MANAGEMENT_ROLES:
             await update.message.reply_text("❌ Tu dois être au moins Manager.")
             return
 
@@ -1614,9 +1631,10 @@ async def monentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         personal_share = ROLE_SHARE.get(emp.role, 0.0)
         personal_revenue = int(total_revenue * personal_share)
 
-        if emp.role == "pdg":
+        if emp.role in ("pdg", "ceo"):
+            role_label = "💎 CEO" if emp.role == "ceo" else "👑 PDG"
             personal_rev_line = (
-                f"  ╰┈➤  👑 <b>PDG</b> — {_fmt(personal_revenue)} $/paie (via <code>/versersalaires</code>)\n"
+                f"  ╰┈➤  {role_label} — {_fmt(personal_revenue)} $/paie (via <code>/versersalaires</code>)\n"
                 f"  ╰┈➤  💡 <code>/retraitboite</code> pour un retrait ponctuel\n"
             )
         elif personal_revenue > 0:
@@ -1674,7 +1692,7 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         db_user = await get_user(session, user.id)
         company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg", "directeur"):
+        if not company or emp.role not in DIRECTION_ROLES:
             await update.message.reply_text("❌ Réservé au PDG et Directeur.")
             return
         if db_user.coins < amount:
@@ -1745,7 +1763,7 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reserve_salaires = sum(
             int(base_rev * ROLE_SHARE.get(e.role, 0))
             for e in emps_actifs
-            if e.role not in ("stagiaire", "pdg")
+            if e.role not in ("stagiaire", "pdg", "ceo")
         )
         montant_disponible = max(0, company.treasury - reserve_salaires)
         if amount > montant_disponible:
@@ -1754,7 +1772,7 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n"
                 f"🔒 Réserve salaires employés : <b>{_fmt(reserve_salaires)} $</b>\n"
                 f"💸 Tu peux retirer au maximum : <b>{_fmt(montant_disponible)} $</b>\n\n"
-                f"💡 Utilise <code>/versersalaires</code> pour te payer (PDG inclus) "
+                f"💡 Utilise <code>/versersalaires</code> pour te payer (PDG/CEO inclus) "
                 f"et libérer ensuite les fonds restants.",
                 parse_mode="HTML"
             )
@@ -1785,7 +1803,7 @@ async def logsboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     async with AsyncSessionLocal() as session:
         company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg", "directeur"):
+        if not company or emp.role not in DIRECTION_ROLES:
             await update.message.reply_text("❌ Réservé au PDG et Directeur.")
             return
 
@@ -1864,6 +1882,103 @@ async def parts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
+# ─── HELPER : vérifier et mettre à jour le PDG selon les parts ───────────────
+
+async def _check_and_update_pdg(session, company, context=None) -> str | None:
+    """
+    Vérifie tous les actionnaires et attribue le titre PDG au top détenteur.
+    - Le CEO n'est jamais détrôné par cette fonction (titre fondateur).
+    - En cas d'égalité, le PDG/CEO actuel conserve son titre.
+    """
+    # Récupérer tous les actionnaires avec leurs parts
+    all_shares = (await session.execute(
+        select(CompanyShare).where(
+            CompanyShare.company_id == company.id,
+            CompanyShare.quantity > 0,
+        )
+    )).scalars().all()
+
+    if not all_shares:
+        return None
+
+    # Vérifier si le owner actuel est CEO → intouchable par les parts
+    current_owner_emp = await _get_employee(session, company.id, company.owner_id)
+    if current_owner_emp and current_owner_emp.role == "ceo":
+        return None
+
+    # Trouver le max de parts
+    top_share = max(all_shares, key=lambda s: s.quantity)
+    top_user_id = top_share.owner_id
+
+    # Si c'est déjà le owner actuel, rien à faire
+    if company.owner_id == top_user_id:
+        return None
+
+    # En cas d'égalité : le PDG actuel garde son titre
+    current_shares = next((s.quantity for s in all_shares if s.owner_id == company.owner_id), 0)
+    if current_shares == top_share.quantity:
+        return None
+
+    # Vérifier que le nouveau top n'est pas le CEO (il a déjà son titre)
+    top_emp = await _get_employee(session, company.id, top_user_id)
+    if top_emp and top_emp.role == "ceo":
+        # Le CEO reprend le owner_id
+        company.owner_id = top_user_id
+        company.owner_shares = top_share.quantity
+        return None
+
+    # Transfert du titre PDG
+    old_pdg_id = company.owner_id
+
+    # Ancien PDG → directeur
+    old_emp = await _get_employee(session, company.id, old_pdg_id)
+    if old_emp and old_emp.role == "pdg":
+        old_emp.role = "directeur"
+
+    # Nouveau PDG
+    if top_emp:
+        top_emp.role = "pdg"
+    else:
+        session.add(CompanyEmployee(company_id=company.id, user_id=top_user_id, role="pdg"))
+
+    company.owner_id = top_user_id
+    company.owner_shares = top_share.quantity
+
+    await _add_log(session, company.id, "changement_pdg",
+                   f"👑 Nouveau PDG : uid {top_user_id} ({top_share.quantity} parts)")
+
+    if context:
+        try:
+            await context.bot.send_message(
+                chat_id=top_user_id,
+                text=(
+                    f"👑 <b>Tu es le nouveau PDG de {company.name} !</b>\n\n"
+                    f"Tu détiens <b>{top_share.quantity}/{company.total_shares}</b> parts, "
+                    f"plus que tout autre actionnaire."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        try:
+            await context.bot.send_message(
+                chat_id=old_pdg_id,
+                text=(
+                    f"📉 <b>Tu n'es plus PDG de {company.name}.</b>\n\n"
+                    f"Un autre actionnaire détient désormais plus de parts que toi.\n"
+                    f"Tu es rétrogradé au rang de <b>Directeur</b>."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    return (
+        f"\n👑 <b>Changement de PDG !</b> Le nouveau PDG de <b>{company.name}</b> "
+        f"est l'actionnaire avec <b>{top_share.quantity}</b> parts."
+    )
+
+
 # ─── COMMANDE : /vendreparts [nb] [nom entreprise] ───────────────────────────
 
 async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1914,12 +2029,8 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # PDG doit garder min 51%
-        if emp and emp.role == "pdg":
-            min_keep = (company.total_shares // 2) + 1
-            can_sell = max(0, my_shares - min_keep)
-        else:
-            can_sell = my_shares
+        # Tout actionnaire peut vendre toutes ses parts (y compris le PDG)
+        can_sell = my_shares
 
         if qty <= 0:
             await update.message.reply_text("❌ La quantité doit être supérieure à 0.")
@@ -1927,13 +2038,6 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if my_shares < qty:
             await update.message.reply_text(f"❌ Tu n'as que {my_shares} parts dans cette entreprise.")
-            return
-
-        if qty > can_sell:
-            await update.message.reply_text(
-                f"❌ Tu ne peux vendre que <b>{can_sell}</b> parts (PDG garde ≥51%).",
-                parse_mode="HTML"
-            )
             return
 
         total = qty * price_each
@@ -1950,10 +2054,6 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         company.total_shares = max(1, company.total_shares - qty)
         await _update_level(session, company)
 
-        # Si c'est le PDG qui vend, diminuer owner_shares aussi
-        if emp and emp.role == "pdg":
-            company.owner_shares = max(0, company.owner_shares - qty)
-
         # Mettre à jour les parts du vendeur
         share_row = (await session.execute(
             select(CompanyShare).where(
@@ -1964,16 +2064,24 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if share_row:
             share_row.quantity = max(0, share_row.quantity - qty)
 
+        # Mettre à jour owner_shares (toujours synchroniser avec CompanyShare)
+        company.owner_shares = max(0, company.owner_shares - qty) if emp and emp.role == "pdg" else company.owner_shares
+
         await _add_log(session, company.id, "vente_parts",
                        f"{user.first_name} a vendu {qty} parts au marché à {_fmt(price_each)}/part",
                        amount=total)
+
+        # Vérifier et mettre à jour le PDG selon les parts restantes
+        pdg_msg = await _check_and_update_pdg(session, company, context)
+
         await session.commit()
 
         await update.message.reply_text(
             f"✅ <b>{qty} parts</b> vendues au marché pour <b>{_fmt(total)} $</b> "
             f"(<b>{_fmt(price_each)} $/part</b>) !\n\n"
             f"💰 Ton solde : <b>{_fmt(db_user.coins)} $</b>\n"
-            f"📉 Valeur de <b>{company.name}</b> : {_fmt(company.value)} $",
+            f"📉 Valeur de <b>{company.name}</b> : {_fmt(company.value)} $"
+            f"{pdg_msg or ''}",
             parse_mode="HTML"
         )
 
@@ -2005,11 +2113,11 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
             return
 
-        # Parts disponibles à la vente (PDG garde min 51%)
-        available = company.owner_shares - ((company.total_shares // 2) + 1)
+        # Parts disponibles à la vente = toutes les parts que le PDG détient
+        available = company.owner_shares
         if available <= 0:
             await update.message.reply_text(
-                "❌ Le PDG ne vend pas de parts actuellement (garde 51% minimum)."
+                "❌ Le PDG ne détient plus de parts à vendre."
             )
             return
 
@@ -2139,7 +2247,7 @@ async def accepteroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Vérifier que les parts sont toujours disponibles
-        available = company.owner_shares - ((company.total_shares // 2) + 1)
+        available = company.owner_shares
         if offer.quantity > available:
             offer.status = "rejected"
             buyer = await session.get(User, offer.buyer_id)
@@ -2184,62 +2292,24 @@ async def accepteroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )).scalar_one_or_none()
         if pdg_share:
             pdg_share.quantity = max(0, pdg_share.quantity - qty)
+        company.owner_shares = max(0, company.owner_shares - qty)
 
         await session.flush()
 
-        # ── Vérifier OPA hostile ─────────────────────────────────────────────
-        buyer_total_shares_row = (await session.execute(
-            select(CompanyShare).where(
-                CompanyShare.company_id == company.id,
-                CompanyShare.owner_id == offer.buyer_id,
-            )
-        )).scalar_one_or_none()
-        buyer_total = buyer_total_shares_row.quantity if buyer_total_shares_row else qty
-
-        opa_msg = ""
-        if buyer_total > company.total_shares // 2 + 1:
-            old_pdg_id = company.owner_id
-            company.owner_id = offer.buyer_id
-
-            old_pdg_emp = await _get_employee(session, company.id, old_pdg_id)
-            if old_pdg_emp:
-                old_pdg_emp.role = "directeur"
-
-            buyer_emp = await _get_employee(session, company.id, offer.buyer_id)
-            if buyer_emp:
-                buyer_emp.role = "pdg"
-            else:
-                session.add(CompanyEmployee(company_id=company.id, user_id=offer.buyer_id, role="pdg"))
-
-            await _add_log(session, company.id, "opa",
-                           f"⚠️ OPA hostile acceptée ! {offer.buyer_id} contrôle {buyer_total} parts")
-            opa_msg = f"\n⚠️ <b>OPA hostile !</b> L'acheteur contrôle désormais {buyer_total} parts et devient PDG."
-
-            try:
-                await context.bot.send_message(
-                    chat_id=offer.buyer_id,
-                    text=(
-                        f"⚠️ <b>OPA HOSTILE réussie !</b>\n\n"
-                        f"Tu contrôles <b>{buyer_total}/{company.total_shares}</b> parts de <b>{company.name}</b>.\n"
-                        f"👑 Tu es le nouveau <b>PDG</b> !"
-                    ),
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
+        # ── Vérifier changement de PDG (celui qui a le plus de parts prend le titre) ──
+        pdg_msg = await _check_and_update_pdg(session, company, context)
 
         await _add_log(session, company.id, "achat_parts",
                        f"{offer.buyer_id} a acheté {qty} parts (accord PDG)", amount=total)
         await session.commit()
 
         await update.message.reply_text(
-            f"✅ Offre acceptée ! <b>{qty} parts</b> vendues pour <b>{_fmt(total)} $</b>.{opa_msg}",
+            f"✅ Offre acceptée ! <b>{qty} parts</b> vendues pour <b>{_fmt(total)} $</b>.{pdg_msg or ''}",
             parse_mode="HTML"
         )
 
         # Notifier l'acheteur
         try:
-            buyer_user = await session.get(User, offer.buyer_id)
             await context.bot.send_message(
                 chat_id=offer.buyer_id,
                 text=(
@@ -2300,6 +2370,92 @@ async def refuseroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"😔 Ton offre d'achat de <b>{offer.quantity} parts</b> dans <b>{company.name}</b> "
                     f"a été <b>refusée</b> par le PDG.\n"
                     f"💰 <b>{_fmt(offer.total_price)} $</b> remboursés sur ton compte."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+
+# ─── COMMANDE : /cederentreprise @pseudo ─────────────────────────────────────
+
+async def cederentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Permet au CEO de transférer son titre CEO à un autre employé.
+    L'ancien CEO devient PDG. Le nouveau CEO doit être dans l'entreprise.
+    """
+    user = update.effective_user
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Usage : <code>/cederentreprise @pseudo</code>\n"
+            "Transfère ton titre de CEO à un autre employé.",
+            parse_mode="HTML"
+        )
+        return
+
+    mention = context.args[0].lstrip("@")
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, user.id)
+        if not company or emp.role != "ceo":
+            await update.message.reply_text("❌ Seul le CEO peut transférer ce titre.")
+            return
+
+        if company.is_bot_company:
+            await update.message.reply_text("❌ Impossible sur une entreprise officielle.")
+            return
+
+        target = (await session.execute(
+            select(User).where(User.username == mention)
+        )).scalar_one_or_none()
+        if not target:
+            await update.message.reply_text(f"❌ @{mention} introuvable.")
+            return
+
+        if target.user_id == user.id:
+            await update.message.reply_text("❌ Tu es déjà CEO.")
+            return
+
+        target_emp = await _get_employee(session, company.id, target.user_id)
+        if not target_emp:
+            await update.message.reply_text(f"❌ {target.first_name} ne fait pas partie de {company.name}.")
+            return
+
+        # Vérifier que le nouveau CEO a le MBA
+        if not _has_diploma(target, "mba"):
+            await update.message.reply_text(
+                f"❌ {target.first_name} doit avoir un <b>MBA</b> pour devenir CEO.",
+                parse_mode="HTML"
+            )
+            return
+
+        # Transfert : ancien CEO → PDG
+        emp.role = "pdg"
+
+        # Nouveau CEO
+        target_emp.role = "ceo"
+
+        # Mettre à jour owner_id
+        company.owner_id = target.user_id
+
+        await _add_log(session, company.id, "cession_ceo",
+                       f"💎 CEO transféré : {user.first_name} → {target.first_name}")
+        await session.commit()
+
+        await update.message.reply_text(
+            f"💎 <b>Titre CEO transféré !</b>\n\n"
+            f"👤 <b>{target.first_name}</b> est le nouveau <b>CEO de {company.name}</b>.\n"
+            f"Tu restes dans l'entreprise en tant que <b>PDG</b>.",
+            parse_mode="HTML"
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=target.user_id,
+                text=(
+                    f"💎 <b>Tu es le nouveau CEO de {company.name} !</b>\n\n"
+                    f"{user.first_name} t'a transféré le titre de fondateur.\n"
+                    f"Tu as désormais le rang le plus élevé de l'entreprise."
                 ),
                 parse_mode="HTML"
             )
@@ -2388,6 +2544,7 @@ async def employes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             .order_by(
                 # Tri par rang : pdg > directeur > manager > employe > stagiaire
+                CompanyEmployee.role.in_(["ceo"]).desc(),
                 CompanyEmployee.role.in_(["pdg"]).desc(),
                 CompanyEmployee.role.in_(["directeur"]).desc(),
                 CompanyEmployee.role.in_(["manager"]).desc(),
@@ -2416,12 +2573,14 @@ async def employes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "◈━━━━━━━━━━━━━━━━━━━━━━━━◈",
         ]
 
-        role_order = ["pdg", "directeur", "manager", "employe", "stagiaire"]
+        role_order = ["ceo", "pdg", "directeur", "manager", "employe", "secretaire", "stagiaire"]
         role_labels = {
+            "ceo":        "💎 CEO",
             "pdg":        "👑 PDG",
             "directeur":  "🏦 Directeurs",
             "manager":    "💼 Managers",
             "employe":    "👷 Employés",
+            "secretaire": "🗂️ Secrétaires",
             "stagiaire":  "🔰 Stagiaires",
         }
 
@@ -2457,7 +2616,7 @@ async def licencier_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg", "directeur"):
+        if not company or emp.role not in DIRECTION_ROLES:
             await update.message.reply_text("❌ Réservé au PDG et Directeur.")
             return
 
@@ -2482,7 +2641,7 @@ async def licencier_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Un directeur ne peut pas licencier un PDG ou un autre directeur
-        if emp.role == "directeur" and target_emp.role in ("pdg", "directeur"):
+        if emp.role == "directeur" and target_emp.role in ("ceo", "pdg", "directeur"):
             await update.message.reply_text("❌ Tu ne peux pas licencier quelqu'un de rang égal ou supérieur.")
             return
 
@@ -2814,11 +2973,12 @@ async def salaireinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         role_emoji = ROLE_EMOJI.get(emp.role, "👤")
         sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
 
-        if emp.role == "pdg":
+        if emp.role in ("pdg", "ceo"):
+            role_label = "💎 CEO" if emp.role == "ceo" else "👑 PDG"
             salaire_line = (
-                f"  ╰┈➤  👑 PDG — <b>~{_fmt(personal_revenue)} $/paie</b>\n"
-                f"  ╰┈➤  Déclenche <code>/versersalaires</code> pour te payer (PDG inclus)\n"
-                f"  ╰┈➤  ou <code>/retraitboite</code> pour un retrait ponctuel (réserve salariale protégée)\n"
+                f"  ╰┈➤  {role_label} — <b>~{_fmt(personal_revenue)} $/paie</b>\n"
+                f"  ╰┈➤  Déclenche <code>/versersalaires</code> pour te payer\n"
+                f"  ╰┈➤  ou <code>/retraitboite</code> pour un retrait ponctuel\n"
             )
         elif personal_revenue > 0:
             # Fix 7 : affichage basé sur l'activité, plus "X$/jour automatique"
@@ -2838,7 +2998,7 @@ async def salaireinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Si args : /salaireinfo transfert [montant]
         if context.args and context.args[0].lower() == "transfert":
-            if emp.role in ("stagiaire", "pdg"):
+            if emp.role in ("stagiaire",):
                 await update.message.reply_text(
                     "❌ Le transfert de salaire n'est disponible que pour les Employés, Managers et Directeurs."
                 )
@@ -2905,7 +3065,7 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not company:
             await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.", parse_mode="HTML")
             return
-        if emp.role not in ("pdg", "directeur"):
+        if emp.role not in DIRECTION_ROLES:
             await update.message.reply_text("❌ Réservé au PDG et Directeur.", parse_mode="HTML")
             return
 
@@ -2981,8 +3141,8 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not company:
             await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
             return
-        if emp.role not in ("pdg",):
-            await update.message.reply_text("❌ Seul le PDG peut déclencher la paie.")
+        if emp.role not in PAYROLL_ROLES:
+            await update.message.reply_text("❌ Seul le PDG ou CEO peut déclencher la paie.")
             return
 
         # Cooldown
@@ -3235,7 +3395,7 @@ async def annoncerecrutement_cmd(update: Update, context: ContextTypes.DEFAULT_T
         if not result:
             return await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
         company, emp = result
-        if emp.role not in ("pdg", "directeur"):
+        if emp.role not in DIRECTION_ROLES:
             return await update.message.reply_text("❌ Seul le PDG ou Directeur peut envoyer une annonce.")
 
         # Vérifier cooldown (persisté en base)

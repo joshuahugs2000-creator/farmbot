@@ -4,7 +4,7 @@ Commandes : /entreprise, /creerboite, /postuler, /recruter, /demissionner,
             /nommer, /parts, /vendreparts, /acheterparts,
             /depotboite, /retraitboite, /infoboite, /logsboite,
             /candidatures, /licencier, /listeboites, /cederentreprise,
-            /presences, /versersalaires (PDG), /payeremploye (CEO)
+            /presences, /versersalaires (PDG), /payeremploye (CEO), /renommerboite (CEO)
 
 Hiérarchie des postes (du plus bas au plus haut) :
   🔰 Stagiaire → 🗂️ Secrétaire → 👷 Employé → 💼 Manager → 🏦 Directeur → 👑 PDG → 💎 CEO
@@ -3649,5 +3649,108 @@ async def annoncerecrutement_callback(update: Update, context: ContextTypes.DEFA
         f"📡 Envoyée dans <b>{sent_ok}</b> groupe(s)"
         + (f" — {sent_err} échec(s)" if sent_err else "") + ".\n"
         f"⏳ Prochaine annonce disponible dans <b>7 jours</b>.",
+        parse_mode="HTML"
+    )
+
+
+# ─── COMMANDE : /renommerboite [nouveau nom] ────────────────────────────────
+
+RENAME_COST = 10_000_000  # 10 millions $
+RENAME_COOLDOWN_DAYS = 30  # un renommage tous les 30 jours
+
+async def renommerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    if not context.args:
+        await update.message.reply_text(
+            f"❌ Usage : <code>/renommerboite [nouveau nom]</code>\n"
+            f"💸 Coût : <b>{_fmt(RENAME_COST)} $</b> (depuis ta trésorerie)\n"
+            f"⏳ Cooldown : <b>{RENAME_COOLDOWN_DAYS} jours</b>\n"
+            f"🔒 Réservé au <b>CEO</b>",
+            parse_mode="HTML"
+        )
+        return
+
+    new_name = " ".join(context.args).strip()
+
+    if len(new_name) < 2:
+        await update.message.reply_text("❌ Le nom doit contenir au moins 2 caractères.")
+        return
+
+    if len(new_name) > 40:
+        await update.message.reply_text("❌ Le nom ne peut pas dépasser 40 caractères.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, user.id)
+
+        if not company:
+            await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
+            return
+
+        if emp.role != "ceo":
+            await update.message.reply_text(
+                "❌ Seul le <b>CEO</b> 💎 peut renommer l'entreprise.",
+                parse_mode="HTML"
+            )
+            return
+
+        if company.is_bot_company:
+            await update.message.reply_text("❌ Les entreprises du bot ne peuvent pas être renommées.")
+            return
+
+        # Vérifier cooldown
+        if company.last_rename:
+            delta = datetime.utcnow() - company.last_rename
+            if delta.days < RENAME_COOLDOWN_DAYS:
+                reste = RENAME_COOLDOWN_DAYS - delta.days
+                await update.message.reply_text(
+                    f"⏳ Tu as déjà renommé cette entreprise récemment.\n"
+                    f"Prochain renommage disponible dans <b>{reste} jour(s)</b>.",
+                    parse_mode="HTML"
+                )
+                return
+
+        # Vérifier que le nouveau nom n'existe pas déjà
+        name_conflict = (await session.execute(
+            select(Company).where(Company.name.ilike(new_name))
+        )).scalar_one_or_none()
+        if name_conflict:
+            await update.message.reply_text(
+                f"❌ Une entreprise nommée <b>{new_name}</b> existe déjà (ou a existé).\n"
+                f"Choisis un autre nom.",
+                parse_mode="HTML"
+            )
+            return
+
+        # Vérifier fonds en trésorerie
+        if company.treasury < RENAME_COST:
+            await update.message.reply_text(
+                f"❌ La trésorerie de <b>{company.name}</b> est insuffisante.\n"
+                f"💸 Coût du renommage : <b>{_fmt(RENAME_COST)} $</b>\n"
+                f"🏦 Trésorerie actuelle : <b>{_fmt(company.treasury)} $</b>\n\n"
+                f"Alimente la trésorerie avec <code>/depotboite [montant]</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        old_name = company.name
+        company.treasury -= RENAME_COST
+        company.name = new_name
+        company.last_rename = datetime.utcnow()
+
+        await _add_log(
+            session, company.id, "renommage",
+            f"Entreprise renommée de « {old_name} » en « {new_name} » par {user.first_name} "
+            f"(coût : {_fmt(RENAME_COST)} $)"
+        )
+        await session.commit()
+
+    await update.message.reply_text(
+        f"✅ Entreprise renommée avec succès !\n\n"
+        f"📛 Ancien nom : <b>{old_name}</b>\n"
+        f"🆕 Nouveau nom : <b>{new_name}</b>\n"
+        f"💸 Coût débité de la trésorerie : <b>{_fmt(RENAME_COST)} $</b>\n"
+        f"⏳ Prochain renommage possible dans <b>{RENAME_COOLDOWN_DAYS} jours</b>",
         parse_mode="HTML"
     )

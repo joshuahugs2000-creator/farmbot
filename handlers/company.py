@@ -3,10 +3,15 @@ handlers/company.py — Système d'entreprises complet
 Commandes : /entreprise, /creerboite, /postuler, /recruter, /demissionner,
             /nommer, /parts, /vendreparts, /acheterparts,
             /depotboite, /retraitboite, /infoboite, /logsboite,
-            /candidatures, /licencier, /listeboites, /cederentreprise
+            /candidatures, /licencier, /listeboites, /cederentreprise,
+            /presences, /versersalaires (PDG), /payeremploye (CEO)
 
 Hiérarchie des postes (du plus bas au plus haut) :
   🔰 Stagiaire → 🗂️ Secrétaire → 👷 Employé → 💼 Manager → 🏦 Directeur → 👑 PDG → 💎 CEO
+
+Système de paie :
+  PDG → /versersalaires  (calcul automatique selon rôle + activité, cooldown 12h)
+  CEO → /payeremploye @pseudo [montant]  (montant libre, depuis la trésorerie)
 """
 from __future__ import annotations
 
@@ -3056,7 +3061,8 @@ async def salaireinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /presences — PDG/Directeur voit l'activité de chaque employé depuis la dernière paie.
+    /presences — Direction voit l'activité de chaque employé depuis la dernière paie.
+    Le CEO voit en plus le montant trésorerie disponible et le hint /payeremploye.
     """
     user = update.effective_user
     async with AsyncSessionLocal() as session:
@@ -3066,7 +3072,7 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.", parse_mode="HTML")
             return
         if emp.role not in DIRECTION_ROLES:
-            await update.message.reply_text("❌ Réservé au PDG et Directeur.", parse_mode="HTML")
+            await update.message.reply_text("❌ Réservé à la direction (Directeur, PDG, CEO).", parse_mode="HTML")
             return
 
         emps = (await session.execute(
@@ -3077,8 +3083,8 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )).scalars().all()
 
         sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
-
         last_pay_str = company.last_payroll.strftime("%d/%m %H:%M") if company.last_payroll else "Jamais"
+        is_ceo = emp.role == "ceo"
 
         lines = [
             f"📊 <b>PRÉSENCES — {company.name}</b>",
@@ -3087,16 +3093,15 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "─────────────────────────────",
         ]
 
-        # Fix 4 : Exclure stagiaires du calcul de total_activity (ils ne reçoivent pas de salaire)
-        total_activity = sum(
-            (e.activity_since_payroll or 0)
-            for e in emps
-            if e.role != "stagiaire"
-        )
+        _, _, _, monthly_rate, _ = _level_info(company.level)
+        base_rev = int(company.value * monthly_rate) // 30
 
-        for e in sorted(emps, key=lambda x: (x.activity_since_payroll or 0), reverse=True):
+        sorted_emps = sorted(emps, key=lambda x: ROLES_ORDER.index(x.role) if x.role in ROLES_ORDER else 0, reverse=True)
+
+        for e in sorted_emps:
             emp_user = await session.get(User, e.user_id)
             name = emp_user.first_name if emp_user else "?"
+            username = f"@{emp_user.username}" if emp_user and emp_user.username else name
             role_emoji = ROLE_EMOJI.get(e.role, "👤")
             activity = e.activity_since_payroll or 0
 
@@ -3104,21 +3109,32 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 salary_preview = "—"
             else:
                 share = ROLE_SHARE.get(e.role, 0)
-                _, _, _, monthly_rate, _ = _level_info(company.level)
-                base_rev = int(company.value * monthly_rate) // 30
                 activity_bonus = min(0.5, activity / 40)
                 salary_preview = _fmt(int(base_rev * share * (1 + activity_bonus)))
 
             bar_full = min(10, activity)
             bar = "█" * bar_full + "░" * (10 - bar_full)
 
-            lines.append(
-                f"{role_emoji} <b>{name}</b> [{e.role}]\n"
-                f"   {bar} {activity} cmd · 💵 ~{salary_preview} $"
-            )
+            # Pour le CEO : afficher aussi le username pour faciliter /payeremploye
+            if is_ceo and e.role not in ("stagiaire", "ceo"):
+                lines.append(
+                    f"{role_emoji} <b>{name}</b> [{e.role}]  ·  {username}\n"
+                    f"   {bar} {activity} cmd  ·  💵 auto ~{salary_preview} $\n"
+                    f"   💡 <code>/payeremploye {emp_user.username or name} [montant]</code>"
+                )
+            else:
+                lines.append(
+                    f"{role_emoji} <b>{name}</b> [{e.role}]\n"
+                    f"   {bar} {activity} cmd · 💵 ~{salary_preview} $"
+                )
 
         lines.append("─────────────────────────────")
-        lines.append("💡 <code>/versersalaires</code> pour déclencher la paie")
+        if is_ceo:
+            lines.append("💎 En tant que CEO, utilise <code>/payeremploye @pseudo [montant]</code> pour payer manuellement.")
+            lines.append("👑 Le PDG peut lui déclencher <code>/versersalaires</code> pour la paie automatique.")
+        else:
+            lines.append("💡 <code>/versersalaires</code> pour déclencher la paie automatique")
+
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
@@ -3128,11 +3144,8 @@ PAYROLL_COOLDOWN_HOURS = 12   # Le PDG ne peut payer qu'une fois toutes les 12h
 
 async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /versersalaires — Le PDG déclenche manuellement la paie.
-    - Distribue depuis la trésorerie
-    - Chaque employé reçoit selon sa part de rôle × son activité relative depuis la dernière paie
-    - Reset les compteurs d'activité
-    - Cooldown 12h
+    /versersalaires — Le PDG déclenche la paie automatique (calcul selon rôle + activité).
+    Le CEO lui utilise /payeremploye pour verser manuellement ce qu'il décide.
     """
     user = update.effective_user
     async with AsyncSessionLocal() as session:
@@ -3141,8 +3154,16 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not company:
             await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
             return
-        if emp.role not in PAYROLL_ROLES:
-            await update.message.reply_text("❌ Seul le PDG ou CEO peut déclencher la paie.")
+        if emp.role == "ceo":
+            await update.message.reply_text(
+                "💎 En tant que <b>CEO</b>, tu ne passes pas par <code>/versersalaires</code>.\n\n"
+                "👉 Utilise <code>/presences</code> pour voir les travaux de chacun,\n"
+                "puis <code>/payeremploye @pseudo [montant]</code> pour verser ce que tu décides.",
+                parse_mode="HTML"
+            )
+            return
+        if emp.role != "pdg":
+            await update.message.reply_text("❌ Seul le PDG peut déclencher la paie automatique.")
             return
 
         # Cooldown
@@ -3250,7 +3271,7 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         company.last_payroll = datetime.utcnow()
 
         await _add_log(session, company.id, "paie",
-                       f"Paie manuelle par le PDG — {_fmt(total_to_pay)} $ distribués",
+                       f"Paie automatique déclenchée par {user.first_name} (PDG) — {_fmt(total_to_pay)} $ distribués",
                        amount=total_to_pay)
         await log_event("company_payroll", pdg=user.first_name, company=company.name, total=_fmt(total_to_pay))
         await session.commit()
@@ -3261,6 +3282,139 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         result_lines.append(f"⏳ Prochaine paie dans <b>{PAYROLL_COOLDOWN_HOURS}h</b>")
 
         await update.message.reply_text("\n".join(result_lines), parse_mode="HTML")
+
+
+# ─── COMMANDE : /payeremploye @pseudo [montant] ───────────────────────────────
+
+async def payeremploye_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /payeremploye @pseudo [montant] — Réservé au CEO.
+    Le CEO choisit librement le montant à verser à un employé depuis la trésorerie.
+    Pas de cooldown global, mais un minimum de 1 $ et un plafond = trésorerie disponible.
+    Le compteur d'activité de l'employé est reset après paiement.
+    """
+    user = update.effective_user
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "❌ Usage : <code>/payeremploye @pseudo [montant]</code>\n\n"
+            "💡 Consulte <code>/presences</code> pour voir les travaux de chacun.",
+            parse_mode="HTML"
+        )
+        return
+
+    mention = context.args[0].lstrip("@")
+    try:
+        amount = int(context.args[1].replace("_", "").replace(" ", ""))
+    except ValueError:
+        await update.message.reply_text("❌ Montant invalide. Exemple : <code>/payeremploye @jean 500000</code>", parse_mode="HTML")
+        return
+
+    if amount <= 0:
+        await update.message.reply_text("❌ Le montant doit être supérieur à 0.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, user.id)
+
+        if not company:
+            await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
+            return
+        if emp.role != "ceo":
+            await update.message.reply_text(
+                "❌ Seul le <b>CEO</b> peut utiliser cette commande.\n"
+                "Le PDG utilise <code>/versersalaires</code> pour la paie automatique.",
+                parse_mode="HTML"
+            )
+            return
+        if company.is_bot_company:
+            await update.message.reply_text("❌ Impossible sur une entreprise officielle.")
+            return
+
+        # Trouver la cible
+        target = (await session.execute(
+            select(User).where(User.username == mention)
+        )).scalar_one_or_none()
+        if not target:
+            await update.message.reply_text(f"❌ @{mention} introuvable.")
+            return
+
+        if target.user_id == user.id:
+            await update.message.reply_text(
+                "❌ Tu ne peux pas te payer toi-même ici.\n"
+                "Utilise <code>/retraitboite [montant]</code> pour retirer ta part.",
+                parse_mode="HTML"
+            )
+            return
+
+        target_emp = await _get_employee(session, company.id, target.user_id)
+        if not target_emp or target_emp.left_at is not None:
+            await update.message.reply_text(f"❌ {target.first_name} ne fait pas partie de {company.name}.")
+            return
+
+        if target_emp.role == "stagiaire":
+            await update.message.reply_text(
+                f"❌ Les stagiaires ne reçoivent pas de salaire.\n"
+                f"Promus-le d'abord avec <code>/nommer @{mention} secretaire</code> ou supérieur.",
+                parse_mode="HTML"
+            )
+            return
+
+        # Vérifier trésorerie
+        if company.treasury <= 0:
+            await update.message.reply_text(
+                "❌ La trésorerie est vide. Attends que les revenus s'accumulent.",
+                parse_mode="HTML"
+            )
+            return
+
+        if amount > company.treasury:
+            await update.message.reply_text(
+                f"❌ Trésorerie insuffisante.\n"
+                f"🏦 Disponible : <b>{_fmt(company.treasury)} $</b>\n"
+                f"💸 Demandé : <b>{_fmt(amount)} $</b>",
+                parse_mode="HTML"
+            )
+            return
+
+        # Paiement
+        activity = target_emp.activity_since_payroll or 0
+        target_user = await get_user(session, target.user_id)
+        target_user.coins += amount
+        company.treasury -= amount
+        target_emp.activity_since_payroll = 0   # Reset le compteur après paiement
+
+        role_emoji = ROLE_EMOJI.get(target_emp.role, "👤")
+
+        await _add_log(session, company.id, "paie_ceo",
+                       f"CEO {user.first_name} → {target.first_name} ({target_emp.role}) : {_fmt(amount)} $ "
+                       f"({activity} cmds depuis dernière paie)",
+                       amount=amount)
+        await session.commit()
+
+        await update.message.reply_text(
+            f"✅ <b>Salaire versé !</b>\n\n"
+            f"{role_emoji} <b>{target.first_name}</b> [{target_emp.role}]\n"
+            f"💰 Montant : <b>{_fmt(amount)} $</b>\n"
+            f"📊 Activité depuis dernière paie : <b>{activity} commandes</b>\n\n"
+            f"🏦 Trésorerie restante : <b>{_fmt(company.treasury)} $</b>",
+            parse_mode="HTML"
+        )
+
+        # Notifier l'employé
+        try:
+            await context.bot.send_message(
+                chat_id=target.user_id,
+                text=(
+                    f"💵 <b>Salaire reçu !</b>\n\n"
+                    f"🏢 <b>{company.name}</b>\n"
+                    f"💎 Le CEO t'a versé <b>{_fmt(amount)} $</b>\n"
+                    f"📊 Activité comptabilisée : {activity} commandes"
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
 
 # ─── COMMANDE : /skipattente ────────────────────────────────────────────────────

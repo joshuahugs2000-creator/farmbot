@@ -3528,3 +3528,433 @@ async def resetboite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Entreprise remise à l'état initial du niveau {comp.level}.",
         parse_mode="HTML"
     )
+
+
+# ─── /admintransfert — Changer le propriétaire et redistribuer les parts ──────
+
+async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Change le propriétaire (CEO) d'une entreprise et/ou redistribue librement
+    les parts entre membres.
+
+    Sous-commandes :
+      /admintransfert info <NomEntreprise>
+          → Affiche le propriétaire actuel + toutes les parts
+
+      /admintransfert proprio <NomEntreprise> @newceo
+          → Change uniquement le CEO/PDG (propriétaire) sans toucher aux parts
+
+      /admintransfert parts <NomEntreprise> @user1:qty1 @user2:qty2 ...
+          → Redistribue les parts comme tu veux (total = nouveau total_shares)
+
+      /admintransfert full <NomEntreprise> @newceo @user1:qty1 @user2:qty2 ...
+          → Change le CEO ET redistribue les parts en une seule commande
+    """
+    if not await is_admin(update.effective_user.id):
+        return await _deny(update)
+
+    if not context.args or len(context.args) < 2:
+        return await update.message.reply_text(
+            "❌ <b>Usage :</b>\n\n"
+            "<code>/admintransfert info NomEntreprise</code>\n"
+            "  → Voir proprio + parts actuels\n\n"
+            "<code>/admintransfert proprio NomEntreprise @newceo</code>\n"
+            "  → Changer le CEO/PDG uniquement\n\n"
+            "<code>/admintransfert parts NomEntreprise @user1:100 @user2:50</code>\n"
+            "  → Redéfinir les parts librement\n\n"
+            "<code>/admintransfert full NomEntreprise @newceo @user1:100 @user2:50</code>\n"
+            "  → Changer le CEO + redistribuer les parts\n\n"
+            "💡 <i>Les @users doivent avoir utilisé le bot au moins une fois.</i>",
+            parse_mode="HTML"
+        )
+
+    sub = context.args[0].lower()
+    args = context.args[1:]
+
+    # ── Helper : résoudre un username ou ID ────────────────────────────────
+    async def resolve(session, mention: str):
+        mention = mention.lstrip("@")
+        if mention.isdigit():
+            return (await session.execute(
+                text("SELECT * FROM users WHERE user_id=:uid LIMIT 1"),
+                {"uid": int(mention)}
+            )).fetchone()
+        return (await session.execute(
+            text("SELECT * FROM users WHERE LOWER(username)=LOWER(:u) LIMIT 1"),
+            {"u": mention}
+        )).fetchone()
+
+    # ── Helper : afficher l'état actuel ────────────────────────────────────
+    async def show_info(session, comp, msg_prefix=""):
+        shares = (await session.execute(text(
+            """
+            SELECT cs.owner_id, cs.quantity, u.username, u.first_name
+            FROM company_shares cs
+            LEFT JOIN users u ON u.user_id = cs.owner_id
+            WHERE cs.company_id = :cid AND cs.quantity > 0
+            ORDER BY cs.quantity DESC
+            """
+        ), {"cid": comp.id})).fetchall()
+
+        owner_row = (await session.execute(
+            text("SELECT username, first_name FROM users WHERE user_id=:uid LIMIT 1"),
+            {"uid": comp.owner_id}
+        )).fetchone()
+        owner_label = f"@{owner_row.username}" if owner_row and owner_row.username else (
+            owner_row.first_name if owner_row else f"ID:{comp.owner_id}"
+        )
+
+        price_per = comp.value // comp.total_shares if comp.total_shares else 0
+        lines = [
+            msg_prefix,
+            f"🏢 <b>{comp.name}</b>",
+            f"💎 Propriétaire (CEO) : <b>{owner_label}</b> (uid:{comp.owner_id})",
+            f"📦 Total parts : <b>{comp.total_shares}</b>  |  💰 Prix/part : <b>{_fmt(price_per)} $</b>",
+            "",
+        ]
+        for s in shares:
+            name_d = f"@{s.username}" if s.username else (s.first_name or f"ID:{s.owner_id}")
+            pct = (s.quantity / comp.total_shares * 100) if comp.total_shares else 0
+            lines.append(f"• <b>{name_d}</b> — {s.quantity} parts ({pct:.1f}%)")
+
+        lines.append(
+            f"\n💡 <code>/admintransfert full {comp.name} @newceo @user1:qty1 @user2:qty2</code>"
+        )
+        return "\n".join(l for l in lines if l is not None)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Sous-commande : info
+    # ══════════════════════════════════════════════════════════════════════════
+    if sub == "info":
+        company_name = " ".join(args)
+        async with AsyncSessionLocal() as session:
+            comp = (await session.execute(
+                text("SELECT * FROM companies WHERE LOWER(name)=LOWER(:n) LIMIT 1"),
+                {"n": company_name}
+            )).fetchone()
+            if not comp:
+                return await update.message.reply_text(
+                    f"❌ Entreprise <b>{company_name}</b> introuvable.", parse_mode="HTML"
+                )
+            msg = await show_info(session, comp)
+        return await update.message.reply_text(msg, parse_mode="HTML")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Sous-commande : proprio  → changer CEO uniquement
+    # ══════════════════════════════════════════════════════════════════════════
+    if sub == "proprio":
+        # Format : proprio <NomEntreprise> @newceo
+        # Le dernier arg est le @user, le reste = nom entreprise
+        if len(args) < 2:
+            return await update.message.reply_text(
+                "❌ Usage : <code>/admintransfert proprio NomEntreprise @newceo</code>",
+                parse_mode="HTML"
+            )
+        new_ceo_mention = args[-1]
+        company_name = " ".join(args[:-1])
+
+        async with AsyncSessionLocal() as session:
+            comp = (await session.execute(
+                text("SELECT * FROM companies WHERE LOWER(name)=LOWER(:n) LIMIT 1"),
+                {"n": company_name}
+            )).fetchone()
+            if not comp:
+                return await update.message.reply_text(
+                    f"❌ Entreprise <b>{company_name}</b> introuvable.", parse_mode="HTML"
+                )
+
+            new_ceo = await resolve(session, new_ceo_mention)
+            if not new_ceo:
+                return await update.message.reply_text(
+                    f"❌ Utilisateur <b>{new_ceo_mention}</b> introuvable.", parse_mode="HTML"
+                )
+
+            old_owner_id = comp.owner_id
+            new_owner_id = new_ceo.user_id
+            new_ceo_label = f"@{new_ceo.username}" if new_ceo.username else new_ceo.first_name
+
+            # Rétrograder l'ancien CEO → directeur s'il est encore dans l'entreprise
+            await session.execute(
+                text(
+                    "UPDATE company_employees SET role='directeur' "
+                    "WHERE company_id=:cid AND user_id=:uid AND role IN ('ceo','pdg') AND left_at IS NULL"
+                ),
+                {"cid": comp.id, "uid": old_owner_id}
+            )
+
+            # Vérifier si le nouveau CEO est déjà dans l'entreprise
+            emp_exists = (await session.execute(
+                text("SELECT id FROM company_employees WHERE company_id=:cid AND user_id=:uid AND left_at IS NULL"),
+                {"cid": comp.id, "uid": new_owner_id}
+            )).fetchone()
+
+            if emp_exists:
+                await session.execute(
+                    text("UPDATE company_employees SET role='ceo' WHERE company_id=:cid AND user_id=:uid AND left_at IS NULL"),
+                    {"cid": comp.id, "uid": new_owner_id}
+                )
+            else:
+                await session.execute(
+                    text("INSERT INTO company_employees (company_id, user_id, role, joined_at) VALUES (:cid, :uid, 'ceo', NOW())"),
+                    {"cid": comp.id, "uid": new_owner_id}
+                )
+
+            # Mettre à jour le propriétaire dans la table companies
+            await session.execute(
+                text("UPDATE companies SET owner_id=:uid WHERE id=:cid"),
+                {"uid": new_owner_id, "cid": comp.id}
+            )
+
+            # Log
+            await session.execute(
+                text(
+                    "INSERT INTO company_logs (company_id, event_type, description, created_at) "
+                    "VALUES (:cid, 'admin_transfert', :desc, NOW())"
+                ),
+                {"cid": comp.id, "desc": f"[ADMIN] Nouveau CEO : {new_ceo_label} (uid:{new_owner_id}) — ancien propriétaire uid:{old_owner_id}"}
+            )
+            await session.commit()
+
+        await update.message.reply_text(
+            f"✅ <b>Propriétaire mis à jour — {comp.name}</b>\n\n"
+            f"👤 Ancien CEO : uid:{old_owner_id} → rétrogradé Directeur\n"
+            f"💎 Nouveau CEO : <b>{new_ceo_label}</b> (uid:{new_owner_id})\n\n"
+            f"📦 Les parts n'ont <b>pas</b> été modifiées.\n"
+            f"💡 Pour redistribuer : <code>/admintransfert parts {comp.name} @user:qty ...</code>",
+            parse_mode="HTML"
+        )
+
+        # Notifier le nouveau CEO
+        try:
+            await context.bot.send_message(
+                chat_id=new_owner_id,
+                text=f"💎 <b>Un admin t'a nommé CEO de {comp.name} !</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Sous-commandes : parts et full
+    # ══════════════════════════════════════════════════════════════════════════
+    if sub not in ("parts", "full"):
+        return await update.message.reply_text(
+            "❌ Sous-commande invalide. Utilise : <code>info</code>, <code>proprio</code>, <code>parts</code>, <code>full</code>.",
+            parse_mode="HTML"
+        )
+
+    # --- Parser les args pour 'parts' et 'full' ---
+    # Format parts : parts NomEntreprise @u1:qty1 @u2:qty2 ...
+    # Format full  : full  NomEntreprise @newceo @u1:qty1 @u2:qty2 ...
+
+    # Les attributions de parts ont le format @user:qty  (avec deux-points)
+    share_assignments = [a for a in args if ":" in a]
+    non_share_args    = [a for a in args if ":" not in a]
+
+    if not share_assignments:
+        return await update.message.reply_text(
+            "❌ Aucune attribution de parts détectée.\n"
+            "Format : <code>@user:quantite</code> (ex: <code>@alice:60 @bob:40</code>)",
+            parse_mode="HTML"
+        )
+
+    # Pour 'full', le dernier arg non-share avant les assignments est le nouveau CEO
+    new_ceo_mention = None
+    if sub == "full":
+        # Le @newceo n'a pas de ':', c'est le dernier non_share_arg
+        ceo_candidates = [a for a in non_share_args if a.startswith("@") or a.lstrip("@").isdigit()]
+        if not ceo_candidates:
+            return await update.message.reply_text(
+                "❌ Pour <code>full</code>, indique le nouveau CEO : <code>@user</code> avant les attributions de parts.",
+                parse_mode="HTML"
+            )
+        new_ceo_mention = ceo_candidates[-1]
+        non_share_args  = [a for a in non_share_args if a != new_ceo_mention]
+
+    company_name = " ".join(non_share_args)
+    if not company_name:
+        return await update.message.reply_text("❌ Nom d'entreprise manquant.", parse_mode="HTML")
+
+    # Parser @user:qty
+    parsed_shares = []  # list of (mention, qty)
+    for entry in share_assignments:
+        parts_entry = entry.split(":")
+        if len(parts_entry) != 2:
+            return await update.message.reply_text(
+                f"❌ Format invalide : <code>{entry}</code>\nAttendu : <code>@user:quantite</code>",
+                parse_mode="HTML"
+            )
+        mention_part = parts_entry[0]
+        try:
+            qty_part = int(parts_entry[1])
+        except ValueError:
+            return await update.message.reply_text(
+                f"❌ Quantité invalide pour <code>{entry}</code>",
+                parse_mode="HTML"
+            )
+        if qty_part < 0:
+            return await update.message.reply_text(
+                f"❌ La quantité ne peut pas être négative : <code>{entry}</code>",
+                parse_mode="HTML"
+            )
+        parsed_shares.append((mention_part, qty_part))
+
+    total_new_shares = sum(q for _, q in parsed_shares)
+    if total_new_shares == 0:
+        return await update.message.reply_text("❌ Le total des parts ne peut pas être 0.")
+
+    async with AsyncSessionLocal() as session:
+        comp = (await session.execute(
+            text("SELECT * FROM companies WHERE LOWER(name)=LOWER(:n) LIMIT 1"),
+            {"n": company_name}
+        )).fetchone()
+        if not comp:
+            return await update.message.reply_text(
+                f"❌ Entreprise <b>{company_name}</b> introuvable.", parse_mode="HTML"
+            )
+
+        # Résoudre tous les utilisateurs
+        resolved = []
+        for mention_part, qty_part in parsed_shares:
+            u = await resolve(session, mention_part)
+            if not u:
+                return await update.message.reply_text(
+                    f"❌ Utilisateur <b>{mention_part}</b> introuvable (doit avoir utilisé le bot).",
+                    parse_mode="HTML"
+                )
+            resolved.append((u, qty_part))
+
+        new_ceo = None
+        if sub == "full":
+            new_ceo = await resolve(session, new_ceo_mention)
+            if not new_ceo:
+                return await update.message.reply_text(
+                    f"❌ Nouveau CEO <b>{new_ceo_mention}</b> introuvable.", parse_mode="HTML"
+                )
+
+        old_owner_id = comp.owner_id
+
+        # ── Mise à jour des parts ──────────────────────────────────────────
+        # 1. Mettre toutes les parts existantes à 0
+        await session.execute(
+            text("UPDATE company_shares SET quantity=0 WHERE company_id=:cid"),
+            {"cid": comp.id}
+        )
+
+        # 2. Appliquer les nouvelles attributions
+        lines_report = []
+        new_owner_id = comp.owner_id  # par défaut inchangé
+
+        for u, qty in resolved:
+            u_label = f"@{u.username}" if u.username else u.first_name
+            share_row = (await session.execute(
+                text("SELECT id FROM company_shares WHERE company_id=:cid AND owner_id=:uid LIMIT 1"),
+                {"cid": comp.id, "uid": u.user_id}
+            )).fetchone()
+
+            if share_row:
+                await session.execute(
+                    text("UPDATE company_shares SET quantity=:q WHERE company_id=:cid AND owner_id=:uid"),
+                    {"q": qty, "cid": comp.id, "uid": u.user_id}
+                )
+            else:
+                await session.execute(
+                    text("INSERT INTO company_shares (company_id, owner_id, quantity, acquired_at) VALUES (:cid, :uid, :q, NOW())"),
+                    {"cid": comp.id, "uid": u.user_id, "q": qty}
+                )
+
+            pct = (qty / total_new_shares * 100) if total_new_shares else 0
+            lines_report.append(f"• <b>{u_label}</b> → {qty} parts ({pct:.1f}%)")
+
+        # 3. Mettre à jour total_shares
+        await session.execute(
+            text("UPDATE companies SET total_shares=:t WHERE id=:cid"),
+            {"t": total_new_shares, "cid": comp.id}
+        )
+
+        # ── Mise à jour CEO si 'full' ──────────────────────────────────────
+        ceo_report = ""
+        if sub == "full" and new_ceo:
+            new_owner_id = new_ceo.user_id
+            new_ceo_label = f"@{new_ceo.username}" if new_ceo.username else new_ceo.first_name
+
+            # Rétrograder l'ancien CEO
+            await session.execute(
+                text(
+                    "UPDATE company_employees SET role='directeur' "
+                    "WHERE company_id=:cid AND user_id=:uid AND role IN ('ceo','pdg') AND left_at IS NULL"
+                ),
+                {"cid": comp.id, "uid": old_owner_id}
+            )
+
+            # Nommer le nouveau CEO
+            emp_exists = (await session.execute(
+                text("SELECT id FROM company_employees WHERE company_id=:cid AND user_id=:uid AND left_at IS NULL"),
+                {"cid": comp.id, "uid": new_owner_id}
+            )).fetchone()
+            if emp_exists:
+                await session.execute(
+                    text("UPDATE company_employees SET role='ceo' WHERE company_id=:cid AND user_id=:uid AND left_at IS NULL"),
+                    {"cid": comp.id, "uid": new_owner_id}
+                )
+            else:
+                await session.execute(
+                    text("INSERT INTO company_employees (company_id, user_id, role, joined_at) VALUES (:cid, :uid, 'ceo', NOW())"),
+                    {"cid": comp.id, "uid": new_owner_id}
+                )
+
+            # Trouver les parts du nouveau CEO pour owner_shares
+            new_owner_qty = next((q for u, q in resolved if u.user_id == new_owner_id), 0)
+
+            await session.execute(
+                text("UPDATE companies SET owner_id=:uid, owner_shares=:os WHERE id=:cid"),
+                {"uid": new_owner_id, "os": new_owner_qty, "cid": comp.id}
+            )
+
+            ceo_report = f"\n💎 Nouveau CEO : <b>{new_ceo_label}</b> (uid:{new_owner_id})"
+
+            # Notifier le nouveau CEO
+            try:
+                await context.bot.send_message(
+                    chat_id=new_owner_id,
+                    text=f"💎 <b>Un admin t'a nommé CEO de {comp.name} !</b>\n"
+                         f"📦 Tu détiens <b>{new_owner_qty} parts</b>.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        else:
+            # Juste les parts — mettre à jour owner_shares avec les parts du proprio actuel
+            owner_qty = next((q for u, q in resolved if u.user_id == old_owner_id), None)
+            if owner_qty is not None:
+                await session.execute(
+                    text("UPDATE companies SET owner_shares=:os WHERE id=:cid"),
+                    {"os": owner_qty, "cid": comp.id}
+                )
+
+        # Log global
+        log_desc = (
+            f"[ADMIN] Redistribution parts ({total_new_shares} total) — "
+            + ", ".join(f"uid:{u.user_id}→{q}" for u, q in resolved)
+        )
+        if sub == "full" and new_ceo:
+            log_desc += f" | Nouveau CEO uid:{new_ceo.user_id}"
+
+        await session.execute(
+            text(
+                "INSERT INTO company_logs (company_id, event_type, description, created_at) "
+                "VALUES (:cid, 'admin_transfert', :desc, NOW())"
+            ),
+            {"cid": comp.id, "desc": log_desc}
+        )
+        await session.commit()
+
+    action_label = "Redistribution parts + Changement CEO" if sub == "full" else "Redistribution parts"
+    await update.message.reply_text(
+        f"✅ <b>{action_label} — {comp.name}</b>{ceo_report}\n\n"
+        f"📦 Nouveau total : <b>{total_new_shares} parts</b>\n\n"
+        + "\n".join(lines_report) +
+        f"\n\n🗂️ Tout a été loggé dans les logs de l'entreprise.",
+        parse_mode="HTML"
+    )

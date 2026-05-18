@@ -71,7 +71,7 @@ from handlers.admin    import (
     wipeloans, broadcastdm, topactifs,
     mutecompany, unmutecompany,
     adminboites, adminboite, statsusers,
-    adminparts,
+    adminparts, admintransfert,
     auditboite, setvalue, resetboite,
 )
 from handlers.bank     import (
@@ -113,6 +113,7 @@ from handlers.company import (
     skipattente_cmd,
     annoncerecrutement_cmd, annoncerecrutement_callback,
     cederentreprise_cmd, payeremploye_cmd,
+    renommerboite_cmd,
 )
 from handlers.company_sector import (
     init_sector_tables,
@@ -565,6 +566,7 @@ async def main():
     app.add_handler(CommandHandler("adminboite",     adminboite))
     app.add_handler(CommandHandler("statsusers",     statsusers))
     app.add_handler(CommandHandler("adminparts",     adminparts))
+    app.add_handler(CommandHandler("admintransfert", admintransfert))
     app.add_handler(CommandHandler("auditboite",     auditboite))
     app.add_handler(CommandHandler("setvalue",       setvalue))
     app.add_handler(CommandHandler("resetboite",     resetboite))
@@ -604,6 +606,7 @@ async def main():
     app.add_handler(CommandHandler("skipattente",    _prison_checked(skipattente_cmd)))
     app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
     app.add_handler(CommandHandler("mesparts",       _prison_checked(mesparts_cmd)))
+    app.add_handler(CommandHandler("renommerboite",  _prison_checked(renommerboite_cmd)))
     # ── Secteurs : événements, contrats, classement ───────────────────────────
     app.add_handler(CommandHandler("evenements",      _prison_checked(evenements_cmd)))
     app.add_handler(CommandHandler("classement",      _prison_checked(classement_cmd)))

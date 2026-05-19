@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
 from database.db import (
-    AsyncSessionLocal, upsert_user, get_user, get_spouse, get_relationships,
+    AsyncSessionLocal, upsert_user, get_user, get_spouse, get_all_spouses, get_relationships,
     get_family_members, add_relationship, remove_relationship, relationship_exists,
     create_request, get_request, delete_request, process_inheritance, compute_title,
 )
@@ -92,26 +92,45 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     sender   = await ensure_user(update.effective_user)
     target   = await ensure_user(target_tg)
-    group_id = update.effective_chat.id
 
     async with AsyncSessionLocal() as session:
-        # Verifier si sender est deja marie
-        s_rel = await get_spouse(session, sender.user_id)
-        if s_rel:
-            return await update.message.reply_text("Tu es deja marie(e) ! Divorce d'abord avec /divorce.")
+        s_db = await get_user(session, sender.user_id)
+        t_db = await get_user(session, target.user_id)
 
-        # Verifier si target est deja marie — afficher avec qui
-        t_rel = await get_spouse(session, target.user_id)
-        if t_rel:
-            other_id  = t_rel.related_user_id if t_rel.user_id == target.user_id else t_rel.user_id
-            other     = await get_user(session, other_id)
-            other_name = other.first_name if other else "quelqu'un"
+        # ── Vérification de compatibilité de genre ────────────────────────
+        s_gender = getattr(s_db, "gender", None)
+        t_gender = getattr(t_db, "gender", None)
+        if s_gender and t_gender and s_gender == t_gender:
+            label = "deux hommes" if s_gender == "homme" else "deux femmes"
             return await update.message.reply_text(
-                f"💔 {mention(target)} est deja marie(e) avec {other_name}.",
+                f"❌ Le mariage entre {label} n'est pas autorisé sur ce bot.\n"
+                f"Utilise /setsexe pour modifier ton genre."
+            )
+
+        # ── Vérification monogamie/polygamie ──────────────────────────────
+        s_type = getattr(s_db, "marriage_type", "monogame") or "monogame"
+        s_spouses = await get_all_spouses(session, sender.user_id)
+
+        if s_spouses and s_type == "monogame":
+            return await update.message.reply_text(
+                "❌ Tu es déjà marié(e) et ton mode est <b>monogame</b>.\n"
+                "Divorce d'abord avec /divorce, ou change de mode avec /setmariage polygame.",
                 parse_mode=ParseMode.HTML,
             )
 
-        # Demande en attente de sender ?
+        # Vérifier si la cible est monogame et déjà mariée
+        t_type = getattr(t_db, "marriage_type", "monogame") or "monogame"
+        t_spouses = await get_all_spouses(session, target.user_id)
+        if t_spouses and t_type == "monogame":
+            other_id   = t_spouses[0].related_user_id if t_spouses[0].user_id == target.user_id else t_spouses[0].user_id
+            other      = await get_user(session, other_id)
+            other_name = other.first_name if other else "quelqu'un"
+            return await update.message.reply_text(
+                f"💔 {mention(target)} est déjà marié(e) avec {other_name} (mode monogame).",
+                parse_mode=ParseMode.HTML,
+            )
+
+        # Vérifier demandes en attente
         from sqlalchemy import select as _sel
         from database.models import PendingRequest as _PR
         _ex = await session.execute(
@@ -125,7 +144,6 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await session.delete(existing_sender)
                 await session.commit()
 
-        # Demande en attente sur le target ? (expirée = annulée automatiquement)
         _ex2 = await session.execute(
             _sel(_PR).where(_PR.to_user_id == target.user_id, _PR.request_type == RequestType.MARRY)
         )
@@ -137,18 +155,60 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.HTML,
                 )
             else:
-                # Expirée : on l'annule silencieusement
                 await session.delete(existing_target)
                 await session.commit()
 
-        req = await create_request(session, sender.user_id, target.user_id, RequestType.MARRY, group_id, 0)
-        msg = await update.message.reply_text(
-            f"💌 {mention(sender)} demande {mention(target)} en mariage !\n"
+    # ── Demander le type de mariage avant d'envoyer la demande ───────────
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("❤️ Monogame", callback_data=f"marry_type:mono:{target.user_id}:{update.effective_chat.id}"),
+        InlineKeyboardButton("💞 Polygame", callback_data=f"marry_type:poly:{target.user_id}:{update.effective_chat.id}"),
+    ]])
+    await update.message.reply_text(
+        f"💍 {mention(sender)}, quel type de mariage proposes-tu à {mention(target)} ?",
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def marry_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback pour le choix monogame/polygame, crée ensuite la vraie demande."""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":")
+    # marry_type : mono/poly : target_id : group_id
+    _, m_type, target_id_str, group_id_str = parts
+    target_id = int(target_id_str)
+    group_id  = int(group_id_str)
+
+    if query.from_user.id != query.from_user.id:  # sécurité: toujours l'émetteur
+        return
+
+    sender_tg = query.from_user
+    sender    = await ensure_user(sender_tg)
+    type_label = "Monogame ❤️" if m_type == "mono" else "Polygame 💞"
+    marriage_type_str = "monogame" if m_type == "mono" else "polygame"
+
+    async with AsyncSessionLocal() as session:
+        target = await get_user(session, target_id)
+        if not target:
+            return await query.edit_message_text("❌ Cible introuvable.")
+
+        req = await create_request(session, sender.user_id, target_id, RequestType.MARRY, group_id, 0)
+        # Stocker le type de mariage dans extra
+        req.extra = marriage_type_str
+        await session.commit()
+
+        req_keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Accepter", callback_data=f"req:accept:{req.id}:marry"),
+            InlineKeyboardButton("❌ Refuser",  callback_data=f"req:decline:{req.id}:marry"),
+        ]])
+        msg = await query.edit_message_text(
+            f"💌 {mention(sender)} demande {mention(target)} en mariage ! ({type_label})\n"
             f"{mention(target)}, acceptes-tu ?",
-            reply_markup=_req_keyboard(req.id, "marry"),
+            reply_markup=req_keyboard,
             parse_mode=ParseMode.HTML,
         )
-        req.message_id = msg.message_id
+        req.message_id = msg.message_id if hasattr(msg, "message_id") else None
         await session.commit()
 
 
@@ -247,9 +307,33 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target = await get_user(session, req.to_user_id)
 
         if req_type_str == "marry":
-            if await get_spouse(session, req.from_user_id) or await get_spouse(session, req.to_user_id):
+            # Récupérer le type de mariage stocké dans extra
+            marriage_type = getattr(req, "extra", "monogame") or "monogame"
+
+            sender_db = await get_user(session, req.from_user_id)
+            target_db = await get_user(session, req.to_user_id)
+
+            # Re-vérifier compatibilité genre au moment de l'acceptation
+            s_gender = getattr(sender_db, "gender", None)
+            t_gender = getattr(target_db, "gender", None)
+            if s_gender and t_gender and s_gender == t_gender:
                 await delete_request(session, req_id)
-                return await query.edit_message_text("L'un de vous est deja marie(e).")
+                return await query.edit_message_text("❌ Mariage impossible : même genre détecté.")
+
+            # Vérif monogamie sender
+            s_type = getattr(sender_db, "marriage_type", "monogame") or "monogame"
+            s_spouses = await get_all_spouses(session, req.from_user_id)
+            if s_spouses and s_type == "monogame":
+                await delete_request(session, req_id)
+                return await query.edit_message_text("❌ L'émetteur est déjà marié (monogame).")
+
+            # Vérif monogamie target
+            t_type = getattr(target_db, "marriage_type", "monogame") or "monogame"
+            t_spouses = await get_all_spouses(session, req.to_user_id)
+            if t_spouses and t_type == "monogame":
+                await delete_request(session, req_id)
+                return await query.edit_message_text("❌ Le/la destinataire est déjà marié(e) (monogame).")
+
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.SPOUSE, req.group_id)
             fam = await get_family_members(session, req.from_user_id)
             await _sync_family_name(session, req.from_user_id, fam)
@@ -263,10 +347,14 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             await session.commit()
 
+            type_label = "polygame 💞" if marriage_type == "polygame" else "monogame ❤️"
             relation_type = "married"
-            text = (f"💒 {mention(sender)} et {mention(target)} sont maintenant maries ! 🎉\n"
-                    f"Felicitations a la famille {sender.family_name or ''} !\n"
-                    f"💝 Cadeau de mariage : <b>{gift:,} {CURRENCY}</b> chacun !")
+            caption = (
+                f"💒 {mention(sender)} et {mention(target)} sont maintenant mariés ! 🎉\n"
+                f"Type : <b>{type_label}</b>\n"
+                f"Félicitations à la famille {sender.family_name or ''} !\n"
+                f"💝 Cadeau de mariage : <b>{gift:,} {CURRENCY}</b> chacun !"
+            )
             await log_event("marriage", a=sender.first_name, b=target.first_name)
 
         elif req_type_str == "adopt":
@@ -274,18 +362,18 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fam = await get_family_members(session, req.from_user_id)
             await _sync_family_name(session, req.from_user_id, fam)
             relation_type = "adopted"
-            text = f"👨‍👦 {mention(sender)} a officiellement adopte {mention(target)} !"
+            caption = f"👨‍👦 {mention(sender)} a officiellement adopte {mention(target)} !"
             await log_event("adoption", a=sender.first_name, b=target.first_name)
 
         else:
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.FRIEND, req.group_id)
             relation_type = "friends"
-            text = f"🤝 {mention(sender)} et {mention(target)} sont maintenant amis !"
+            caption = f"🤝 {mention(sender)} et {mention(target)} sont maintenant amis !"
 
         await delete_request(session, req_id)
         await query.edit_message_text("Accepte ! Generation de la carte...", parse_mode=ParseMode.HTML)
 
-    await _send_relation_card(context, req.group_id, sender, target, relation_type, text)
+    await _send_relation_card(context, req.group_id, sender, target, relation_type, caption)
 
 
 # ─── /divorce ────────────────────────────────────────────────────────────────
@@ -293,17 +381,55 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def divorce(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = await ensure_user(update.effective_user)
     async with AsyncSessionLocal() as session:
-        rel = await get_spouse(session, user.user_id)
-        if not rel:
-            return await update.message.reply_text("Tu n'es pas marie(e).")
-        spouse_id = rel.related_user_id if rel.user_id == user.user_id else rel.user_id
-        spouse    = await get_user(session, spouse_id)
-        await remove_relationship(session, user.user_id, spouse_id, RelationType.SPOUSE)
-        await log_event("divorce", a=user.first_name, b=spouse.first_name if spouse else "?")
-    await update.message.reply_text(
-        f"💔 {mention(user)} et {mention(spouse)} ont divorce.",
-        parse_mode=ParseMode.HTML,
-    )
+        spouses = await get_all_spouses(session, user.user_id)
+        if not spouses:
+            return await update.message.reply_text("Tu n'es pas marié(e).")
+
+        if len(spouses) == 1:
+            # Un seul conjoint : divorce direct
+            rel = spouses[0]
+            spouse_id = rel.related_user_id if rel.user_id == user.user_id else rel.user_id
+            spouse    = await get_user(session, spouse_id)
+            await remove_relationship(session, user.user_id, spouse_id, RelationType.SPOUSE)
+            await log_event("divorce", a=user.first_name, b=spouse.first_name if spouse else "?")
+            return await update.message.reply_text(
+                f"💔 {mention(user)} et {mention(spouse)} ont divorcé.",
+                parse_mode=ParseMode.HTML,
+            )
+
+        # Plusieurs conjoints : doit mentionner lequel
+        target_tg = await parse_target(update, context)
+        if not target_tg:
+            # Afficher la liste des conjoints
+            lines = ["💔 Tu as plusieurs conjoints. Mentionne celui dont tu veux divorcer :\n<code>/divorce @pseudo</code>\n"]
+            for rel in spouses:
+                sid = rel.related_user_id if rel.user_id == user.user_id else rel.user_id
+                sp  = await get_user(session, sid)
+                if sp:
+                    lines.append(f"• {sp.first_name} (@{sp.username or sp.user_id})")
+            return await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+        target = await get_user(session, target_tg.id)
+        if not target:
+            return await update.message.reply_text("❌ Utilisateur introuvable.")
+
+        # Vérifier que c'est bien un conjoint
+        is_spouse = any(
+            (rel.user_id == user.user_id and rel.related_user_id == target_tg.id) or
+            (rel.related_user_id == user.user_id and rel.user_id == target_tg.id)
+            for rel in spouses
+        )
+        if not is_spouse:
+            return await update.message.reply_text(
+                f"❌ {mention(target)} n'est pas ton/ta conjoint(e).", parse_mode=ParseMode.HTML
+            )
+
+        await remove_relationship(session, user.user_id, target_tg.id, RelationType.SPOUSE)
+        await log_event("divorce", a=user.first_name, b=target.first_name)
+        return await update.message.reply_text(
+            f"💔 {mention(user)} et {mention(target)} ont divorcé.",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 # ─── /disown ─────────────────────────────────────────────────────────────────
@@ -394,7 +520,100 @@ async def leave_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── /familyphoto ─────────────────────────────────────────────────────────────
+# ─── /setsexe ────────────────────────────────────────────────────────────────
+
+async def setsexe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Définit le genre de l'utilisateur (homme / femme)."""
+    user = await ensure_user(update.effective_user)
+    if not context.args:
+        return await update.message.reply_text(
+            "Usage : <code>/setsexe homme</code> ou <code>/setsexe femme</code>",
+            parse_mode=ParseMode.HTML,
+        )
+    choice = context.args[0].lower()
+    if choice not in ("homme", "femme"):
+        return await update.message.reply_text("❌ Choix invalide. Utilise <code>homme</code> ou <code>femme</code>.", parse_mode=ParseMode.HTML)
+
+    async with AsyncSessionLocal() as session:
+        u = await get_user(session, user.user_id)
+        if not u:
+            return
+        u.gender = choice
+        await session.commit()
+
+    emoji = "♂️" if choice == "homme" else "♀️"
+    await update.message.reply_text(f"{emoji} Genre défini : <b>{choice}</b>.", parse_mode=ParseMode.HTML)
+
+
+# ─── /setmariage ─────────────────────────────────────────────────────────────
+
+async def setmariage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Définit la préférence de mariage (monogame / polygame)."""
+    user = await ensure_user(update.effective_user)
+    if not context.args:
+        return await update.message.reply_text(
+            "Usage : <code>/setmariage monogame</code> ou <code>/setmariage polygame</code>",
+            parse_mode=ParseMode.HTML,
+        )
+    choice = context.args[0].lower()
+    if choice not in ("monogame", "polygame"):
+        return await update.message.reply_text(
+            "❌ Choix invalide. Utilise <code>monogame</code> ou <code>polygame</code>.",
+            parse_mode=ParseMode.HTML,
+        )
+
+    async with AsyncSessionLocal() as session:
+        u = await get_user(session, user.user_id)
+        if not u:
+            return
+        u.marriage_type = choice
+        await session.commit()
+
+    emoji = "❤️" if choice == "monogame" else "💞"
+    await update.message.reply_text(
+        f"{emoji} Mode de mariage défini : <b>{choice}</b>.\n"
+        f"<i>Ce mode s'appliquera à ta prochaine demande de mariage.</i>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── Callback choix type de mariage ─────────────────────────────────────────
+
+async def marry_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback pour le choix monogame/polygame avant d'envoyer la demande."""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":")
+    # marry_type:mono/poly:target_id:group_id
+    _, m_type, target_id_str, group_id_str = parts
+    target_id = int(target_id_str)
+    group_id  = int(group_id_str)
+
+    # Seul l'émetteur peut choisir
+    sender_tg = query.from_user
+    sender    = await ensure_user(sender_tg)
+    type_label     = "Monogame ❤️" if m_type == "mono" else "Polygame 💞"
+    marriage_type  = "monogame" if m_type == "mono" else "polygame"
+
+    async with AsyncSessionLocal() as session:
+        target = await get_user(session, target_id)
+        if not target:
+            return await query.edit_message_text("❌ Cible introuvable.")
+
+        req = await create_request(session, sender.user_id, target_id, RequestType.MARRY, group_id, 0)
+        req.extra = marriage_type
+        await session.commit()
+
+        req_keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Accepter", callback_data=f"req:accept:{req.id}:marry"),
+            InlineKeyboardButton("❌ Refuser",  callback_data=f"req:decline:{req.id}:marry"),
+        ]])
+        await query.edit_message_text(
+            f"💌 {mention(sender)} demande {mention(target)} en mariage ! ({type_label})\n"
+            f"{mention(target)}, acceptes-tu ?",
+            reply_markup=req_keyboard,
+            parse_mode=ParseMode.HTML,
+        )
 
 async def familyphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from PIL import Image

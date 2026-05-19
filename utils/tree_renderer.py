@@ -150,19 +150,25 @@ def render_tree(members):
     if not PIL_AVAILABLE:
         raise RuntimeError("Pillow n'est pas installe.")
 
-    parents  = members.get("parents")  or []
-    user     = members["user"]
-    spouse   = members.get("spouse")
-    children = members.get("children") or []
-    friends  = members.get("friends")  or []
+    parents       = members.get("parents")       or []
+    user          = members["user"]
+    spouse        = members.get("spouse")
+    extra_spouses = members.get("extra_spouses") or []
+    children      = members.get("children")      or []
+    friends       = members.get("friends")       or []
+
+    # Rangée principale : user + tous ses époux
+    main_row = [user]
+    all_spouses = ([spouse] if spouse else []) + extra_spouses
+    main_row += all_spouses
 
     gens = []
-    gen_labels = []  # label affiché à gauche de chaque rangée
+    gen_labels = []
     if parents:
         gens.append(parents)
         gen_labels.append("Parents")
-    gens.append([user] + ([spouse] if spouse else []))
-    gen_labels.append(None)  # pas de label pour la rangée principale
+    gens.append(main_row)
+    gen_labels.append(None)
     if children:
         gens.append(children)
         gen_labels.append("Enfants")
@@ -215,15 +221,19 @@ def render_tree(members):
         umid = (ur[0][0] + ur[-1][0])//2 if len(ur) > 1 else ur[0][0]
         _line(draw, pmid, py, umid, ur[0][1])
 
-    # Ligne époux + label "Marié(e)"
+    # Ligne(s) époux + label
     ur_idx = 1 if parents else 0
     if ur_idx < len(rows):
         ur = rows[ur_idx]
-        if len(ur) == 2:
-            uy = ur[0][1] + (ur[0][2] - ur[0][1])//2
-            _line(draw, ur[0][0], uy, ur[1][0], uy)
-            mid_x = (ur[0][0] + ur[1][0]) // 2
-            _draw_label(draw, mid_x, uy - 10, "Marié(e)", size=11, color=(180, 60, 120))
+        # Relier user à chaque époux
+        if len(ur) >= 2:
+            user_pos = ur[0]
+            for sp_pos in ur[1:]:
+                uy = user_pos[1] + (user_pos[2] - user_pos[1]) // 2
+                _line(draw, user_pos[0], uy, sp_pos[0], uy)
+                mid_x = (user_pos[0] + sp_pos[0]) // 2
+                label_txt = "Marié(e)s" if len(ur) > 2 else "Marié(e)"
+                _draw_label(draw, mid_x, uy - 10, label_txt, size=11, color=(180, 60, 120))
 
         # Lignes user → enfants
         cr_idx = ur_idx + 1

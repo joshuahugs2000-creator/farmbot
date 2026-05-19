@@ -59,6 +59,7 @@ async def tree(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parent_nodes = []
         child_nodes  = []
         friend_nodes = []
+        spouse_nodes = []  # liste pour gérer la polygamie
 
         for rel in rels:
             other_id = rel.related_user_id if rel.user_id == user.user_id else rel.user_id
@@ -69,7 +70,7 @@ async def tree(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 other.profile_color if other else "blue",
             )
             if rel.relation_type == RelationType.SPOUSE:
-                spouse_node = node
+                spouse_nodes.append(node)
             elif rel.relation_type == RelationType.PARENT:
                 if rel.user_id == user.user_id:
                     child_nodes.append(node)
@@ -78,12 +79,18 @@ async def tree(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif rel.relation_type == RelationType.FRIEND:
                 friend_nodes.append(node)
 
+        # Pour le rendu on prend le premier époux comme "principal"
+        # les autres sont ajoutés après dans la rangée principale
+        spouse_node = spouse_nodes[0] if spouse_nodes else None
+        extra_spouses = spouse_nodes[1:] if len(spouse_nodes) > 1 else []
+
     members = {
-        "user":     user_node,
-        "spouse":   spouse_node,
-        "parents":  parent_nodes,
-        "children": child_nodes,
-        "friends":  friend_nodes,
+        "user":          user_node,
+        "spouse":        spouse_node,
+        "extra_spouses": extra_spouses,
+        "parents":       parent_nodes,
+        "children":      child_nodes,
+        "friends":       friend_nodes,
     }
 
     img_bytes = render_tree(members)

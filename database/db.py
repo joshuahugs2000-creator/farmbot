@@ -254,6 +254,17 @@ async def get_spouse(session: AsyncSession, user_id: int, group_id: Optional[int
     return r.scalar_one_or_none()
 
 
+async def get_all_spouses(session: AsyncSession, user_id: int) -> list:
+    """Retourne toutes les relations SPOUSE d'un utilisateur (pour la polygamie)."""
+    r = await session.execute(
+        select(Relationship).where(
+            or_(Relationship.user_id == user_id, Relationship.related_user_id == user_id),
+            Relationship.relation_type == RelationType.SPOUSE,
+        )
+    )
+    return r.scalars().all()
+
+
 async def get_family_members(session: AsyncSession, user_id: int) -> List[int]:
     """Retourne uniquement conjoint + enfants/parents. Les amis sont exclus."""
     rels = await get_relationships(session, user_id)

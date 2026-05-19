@@ -252,6 +252,7 @@ class Company(Base):
     last_active     = Column(DateTime, default=datetime.utcnow)  # pour détecter inactivité PDG
     last_annonce    = Column(DateTime, nullable=True)            # dernière annonce de recrutement
     last_rename     = Column(DateTime, nullable=True)            # dernier renommage de l'entreprise
+    extra_slots     = Column(Integer, default=0)                 # places supplémentaires achetées
 
 
 class CompanyEmployee(Base):

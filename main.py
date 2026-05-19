@@ -429,6 +429,7 @@ async def main():
     app.add_handler(CommandHandler("leave",         _prison_checked(leave)))
     app.add_handler(CommandHandler("setsexe",       _prison_checked(setsexe)))
     app.add_handler(CommandHandler("setmariage",    _prison_checked(setmariage)))
+    app.add_handler(CommandHandler("setfamilyname", _prison_checked(setfamilyname)))
     app.add_handler(CallbackQueryHandler(marry_type_callback, pattern=r"^marry_type:"))
 
     # ── Arbre ─────────────────────────────────────────────────────────────────

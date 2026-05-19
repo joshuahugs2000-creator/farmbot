@@ -131,7 +131,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-WEBHOOK_URL = "https://farmbot-77xl.onrender.com"
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://farmbot-77xl.onrender.com")
 PORT = int(os.environ.get("PORT", 8080))
 
 PRISON_EXEMPT_COMMANDS = {

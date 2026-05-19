@@ -541,11 +541,11 @@ async def init_finance_tables():
     # Migration : ajouter les colonnes legal_reserve et weekly_revenue si absentes
     from sqlalchemy import text
     async with engine.begin() as conn:
-        for col, default in [("legal_reserve", "0"), ("weekly_revenue", "0")]:
+        for col, default in [("legal_reserve", "0"), ("weekly_revenue", "0"), ("extra_slots", "0"), ("is_muted", "FALSE")]:
             try:
                 await conn.execute(
-                    text(f"ALTER TABLE companies ADD COLUMN {col} BIGINT DEFAULT {default}")
+                    text(f"ALTER TABLE companies ADD COLUMN IF NOT EXISTS {col} BIGINT DEFAULT {default}")
                 )
-                logger.info(f"Colonne companies.{col} ajoutée.")
+                logger.info(f"Colonne companies.{col} vérifiée.")
             except Exception:
-                pass  # déjà présente
+                pass

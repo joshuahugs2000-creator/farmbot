@@ -3534,7 +3534,7 @@ async def resetboite(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Change le propriétaire (CEO) d'une entreprise et/ou redistribue librement
+    Change le propriétaire (PDG) d'une entreprise et/ou redistribue librement
     les parts entre membres.
 
     Sous-commandes :
@@ -3542,13 +3542,13 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
           → Affiche le propriétaire actuel + toutes les parts
 
       /admintransfert proprio <NomEntreprise> @newceo
-          → Change uniquement le CEO/PDG (propriétaire) sans toucher aux parts
+          → Change uniquement le PDG/PDG (propriétaire) sans toucher aux parts
 
       /admintransfert parts <NomEntreprise> @user1:qty1 @user2:qty2 ...
           → Redistribue les parts comme tu veux (total = nouveau total_shares)
 
       /admintransfert full <NomEntreprise> @newceo @user1:qty1 @user2:qty2 ...
-          → Change le CEO ET redistribue les parts en une seule commande
+          → Change le PDG ET redistribue les parts en une seule commande
     """
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
@@ -3559,11 +3559,11 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<code>/admintransfert info NomEntreprise</code>\n"
             "  → Voir proprio + parts actuels\n\n"
             "<code>/admintransfert proprio NomEntreprise @newceo</code>\n"
-            "  → Changer le CEO/PDG uniquement\n\n"
+            "  → Changer le PDG/PDG uniquement\n\n"
             "<code>/admintransfert parts NomEntreprise @user1:100 @user2:50</code>\n"
             "  → Redéfinir les parts librement\n\n"
             "<code>/admintransfert full NomEntreprise @newceo @user1:100 @user2:50</code>\n"
-            "  → Changer le CEO + redistribuer les parts\n\n"
+            "  → Changer le PDG + redistribuer les parts\n\n"
             "💡 <i>Les @users doivent avoir utilisé le bot au moins une fois.</i>",
             parse_mode="HTML"
         )
@@ -3608,7 +3608,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines = [
             msg_prefix,
             f"🏢 <b>{comp.name}</b>",
-            f"💎 Propriétaire (CEO) : <b>{owner_label}</b> (uid:{comp.owner_id})",
+            f"💎 Propriétaire (PDG) : <b>{owner_label}</b> (uid:{comp.owner_id})",
             f"📦 Total parts : <b>{comp.total_shares}</b>  |  💰 Prix/part : <b>{_fmt(price_per)} $</b>",
             "",
         ]
@@ -3640,7 +3640,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(msg, parse_mode="HTML")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Sous-commande : proprio  → changer CEO uniquement
+    # Sous-commande : proprio  → changer PDG uniquement
     # ══════════════════════════════════════════════════════════════════════════
     if sub == "proprio":
         # Format : proprio <NomEntreprise> @newceo
@@ -3673,7 +3673,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_owner_id = new_ceo.user_id
             new_ceo_label = f"@{new_ceo.username}" if new_ceo.username else new_ceo.first_name
 
-            # Rétrograder l'ancien CEO → directeur s'il est encore dans l'entreprise
+            # Rétrograder l'ancien PDG → directeur s'il est encore dans l'entreprise
             await session.execute(
                 text(
                     "UPDATE company_employees SET role='directeur' "
@@ -3682,7 +3682,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"cid": comp.id, "uid": old_owner_id}
             )
 
-            # Vérifier si le nouveau CEO est déjà dans l'entreprise
+            # Vérifier si le nouveau PDG est déjà dans l'entreprise
             emp_exists = (await session.execute(
                 text("SELECT id FROM company_employees WHERE company_id=:cid AND user_id=:uid AND left_at IS NULL"),
                 {"cid": comp.id, "uid": new_owner_id}
@@ -3711,24 +3711,24 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "INSERT INTO company_logs (company_id, event_type, description, created_at) "
                     "VALUES (:cid, 'admin_transfert', :desc, NOW())"
                 ),
-                {"cid": comp.id, "desc": f"[ADMIN] Nouveau CEO : {new_ceo_label} (uid:{new_owner_id}) — ancien propriétaire uid:{old_owner_id}"}
+                {"cid": comp.id, "desc": f"[ADMIN] Nouveau PDG : {new_ceo_label} (uid:{new_owner_id}) — ancien propriétaire uid:{old_owner_id}"}
             )
             await session.commit()
 
         await update.message.reply_text(
             f"✅ <b>Propriétaire mis à jour — {comp.name}</b>\n\n"
-            f"👤 Ancien CEO : uid:{old_owner_id} → rétrogradé Directeur\n"
-            f"💎 Nouveau CEO : <b>{new_ceo_label}</b> (uid:{new_owner_id})\n\n"
+            f"👤 Ancien PDG : uid:{old_owner_id} → rétrogradé Directeur\n"
+            f"💎 Nouveau PDG : <b>{new_ceo_label}</b> (uid:{new_owner_id})\n\n"
             f"📦 Les parts n'ont <b>pas</b> été modifiées.\n"
             f"💡 Pour redistribuer : <code>/admintransfert parts {comp.name} @user:qty ...</code>",
             parse_mode="HTML"
         )
 
-        # Notifier le nouveau CEO
+        # Notifier le nouveau PDG
         try:
             await context.bot.send_message(
                 chat_id=new_owner_id,
-                text=f"💎 <b>Un admin t'a nommé CEO de {comp.name} !</b>",
+                text=f"💎 <b>Un admin t'a nommé PDG de {comp.name} !</b>",
                 parse_mode="HTML"
             )
         except Exception:
@@ -3759,14 +3759,14 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
-    # Pour 'full', le dernier arg non-share avant les assignments est le nouveau CEO
+    # Pour 'full', le dernier arg non-share avant les assignments est le nouveau PDG
     new_ceo_mention = None
     if sub == "full":
         # Le @newceo n'a pas de ':', c'est le dernier non_share_arg
         ceo_candidates = [a for a in non_share_args if a.startswith("@") or a.lstrip("@").isdigit()]
         if not ceo_candidates:
             return await update.message.reply_text(
-                "❌ Pour <code>full</code>, indique le nouveau CEO : <code>@user</code> avant les attributions de parts.",
+                "❌ Pour <code>full</code>, indique le nouveau PDG : <code>@user</code> avant les attributions de parts.",
                 parse_mode="HTML"
             )
         new_ceo_mention = ceo_candidates[-1]
@@ -3830,7 +3830,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_ceo = await resolve(session, new_ceo_mention)
             if not new_ceo:
                 return await update.message.reply_text(
-                    f"❌ Nouveau CEO <b>{new_ceo_mention}</b> introuvable.", parse_mode="HTML"
+                    f"❌ Nouveau PDG <b>{new_ceo_mention}</b> introuvable.", parse_mode="HTML"
                 )
 
         old_owner_id = comp.owner_id
@@ -3873,13 +3873,13 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"t": total_new_shares, "cid": comp.id}
         )
 
-        # ── Mise à jour CEO si 'full' ──────────────────────────────────────
+        # ── Mise à jour PDG si 'full' ──────────────────────────────────────
         ceo_report = ""
         if sub == "full" and new_ceo:
             new_owner_id = new_ceo.user_id
             new_ceo_label = f"@{new_ceo.username}" if new_ceo.username else new_ceo.first_name
 
-            # Rétrograder l'ancien CEO
+            # Rétrograder l'ancien PDG
             await session.execute(
                 text(
                     "UPDATE company_employees SET role='directeur' "
@@ -3888,7 +3888,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"cid": comp.id, "uid": old_owner_id}
             )
 
-            # Nommer le nouveau CEO
+            # Nommer le nouveau PDG
             emp_exists = (await session.execute(
                 text("SELECT id FROM company_employees WHERE company_id=:cid AND user_id=:uid AND left_at IS NULL"),
                 {"cid": comp.id, "uid": new_owner_id}
@@ -3904,7 +3904,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     {"cid": comp.id, "uid": new_owner_id}
                 )
 
-            # Trouver les parts du nouveau CEO pour owner_shares
+            # Trouver les parts du nouveau PDG pour owner_shares
             new_owner_qty = next((q for u, q in resolved if u.user_id == new_owner_id), 0)
 
             await session.execute(
@@ -3912,13 +3912,13 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"uid": new_owner_id, "os": new_owner_qty, "cid": comp.id}
             )
 
-            ceo_report = f"\n💎 Nouveau CEO : <b>{new_ceo_label}</b> (uid:{new_owner_id})"
+            ceo_report = f"\n💎 Nouveau PDG : <b>{new_ceo_label}</b> (uid:{new_owner_id})"
 
-            # Notifier le nouveau CEO
+            # Notifier le nouveau PDG
             try:
                 await context.bot.send_message(
                     chat_id=new_owner_id,
-                    text=f"💎 <b>Un admin t'a nommé CEO de {comp.name} !</b>\n"
+                    text=f"💎 <b>Un admin t'a nommé PDG de {comp.name} !</b>\n"
                          f"📦 Tu détiens <b>{new_owner_qty} parts</b>.",
                     parse_mode="HTML"
                 )
@@ -3939,7 +3939,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
             + ", ".join(f"uid:{u.user_id}→{q}" for u, q in resolved)
         )
         if sub == "full" and new_ceo:
-            log_desc += f" | Nouveau CEO uid:{new_ceo.user_id}"
+            log_desc += f" | Nouveau PDG uid:{new_ceo.user_id}"
 
         await session.execute(
             text(
@@ -3950,7 +3950,7 @@ async def admintransfert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await session.commit()
 
-    action_label = "Redistribution parts + Changement CEO" if sub == "full" else "Redistribution parts"
+    action_label = "Redistribution parts + Changement PDG" if sub == "full" else "Redistribution parts"
     await update.message.reply_text(
         f"✅ <b>{action_label} — {comp.name}</b>{ceo_report}\n\n"
         f"📦 Nouveau total : <b>{total_new_shares} parts</b>\n\n"

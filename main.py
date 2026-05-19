@@ -113,7 +113,7 @@ from handlers.company import (
     skipattente_cmd,
     annoncerecrutement_cmd, annoncerecrutement_callback,
     cederentreprise_cmd, payeremploye_cmd,
-    renommerboite_cmd,
+    renommerboite_cmd, acheterpla_cmd,
 )
 from handlers.company_sector import (
     init_sector_tables,
@@ -607,6 +607,7 @@ async def main():
     app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
     app.add_handler(CommandHandler("mesparts",       _prison_checked(mesparts_cmd)))
     app.add_handler(CommandHandler("renommerboite",  _prison_checked(renommerboite_cmd)))
+    app.add_handler(CommandHandler("acheterpla",     _prison_checked(acheterpla_cmd)))
     # ── Secteurs : événements, contrats, classement ───────────────────────────
     app.add_handler(CommandHandler("evenements",      _prison_checked(evenements_cmd)))
     app.add_handler(CommandHandler("classement",      _prison_checked(classement_cmd)))

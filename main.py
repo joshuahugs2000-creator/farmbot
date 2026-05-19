@@ -21,6 +21,7 @@ from handlers.family   import (
     marry, adopt, friend, divorce, disown, unfriend,
     setfamilyname, leave, familyphoto,
     request_callback, leave_callback,
+    setsexe, setmariage, marry_type_callback,
 )
 from handlers.tree     import tree
 from handlers.garden   import garden, plant_cmd, harvest
@@ -347,6 +348,21 @@ async def on_startup(application: Application):
     await init_company_tables()
     await init_sector_tables()
     await init_finance_tables()
+
+    # Migration : colonnes genre et mariage
+    from database.db import engine
+    from sqlalchemy import text as _text
+    async with engine.begin() as _conn:
+        for _sql in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS marriage_type VARCHAR(10) DEFAULT 'monogame'",
+            "ALTER TABLE pending_requests ADD COLUMN IF NOT EXISTS extra VARCHAR(50)",
+        ]:
+            try:
+                await _conn.execute(_text(_sql))
+            except Exception:
+                pass
+
     logger.info("Base de données initialisée.")
 
 
@@ -410,6 +426,9 @@ async def main():
     app.add_handler(CommandHandler("disown",        _prison_checked(disown)))
     app.add_handler(CommandHandler("unfriend",      _prison_checked(unfriend)))
     app.add_handler(CommandHandler("leave",         _prison_checked(leave)))
+    app.add_handler(CommandHandler("setsexe",       _prison_checked(setsexe)))
+    app.add_handler(CommandHandler("setmariage",    _prison_checked(setmariage)))
+    app.add_handler(CallbackQueryHandler(marry_type_callback, pattern=r"^marry_type:"))
 
     # ── Arbre ─────────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("tree",    _prison_checked(tree)))

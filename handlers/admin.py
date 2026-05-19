@@ -20,6 +20,7 @@ Commandes :
   /broadcast    — message à tous les users ET groupes
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from telegram import Update
@@ -41,6 +42,7 @@ ADMIN_IDS: set[int] = {
 
 # ─── État global du bot ───────────────────────────────────────────────────────
 BOT_PAUSED: bool = False
+_BROADCAST_LOCK: bool = False
 
 
 def _fmt(n: int) -> str:
@@ -767,6 +769,11 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not msg:
         return await update.message.reply_text("❌ Le message est vide.")
 
+    global _BROADCAST_LOCK
+    if _BROADCAST_LOCK:
+        return await update.message.reply_text("⚠️ Un broadcast est déjà en cours, attends qu'il se termine.")
+
+    _BROADCAST_LOCK = True
     broadcast_text = f"📢 <b>Message officiel</b>\n\n{msg}"
 
     async with AsyncSessionLocal() as session:
@@ -784,27 +791,32 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent_users, failed_users   = 0, 0
     sent_groups, failed_groups = 0, 0
 
-    for u in user_rows:
-        try:
-            await context.bot.send_message(
-                chat_id=u.user_id,
-                text=broadcast_text,
-                parse_mode=ParseMode.HTML,
-            )
-            sent_users += 1
-        except Exception:
-            failed_users += 1
+    try:
+        for u in user_rows:
+            try:
+                await context.bot.send_message(
+                    chat_id=u.user_id,
+                    text=broadcast_text,
+                    parse_mode=ParseMode.HTML,
+                )
+                sent_users += 1
+            except Exception:
+                failed_users += 1
+            await asyncio.sleep(0.05)  # 20 msgs/sec max
 
-    for g in group_rows:
-        try:
-            await context.bot.send_message(
-                chat_id=g.group_id,
-                text=broadcast_text,
-                parse_mode=ParseMode.HTML,
-            )
-            sent_groups += 1
-        except Exception:
-            failed_groups += 1
+        for g in group_rows:
+            try:
+                await context.bot.send_message(
+                    chat_id=g.group_id,
+                    text=broadcast_text,
+                    parse_mode=ParseMode.HTML,
+                )
+                sent_groups += 1
+            except Exception:
+                failed_groups += 1
+            await asyncio.sleep(0.05)
+    finally:
+        _BROADCAST_LOCK = False
 
     lines = ["📢 <b>Broadcast terminé.</b>"]
     if not groups_only:

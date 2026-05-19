@@ -100,6 +100,13 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fam_display = f"<b>{fam_name}</b>" if fam_name else "<i>Sans famille</i>"
     fam_size_str = f"  ({size} membre{'s' if size > 1 else ''})"
 
+    # ── Genre et type de mariage ──────────────────────────────────────────────
+    gender = getattr(u, "gender", None)
+    marriage_type = getattr(u, "marriage_type", "monogame") or "monogame"
+    gender_emoji = "♂️" if gender == "homme" else ("♀️" if gender == "femme" else "❓")
+    gender_label = gender.capitalize() if gender else "Non défini"
+    marry_emoji  = "❤️" if marriage_type == "monogame" else "💞"
+
     lines = [
         f"",
         f"「 {color_dot} 」<b>{update.effective_user.first_name}</b>",
@@ -110,6 +117,9 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"",
         f"  💰 <b>FORTUNE</b>",
         f"  ╰┈➤  <code>{_fmt(coins)} {CURRENCY}</code>",
+        f"",
+        f"  {gender_emoji} <b>GENRE</b>  ┊  {marry_emoji} <i>{marriage_type.capitalize()}</i>",
+        f"  ╰┈➤  <b>{gender_label}</b>  <i>(/setsexe · /setmariage)</i>",
         f"",
         f"  🏠 <b>FAMILLE</b>",
         f"  ╰┈➤  {fam_display}{fam_size_str}",

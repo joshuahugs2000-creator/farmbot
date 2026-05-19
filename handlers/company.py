@@ -402,8 +402,46 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
                     if company.reputation > 1.0:
                         company.reputation = max(1.0, company.reputation - 0.05)
 
-            # Revenus → 100% en trésorerie (paie manuelle par le PDG)
-            company.treasury += revenue
+            # ── Réserve légale : 10% du revenu brut bloqué automatiquement ──
+            legal_share = int(revenue * 0.10)
+            net_revenue = revenue - legal_share
+            company.legal_reserve = (company.legal_reserve or 0) + legal_share
+
+            # ── Remboursement automatique du prêt actif ──────────────────────
+            try:
+                from database.models import CompanyLoan
+                loan_res = await session.execute(
+                    select(CompanyLoan).where(
+                        CompanyLoan.company_id == company.id,
+                        CompanyLoan.status == "active",
+                    )
+                )
+                active_loan = loan_res.scalar_one_or_none()
+                if active_loan:
+                    payment = min(active_loan.daily_payment, active_loan.remaining)
+                    if company.treasury >= payment:
+                        company.treasury -= payment
+                        active_loan.remaining -= payment
+                        active_loan.missed_days = 0
+                        if active_loan.remaining <= 0:
+                            active_loan.status = "repaid"
+                            await _add_log(session, company.id, "pret",
+                                           "✅ Prêt bancaire entièrement remboursé !")
+                    else:
+                        # Trésorerie insuffisante : pénalité
+                        active_loan.missed_days = (active_loan.missed_days or 0) + 1
+                        penalty = int(company.value * 0.01)  # -1% valeur
+                        company.value = max(1_000_000, company.value - penalty)
+                        if company.reputation > 1.0:
+                            company.reputation = max(1.0, company.reputation - 0.1)
+                        await _add_log(session, company.id, "pret",
+                                       f"⚠️ Remboursement prêt impossible (trésorerie insuffisante) — pénalité appliquée")
+            except Exception:
+                pass
+
+            # ── Revenus nets → trésorerie ─────────────────────────────────
+            company.treasury += net_revenue
+            company.weekly_revenue = (company.weekly_revenue or 0) + net_revenue
             company.last_revenue = datetime.utcnow()
 
             # Ancienneté : +0.1% de valeur par jour
@@ -1774,15 +1812,17 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for e in emps_actifs
             if e.role not in ("stagiaire", "pdg")
         )
-        montant_disponible = max(0, company.treasury - reserve_salaires)
+        # La réserve légale est intouchable
+        reserve_legale = company.legal_reserve or 0
+        montant_disponible = max(0, company.treasury - reserve_legale - reserve_salaires)
         if amount > montant_disponible:
             await update.message.reply_text(
-                f"❌ Ce retrait dépasserait la réserve salariale de tes employés.\n\n"
+                f"❌ Ce retrait dépasse les fonds disponibles après réserves.\n\n"
                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n"
-                f"🔒 Réserve salaires employés : <b>{_fmt(reserve_salaires)} $</b>\n"
+                f"🔒 Réserve légale (intouchable) : <b>{_fmt(reserve_legale)} $</b>\n"
+                f"👷 Réserve salaires employés : <b>{_fmt(reserve_salaires)} $</b>\n"
                 f"💸 Tu peux retirer au maximum : <b>{_fmt(montant_disponible)} $</b>\n\n"
-                f"💡 Utilise <code>/versersalaires</code> pour te payer (PDG inclus) "
-                f"et libérer ensuite les fonds restants.",
+                f"💡 Utilise <code>/versersalaires</code> pour libérer la réserve salariale.",
                 parse_mode="HTML"
             )
             return

@@ -302,6 +302,21 @@ async def get_family_members(session: AsyncSession, user_id: int) -> List[int]:
 
 async def add_relationship(session: AsyncSession, uid: int, rid: int,
                            rel_type: RelationType, group_id: Optional[int]) -> Relationship:
+    # Vérifier doublon AVANT d'insérer — protection absolue contre les doublons
+    check = await session.execute(
+        select(Relationship).where(
+            and_(
+                or_(
+                    and_(Relationship.user_id == uid, Relationship.related_user_id == rid),
+                    and_(Relationship.user_id == rid, Relationship.related_user_id == uid),
+                ),
+                Relationship.relation_type == rel_type,
+            )
+        )
+    )
+    existing = check.scalar_one_or_none()
+    if existing is not None:
+        return existing  # Relation déjà existante — ne pas insérer
     rel = Relationship(user_id=uid, related_user_id=rid, relation_type=rel_type, group_id=group_id)
     session.add(rel)
     await session.commit()

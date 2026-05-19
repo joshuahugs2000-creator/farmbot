@@ -253,6 +253,8 @@ class Company(Base):
     last_annonce    = Column(DateTime, nullable=True)            # dernière annonce de recrutement
     last_rename     = Column(DateTime, nullable=True)            # dernier renommage de l'entreprise
     extra_slots     = Column(Integer, default=0)                 # places supplémentaires achetées
+    legal_reserve   = Column(BigInteger, default=0)              # réserve légale intouchable (10% des bénéfices)
+    weekly_revenue  = Column(BigInteger, default=0)              # revenus nets de la semaine (reset après dividendes lundi)
 
 
 class CompanyEmployee(Base):
@@ -317,6 +319,21 @@ class CompanyWorkShift(Base):
     paid        = Column(Boolean, default=False)       # True une fois le salaire versé
     paid_at     = Column(DateTime, nullable=True)
 
+
+
+class CompanyLoan(Base):
+    """Prêt bancaire contracté par une entreprise."""
+    __tablename__ = "company_loans"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    company_id    = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    amount        = Column(BigInteger, nullable=False)       # montant initial emprunté
+    remaining     = Column(BigInteger, nullable=False)       # reste à rembourser (principal + intérêts)
+    interest_rate = Column(Float, nullable=False)            # taux annuel (ex: 0.10 = 10%)
+    daily_payment = Column(BigInteger, nullable=False)       # montant dû chaque jour (auto-prélevé)
+    taken_at      = Column(DateTime, default=datetime.utcnow)
+    due_at        = Column(DateTime, nullable=False)         # échéance finale (30 jours)
+    status        = Column(String(20), default="active")     # active / repaid / defaulted
+    missed_days   = Column(Integer, default=0)               # jours de retard consécutifs
 
 
 class CompanyShareOffer(Base):

@@ -373,7 +373,7 @@ async def mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Mode : <b>{new_mode}</b>", parse_mode=ParseMode.HTML)
 
 
-HELP_ENTREPRISE_TEXT = """
+HELP_ENTREPRISE_P1 = """
 🏢 <b>GUIDE ENTREPRISE — Your Family ❤️</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -403,28 +403,28 @@ Chaque employé a un rôle : <b>Stagiaire → Employé → Manager → Directeur
 💰 <b>LA CAISSE ET LES REVENUS</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Toutes les 24h, ton entreprise génère automatiquement des revenus dans sa caisse selon sa valeur et son niveau. Sur ces revenus :
+Toutes les 24h, ton entreprise génère des revenus dans sa caisse selon sa valeur et son niveau. Sur ces revenus :
 
 — <b>10%</b> sont bloqués en <b>réserve légale</b> (intouchable)
 — <b>Le reste</b> va dans la caisse, dispo pour payer les employés ou être retiré par le PDG
 
-Le PDG verse les salaires manuellement avec /versersalaires. Si la caisse est insuffisante, les salaires sont réduits proportionnellement.
+Le PDG verse les salaires avec /versersalaires. Si la caisse est insuffisante, les salaires sont réduits proportionnellement.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 <b>LES PARTS ET LES DIVIDENDES</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Ton entreprise a <b>100 parts</b> au départ, toutes dans tes mains. Tu peux en vendre une partie à d'autres joueurs avec /vendreparts. Ces joueurs deviennent actionnaires.
+Ton entreprise a <b>100 parts</b> au départ, toutes dans tes mains. Tu peux en vendre avec /vendreparts. Ces joueurs deviennent actionnaires et reçoivent <b>chaque lundi à 9h</b> une part des bénéfices de la semaine.
 
-<b>Chaque lundi à 9h</b>, 30% des revenus de la semaine sont distribués automatiquement à tous les actionnaires selon leurs parts. Même sans être employé tu peux investir dans une boîte et toucher chaque semaine.
+Utilise /dividendes pour voir combien tu vas recevoir.
+"""
 
-Utilise /dividendes pour voir combien tu vas recevoir lundi.
-
+HELP_ENTREPRISE_P2 = """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🏦 <b>LES PRÊTS (PDG uniquement)</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-T'as besoin de cash rapidement ? Emprunte avec /emprunterboite. Le taux dépend de ton niveau — une Startup paye plus cher qu'une Holding. Le remboursement se fait <b>automatiquement</b> sur chaque cycle de revenus. Tu peux aussi rembourser en avance avec /rembourserboite.
+Emprunte avec /emprunterboite. Le taux dépend de ton niveau. Le remboursement se fait <b>automatiquement</b> sur chaque cycle de revenus. Remboursement anticipé possible avec /rembourserboite.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌐 <b>CONTRATS ET ÉVÉNEMENTS</b>
@@ -432,59 +432,38 @@ T'as besoin de cash rapidement ? Emprunte avec /emprunterboite. Le taux dépend 
 
 Les entreprises peuvent signer des <b>contrats B2B</b> entre elles via /proposercontrat. Un contrat actif booste les revenus des deux parties.
 
-Des <b>événements sectoriels</b> surviennent aussi régulièrement (boom, crise, opportunité…) et impactent les revenus de toutes les boîtes du même secteur. Utilise /evenements pour voir ce qui se passe.
+Des <b>événements sectoriels</b> surviennent régulièrement (boom, crise…) et impactent les revenus de toutes les boîtes du même secteur. Utilise /evenements pour voir ce qui se passe.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🏆 <b>CLASSEMENT</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Un classement est publié <b>chaque jour à 18h</b>. Chaque <b>dimanche à 20h</b>, les 3 premières boîtes reçoivent une récompense en coins. Utilise /classement pour voir où t'en es.
+Classement publié <b>chaque jour à 18h</b>. Les 3 premières boîtes reçoivent une récompense chaque <b>dimanche à 20h</b>. Utilise /classement.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📋 <b>TOUTES LES COMMANDES</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>Général</b>
-/listeboites — voir toutes les entreprises
-/infoboite — infos sur une entreprise
-/creerboite — créer son entreprise
-/monentreprise — tableau de bord complet
-/bilan — état financier détaillé
+/listeboites /infoboite /creerboite /monentreprise /bilan
 
 <b>Employés</b>
-/annoncerecrutement — publier une offre
-/postuler — postuler dans une boîte
-/employes — voir l'équipe
-/presences — activité de chaque employé
-/nommer — promouvoir un employé
-/licencier — virer un employé
-/versersalaires — payer tout le monde
-/payeremploye — payer un employé seul
-/demissionner — quitter une entreprise
+/annoncerecrutement /postuler /employes /presences
+/nommer /licencier /versersalaires /payeremploye /demissionner
 
 <b>Finances</b>
-/depotboite — déposer dans la caisse
-/retraitboite — retirer de la caisse
-/emprunterboite — contracter un prêt
-/pretboite — voir son prêt en cours
-/rembourserboite — rembourser en avance
-/dividendes — voir ses dividendes
+/depotboite /retraitboite /emprunterboite /pretboite /rembourserboite /dividendes
 
 <b>Parts</b>
-/parts — répartition des parts
-/vendreparts — mettre des parts en vente
-/acheterparts — acheter des parts
-/mesparts — toutes ses participations
+/parts /vendreparts /acheterparts /mesparts /offresparts
 
-<b>Contrats & Classement</b>
-/proposercontrat — proposer un contrat B2B
-/mescontrats — ses contrats actifs
-/evenements — événements sectoriels
-/classement — top des entreprises
+<b>Contrats &amp; Classement</b>
+/proposercontrat /mescontrats /evenements /classement
 """
 
 async def helpentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(HELP_ENTREPRISE_TEXT, parse_mode=ParseMode.HTML)
+    await update.message.reply_text(HELP_ENTREPRISE_P1, parse_mode=ParseMode.HTML)
+    await update.message.reply_text(HELP_ENTREPRISE_P2, parse_mode=ParseMode.HTML)
 
 
 async def toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):

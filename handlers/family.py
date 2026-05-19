@@ -111,6 +111,18 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s_type = getattr(s_db, "marriage_type", "monogame") or "monogame"
         s_spouses = await get_all_spouses(session, sender.user_id)
 
+        # Vérifier si déjà mariés ensemble (protection doublon)
+        already_together = any(
+            (r.user_id == sender.user_id and r.related_user_id == target.user_id) or
+            (r.user_id == target.user_id and r.related_user_id == sender.user_id)
+            for r in s_spouses
+        )
+        if already_together:
+            return await update.message.reply_text(
+                f"💍 Tu es déjà marié(e) avec {mention(target)} !",
+                parse_mode=ParseMode.HTML,
+            )
+
         if s_spouses and s_type == "monogame":
             return await update.message.reply_text(
                 "❌ Tu es déjà marié(e) et ton mode est <b>monogame</b>.\n"
@@ -130,25 +142,36 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML,
             )
 
-        # Vérifier demandes en attente
+        # Vérifier demandes en attente (paire sender↔target spécifiquement)
         from sqlalchemy import select as _sel
         from database.models import PendingRequest as _PR
         _ex = await session.execute(
-            _sel(_PR).where(_PR.from_user_id == sender.user_id, _PR.request_type == RequestType.MARRY)
+            _sel(_PR).where(
+                _PR.from_user_id == sender.user_id,
+                _PR.to_user_id == target.user_id,
+                _PR.request_type == RequestType.MARRY
+            )
         )
         existing_sender = _ex.scalar_one_or_none()
         if existing_sender:
             if datetime.utcnow() < existing_sender.expires_at:
-                return await update.message.reply_text("Tu as deja une demande de mariage en attente !")
+                return await update.message.reply_text(
+                    f"⏳ Tu as déjà une demande de mariage en attente vers {mention(target)} !",
+                    parse_mode=ParseMode.HTML,
+                )
             else:
                 await session.delete(existing_sender)
                 await session.commit()
 
+        # Vérifier si la cible a déjà une demande de mariage de quelqu'un d'autre
         _ex2 = await session.execute(
-            _sel(_PR).where(_PR.to_user_id == target.user_id, _PR.request_type == RequestType.MARRY)
+            _sel(_PR).where(
+                _PR.to_user_id == target.user_id,
+                _PR.request_type == RequestType.MARRY
+            )
         )
         existing_target = _ex2.scalar_one_or_none()
-        if existing_target:
+        if existing_target and existing_target.from_user_id != sender.user_id:
             if datetime.utcnow() < existing_target.expires_at:
                 return await update.message.reply_text(
                     f"💔 {mention(target)} a déjà une demande de mariage en attente. Réessaie dans quelques instants.",
@@ -320,6 +343,12 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await delete_request(session, req_id)
                 return await query.edit_message_text("❌ Mariage impossible : même genre détecté.")
 
+            # Vérifier si déjà mariés ensemble (doublon absolu)
+            already = await relationship_exists(session, req.from_user_id, req.to_user_id, RelationType.SPOUSE)
+            if already:
+                await delete_request(session, req_id)
+                return await query.edit_message_text("💍 Vous êtes déjà mariés ensemble !")
+
             # Vérif monogamie sender
             s_type = getattr(sender_db, "marriage_type", "monogame") or "monogame"
             s_spouses = await get_all_spouses(session, req.from_user_id)
@@ -335,6 +364,14 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return await query.edit_message_text("❌ Le/la destinataire est déjà marié(e) (monogame).")
 
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.SPOUSE, req.group_id)
+
+            # Mettre à jour le marriage_type des deux en base si polygame
+            if marriage_type == "polygame":
+                await session.execute(
+                    text("UPDATE users SET marriage_type = 'polygame' WHERE user_id IN (:uid1, :uid2)"),
+                    {"uid1": req.from_user_id, "uid2": req.to_user_id}
+                )
+
             fam = await get_family_members(session, req.from_user_id)
             await _sync_family_name(session, req.from_user_id, fam)
 
@@ -470,50 +507,18 @@ async def unfriend(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── /setfamilyname ──────────────────────────────────────────────────────────
 
-FAMILY_NAME_COST = 50_000  # coût en coins
-
 async def setfamilyname(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import re
     if not context.args:
-        return await update.message.reply_text(
-            f"✏️ <b>Changer le nom de famille</b>\n\n"
-            f"Usage : <code>/setfamilyname NomDeFamille</code>\n"
-            f"💰 Coût : <b>{FAMILY_NAME_COST:,} {CURRENCY}</b>",
-            parse_mode=ParseMode.HTML
-        )
-
-    name = " ".join(context.args)[:50].strip()
-    if not re.match(r"^[\w\s\-']{2,50}$", name, re.UNICODE):
-        return await update.message.reply_text(
-            "❌ Nom invalide. Lettres, espaces et tirets uniquement (2 à 50 caractères)."
-        )
-
+        return await update.message.reply_text("Usage : /setfamilyname NomDeFamille")
+    name = " ".join(context.args)[:50]
     user = await ensure_user(update.effective_user)
     async with AsyncSessionLocal() as session:
         u = await get_user(session, user.user_id)
-        if not u:
-            return await update.message.reply_text("❌ Compte introuvable.")
-        if u.coins < FAMILY_NAME_COST:
-            return await update.message.reply_text(
-                f"❌ Pas assez de coins.\n"
-                f"💰 Requis : <b>{FAMILY_NAME_COST:,} {CURRENCY}</b>\n"
-                f"💵 Ton solde : <b>{u.coins:,} {CURRENCY}</b>",
-                parse_mode=ParseMode.HTML
-            )
-        old_name = u.family_name or "—"
-        u.coins -= FAMILY_NAME_COST
         u.family_name = name
         fam = await get_family_members(session, user.user_id)
         await _sync_family_name(session, user.user_id, fam)
         await session.commit()
-
-    await update.message.reply_text(
-        f"✅ <b>Nom de famille mis à jour !</b>\n\n"
-        f"Ancien : <i>{old_name}</i>\n"
-        f"Nouveau : <b>{name}</b>\n\n"
-        f"💰 <b>{FAMILY_NAME_COST:,} {CURRENCY}</b> débités.",
-        parse_mode=ParseMode.HTML
-    )
+    await update.message.reply_text(f"Nom de famille : {name}")
 
 
 # ─── /leave ──────────────────────────────────────────────────────────────────

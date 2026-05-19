@@ -46,6 +46,10 @@ class User(Base):
     diplome_domain  = Column(String(50), nullable=True)   # finance, informatique, ...
     exam_cooldown   = Column(DateTime, nullable=True)      # bloqué jusqu'à cette date
 
+    # ─── IDENTITÉ ─────────────────────────────────────────────────────────────
+    gender          = Column(String(10), nullable=True)    # homme / femme / None (non défini)
+    marriage_type   = Column(String(10), default="monogame")  # monogame / polygame
+
     # ─── AVATAR ───────────────────────────────────────────────────────────────
     avatar_data     = Column(Text, nullable=True)          # JSON stocké côté serveur
 
@@ -78,6 +82,7 @@ class PendingRequest(Base):
     message_id   = Column(BigInteger, nullable=True)
     expires_at   = Column(DateTime, nullable=False)
     created_at   = Column(DateTime, default=datetime.utcnow)
+    extra        = Column(String(50), nullable=True)   # données supplémentaires (ex: type de mariage)
 
 
 class Garden(Base):

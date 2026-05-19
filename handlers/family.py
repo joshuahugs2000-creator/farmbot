@@ -470,18 +470,84 @@ async def unfriend(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── /setfamilyname ──────────────────────────────────────────────────────────
 
+FAMILY_NAME_COST     = 50_000      # coût en coins
+FAMILY_NAME_COOLDOWN = 30          # jours entre chaque changement
+
 async def setfamilyname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        return await update.message.reply_text("Usage : /setfamilyname NomDeFamille")
-    name = " ".join(context.args)[:50]
+        return await update.message.reply_text(
+            f"✏️ <b>Changer le nom de famille</b>\n\n"
+            f"Usage : <code>/setfamilyname NomDeFamille</code>\n"
+            f"💰 Coût : <b>{FAMILY_NAME_COST:,} {CURRENCY}</b>\n"
+            f"⏳ Cooldown : <b>{FAMILY_NAME_COOLDOWN} jours</b> entre chaque changement",
+            parse_mode=ParseMode.HTML
+        )
+
+    import re
+    from datetime import datetime, timedelta
+
+    name = " ".join(context.args)[:50].strip()
+
+    # Validation du nom (lettres, espaces, tirets, apostrophes uniquement)
+    if not re.match(r"^[\w\s\-']{2,50}$", name, re.UNICODE):
+        return await update.message.reply_text(
+            "❌ Nom invalide. Utilise uniquement des lettres, espaces ou tirets (2 à 50 caractères)."
+        )
+
     user = await ensure_user(update.effective_user)
+
     async with AsyncSessionLocal() as session:
         u = await get_user(session, user.user_id)
+
+        # Vérifier le cooldown (stocké dans last_family_rename)
+        last_rename = getattr(u, "last_family_rename", None)
+        if last_rename:
+            next_allowed = last_rename + timedelta(days=FAMILY_NAME_COOLDOWN)
+            if datetime.utcnow() < next_allowed:
+                jours_restants = (next_allowed - datetime.utcnow()).days + 1
+                return await update.message.reply_text(
+                    f"⏳ Tu as déjà changé ton nom de famille récemment.\n"
+                    f"Prochain changement possible dans <b>{jours_restants} jour(s)</b>.",
+                    parse_mode=ParseMode.HTML
+                )
+
+        # Vérifier le solde
+        if u.coins < FAMILY_NAME_COST:
+            return await update.message.reply_text(
+                f"❌ Pas assez de coins.\n"
+                f"💰 Requis : <b>{FAMILY_NAME_COST:,} {CURRENCY}</b>\n"
+                f"💵 Ton solde : <b>{u.coins:,} {CURRENCY}</b>",
+                parse_mode=ParseMode.HTML
+            )
+
+        old_name = u.family_name or "—"
+
+        # Débiter le coût
+        u.coins -= FAMILY_NAME_COST
         u.family_name = name
+
+        # Mettre à jour le cooldown si la colonne existe
+        try:
+            from sqlalchemy import text as _text
+            await session.execute(
+                _text("UPDATE users SET last_family_rename = NOW() WHERE user_id = :uid"),
+                {"uid": u.user_id}
+            )
+        except Exception:
+            pass  # colonne peut ne pas exister encore → pas bloquant
+
         fam = await get_family_members(session, user.user_id)
         await _sync_family_name(session, user.user_id, fam)
         await session.commit()
-    await update.message.reply_text(f"Nom de famille : {name}")
+
+    await update.message.reply_text(
+        f"✅ <b>Nom de famille mis à jour !</b>\n\n"
+        f"Ancien : <i>{old_name}</i>\n"
+        f"Nouveau : <b>{name}</b>\n\n"
+        f"💰 <b>{FAMILY_NAME_COST:,} {CURRENCY}</b> débités.\n"
+        f"⏳ Prochain changement dans <b>{FAMILY_NAME_COOLDOWN} jours</b>.",
+        parse_mode=ParseMode.HTML
+    )
 
 
 # ─── /leave ──────────────────────────────────────────────────────────────────

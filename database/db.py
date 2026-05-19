@@ -145,6 +145,28 @@ async def init_db():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_payroll TIMESTAMP DEFAULT NULL",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT NOW()",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS description VARCHAR(300) DEFAULT NULL",
+        # ── Nouvelles colonnes finances entreprise ────────────────────────────
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS legal_reserve BIGINT DEFAULT 0",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS weekly_revenue BIGINT DEFAULT 0",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS extra_slots INTEGER DEFAULT 0",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_muted BOOLEAN DEFAULT FALSE",
+        # ── Table prêts entreprise ────────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS company_loans (
+            id              SERIAL PRIMARY KEY,
+            company_id      INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            amount          BIGINT  NOT NULL,
+            rate            FLOAT   NOT NULL DEFAULT 0.05,
+            issued_at       TIMESTAMP DEFAULT NOW(),
+            due_at          TIMESTAMP NOT NULL,
+            remaining       BIGINT  NOT NULL,
+            late_days       INTEGER DEFAULT 0,
+            status          VARCHAR(20) DEFAULT 'active'
+        )""",
+        # ── Colonnes genre et mariage (users) ─────────────────────────────────
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10) DEFAULT NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS marriage_type VARCHAR(10) DEFAULT 'monogame'",
+        # ── Colonne extra (pending_requests) ──────────────────────────────────
+        "ALTER TABLE pending_requests ADD COLUMN IF NOT EXISTS extra VARCHAR(50) DEFAULT NULL",
         # ── company_invites : colonnes ────────────────────────────────────────
         "ALTER TABLE company_invites ADD COLUMN IF NOT EXISTS role VARCHAR(30) DEFAULT 'employe'",
         "ALTER TABLE company_invites ADD COLUMN IF NOT EXISTS invited_by BIGINT DEFAULT NULL",

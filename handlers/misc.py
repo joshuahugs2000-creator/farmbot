@@ -73,11 +73,12 @@ HELP_TEXT_1 = """
 /parts [nom] — Voir la répartition des parts
 /acheterparts nb nom — Acheter des parts
 /vendreparts nb prix — Vendre des parts
-/versersalaires — 👑 PDG : Déclencher la paie des employés
+/versersalaires — 👑 PDG : Voir suggestions salaires · /versersalaires payer pour payer · /versersalaires auto pour autopay
 /presences — 👑 PDG : Voir l'activité des employés
 /offresparts — 👑 PDG : Voir les offres de rachat de parts en attente
 /classement — Classement global des entreprises
 /classement secteur — Classement par secteur
+/mescontratsauto — Voir les contrats automatiques IA de ton entreprise
 /proposercontrat nom — Proposer un contrat à une autre entreprise
 /acceptercontrat id — Accepter un contrat
 /refusercontrat id — Refuser un contrat
@@ -457,8 +458,8 @@ Classement publié <b>chaque jour à 18h</b>. Les 3 premières boîtes reçoiven
 <b>Parts</b>
 /parts /vendreparts /acheterparts /mesparts /offresparts
 
-<b>Contrats &amp; Classement</b>
-/proposercontrat /mescontrats /evenements /classement
+<b>Contrats & Classement</b>
+/proposercontrat /mescontrats /evenements /classement /mescontratsauto
 """
 
 async def helpentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

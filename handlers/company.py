@@ -959,11 +959,23 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         db_user = await get_user(session, user.id)
 
-        # Déjà dans une boite ?
-        company, emp = await _get_user_company(session, user.id)
-        if company:
+        # Déjà dans une ou deux boites ?
+        all_emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.user_id == user.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalars().all()
+
+        if len(all_emps) >= 2:
+            noms = []
+            for e in all_emps:
+                c = await session.get(Company, e.company_id)
+                if c:
+                    noms.append(f"<b>{c.name}</b>")
             await update.message.reply_text(
-                f"❌ Tu es déjà dans <b>{company.name}</b>. Démissionne d'abord.",
+                f"❌ Tu es déjà dans 2 entreprises ({' & '.join(noms)}).\n"
+                f"Maximum 2 entreprises simultanées.",
                 parse_mode="HTML"
             )
             return

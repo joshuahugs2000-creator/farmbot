@@ -353,3 +353,33 @@ class CompanyShareOffer(Base):
     status      = Column(String(20), default="pending")  # pending / accepted / rejected / expired
     created_at  = Column(DateTime, default=datetime.utcnow)
     expires_at  = Column(DateTime, nullable=False)
+
+
+class CompanyAutoContract(Base):
+    """Contrat automatique généré par l'IA et proposé à une entreprise."""
+    __tablename__ = "company_auto_contracts"
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    company_id       = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    sector           = Column(String(50), nullable=False)
+    client_name      = Column(String(150), nullable=False)   # nom client fictif généré
+    description      = Column(String(600), nullable=False)   # description de la mission
+    objective_cmds   = Column(Integer, nullable=False)       # commandes à effectuer
+    reward           = Column(BigInteger, nullable=False)    # récompense initiale proposée
+    deadline_hours   = Column(Integer, nullable=False)       # délai en heures
+    status           = Column(String(20), default="pending") # pending/active/completed/failed/rejected/negotiating
+    created_at       = Column(DateTime, default=datetime.utcnow)
+    accepted_at      = Column(DateTime, nullable=True)
+    deadline_at      = Column(DateTime, nullable=True)
+    cmds_at_start    = Column(BigInteger, default=0)         # total commandes équipe au moment de l'acceptation
+    negotiated_reward= Column(BigInteger, nullable=True)     # montant après négociation (si accepté)
+    negotiation_round= Column(Integer, default=0)            # nb de tours de négociation
+    notif_message_id = Column(BigInteger, nullable=True)     # message_id de la notif PDG (pour éditer)
+
+
+class CompanySettings(Base):
+    """Paramètres par entreprise (autopay, etc.)."""
+    __tablename__ = "company_settings"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    company_id    = Column(Integer, ForeignKey("companies.id"), nullable=False, unique=True)
+    auto_payroll  = Column(Boolean, default=False)   # True = paie auto selon suggestions
+    next_contract_at = Column(DateTime, nullable=True)  # prochain contrat IA planifié

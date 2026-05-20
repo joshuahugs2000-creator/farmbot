@@ -820,13 +820,14 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Vérifier déjà dans une boite
         company, emp = await _get_user_company(session, user.id)
-        if company:
+        if company and emp.role == "pdg":
             await update.message.reply_text(
-                f"❌ Tu es déjà dans l'entreprise <b>{company.name}</b>.\n"
-                f"Démissionne d'abord avec <code>/demissionner</code>",
+                f"❌ Tu es déjà PDG de <b>{company.name}</b>.\n"
+                f"Un PDG ne peut pas créer une deuxième entreprise.",
                 parse_mode="HTML"
             )
             return
+        # Si employé (non-PDG) : autorisé à créer sa propre boite en parallèle
 
         # Vérifier déjà PDG
         own = (await session.execute(
@@ -2935,16 +2936,43 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         # Confirmation requise : /dissoudreboite CONFIRMER
         if not context.args or context.args[0].upper() != "CONFIRMER":
+            # Calculer la répartition prévisionnelle par parts
+            shares_list = (await session.execute(
+                select(CompanyShare).where(
+                    CompanyShare.company_id == company.id,
+                    CompanyShare.quantity > 0,
+                )
+            )).scalars().all()
+            total_shares = company.total_shares or 100
+            preview_lines = []
+            for s in shares_list:
+                sh_user = await session.get(User, s.owner_id)
+                name_s = sh_user.first_name if sh_user else "?"
+                pct = s.quantity / total_shares
+                montant = int(company.treasury * pct)
+                preview_lines.append(f"  · {name_s} ({s.quantity} parts) → {_fmt(montant)} $")
+            preview = "\n".join(preview_lines) if preview_lines else "  · Aucun actionnaire"
+
             await update.message.reply_text(
                 f"⚠️ <b>Tu es sur le point de dissoudre {company.name} !</b>\n\n"
                 f"💰 Valeur actuelle : <b>{_fmt(company.value)} $</b>\n"
                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n\n"
-                f"Tu récupèreras <b>50%</b> de la trésorerie.\n"
+                f"📊 <b>Distribution de la trésorerie aux actionnaires :</b>\n{preview}\n\n"
                 f"Tous les employés seront libérés <b>sans cooldown</b>.\n\n"
                 f"Pour confirmer : <code>/dissoudreboite CONFIRMER</code>",
                 parse_mode="HTML"
             )
             return
+
+        # Récupérer les actionnaires
+        shares_list = (await session.execute(
+            select(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.quantity > 0,
+            )
+        )).scalars().all()
+        total_shares = company.total_shares or 100
+        treasury = company.treasury
 
         # Récupérer les employés pour les libérer
         emps = (await session.execute(
@@ -2954,12 +2982,11 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         )).scalars().all()
 
-        # Libérer tous les employés SANS cooldown (on date dans le passé pour bypass les 7j)
+        # Libérer tous les employés SANS cooldown
         bypass_date = datetime.utcnow() - timedelta(days=8)
         for e in emps:
             if e.user_id != user.id:
                 e.left_at = bypass_date
-                # Notifier chaque employé
                 try:
                     await context.bot.send_message(
                         chat_id=e.user_id,
@@ -2972,10 +2999,31 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 except Exception:
                     pass
 
-        # PDG récupère 50% de la trésorerie
-        remboursement = company.treasury // 2
-        db_user = await get_user(session, user.id)
-        db_user.coins += remboursement
+        # Distribuer la trésorerie proportionnellement aux parts
+        total_distribue = 0
+        for s in shares_list:
+            if s.quantity <= 0:
+                continue
+            pct = s.quantity / total_shares
+            montant = int(treasury * pct)
+            if montant <= 0:
+                continue
+            sh_user = await session.get(User, s.owner_id)
+            if sh_user:
+                sh_user.coins += montant
+                total_distribue += montant
+                try:
+                    await context.bot.send_message(
+                        chat_id=s.owner_id,
+                        text=(
+                            f"🏚️ <b>{company.name}</b> a été dissoute.\n\n"
+                            f"📊 Tu détenais <b>{s.quantity} parts</b> ({int(pct*100)}%)\n"
+                            f"💰 Tu reçois : <b>+{_fmt(montant)} $</b>"
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
 
         # Fermer l'entreprise
         company.is_active = False
@@ -2987,12 +3035,12 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pdg_emp.left_at = datetime.utcnow()
 
         await _add_log(session, company.id, "dissolution",
-                       f"Entreprise dissoute par {user.first_name}")
+                       f"Entreprise dissoute par {user.first_name} — {_fmt(total_distribue)} $ distribués aux actionnaires")
         await session.commit()
 
         await update.message.reply_text(
             f"🏚️ <b>{company.name}</b> a été dissoute.\n\n"
-            f"💰 Tu as récupéré <b>{_fmt(remboursement)} $</b> (50% de la trésorerie).\n"
+            f"💰 <b>{_fmt(total_distribue)} $</b> distribués aux actionnaires selon leurs parts.\n"
             f"👥 Tous les employés ont été libérés sans cooldown.",
             parse_mode="HTML"
         )

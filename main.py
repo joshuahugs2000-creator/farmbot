@@ -128,6 +128,11 @@ from handlers.company_finance import (
     bilan_cmd, emprunterboite_cmd, pretboite_cmd, rembourserboite_cmd,
     dividendes_cmd, job_company_dividends,
 )
+from handlers.company_contracts import (
+    init_contract_tables,
+    job_dispatch_contracts, job_check_contracts,
+    contract_callback, mescontratsauto_cmd,
+)
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
 
@@ -348,6 +353,7 @@ async def on_startup(application: Application):
     await init_company_tables()
     await init_sector_tables()
     await init_finance_tables()
+    await init_contract_tables()
 
     # Migration : colonnes genre et mariage
     from database.db import engine
@@ -629,6 +635,8 @@ async def main():
     app.add_handler(CommandHandler("versersalaires", _prison_checked(versersalaires_cmd)))
     app.add_handler(CommandHandler("presences",      _prison_checked(presences_cmd)))
     app.add_handler(CommandHandler("payeremploye",   _prison_checked(payeremploye_cmd)))
+    app.add_handler(CommandHandler("mescontratsauto", _prison_checked(mescontratsauto_cmd)))
+    app.add_handler(CallbackQueryHandler(contract_callback, pattern=r"^cnt_(accept|negoc|refuse):\d+$"))
     app.add_handler(CommandHandler("cederentreprise",_prison_checked(cederentreprise_cmd)))
     app.add_handler(CommandHandler("skipattente",    _prison_checked(skipattente_cmd)))
     app.add_handler(CommandHandler("offresparts",    _prison_checked(offresparts_cmd)))
@@ -749,6 +757,20 @@ async def main():
         job_daily_ranking_broadcast,
         time=dt_time(hour=18, minute=0, tzinfo=tz_paris),
         name="daily_ranking_broadcast",
+    )
+
+    # ── Jobs contrats automatiques IA ─────────────────────────────────────────
+    app.job_queue.run_repeating(
+        job_dispatch_contracts,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=20),
+        name="dispatch_auto_contracts",
+    )
+    app.job_queue.run_repeating(
+        job_check_contracts,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=35),
+        name="check_auto_contracts",
     )
 
     # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────

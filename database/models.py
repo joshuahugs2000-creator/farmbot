@@ -272,6 +272,11 @@ class CompanyEmployee(Base):
     left_at     = Column(DateTime, nullable=True)          # date de démission (cooldown)
     command_count = Column(Integer, default=0)             # commandes utilisées depuis l'entrée
     activity_since_payroll = Column(Integer, default=0)    # commandes depuis la dernière paie (reset après /versersalaires)
+    # ── Système de contrat ────────────────────────────────────────────────────
+    daily_salary   = Column(BigInteger, default=0)         # salaire journalier fixé par le PDG (signé)
+    pending_salary = Column(BigInteger, default=0)         # salaire proposé en négociation
+    pending_bonus  = Column(BigInteger, default=0)         # prime proposée (optionnelle)
+    contract_status = Column(String(30), default="none")   # none / pending_employee / pending_pdg / signed
 
 
 class CompanyShare(Base):

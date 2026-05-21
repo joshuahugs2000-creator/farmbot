@@ -3345,8 +3345,8 @@ async def salaireinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /presences — Direction voit l'activité de chaque employé depuis la dernière paie.
-    Le PDG voit en plus le montant trésorerie disponible et le hint /payeremploye.
+    /presences — Direction voit l'activité + salaire contractuel de chaque employé.
+    Signale les employés sans contrat signé et propose /negociercontrat.
     """
     user = update.effective_user
     async with AsyncSessionLocal() as session:
@@ -3356,7 +3356,7 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.", parse_mode="HTML")
             return
         if emp.role not in DIRECTION_ROLES:
-            await update.message.reply_text("❌ Réservé à la direction (Directeur, PDG, PDG).", parse_mode="HTML")
+            await update.message.reply_text("❌ Réservé à la direction (Directeur, PDG).", parse_mode="HTML")
             return
 
         emps = (await session.execute(
@@ -3366,58 +3366,100 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )).scalars().all()
 
-        sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
         last_pay_str = company.last_payroll.strftime("%d/%m %H:%M") if company.last_payroll else "Jamais"
-        is_pdg = emp.role in ("pdg",)
+        is_pdg = emp.role == "pdg"
+
+        # Compter les sans-contrat (hors PDG et stagiaire)
+        sans_contrat = [
+            e for e in emps
+            if e.role not in ("pdg", "stagiaire") and (e.contract_status or "none") != "signed"
+        ]
 
         lines = [
             f"📊 <b>PRÉSENCES — {company.name}</b>",
             f"<i>Dernière paie : {last_pay_str}</i>",
             f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>",
-            "─────────────────────────────",
         ]
+        if sans_contrat and is_pdg:
+            lines.append(f"⚠️ <b>{len(sans_contrat)} employé(s) sans contrat signé</b>")
+        lines.append("─────────────────────────────")
 
-        _, _, _, monthly_rate, _ = _level_info(company.level)
-        base_rev = int(company.value * monthly_rate) // 30
+        sorted_emps = sorted(
+            emps,
+            key=lambda x: ROLES_ORDER.index(x.role) if x.role in ROLES_ORDER else 0,
+            reverse=True
+        )
 
-        sorted_emps = sorted(emps, key=lambda x: ROLES_ORDER.index(x.role) if x.role in ROLES_ORDER else 0, reverse=True)
-
+        total_masse = 0
         for e in sorted_emps:
             emp_user = await session.get(User, e.user_id)
             name = emp_user.first_name if emp_user else "?"
-            username = f"@{emp_user.username}" if emp_user and emp_user.username else name
+            uname = emp_user.username if emp_user and emp_user.username else None
             role_emoji = ROLE_EMOJI.get(e.role, "👤")
             activity = e.activity_since_payroll or 0
+            daily = e.daily_salary or 0
+            status = e.contract_status or "none"
 
-            if e.role == "stagiaire":
-                salary_preview = "—"
-            else:
-                share = ROLE_SHARE.get(e.role, 0)
-                activity_bonus = min(0.5, activity / 40)
-                salary_preview = _fmt(int(base_rev * share * (1 + activity_bonus)))
-
-            bar_full = min(10, activity)
+            bar_full = min(10, activity // 5 if activity > 10 else activity)
             bar = "█" * bar_full + "░" * (10 - bar_full)
 
-            # Pour le PDG : afficher aussi le username pour faciliter /payeremploye
-            if is_pdg and e.role not in ("stagiaire", "pdg"):
+            # Ligne de base : rôle + activité
+            if e.role == "pdg":
                 lines.append(
-                    f"{role_emoji} <b>{name}</b> [{e.role}]  ·  {username}\n"
-                    f"   {bar} {activity} cmd  ·  💵 auto ~{salary_preview} $\n"
-                    f"   💡 <code>/payeremploye {emp_user.username or name} [montant]</code>"
+                    f"{role_emoji} <b>{name}</b> [pdg]\n"
+                    f"   {bar} {activity} cmd"
                 )
+                continue
+
+            if e.role == "stagiaire":
+                lines.append(
+                    f"{role_emoji} <b>{name}</b> [stagiaire]\n"
+                    f"   {bar} {activity} cmd · pas de salaire"
+                )
+                continue
+
+            total_masse += daily
+
+            # Statut du contrat
+            if status == "signed":
+                contrat_line = f"📄 Contrat : <b>{_fmt(daily)} $/jour</b>"
+            elif status == "pending_employee":
+                contrat_line = f"⏳ En attente de réponse employé ({_fmt(e.pending_salary or 0)} $/j proposé)"
+            elif status == "pending_pdg":
+                contrat_line = f"💬 Contre-prop employé : <b>{_fmt(e.pending_salary or 0)} $/j</b>"
             else:
-                lines.append(
-                    f"{role_emoji} <b>{name}</b> [{e.role}]\n"
-                    f"   {bar} {activity} cmd · 💵 ~{salary_preview} $"
-                )
+                contrat_line = "❌ <b>Pas de contrat</b>"
+
+            # Hint negociercontrat si PDG et pas de contrat signé
+            hint = ""
+            if is_pdg and status != "signed" and uname:
+                hint = f"\n   👉 <code>/negociercontrat @{uname} [salaire]</code>"
+            elif is_pdg and status == "pending_pdg" and uname:
+                pending = e.pending_salary or 0
+                hint = f"\n   👉 <code>/negociercontrat @{uname} {pending}</code> pour accepter"
+
+            tag = f"· @{uname}" if uname else ""
+            lines.append(
+                f"{role_emoji} <b>{name}</b> [{e.role}] {tag}\n"
+                f"   {bar} {activity} cmd\n"
+                f"   {contrat_line}{hint}"
+            )
 
         lines.append("─────────────────────────────")
+        lines.append(f"💰 Masse salariale/jour : <b>{_fmt(total_masse)} $</b>")
+
         if is_pdg:
-            lines.append("💎 En tant que PDG, utilise <code>/payeremploye @pseudo [montant]</code> pour payer manuellement.")
-            lines.append("👑 Le PDG peut lui déclencher <code>/versersalaires</code> pour la paie automatique.")
+            if sans_contrat:
+                lines.append(
+                    f"\n⚠️ <b>{len(sans_contrat)} employé(s) sans contrat</b> — utilise "
+                    f"<code>/negociercontrat @pseudo [salaire]</code> pour les régulariser."
+                )
+            lines.append("\n💡 <code>/versersalaires payer</code> pour verser les salaires du jour.")
         else:
-            lines.append("💡 <code>/versersalaires</code> pour déclencher la paie automatique")
+            lines.append("💡 Le PDG déclenche la paie avec <code>/versersalaires payer</code>.")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
 
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 

@@ -5,13 +5,17 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
-# Railway fournit DATABASE_URL en postgresql:// ou postgres://
-# asyncpg nécessite postgresql+asyncpg://  → on corrige automatiquement
+# Railway et Render fournissent DATABASE_URL en postgresql:// ou postgres://
+# SQLAlchemy async nécessite postgresql+asyncpg://  → on corrige automatiquement
 _db_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://localhost/fam_tree_bot")
 if _db_url.startswith("postgres://"):
     _db_url = _db_url.replace("postgres://", "postgresql+asyncpg://", 1)
 elif _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+# Certains hébergeurs ajoutent ?sslmode=require — asyncpg utilise ssl=True à la place
+if "?sslmode=require" in _db_url:
+    _db_url = _db_url.replace("?sslmode=require", "")
+    _db_url = _db_url + "?ssl=true" if "?" not in _db_url.split("@")[-1] else _db_url + "&ssl=true"
 DATABASE_URL = _db_url
 
 REQUEST_TIMEOUT = 120  # secondes avant expiration demande (2 minutes)

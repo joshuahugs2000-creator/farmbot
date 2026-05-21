@@ -500,7 +500,7 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
 
 # ─── JOB : BONUS ACTIVITÉ BOT (compte les commandes des employés) ────────────
 
-REVENUE_PER_CMD = 1_000   # 1 commande employé = 1 000 $ en trésorerie
+REVENUE_PER_CMD = 5_000   # 1 commande employé = 5 000 $ en trésorerie
 
 async def update_company_activity(user_id: int):
     """Appelé par le middleware à chaque commande. Génère 1 000 $ de revenus pour la trésorerie."""
@@ -1336,9 +1336,23 @@ async def refuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── COMMANDE : /recruter @pseudo [poste?] ────────────────────────────────────
 
 async def recruter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /recruter @pseudo [poste] [salaire_jour] [prime_optionnelle]
+    Le PDG invite un utilisateur et peut lui proposer directement un contrat.
+    Exemples :
+      /recruter @jean employe 50000         → invite + propose 50 000 $/jour
+      /recruter @jean employe 50000 10000   → invite + 50 000 $/jour + prime 10 000 $
+      /recruter @jean employe               → invite sans contrat (l'employé rejoint comme stagiaire/poste)
+    """
     user = update.effective_user
     if not context.args:
-        await update.message.reply_text("❌ Usage : <code>/recruter @pseudo [poste]</code>", parse_mode="HTML")
+        await update.message.reply_text(
+            "❌ Usage : <code>/recruter @pseudo [poste] [salaire/jour] [prime]</code>\n\n"
+            "Exemples :\n"
+            "• <code>/recruter @jean employe 50000</code> — invite + contrat 50k$/j\n"
+            "• <code>/recruter @jean employe 50000 10000</code> — avec prime de 10k$",
+            parse_mode="HTML"
+        )
         return
 
     async with AsyncSessionLocal() as session:
@@ -1347,11 +1361,25 @@ async def recruter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Tu dois être au moins Manager pour recruter.")
             return
 
-        # Parser la cible
+        # Parser les arguments
         mention = context.args[0].lstrip("@")
         role_arg = context.args[1].lower() if len(context.args) > 1 else "employe"
         if role_arg not in ROLES_ORDER or role_arg == "pdg":
             role_arg = "employe"
+
+        proposed_salary = 0
+        proposed_bonus = 0
+        if len(context.args) > 2:
+            try:
+                proposed_salary = int(context.args[2].replace("_", "").replace(" ", ""))
+            except ValueError:
+                await update.message.reply_text("❌ Salaire invalide. Exemple : <code>/recruter @jean employe 50000</code>", parse_mode="HTML")
+                return
+        if len(context.args) > 3:
+            try:
+                proposed_bonus = int(context.args[3].replace("_", "").replace(" ", ""))
+            except ValueError:
+                proposed_bonus = 0
 
         # Trouver l'utilisateur
         target = (await session.execute(
@@ -1383,7 +1411,7 @@ async def recruter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Tu ne peux pas nommer quelqu'un au même niveau ou au-dessus du tien.")
             return
 
-        # Créer l'invitation
+        # Créer l'invitation (avec salaire proposé si renseigné)
         invite = CompanyInvite(
             company_id=company.id,
             target_id=target.user_id,
@@ -1392,26 +1420,56 @@ async def recruter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status="pending",
             expires_at=datetime.utcnow() + timedelta(hours=48),
         )
+        # Stocker la proposition de contrat dans l'invite via des attributs dynamiques
+        # On encode salaire/bonus dans le champ role étendu via un séparateur
+        if proposed_salary > 0:
+            invite.role = f"{role_arg}|{proposed_salary}|{proposed_bonus}"
         session.add(invite)
         await session.commit()
 
         role_emoji = ROLE_EMOJI.get(role_arg, "👤")
+
+        # Construire le message de l'invitation
+        contrat_info = ""
+        if proposed_salary > 0:
+            contrat_info = (
+                f"\n\n📄 <b>Contrat proposé :</b>\n"
+                f"   💰 Salaire : <b>{_fmt(proposed_salary)} $/jour</b>\n"
+            )
+            if proposed_bonus > 0:
+                contrat_info += f"   🎁 Prime à la signature : <b>{_fmt(proposed_bonus)} $</b>\n"
+            contrat_info += "\nIl peut <b>accepter</b>, <b>refuser</b> ou <b>contre-proposer</b> un salaire."
+
         await update.message.reply_text(
             f"📩 Invitation envoyée à <b>{target.first_name}</b> pour rejoindre <b>{company.name}</b> "
-            f"en tant que {role_emoji} <b>{role_arg.capitalize()}</b>.\n\n"
+            f"en tant que {role_emoji} <b>{role_arg.capitalize()}</b>.{contrat_info}\n\n"
             f"Il peut accepter avec <code>/rejoindre {company.name}</code>",
             parse_mode="HTML"
         )
         # ── Notifier la cible en DM ──
         try:
+            dm_contrat = ""
+            if proposed_salary > 0:
+                dm_contrat = (
+                    f"\n\n📄 <b>Contrat proposé :</b>\n"
+                    f"   💰 Salaire : <b>{_fmt(proposed_salary)} $/jour</b>\n"
+                )
+                if proposed_bonus > 0:
+                    dm_contrat += f"   🎁 Prime à la signature : <b>{_fmt(proposed_bonus)} $</b>\n"
+                dm_contrat += (
+                    f"\n✅ Accepter : <code>/rejoindre {company.name}</code>\n"
+                    f"❌ Refuser : ignore ou attends l'expiration\n"
+                    f"💬 Contre-proposer : <code>/rejoindre {company.name} [ton_salaire]</code>"
+                )
+            else:
+                dm_contrat = f"\n\n✅ Accepter : <code>/rejoindre {company.name}</code>\n⏳ L'invitation expire dans <b>48h</b>."
+
             await context.bot.send_message(
                 chat_id=target.user_id,
                 text=(
                     f"📩 <b>Tu as reçu une invitation !</b>\n\n"
                     f"🏢 <b>{company.name}</b> t'invite à les rejoindre "
-                    f"en tant que {role_emoji} <b>{role_arg.capitalize()}</b>.\n\n"
-                    f"✅ Accepter : <code>/rejoindre {company.name}</code>\n"
-                    f"⏳ L'invitation expire dans <b>48h</b>."
+                    f"en tant que {role_emoji} <b>{role_arg.capitalize()}</b>.{dm_contrat}"
                 ),
                 parse_mode="HTML"
             )
@@ -1422,11 +1480,21 @@ async def recruter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── COMMANDE : /rejoindre [entreprise] ──────────────────────────────────────
 
 async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /rejoindre [nom entreprise]              → accepte le contrat proposé
+    /rejoindre [nom entreprise] [mon_salaire] → contre-propose un salaire
+    """
     user = update.effective_user
     if not context.args:
         await update.message.reply_text("❌ Usage : <code>/rejoindre [nom entreprise]</code>", parse_mode="HTML")
         return
-    name = " ".join(context.args)
+
+    # Détecter si le dernier arg est un nombre (contre-proposition)
+    counter_salary = 0
+    args_list = list(context.args)
+    if args_list and args_list[-1].replace("_", "").isdigit():
+        counter_salary = int(args_list.pop().replace("_", ""))
+    name = " ".join(args_list)
 
     async with AsyncSessionLocal() as session:
         # Cooldown (pas appliqué si la dernière boite quittée était une bot company)
@@ -1478,6 +1546,12 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Décoder role et contrat de l'invite (format: "role|salaire|bonus" ou juste "role")
+        invite_parts = invite.role.split("|")
+        real_role = invite_parts[0]
+        proposed_salary = int(invite_parts[1]) if len(invite_parts) > 1 else 0
+        proposed_bonus  = int(invite_parts[2]) if len(invite_parts) > 2 else 0
+
         # Vérifier capacité avant de rejoindre
         max_emp = _max_employees(target)
         nb_emp = (await session.execute(
@@ -1494,20 +1568,89 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ── CAS 1 : Contre-proposition de salaire ──────────────────────────
+        if counter_salary > 0 and proposed_salary > 0:
+            # L'employé contre-propose → on notifie le PDG et on attend sa réponse
+            invite.status = "counter"
+            # Stocker la contre-proposition dans le role field
+            invite.role = f"{real_role}|{counter_salary}|{proposed_bonus}|counter"
+            await session.commit()
+
+            role_emoji = ROLE_EMOJI.get(real_role, "👤")
+            await update.message.reply_text(
+                f"💬 <b>Contre-proposition envoyée à {target.name} !</b>\n\n"
+                f"📄 Ta demande : <b>{_fmt(counter_salary)} $/jour</b>\n"
+                f"⏳ En attente de la réponse du PDG...\n\n"
+                f"💡 Le PDG peut accepter ou refuser avec <code>/acceptercandidature @{user.username or user.first_name}</code>",
+                parse_mode="HTML"
+            )
+
+            # Notifier le PDG
+            pdg_emp = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == target.id,
+                    CompanyEmployee.role == "pdg",
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar_one_or_none()
+            if pdg_emp:
+                try:
+                    await context.bot.send_message(
+                        chat_id=pdg_emp.user_id,
+                        text=(
+                            f"💬 <b>Contre-proposition reçue !</b>\n\n"
+                            f"👤 <b>{user.first_name}</b> (@{user.username or '?'}) refuse le salaire proposé ({_fmt(proposed_salary)} $/j)\n"
+                            f"📄 Il demande : <b>{_fmt(counter_salary)} $/jour</b>\n\n"
+                            f"✅ Accepter : <code>/negociercontrat @{user.username or user.first_name} {counter_salary}</code>\n"
+                            f"❌ Refuser : <code>/negociercontrat @{user.username or user.first_name} refuser</code>"
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+            return
+
+        # ── CAS 2 : Acceptation directe ────────────────────────────────────
         invite.status = "accepted"
         new_emp = CompanyEmployee(
             company_id=target.id,
             user_id=user.id,
-            role=invite.role,
+            role=real_role,
         )
+
+        # Appliquer le contrat si un salaire était proposé
+        if proposed_salary > 0:
+            new_emp.daily_salary = proposed_salary
+            new_emp.contract_status = "signed"
+        else:
+            new_emp.contract_status = "none"
+
         session.add(new_emp)
+        await session.flush()
+
+        # Verser la prime si applicable
+        if proposed_bonus > 0 and proposed_salary > 0:
+            target_user = await session.get(User, user.id)
+            if target_user:
+                target_user.coins += proposed_bonus
+            if target.treasury >= proposed_bonus:
+                target.treasury -= proposed_bonus
+            else:
+                proposed_bonus = 0  # Pas assez en trésorerie, pas de prime
+
         await _add_log(session, target.id, "recrutement",
-                       f"{user.first_name} a rejoint l'entreprise ({invite.role})")
+                       f"{user.first_name} a rejoint l'entreprise ({real_role})"
+                       + (f" — contrat {_fmt(proposed_salary)} $/j" if proposed_salary > 0 else ""))
         await session.commit()
 
-        role_emoji = ROLE_EMOJI.get(invite.role, "👤")
+        role_emoji = ROLE_EMOJI.get(real_role, "👤")
+        contrat_msg = ""
+        if proposed_salary > 0:
+            contrat_msg = f"\n\n📄 Contrat signé : <b>{_fmt(proposed_salary)} $/jour</b>"
+            if proposed_bonus > 0:
+                contrat_msg += f" + prime de <b>{_fmt(proposed_bonus)} $</b> versée !"
         await update.message.reply_text(
-            f"✅ Bienvenue dans <b>{target.name}</b> ! {role_emoji} Tu es <b>{invite.role.capitalize()}</b>.",
+            f"✅ Bienvenue dans <b>{target.name}</b> ! {role_emoji} Tu es <b>{real_role.capitalize()}</b>.{contrat_msg}",
             parse_mode="HTML"
         )
 
@@ -3252,17 +3395,13 @@ async def presences_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── COMMANDE : /versersalaires ──────────────────────────────────────────────
 
-PAYROLL_COOLDOWN_HOURS = 12   # Le PDG ne peut payer qu'une fois toutes les 12h
+PAYROLL_COOLDOWN_HOURS = 20   # Le PDG ne peut payer qu'une fois toutes les 20h (≈ quotidien)
 
 async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /versersalaires — PDG voit les suggestions de salaire basées sur l'activité
-    et peut payer selon la suggestion, un montant libre, ou activer l'autopay.
-
-    Usage :
-      /versersalaires           → affiche le récapitulatif + suggestions
-      /versersalaires auto      → active/désactive l'autopay
-      /versersalaires payer     → paie selon les suggestions automatiquement
+    /versersalaires                    → affiche les salaires contractuels + stats activité
+    /versersalaires payer              → verse les daily_salary signés à tous les employés
+    /versersalaires modifier @pseudo [montant] → modifier le salaire d'un employé et sauvegarder
     """
     user = update.effective_user
     args = context.args or []
@@ -3278,62 +3417,74 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Seul le PDG peut gérer les salaires.")
             return
 
-        if company.treasury <= 0:
-            await update.message.reply_text(
-                "❌ La trésorerie est vide (<b>0 $</b>). Les employés doivent être actifs pour générer des revenus.",
-                parse_mode="HTML"
-            )
-            return
+        # ── MODIFIER LE SALAIRE D'UN EMPLOYÉ ─────────────────────────────
+        if subcmd == "modifier":
+            if len(args) < 3:
+                await update.message.reply_text(
+                    "❌ Usage : <code>/versersalaires modifier @pseudo [montant]</code>",
+                    parse_mode="HTML"
+                )
+                return
+            mention = args[1].lstrip("@")
+            try:
+                new_salary = int(args[2].replace("_", "").replace(" ", ""))
+            except ValueError:
+                await update.message.reply_text("❌ Montant invalide.", parse_mode="HTML")
+                return
 
-        # Charger les settings autopay
-        from database.models import CompanySettings as CS
-        settings = (await session.execute(
-            select(CS).where(CS.company_id == company.id)
-        )).scalar_one_or_none()
-        if not settings:
-            settings = CS(company_id=company.id)
-            session.add(settings)
-            await session.flush()
+            target = (await session.execute(
+                select(User).where(User.username == mention)
+            )).scalar_one_or_none()
+            if not target:
+                await update.message.reply_text(f"❌ @{mention} introuvable.")
+                return
 
-        # ── TOGGLE AUTOPAY ────────────────────────────────────────────────
-        if subcmd == "auto":
-            settings.auto_payroll = not settings.auto_payroll
+            target_emp = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.user_id == target.user_id,
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar_one_or_none()
+            if not target_emp:
+                await update.message.reply_text(f"❌ {target.first_name} n'est pas dans ton entreprise.")
+                return
+
+            old_salary = target_emp.daily_salary or 0
+            target_emp.daily_salary = new_salary
+            target_emp.contract_status = "signed"
             await session.commit()
-            state = "✅ activé" if settings.auto_payroll else "❌ désactivé"
+
             await update.message.reply_text(
-                f"🔄 <b>Autopay {state}</b>\n\n"
-                f"{'Les salaires seront versés automatiquement selon les suggestions à chaque cycle.' if settings.auto_payroll else 'Tu devras déclencher manuellement avec /versersalaires payer.'}",
+                f"✅ Salaire de <b>{target.first_name}</b> modifié :\n"
+                f"   {_fmt(old_salary)} $ → <b>{_fmt(new_salary)} $/jour</b>",
                 parse_mode="HTML"
             )
+            try:
+                await context.bot.send_message(
+                    chat_id=target.user_id,
+                    text=(
+                        f"📄 <b>Modification de contrat</b>\n\n"
+                        f"🏢 <b>{company.name}</b> a mis à jour ton salaire :\n"
+                        f"   {_fmt(old_salary)} $ → <b>{_fmt(new_salary)} $/jour</b>"
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
             return
 
-        # Récupérer employés éligibles (hors stagiaires, hors PDG)
+        # Récupérer tous les employés actifs (hors PDG)
         emps = (await session.execute(
             select(CompanyEmployee).where(
                 CompanyEmployee.company_id == company.id,
                 CompanyEmployee.left_at == None,
-                CompanyEmployee.role.notin_(["stagiaire", "pdg"]),
+                CompanyEmployee.role != "pdg",
             )
         )).scalars().all()
 
-        if not emps:
-            await update.message.reply_text("❌ Aucun employé éligible à la paie (hors stagiaires).")
-            return
-
-        # ── CALCUL DES SUGGESTIONS ────────────────────────────────────────
-        # Suggestion = activity_since_payroll * REVENUE_PER_CMD
-        # (ce que chaque employé a réellement généré)
-        suggestions = []
-        total_suggestion = 0
-        for e in emps:
-            activity = e.activity_since_payroll or 0
-            suggested = activity * REVENUE_PER_CMD
-            suggestions.append((e, activity, suggested))
-            total_suggestion += suggested
-
         # ── AFFICHAGE RÉCAPITULATIF ───────────────────────────────────────
         if subcmd not in ("payer",):
-            # Cooldown check pour info
             cooldown_info = ""
             if company.last_payroll:
                 delta = datetime.utcnow() - company.last_payroll
@@ -3341,37 +3492,41 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 if remaining.total_seconds() > 0:
                     h = int(remaining.total_seconds() // 3600)
                     m = int((remaining.total_seconds() % 3600) // 60)
-                    cooldown_info = f"\n⏳ Cooldown paie : <b>{h}h{m:02d}m</b>"
+                    cooldown_info = f"\n⏳ Prochaine paie dans : <b>{h}h{m:02d}m</b>"
 
+            total_daily = 0
             lines = [
-                f"💼 <b>RÉCAP SALAIRES — {company.name}</b>",
+                f"💼 <b>SALAIRES — {company.name}</b>",
                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>",
-                f"🔄 Autopay : {'✅ Actif' if settings.auto_payroll else '❌ Inactif'}",
                 "─────────────────────────────",
             ]
-            for e, activity, suggested in suggestions:
+            for e in emps:
                 emp_user = await session.get(User, e.user_id)
-                name = emp_user.first_name if emp_user else "?"
+                name_emp = emp_user.first_name if emp_user else "?"
                 role_emoji = ROLE_EMOJI.get(e.role, "👤")
+                salary = e.daily_salary or 0
+                activity = e.activity_since_payroll or 0
+                status_icon = "✅" if e.contract_status == "signed" else "⏳"
                 lines.append(
-                    f"{role_emoji} <b>{name}</b> [{e.role}]\n"
-                    f"   📊 {activity} commandes · 💡 Suggestion : <b>{_fmt(suggested)} $</b>"
+                    f"{role_emoji} <b>{name_emp}</b> [{e.role}]\n"
+                    f"   {status_icon} Salaire : <b>{_fmt(salary)} $/j</b> · 📊 {activity} cmds"
                 )
+                total_daily += salary
+
             lines += [
                 "─────────────────────────────",
-                f"💰 Total suggéré : <b>{_fmt(total_suggestion)} $</b>",
+                f"💰 Total à verser : <b>{_fmt(total_daily)} $</b>",
+                f"{'✅ Trésorerie suffisante' if company.treasury >= total_daily else '⚠️ Trésorerie insuffisante'}",
+                cooldown_info,
                 "",
                 "📌 <b>Options :</b>",
-                "• <code>/versersalaires payer</code> — payer selon suggestions",
-                "• <code>/payeremploye @pseudo [montant]</code> — montant libre par employé",
-                f"• <code>/versersalaires auto</code> — {'désactiver' if settings.auto_payroll else 'activer'} l'autopay",
-                cooldown_info,
+                "• <code>/versersalaires payer</code> — verser les salaires",
+                "• <code>/versersalaires modifier @pseudo [montant]</code> — changer un salaire",
             ]
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
             return
 
-        # ── PAYER SELON LES SUGGESTIONS ───────────────────────────────────
-        # Cooldown
+        # ── PAYER LES SALAIRES ────────────────────────────────────────────
         if company.last_payroll:
             delta = datetime.utcnow() - company.last_payroll
             remaining = timedelta(hours=PAYROLL_COOLDOWN_HOURS) - delta
@@ -3384,12 +3539,23 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
                 return
 
-        # Ajuster si trésorerie insuffisante
-        payroll = [(e, act, sug) for e, act, sug in suggestions]
-        if company.treasury < total_suggestion and total_suggestion > 0:
-            ratio = company.treasury / total_suggestion
-            payroll = [(e, act, int(sug * ratio)) for e, act, sug in payroll]
-            total_suggestion = sum(s for _, _, s in payroll)
+        # Filtrer les employés avec un contrat signé
+        eligible = [(e,) for e in emps if (e.daily_salary or 0) > 0 and e.contract_status == "signed"]
+
+        if not eligible:
+            await update.message.reply_text(
+                "❌ Aucun employé avec un contrat signé (salaire > 0).\n"
+                "Utilise <code>/versersalaires modifier @pseudo [montant]</code> pour définir les salaires.",
+                parse_mode="HTML"
+            )
+            return
+
+        total_to_pay = sum(e.daily_salary for (e,) in eligible)
+
+        if company.treasury < total_to_pay:
+            ratio = company.treasury / total_to_pay if total_to_pay > 0 else 0
+        else:
+            ratio = 1.0
 
         result_lines = [
             f"💼 <b>PAIE — {company.name}</b>",
@@ -3398,16 +3564,18 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
 
         total_paid = 0
-        for e, activity, amount in payroll:
+        for (e,) in eligible:
+            amount = int(e.daily_salary * ratio)
             if amount <= 0:
                 continue
             emp_user = await session.get(User, e.user_id)
             if emp_user:
                 emp_user.coins += amount
             role_emoji = ROLE_EMOJI.get(e.role, "👤")
-            name = emp_user.first_name if emp_user else "?"
+            name_emp = emp_user.first_name if emp_user else "?"
+            activity = e.activity_since_payroll or 0
             result_lines.append(
-                f"{role_emoji} <b>{name}</b> — +{_fmt(amount)} $ <i>({activity} cmds)</i>"
+                f"{role_emoji} <b>{name_emp}</b> — +{_fmt(amount)} $ <i>({activity} cmds)</i>"
             )
             try:
                 await context.bot.send_message(
@@ -3415,8 +3583,9 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     text=(
                         f"💵 <b>Salaire reçu !</b>\n\n"
                         f"🏢 <b>{company.name}</b> t'a versé <b>{_fmt(amount)} $</b>\n"
-                        f"📊 {activity} commandes comptabilisées\n"
-                        f"💡 Plus tu es actif, plus ta paie augmente !"
+                        f"📊 {activity} commandes effectuées\n"
+                        f"📄 Salaire contractuel : {_fmt(e.daily_salary)} $/jour"
+                        + (f"\n⚠️ Versement partiel ({int(ratio*100)}%) — trésorerie insuffisante" if ratio < 1.0 else "")
                     ),
                     parse_mode="HTML"
                 )
@@ -3438,7 +3607,264 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         result_lines.append(f"💰 Total distribué : <b>{_fmt(total_paid)} $</b>")
         result_lines.append(f"🏦 Trésorerie restante : <b>{_fmt(company.treasury)} $</b>")
         result_lines.append(f"⏳ Prochaine paie dans <b>{PAYROLL_COOLDOWN_HOURS}h</b>")
+        if ratio < 1.0:
+            result_lines.append(f"⚠️ Versement partiel ({int(ratio*100)}%) — trésorerie insuffisante")
         await update.message.reply_text("\n".join(result_lines), parse_mode="HTML")
+
+
+# ─── COMMANDE : /negociercontrat ─────────────────────────────────────────────
+
+async def negociercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    PDG ouvre/modifie une négociation de contrat avec un employé déjà en poste.
+
+    Usage :
+      /negociercontrat @pseudo [salaire] [prime_optionnelle]
+        → PDG propose un nouveau salaire à un employé existant
+
+      /negociercontrat @pseudo refuser
+        → PDG refuse la contre-proposition de l'employé
+
+    Côté employé — répondre à une proposition du PDG :
+      /negociercontrat accepter
+        → accepte le contrat en cours proposé par le PDG
+      /negociercontrat refuser
+        → refuse la proposition du PDG
+      /negociercontrat [montant]
+        → contre-propose un salaire au PDG
+    """
+    user = update.effective_user
+    args = context.args or []
+
+    if not args:
+        await update.message.reply_text(
+            "❌ Usage PDG : <code>/negociercontrat @pseudo [salaire] [prime]</code>\n"
+            "❌ Usage Employé : <code>/negociercontrat accepter</code> / <code>refuser</code> / <code>[montant]</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, user.id)
+        if not company:
+            await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
+            return
+
+        # ── CAS EMPLOYÉ : répondre à une proposition du PDG ───────────────
+        if emp.role != "pdg":
+            subcmd = args[0].lower()
+
+            if emp.contract_status != "pending_employee":
+                await update.message.reply_text(
+                    "❌ Tu n'as pas de proposition de contrat en attente.\n"
+                    "Attends que ton PDG t'envoie une proposition avec <code>/negociercontrat</code>.",
+                    parse_mode="HTML"
+                )
+                return
+
+            pending_sal = emp.pending_salary or 0
+            pending_bon = emp.pending_bonus or 0
+
+            # Trouver le PDG pour notifier
+            pdg_emp = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.role == "pdg",
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar_one_or_none()
+
+            if subcmd == "accepter":
+                emp.daily_salary = pending_sal
+                emp.contract_status = "signed"
+                emp.pending_salary = 0
+                emp.pending_bonus = 0
+                await session.commit()
+
+                await update.message.reply_text(
+                    f"✅ <b>Contrat accepté !</b>\n\n"
+                    f"📄 Ton salaire : <b>{_fmt(pending_sal)} $/jour</b>"
+                    + (f"\n🎁 Prime : <b>{_fmt(pending_bon)} $</b>" if pending_bon > 0 else ""),
+                    parse_mode="HTML"
+                )
+                if pdg_emp:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=pdg_emp.user_id,
+                            text=(
+                                f"✅ <b>{user.first_name}</b> a accepté le contrat !\n"
+                                f"📄 Salaire signé : <b>{_fmt(pending_sal)} $/jour</b>"
+                            ),
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+
+            elif subcmd == "refuser":
+                emp.contract_status = "none"
+                emp.pending_salary = 0
+                emp.pending_bonus = 0
+                await session.commit()
+
+                await update.message.reply_text("❌ Tu as refusé la proposition de contrat.")
+                if pdg_emp:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=pdg_emp.user_id,
+                            text=f"❌ <b>{user.first_name}</b> a refusé ta proposition de contrat."
+                        )
+                    except Exception:
+                        pass
+
+            else:
+                # Contre-proposition
+                try:
+                    counter = int(subcmd.replace("_", ""))
+                except ValueError:
+                    await update.message.reply_text("❌ Commande invalide. Tape <code>/negociercontrat accepter</code>, <code>refuser</code> ou un montant.", parse_mode="HTML")
+                    return
+
+                emp.contract_status = "pending_pdg"
+                emp.pending_salary = counter
+                await session.commit()
+
+                await update.message.reply_text(
+                    f"💬 Contre-proposition envoyée : <b>{_fmt(counter)} $/jour</b>\n"
+                    f"⏳ En attente de la réponse du PDG...",
+                    parse_mode="HTML"
+                )
+                if pdg_emp:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=pdg_emp.user_id,
+                            text=(
+                                f"💬 <b>Contre-proposition de {user.first_name} !</b>\n\n"
+                                f"Il refuse {_fmt(pending_sal)} $/j et demande : <b>{_fmt(counter)} $/jour</b>\n\n"
+                                f"✅ Accepter : <code>/negociercontrat @{user.username or user.first_name} {counter}</code>\n"
+                                f"❌ Refuser : <code>/negociercontrat @{user.username or user.first_name} refuser</code>"
+                            ),
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+            return
+
+        # ── CAS PDG : proposer ou répondre à une contre-proposition ───────
+        if emp.role != "pdg":
+            await update.message.reply_text("❌ Seul le PDG peut initier une négociation.")
+            return
+
+        mention = args[0].lstrip("@")
+        subcmd_pdg = args[1].lower() if len(args) > 1 else ""
+
+        target_user = (await session.execute(
+            select(User).where(User.username == mention)
+        )).scalar_one_or_none()
+        if not target_user:
+            await update.message.reply_text(f"❌ @{mention} introuvable.")
+            return
+
+        target_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target_user.user_id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar_one_or_none()
+        if not target_emp:
+            await update.message.reply_text(f"❌ {target_user.first_name} n'est pas dans ton entreprise.")
+            return
+
+        # PDG refuse une contre-proposition
+        if subcmd_pdg == "refuser":
+            target_emp.contract_status = "none"
+            target_emp.pending_salary = 0
+            target_emp.pending_bonus = 0
+            await session.commit()
+
+            await update.message.reply_text(f"❌ Tu as refusé la contre-proposition de {target_user.first_name}.")
+            try:
+                await context.bot.send_message(
+                    chat_id=target_user.user_id,
+                    text=f"❌ <b>{company.name}</b> a refusé ta contre-proposition."
+                )
+            except Exception:
+                pass
+            return
+
+        # PDG propose / accepte avec un montant
+        try:
+            proposed = int(subcmd_pdg.replace("_", "")) if subcmd_pdg else 0
+        except ValueError:
+            await update.message.reply_text("❌ Montant invalide.", parse_mode="HTML")
+            return
+
+        proposed_bonus_pdg = 0
+        if len(args) > 2:
+            try:
+                proposed_bonus_pdg = int(args[2].replace("_", ""))
+            except ValueError:
+                pass
+
+        if proposed <= 0:
+            await update.message.reply_text(
+                "❌ Usage : <code>/negociercontrat @pseudo [salaire] [prime]</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        # Si l'employé a une contre-proposition en attente et le PDG accepte son montant
+        if target_emp.contract_status == "pending_pdg" and proposed == target_emp.pending_salary:
+            target_emp.daily_salary = proposed
+            target_emp.contract_status = "signed"
+            target_emp.pending_salary = 0
+            target_emp.pending_bonus = 0
+            await session.commit()
+
+            await update.message.reply_text(
+                f"✅ Contre-proposition acceptée ! Contrat signé : <b>{_fmt(proposed)} $/jour</b>",
+                parse_mode="HTML"
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=target_user.user_id,
+                    text=(
+                        f"✅ <b>Contrat signé !</b>\n\n"
+                        f"🏢 <b>{company.name}</b> a accepté ta demande.\n"
+                        f"📄 Salaire : <b>{_fmt(proposed)} $/jour</b>"
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        else:
+            # Nouvelle proposition du PDG
+            target_emp.contract_status = "pending_employee"
+            target_emp.pending_salary = proposed
+            target_emp.pending_bonus = proposed_bonus_pdg
+            await session.commit()
+
+            bonus_txt = f"\n🎁 Prime proposée : <b>{_fmt(proposed_bonus_pdg)} $</b>" if proposed_bonus_pdg > 0 else ""
+            await update.message.reply_text(
+                f"📩 Proposition envoyée à <b>{target_user.first_name}</b> :\n"
+                f"   💰 Salaire : <b>{_fmt(proposed)} $/jour</b>{bonus_txt}\n\n"
+                f"⏳ En attente de sa réponse...",
+                parse_mode="HTML"
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=target_user.user_id,
+                    text=(
+                        f"📄 <b>Proposition de contrat — {company.name}</b>\n\n"
+                        f"💰 Salaire proposé : <b>{_fmt(proposed)} $/jour</b>{bonus_txt}\n\n"
+                        f"✅ Accepter : <code>/negociercontrat accepter</code>\n"
+                        f"❌ Refuser : <code>/negociercontrat refuser</code>\n"
+                        f"💬 Contre-proposer : <code>/negociercontrat [ton_montant]</code>"
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
 
 # ─── COMMANDE : /payeremploye @pseudo [montant] ───────────────────────────────

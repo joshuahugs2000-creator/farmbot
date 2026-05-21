@@ -139,11 +139,19 @@ async def _generate_contract(company: Company) -> dict | None:
     hints = SECTOR_CONTRACT_HINTS.get(sector, SECTOR_CONTRACT_HINTS["commerce"])
     clients, missions = hints
 
-    # Paramètres de base selon valeur entreprise
-    base = max(company.value // 1_000_000, 1)
-    cmds_obj = random.randint(max(50, base * 5), max(200, base * 20))
-    reward = random.randint(base * 500_000, base * 2_000_000)
-    deadline = random.choice([12, 24, 48])
+    # Objectifs et récompenses selon le niveau de l'entreprise
+    level = getattr(company, "level", 1) or 1
+    CONTRACT_PARAMS = {
+        1: {"cmds": (500,  800),  "reward": (1_000_000,   3_000_000)},
+        2: {"cmds": (800,  1200), "reward": (3_000_000,   8_000_000)},
+        3: {"cmds": (1200, 2000), "reward": (8_000_000,  20_000_000)},
+        4: {"cmds": (2000, 3500), "reward": (20_000_000, 50_000_000)},
+        5: {"cmds": (3500, 6000), "reward": (50_000_000, 150_000_000)},
+    }
+    params = CONTRACT_PARAMS.get(level, CONTRACT_PARAMS[1])
+    cmds_obj = random.randint(*params["cmds"])
+    reward   = random.randint(*params["reward"])
+    deadline = random.choice([24, 48, 72])  # plus de temps vu les objectifs
 
     prompt = (
         f"Tu es un générateur de contrats professionnels pour un jeu économique en français.\n"

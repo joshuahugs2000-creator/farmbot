@@ -141,6 +141,11 @@ async def init_db():
         "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS left_at TIMESTAMP DEFAULT NULL",
         "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS command_count INTEGER DEFAULT 0",
         "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS activity_since_payroll INTEGER DEFAULT 0",
+        # ── company_employees : système de contrat ────────────────────────────
+        "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS daily_salary BIGINT DEFAULT 0",
+        "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS pending_salary BIGINT DEFAULT 0",
+        "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS pending_bonus BIGINT DEFAULT 0",
+        "ALTER TABLE company_employees ADD COLUMN IF NOT EXISTS contract_status VARCHAR(30) DEFAULT 'none'",
         # ── companies : colonnes ajoutées progressivement ────────────────────
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS treasury BIGINT DEFAULT 0",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS total_shares INTEGER DEFAULT 100",

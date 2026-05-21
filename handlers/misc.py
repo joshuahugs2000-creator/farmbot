@@ -44,7 +44,6 @@ HELP_TEXT_1 = """
 /work — Travailler (3K–30K, cooldown 8h)
 /pay @joueur montant — Envoyer des $
 /richlist — Top 10 des plus riches
-/impots — Voir ton taux d'imposition
 
 <b>🎓 Diplômes</b>
 /diplome — Passer un diplôme (Bac, Licence, Master, MBA)
@@ -120,8 +119,7 @@ HELP_TEXT_2 = """<b>🎮 Jeux, Arène, Banque & plus</b>
 /sell id — Vendre une position
 /portfolio — Voir ton portefeuille
 
-<b>💸 Crime & Braquage</b>
-/cambrioler @joueur — Cambrioler un joueur
+<b>💸 Crime</b>
 /police @joueur — Signaler un voleur récent
 /bail @joueur — Payer la caution de quelqu'un
 /juge @joueur — Porter plainte (jugement)
@@ -143,7 +141,6 @@ HELP_TEXT_2 = """<b>🎮 Jeux, Arène, Banque & plus</b>
 /mode — Mode global/groupe
 /toggle garden — Activer/désactiver le jardin
 /help — Afficher cette aide
-/nouveautes — Voir les dernières mises à jour
 
 """
 

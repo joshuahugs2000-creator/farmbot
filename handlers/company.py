@@ -941,10 +941,9 @@ def _get_user_diplome_level(db_user) -> int:
 
 def _get_role_for_bot_company(db_user, sector: str) -> str:
     lvl = _get_user_diplome_level(db_user)
-    if lvl >= 4: return "directeur"
-    if lvl >= 3: return "manager"
-    if lvl >= 2: return "employe"
-    return "stagiaire"
+    if lvl >= 3: return "manager"   # Master ou MBA → manager max (jamais directeur auto)
+    if lvl >= 2: return "employe"   # Licence → employé
+    return "stagiaire"              # Bac → stagiaire
 
 
 # ─── COMMANDE : /postuler [nom entreprise] ───────────────────────────────────
@@ -1900,10 +1899,27 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         db_user = await get_user(session, user.id)
-        company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in DIRECTION_ROLES:
+
+        # Chercher l'entreprise où l'user est PDG ou Directeur (en priorité la sienne propre)
+        r = await session.execute(
+            select(CompanyEmployee, Company).join(
+                Company, Company.id == CompanyEmployee.company_id
+            ).where(
+                CompanyEmployee.user_id == user.id,
+                CompanyEmployee.left_at == None,
+                Company.is_active == True,
+                CompanyEmployee.role.in_(DIRECTION_ROLES),
+            ).order_by(
+                # PDG d'abord, puis directeur
+                CompanyEmployee.role.desc()
+            )
+        )
+        row = r.first()
+        if not row:
             await update.message.reply_text("❌ Réservé au PDG et Directeur.")
             return
+        company, emp = row[1], row[0]
+
         if db_user.coins < amount:
             await update.message.reply_text(f"❌ Tu n'as pas assez. Ton solde : {_fmt(db_user.coins)} $")
             return
@@ -1938,10 +1954,23 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         db_user = await get_user(session, user.id)
-        company, emp = await _get_user_company(session, user.id)
-        if not company or emp.role not in ("pdg",):
+
+        # Chercher explicitement la boite où l'user est PDG
+        r = await session.execute(
+            select(CompanyEmployee, Company).join(
+                Company, Company.id == CompanyEmployee.company_id
+            ).where(
+                CompanyEmployee.user_id == user.id,
+                CompanyEmployee.left_at == None,
+                Company.is_active == True,
+                CompanyEmployee.role == "pdg",
+            )
+        )
+        row = r.first()
+        if not row:
             await update.message.reply_text("❌ Réservé au PDG.")
             return
+        company, emp = row[1], row[0]
         if company.is_bot_company:
             await update.message.reply_text("❌ Tu ne peux pas retirer de fonds d'une entreprise officielle.")
             return

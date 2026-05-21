@@ -567,14 +567,25 @@ async def process_inheritance(session: AsyncSession, user_id: int) -> dict:
 # ─── LEADERBOARD ─────────────────────────────────────────────────────────────
 
 async def get_leaderboard(session: AsyncSession, limit: int = 10) -> List[dict]:
-    r     = await session.execute(select(User))
-    users = list(r.scalars().all())
+    """Classement familles — une seule requête SQL, pas de N+1."""
+    result = await session.execute(text("""
+        SELECT u.user_id, COUNT(DISTINCT r.id) AS family_size
+        FROM users u
+        LEFT JOIN relationships r ON (
+            (r.user_id = u.user_id OR r.related_user_id = u.user_id)
+            AND r.relation_type != 'friend'
+        )
+        GROUP BY u.user_id
+        ORDER BY family_size DESC
+        LIMIT :lim
+    """), {"lim": limit})
+    rows = result.fetchall()
     ranked = []
-    for u in users:
-        fam = await get_family_members(session, u.user_id)
-        ranked.append({"user": u, "size": len(fam)})
-    ranked.sort(key=lambda x: x["size"], reverse=True)
-    return ranked[:limit]
+    for row in rows:
+        u = await session.get(User, row.user_id)
+        if u:
+            ranked.append({"user": u, "size": int(row.family_size)})
+    return ranked
 
 
 async def get_richlist(session: AsyncSession, limit: int = 10) -> List[User]:

@@ -12,7 +12,14 @@ from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TIT
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-engine            = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,      # teste la connexion avant utilisation (évite les "stale connections" Railway)
+    pool_recycle=300,        # recycle les connexions après 5 min
+)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -593,69 +600,66 @@ MAX_COINS = 9_000_000_000_000_000_000  # max BIGINT PostgreSQL
 
 
 async def add_coins(session: AsyncSession, user_id: int, amount: int) -> int:
-    """Ajoute (ou retire si négatif) des $. F-strings pour éviter l'inférence de type asyncpg."""
-    import asyncpg
+    """Ajoute (ou retire si négatif) des $."""
     uid = int(user_id)
     amt = int(amount)
-    conn = await asyncpg.connect(_asyncpg_dsn())
-    try:
-        await conn.execute(
-            f"UPDATE users SET coins = GREATEST(0, coins::bigint + {amt}::bigint) WHERE user_id = {uid}::bigint"
-        )
-        row = await conn.fetchrow(
-            f"SELECT coins FROM users WHERE user_id = {uid}::bigint"
-        )
-    finally:
-        await conn.close()
-    return int(row["coins"]) if row else 0
+    await session.execute(
+        text("UPDATE users SET coins = GREATEST(0, CAST(coins AS BIGINT) + CAST(:amt AS BIGINT)) WHERE user_id = :uid"),
+        {"amt": amt, "uid": uid}
+    )
+    row = (await session.execute(
+        text("SELECT coins FROM users WHERE user_id = :uid"),
+        {"uid": uid}
+    )).fetchone()
+    await session.commit()
+    return int(row[0]) if row else 0
 
 
 async def set_coins(user_id: int, amount: int) -> int:
-    """Définit le solde exact. F-strings pour éviter l'inférence de type asyncpg."""
-    import asyncpg
+    """Définit le solde exact."""
     uid = int(user_id)
     amt = int(amount)
-    conn = await asyncpg.connect(_asyncpg_dsn())
-    try:
-        await conn.execute(
-            f"UPDATE users SET coins = {amt}::bigint WHERE user_id = {uid}::bigint"
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("UPDATE users SET coins = CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amt, "uid": uid}
         )
-        row = await conn.fetchrow(
-            f"SELECT coins FROM users WHERE user_id = {uid}::bigint"
-        )
-    finally:
-        await conn.close()
-    return int(row["coins"]) if row else 0
+        row = (await session.execute(
+            text("SELECT coins FROM users WHERE user_id = :uid"),
+            {"uid": uid}
+        )).fetchone()
+        await session.commit()
+    return int(row[0]) if row else 0
 
 
 async def transfer_coins(session: AsyncSession, from_id: int, to_id: int, amount: int) -> str:
-    """Transfère des $. F-strings pour éviter l'inférence de type asyncpg."""
-    import asyncpg
+    """Transfère des $."""
     uid_from = int(from_id)
     uid_to   = int(to_id)
     amt      = int(amount)
-    conn = await asyncpg.connect(_asyncpg_dsn())
-    try:
-        row = await conn.fetchrow(
-            f"SELECT coins FROM users WHERE user_id = {uid_from}::bigint"
-        )
-        if not row:
-            return "not_found"
-        row2 = await conn.fetchrow(
-            f"SELECT coins FROM users WHERE user_id = {uid_to}::bigint"
-        )
-        if not row2:
-            return "not_found"
-        if int(row["coins"]) < amt:
-            return "insufficient"
-        await conn.execute(
-            f"UPDATE users SET coins = coins::bigint - {amt}::bigint WHERE user_id = {uid_from}::bigint"
-        )
-        await conn.execute(
-            f"UPDATE users SET coins = coins::bigint + {amt}::bigint WHERE user_id = {uid_to}::bigint"
-        )
-    finally:
-        await conn.close()
+    row = (await session.execute(
+        text("SELECT coins FROM users WHERE user_id = :uid"),
+        {"uid": uid_from}
+    )).fetchone()
+    if not row:
+        return "not_found"
+    row2 = (await session.execute(
+        text("SELECT coins FROM users WHERE user_id = :uid"),
+        {"uid": uid_to}
+    )).fetchone()
+    if not row2:
+        return "not_found"
+    if int(row[0]) < amt:
+        return "insufficient"
+    await session.execute(
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+        {"amt": amt, "uid": uid_from}
+    )
+    await session.execute(
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+        {"amt": amt, "uid": uid_to}
+    )
+    await session.commit()
     return "ok"
 
 
@@ -804,133 +808,129 @@ async def create_couple_account(session: AsyncSession, user1_id: int, user2_id: 
 
 
 async def couple_deposit(session: AsyncSession, user_id: int, amount: int) -> str:
-    """Dépose vers compte commun. F-strings pour éviter inférence de type asyncpg."""
-    import asyncpg
+    """Dépose vers compte commun."""
     uid = int(user_id)
     amt = int(amount)
-    conn = await asyncpg.connect(_asyncpg_dsn())
-    try:
-        row = await conn.fetchrow(
-            f"SELECT coins FROM users WHERE user_id = {uid}::bigint"
-        )
-        if not row:
-            return "not_found"
-        if int(row["coins"]) < amt:
-            return "insufficient"
-        # Trouver le compte commun via la table couple_accounts
-        acc_row = await conn.fetchrow(
-            f"SELECT id, balance FROM couple_accounts WHERE user1_id = {uid}::bigint OR user2_id = {uid}::bigint LIMIT 1"
-        )
-        if not acc_row:
-            return "no_account"
-        await conn.execute(
-            f"UPDATE users SET coins = coins::bigint - {amt}::bigint WHERE user_id = {uid}::bigint"
-        )
-        await conn.execute(
-            f"UPDATE couple_accounts SET balance = balance::bigint + {amt}::bigint WHERE id = {acc_row['id']}"
-        )
-    finally:
-        await conn.close()
+    row = (await session.execute(
+        text("SELECT coins FROM users WHERE user_id = :uid"),
+        {"uid": uid}
+    )).fetchone()
+    if not row:
+        return "not_found"
+    if int(row[0]) < amt:
+        return "insufficient"
+    acc_row = (await session.execute(
+        text("SELECT id, balance FROM couple_accounts WHERE user1_id = :uid OR user2_id = :uid LIMIT 1"),
+        {"uid": uid}
+    )).fetchone()
+    if not acc_row:
+        return "no_account"
+    await session.execute(
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+        {"amt": amt, "uid": uid}
+    )
+    await session.execute(
+        text("UPDATE couple_accounts SET balance = CAST(balance AS BIGINT) + CAST(:amt AS BIGINT) WHERE id = :aid"),
+        {"amt": amt, "aid": acc_row[0]}
+    )
+    await session.commit()
     return "ok"
 
 
 async def couple_withdraw(session: AsyncSession, user_id: int, amount: int) -> str:
-    """Retire du compte commun. F-strings pour éviter inférence de type asyncpg."""
-    import asyncpg
+    """Retire du compte commun."""
     uid = int(user_id)
     amt = int(amount)
-    conn = await asyncpg.connect(_asyncpg_dsn())
-    try:
-        acc_row = await conn.fetchrow(
-            f"SELECT id, balance FROM couple_accounts WHERE user1_id = {uid}::bigint OR user2_id = {uid}::bigint LIMIT 1"
-        )
-        if not acc_row:
-            return "no_account"
-        if int(acc_row["balance"]) < amt:
-            return "insufficient"
-        user_row = await conn.fetchrow(
-            f"SELECT user_id FROM users WHERE user_id = {uid}::bigint"
-        )
-        if not user_row:
-            return "not_found"
-        await conn.execute(
-            f"UPDATE couple_accounts SET balance = balance::bigint - {amt}::bigint WHERE id = {acc_row['id']}"
-        )
-        await conn.execute(
-            f"UPDATE users SET coins = coins::bigint + {amt}::bigint WHERE user_id = {uid}::bigint"
-        )
-    finally:
-        await conn.close()
+    acc_row = (await session.execute(
+        text("SELECT id, balance FROM couple_accounts WHERE user1_id = :uid OR user2_id = :uid LIMIT 1"),
+        {"uid": uid}
+    )).fetchone()
+    if not acc_row:
+        return "no_account"
+    if int(acc_row[1]) < amt:
+        return "insufficient"
+    user_row = (await session.execute(
+        text("SELECT user_id FROM users WHERE user_id = :uid"),
+        {"uid": uid}
+    )).fetchone()
+    if not user_row:
+        return "not_found"
+    await session.execute(
+        text("UPDATE couple_accounts SET balance = CAST(balance AS BIGINT) - CAST(:amt AS BIGINT) WHERE id = :aid"),
+        {"amt": amt, "aid": acc_row[0]}
+    )
+    await session.execute(
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+        {"amt": amt, "uid": uid}
+    )
+    await session.commit()
     return "ok"
 
 
 async def dissolve_couple_account(session: AsyncSession, user1_id: int, user2_id: int):
-    """Dissout le compte commun. F-strings pour éviter inférence de type asyncpg."""
-    import asyncpg
+    """Dissout le compte commun."""
     uid1 = int(user1_id)
     uid2 = int(user2_id)
-    conn = await asyncpg.connect(_asyncpg_dsn())
-    try:
-        acc_row = await conn.fetchrow(
-            f"SELECT id, balance FROM couple_accounts WHERE user1_id = {uid1}::bigint OR user2_id = {uid1}::bigint LIMIT 1"
+    acc_row = (await session.execute(
+        text("SELECT id, balance FROM couple_accounts WHERE user1_id = :uid OR user2_id = :uid LIMIT 1"),
+        {"uid": uid1}
+    )).fetchone()
+    if not acc_row:
+        return
+    share = int(acc_row[1]) // 2
+    for uid in (uid1, uid2):
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": share, "uid": uid}
         )
-        if not acc_row:
-            return
-        share = int(acc_row["balance"]) // 2
-        for uid in (uid1, uid2):
-            await conn.execute(
-                f"UPDATE users SET coins = coins::bigint + {share}::bigint WHERE user_id = {uid}::bigint"
-            )
-        await conn.execute(
-            f"DELETE FROM couple_accounts WHERE id = {acc_row['id']}"
-        )
-    finally:
-        await conn.close()
+    await session.execute(
+        text("DELETE FROM couple_accounts WHERE id = :aid"),
+        {"aid": acc_row[0]}
+    )
+    await session.commit()
 
 
 async def deduct_for_game(session: AsyncSession, user_id: int, amount: int) -> str:
-    """Déduit pour un jeu. F-strings pour éviter inférence de type asyncpg."""
-    import asyncpg
+    """Déduit pour un jeu. Utilise le pool SQLAlchemy — pas de connexion brute."""
     uid = int(user_id)
     amt = int(amount)
-    conn = await asyncpg.connect(_asyncpg_dsn())
-    try:
-        row = await conn.fetchrow(
-            f"SELECT coins FROM users WHERE user_id = {uid}::bigint"
-        )
-        if not row:
-            return "insufficient"
-        if int(row["coins"]) >= amt:
-            await conn.execute(
-                f"UPDATE users SET coins = coins::bigint - {amt}::bigint WHERE user_id = {uid}::bigint"
-            )
-            return "perso"
-        # Essayer le compte commun
-        acc_row = await conn.fetchrow(
-            f"SELECT id, balance FROM couple_accounts WHERE user1_id = {uid}::bigint OR user2_id = {uid}::bigint LIMIT 1"
-        )
-        if acc_row and int(acc_row["balance"]) >= amt:
-            await conn.execute(
-                f"UPDATE couple_accounts SET balance = balance::bigint - {amt}::bigint WHERE id = {acc_row['id']}"
-            )
-            return "couple"
+    row = (await session.execute(
+        text("SELECT coins FROM users WHERE user_id = :uid"),
+        {"uid": uid}
+    )).fetchone()
+    if not row:
         return "insufficient"
-    finally:
-        await conn.close()
+    if int(row[0]) >= amt:
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amt, "uid": uid}
+        )
+        await session.commit()
+        return "perso"
+    # Essayer le compte commun
+    acc_row = (await session.execute(
+        text("SELECT id, balance FROM couple_accounts WHERE user1_id = :uid OR user2_id = :uid LIMIT 1"),
+        {"uid": uid}
+    )).fetchone()
+    if acc_row and int(acc_row[1]) >= amt:
+        await session.execute(
+            text("UPDATE couple_accounts SET balance = CAST(balance AS BIGINT) - CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amt, "aid": acc_row[0]}
+        )
+        await session.commit()
+        return "couple"
+    return "insufficient"
 
 
 async def add_coins_smart(session: AsyncSession, user_id: int, amount: int):
-    """Ajoute gains perso. F-strings pour éviter inférence de type asyncpg."""
-    import asyncpg
+    """Ajoute gains perso. Utilise le pool SQLAlchemy."""
     uid = int(user_id)
     amt = int(amount)
-    conn = await asyncpg.connect(_asyncpg_dsn())
-    try:
-        await conn.execute(
-            f"UPDATE users SET coins = coins::bigint + {amt}::bigint WHERE user_id = {uid}::bigint"
-        )
-    finally:
-        await conn.close()
+    await session.execute(
+        text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+        {"amt": amt, "uid": uid}
+    )
+    await session.commit()
 
 
 # ─── LISTE DE TOUS LES UTILISATEURS ──────────────────────────────────────────

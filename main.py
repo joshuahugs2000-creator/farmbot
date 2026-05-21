@@ -257,11 +257,28 @@ async def prison_middleware(update: Update, context) -> bool:
 
 
 
+
+# Cache en mémoire pour éviter de spammer l'API Telegram à chaque message de groupe
+_group_tracking_cache: dict[int, float] = {}
+_GROUP_TRACKING_COOLDOWN = 3600  # 1h entre chaque scan API d'un même groupe
+
 async def group_tracking_middleware(update: Update, context) -> None:
     chat = update.effective_chat
     if not chat or chat.type not in ("group", "supergroup", "channel"):
         return
     try:
+        import time
+        now = time.monotonic()
+        last_seen = _group_tracking_cache.get(chat.id, 0)
+
+        # Si on a déjà tracké ce groupe récemment, juste mettre à jour last_seen sans appels API
+        if now - last_seen < _GROUP_TRACKING_COOLDOWN:
+            # Mise à jour silencieuse sans appels API
+            return
+
+        _group_tracking_cache[chat.id] = now
+
+        # Appels API seulement toutes les heures par groupe
         invite_link  = None
         username     = chat.username
         if not username:
@@ -278,6 +295,7 @@ async def group_tracking_middleware(update: Update, context) -> None:
                            member_count=member_count, invite_link=invite_link)
     except Exception as e:
         logger.debug(f"group_tracking_middleware error: {e}")
+
 
 
 async def my_chat_member_handler(update: Update, context) -> None:

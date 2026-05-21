@@ -814,7 +814,8 @@ async def main():
     async def telegram_webhook(request):
         data = await request.json()
         update = Update.de_json(data, app.bot)
-        await app.process_update(update)
+        # Répondre immédiatement à Telegram (évite les retries si le traitement est lent)
+        asyncio.ensure_future(app.process_update(update))
         return web.Response(text="OK")
 
     from api.webapp import setup_webapp_routes

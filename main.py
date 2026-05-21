@@ -114,6 +114,7 @@ from handlers.company import (
     skipattente_cmd,
     annoncerecrutement_cmd, annoncerecrutement_callback,
     cederentreprise_cmd, payeremploye_cmd,
+    negociercontrat_cmd,
     renommerboite_cmd, acheterpla_cmd,
 )
 from handlers.company_sector import (
@@ -649,6 +650,7 @@ async def main():
     app.add_handler(CommandHandler("versersalaires", _prison_checked(versersalaires_cmd)))
     app.add_handler(CommandHandler("presences",      _prison_checked(presences_cmd)))
     app.add_handler(CommandHandler("payeremploye",   _prison_checked(payeremploye_cmd)))
+    app.add_handler(CommandHandler("negociercontrat",_prison_checked(negociercontrat_cmd)))
     app.add_handler(CommandHandler("mescontratsauto", _prison_checked(mescontratsauto_cmd)))
     app.add_handler(CallbackQueryHandler(contract_callback, pattern=r"^cnt_(accept|negoc|refuse):\d+$"))
     app.add_handler(CommandHandler("cederentreprise",_prison_checked(cederentreprise_cmd)))

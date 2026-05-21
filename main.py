@@ -433,6 +433,8 @@ async def main():
     app.add_handler(CommandHandler("help",        help_cmd))
     app.add_handler(CommandHandler("helpentreprise", helpentreprise_cmd))
     app.add_handler(CommandHandler("leaderboard", _prison_checked(leaderboard)))
+    app.add_handler(CommandHandler("mode",        mode))
+    app.add_handler(CommandHandler("toggle",      toggle))
     app.add_handler(CallbackQueryHandler(nouveautes_callback, pattern=r"^info:"))
 
     # ── Famille ───────────────────────────────────────────────────────────────
@@ -446,6 +448,7 @@ async def main():
     app.add_handler(CommandHandler("setsexe",       _prison_checked(setsexe)))
     app.add_handler(CommandHandler("setmariage",    _prison_checked(setmariage)))
     app.add_handler(CommandHandler("setfamilyname", _prison_checked(setfamilyname)))
+    app.add_handler(CommandHandler("familyphoto",   _prison_checked(familyphoto)))
     app.add_handler(CallbackQueryHandler(marry_type_callback, pattern=r"^marry_type:"))
 
     # ── Arbre ─────────────────────────────────────────────────────────────────
@@ -461,6 +464,7 @@ async def main():
     app.add_handler(CommandHandler("setpic",    _prison_checked(setpic)))
     app.add_handler(CommandHandler("customize", _prison_checked(customize)))
     app.add_handler(CommandHandler("titles",    _prison_checked(titles)))
+    app.add_handler(CommandHandler("karmainfo", _prison_checked(karmainfo)))
 
     # ── Économie ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("acc",        _prison_checked(acc)))

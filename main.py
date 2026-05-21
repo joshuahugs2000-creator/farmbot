@@ -142,8 +142,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://farmbot-77xl.onrender.com")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").rstrip("/")
 PORT = int(os.environ.get("PORT", 8080))
+
+if not WEBHOOK_URL:
+    # Aucune URL définie → le bot ne peut pas recevoir les updates Telegram !
+    # Sur Railway : Variables → WEBHOOK_URL = https://ton-projet.up.railway.app
+    # Sur Render  : Environment → WEBHOOK_URL = https://farmbot-77xl.onrender.com
+    raise RuntimeError(
+        "WEBHOOK_URL non défini !\n"
+        "Railway : ajoute la variable WEBHOOK_URL = https://ton-projet.up.railway.app\n"
+        "Render  : ajoute la variable WEBHOOK_URL = https://farmbot-77xl.onrender.com"
+    )
 
 PRISON_EXEMPT_COMMANDS = {
     "start", "help", "bail", "bail_judgment",

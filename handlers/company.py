@@ -209,7 +209,8 @@ async def _get_employee(session, company_id: int, user_id: int) -> Optional[Comp
             CompanyEmployee.company_id == company_id,
             CompanyEmployee.user_id == user_id,
             CompanyEmployee.left_at == None,
-        )
+        ).order_by(CompanyEmployee.id.desc())  # plus récent en premier
+        .limit(1)  # jamais de crash sur doublon
     )
     return r.scalar_one_or_none()
 

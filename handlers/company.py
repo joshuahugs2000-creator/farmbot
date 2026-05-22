@@ -1926,7 +1926,9 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         db_user.coins -= amount
         company.treasury += amount
-        company.value += amount
+        # ⚠️ NE PAS toucher company.value ici : les dépôts manuels ne reflètent pas
+        # la performance organique et permettraient de gonfler le prix des parts
+        # pour les revendre immédiatement (exploit double-dip).
         await _update_level(session, company)
         await _add_log(session, company.id, "depot",
                        f"Dépôt de {user.first_name}", amount=amount)
@@ -3156,7 +3158,9 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         )).scalars().all()
         total_shares = company.total_shares or 100
-        treasury = company.treasury
+        # ⚠️ Plafonner à company.value (valeur organique) pour bloquer le double-dip :
+        # dépôt 1B → vente parts gonflées → récupère 1B + dissolution récupère 1B = exploit.
+        treasury = min(company.treasury, company.value)
 
         # Récupérer les employés pour les libérer
         emps = (await session.execute(

@@ -215,7 +215,12 @@ async def _get_employee(session, company_id: int, user_id: int) -> Optional[Comp
 
 
 async def _get_user_company(session, user_id: int) -> Optional[tuple[Company, CompanyEmployee]]:
-    """Retourne (company, employee) si le user est dans une entreprise active."""
+    """Retourne (company, employee) si le user est dans une entreprise active.
+    
+    Priorité : PDG > directeur > autres rôles.
+    Cela évite qu'un PDG membre d'une autre boite en tant qu'employé
+    récupère la mauvaise entreprise (bug "ça marche pour certains").
+    """
     r = await session.execute(
         select(CompanyEmployee, Company).join(
             Company, Company.id == CompanyEmployee.company_id
@@ -223,6 +228,13 @@ async def _get_user_company(session, user_id: int) -> Optional[tuple[Company, Co
             CompanyEmployee.user_id == user_id,
             CompanyEmployee.left_at == None,
             Company.is_active == True,
+        ).order_by(
+            # Tri par importance du rôle : pdg > directeur > manager > … 
+            # ROLES_ORDER = ["stagiaire","secretaire","employe","manager","directeur","pdg"]
+            # On utilise case() pour mapper l'ordre sans dépendre de l'ordre alphabétique.
+            CompanyEmployee.role.in_(["pdg"]).desc(),
+            CompanyEmployee.role.in_(["directeur"]).desc(),
+            CompanyEmployee.role.in_(["manager"]).desc(),
         )
     )
     row = r.first()
@@ -1926,9 +1938,17 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         db_user.coins -= amount
         company.treasury += amount
-        # ⚠️ NE PAS toucher company.value ici : les dépôts manuels ne reflètent pas
-        # la performance organique et permettraient de gonfler le prix des parts
-        # pour les revendre immédiatement (exploit double-dip).
+
+        # 💡 Un dépôt augmente la valeur de l'entreprise proportionnellement,
+        # mais avec un coefficient réduit (50%) pour éviter l'exploit double-dip
+        # (dépôt → vente parts gonflées → récupère mise + profit instantané).
+        # La valeur reflète ainsi l'apport de capital sans permettre
+        # une spéculation immédiate à 100%.
+        DEPOT_VALUE_RATIO = 0.50  # 1 $ déposé → +0.50 $ de valeur
+        valeur_plancher = LEVELS[1][2]  # valeur min du niveau 1 (protection)
+        gain_valeur = int(amount * DEPOT_VALUE_RATIO)
+        company.value = max(valeur_plancher, company.value + gain_valeur)
+
         await _update_level(session, company)
         await _add_log(session, company.id, "depot",
                        f"Dépôt de {user.first_name}", amount=amount)
@@ -1936,7 +1956,8 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> déposé dans la trésorerie de <b>{company.name}</b>.\n"
-            f"🏦 Trésorerie : {_fmt(company.treasury)} $",
+            f"🏦 Trésorerie : {_fmt(company.treasury)} $\n"
+            f"📈 Valeur de l'entreprise : {_fmt(company.value)} $ <i>(+{_fmt(gain_valeur)} $)</i>",
             parse_mode="HTML"
         )
 
@@ -2020,12 +2041,13 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Retrait : symétrique au dépôt — la valeur baisse du même montant déposé.
-        # On protège un plancher = valeur initiale du niveau pour éviter de descendre en dessous.
-        _, _, _, _, _ = _level_info(company.level)
-        valeur_plancher = max(50_000_000, company.value - company.treasury)
+        # Retrait : symétrique au dépôt (ratio 50%) — la valeur baisse de 50% du montant retiré.
+        # On protège un plancher = niveau 1 minimum pour éviter de crasher l'entreprise.
+        DEPOT_VALUE_RATIO = 0.50
+        valeur_plancher = max(LEVELS[1][2], company.value - company.treasury)
+        perte_valeur = int(amount * DEPOT_VALUE_RATIO)
         company.treasury -= amount
-        company.value = max(valeur_plancher, company.value - amount)
+        company.value = max(valeur_plancher, company.value - perte_valeur)
         db_user.coins += amount
         await _add_log(session, company.id, "retrait",
                        f"Retrait PDG ({user.first_name})", amount=amount)
@@ -2034,6 +2056,7 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> retiré de <b>{company.name}</b>.\n"
             f"🏦 Trésorerie restante : {_fmt(company.treasury)} $\n"
+            f"📉 Valeur de l'entreprise : {_fmt(company.value)} $ <i>(-{_fmt(perte_valeur)} $)</i>\n"
             f"💰 Ton solde : {_fmt(db_user.coins)} $",
             parse_mode="HTML"
         )
@@ -3158,9 +3181,12 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         )).scalars().all()
         total_shares = company.total_shares or 100
-        # ⚠️ Plafonner à company.value (valeur organique) pour bloquer le double-dip :
-        # dépôt 1B → vente parts gonflées → récupère 1B + dissolution récupère 1B = exploit.
-        treasury = min(company.treasury, company.value)
+        # ✅ On distribue la trésorerie RÉELLE intégralement.
+        # Le plafonnement à company.value était une protection anti-exploit
+        # (dépôt → vente parts → dissolution = double-dip) mais ce cas est
+        # désormais couvert par le ratio 50% sur les dépôts.
+        # À la dissolution, les actionnaires récupèrent ce qu'il y a en caisse, point.
+        treasury = company.treasury
 
         # Récupérer les employés pour les libérer
         emps = (await session.execute(

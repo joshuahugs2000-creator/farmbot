@@ -20,7 +20,7 @@ from database.models import (
     Company, CompanyEmployee, CompanyShare, CompanyLoan, CompanyLog, User
 )
 from handlers.company import (
-    _fmt, _get_user_company, _add_log, _level_info, DIRECTION_ROLES
+    _fmt, _get_user_company, _add_log, _level_info, DIRECTION_ROLES, LEVELS
 )
 
 logger = logging.getLogger(__name__)
@@ -378,6 +378,7 @@ async def rembourserboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         company.treasury -= amount
+        company.value = max(LEVELS[1][2], company.value - amount)
         loan.remaining -= amount
         loan.missed_days = 0
 
@@ -515,6 +516,7 @@ async def job_company_dividends(context: ContextTypes.DEFAULT_TYPE):
 
             if total_distributed > 0:
                 company.treasury -= total_distributed
+                company.value = max(LEVELS[1][2], company.value - total_distributed)
                 await _add_log(
                     session, company.id, "dividendes",
                     f"Dividendes hebdo distribués : {_fmt(total_distributed)} $ à {len(shares)} actionnaire(s)",

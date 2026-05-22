@@ -433,6 +433,7 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
                     payment = min(active_loan.daily_payment, active_loan.remaining)
                     if company.treasury >= payment:
                         company.treasury -= payment
+                        company.value = max(LEVELS[1][2], company.value - payment)
                         active_loan.remaining -= payment
                         active_loan.missed_days = 0
                         if active_loan.remaining <= 0:
@@ -1646,6 +1647,7 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 target_user.coins += proposed_bonus
             if target.treasury >= proposed_bonus:
                 target.treasury -= proposed_bonus
+                target.value = max(LEVELS[1][2], target.value - proposed_bonus)
             else:
                 proposed_bonus = 0  # Pas assez en trésorerie, pas de prime
 
@@ -1944,9 +1946,9 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # (dépôt → vente parts gonflées → récupère mise + profit instantané).
         # La valeur reflète ainsi l'apport de capital sans permettre
         # une spéculation immédiate à 100%.
-        DEPOT_VALUE_RATIO = 0.50  # 1 $ déposé → +0.50 $ de valeur
-        valeur_plancher = LEVELS[1][2]  # valeur min du niveau 1 (protection)
-        gain_valeur = int(amount * DEPOT_VALUE_RATIO)
+        # 1 $ injecté = +1 $ de valeur (capital réel, pas spéculatif)
+        valeur_plancher = LEVELS[1][2]
+        gain_valeur = amount
         company.value = max(valeur_plancher, company.value + gain_valeur)
 
         await _update_level(session, company)
@@ -3696,6 +3698,7 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             total_paid += amount
 
         company.treasury = max(0, company.treasury - total_paid)
+        company.value = max(LEVELS[1][2], company.value - total_paid)
         company.last_payroll = datetime.utcnow()
 
         await _add_log(session, company.id, "paie",
@@ -4066,6 +4069,7 @@ async def payeremploye_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_user = await get_user(session, target.user_id)
         target_user.coins += amount
         company.treasury -= amount
+        company.value = max(LEVELS[1][2], company.value - amount)
         target_emp.activity_since_payroll = 0   # Reset le compteur après paiement
 
         role_emoji = ROLE_EMOJI.get(target_emp.role, "👤")
@@ -4420,6 +4424,7 @@ async def renommerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         old_name = company.name
         company.treasury -= RENAME_COST
+        company.value = max(LEVELS[1][2], company.value - RENAME_COST)
         company.name = new_name
         company.last_rename = datetime.utcnow()
 
@@ -4542,6 +4547,7 @@ async def acheterpla_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Déduire de la trésorerie et créditer les places
         company.treasury -= cout_total
+        company.value = max(LEVELS[1][2], company.value - cout_total)
         company.extra_slots = current_extra + qty
 
         await _add_log(

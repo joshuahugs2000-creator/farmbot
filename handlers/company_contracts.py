@@ -142,11 +142,11 @@ async def _generate_contract(company: Company) -> dict | None:
     # Objectifs et récompenses selon le niveau de l'entreprise
     level = getattr(company, "level", 1) or 1
     CONTRACT_PARAMS = {
-        1: {"cmds": (500,  800),  "reward": (1_000_000,   3_000_000)},
-        2: {"cmds": (800,  1200), "reward": (3_000_000,   8_000_000)},
-        3: {"cmds": (1200, 2000), "reward": (8_000_000,  20_000_000)},
-        4: {"cmds": (2000, 3500), "reward": (20_000_000, 50_000_000)},
-        5: {"cmds": (3500, 6000), "reward": (50_000_000, 150_000_000)},
+        1: {"cmds": (800,   1_200), "reward": (10_000_000,    50_000_000)},
+        2: {"cmds": (1_200, 2_000), "reward": (50_000_000,   200_000_000)},
+        3: {"cmds": (2_000, 3_500), "reward": (200_000_000,  500_000_000)},
+        4: {"cmds": (3_500, 6_000), "reward": (500_000_000, 1_500_000_000)},
+        5: {"cmds": (6_000, 10_000),"reward": (1_500_000_000, 5_000_000_000)},
     }
     params = CONTRACT_PARAMS.get(level, CONTRACT_PARAMS[1])
     cmds_obj = random.randint(*params["cmds"])

@@ -142,16 +142,36 @@ async def _generate_contract(company: Company) -> dict | None:
     # Objectifs et récompenses selon le niveau de l'entreprise
     level = getattr(company, "level", 1) or 1
     CONTRACT_PARAMS = {
-        1: {"cmds": (800,   1_200), "reward": (10_000_000,    50_000_000)},
-        2: {"cmds": (1_200, 2_000), "reward": (50_000_000,   200_000_000)},
-        3: {"cmds": (2_000, 3_500), "reward": (200_000_000,  500_000_000)},
-        4: {"cmds": (3_500, 6_000), "reward": (500_000_000, 1_500_000_000)},
-        5: {"cmds": (6_000, 10_000),"reward": (1_500_000_000, 5_000_000_000)},
+        1: {"cmds": (800,    1_200), "reward": (10_000_000,     50_000_000)},
+        2: {"cmds": (1_200,  2_000), "reward": (50_000_000,    200_000_000)},
+        3: {"cmds": (4_000,  7_000), "reward": (300_000_000,   800_000_000)},
+        4: {"cmds": (8_000, 15_000), "reward": (800_000_000, 2_500_000_000)},
+        5: {"cmds": (18_000, 30_000),"reward": (2_500_000_000, 8_000_000_000)},
     }
-    params = CONTRACT_PARAMS.get(level, CONTRACT_PARAMS[1])
+
+    # Tirage aléatoire de tier — même une startup peut décrocher un gros contrat
+    # Probabilités par tier selon le niveau de l'entreprise
+    TIER_WEIGHTS = {
+        1: [60, 25, 10, 4, 1],   # surtout tier 1, rarement tier 5
+        2: [30, 45, 18, 5, 2],
+        3: [10, 25, 40, 20, 5],
+        4: [5,  10, 25, 45, 15],
+        5: [2,   5, 15, 30, 48],
+    }
+    weights = TIER_WEIGHTS.get(level, TIER_WEIGHTS[1])
+    effective_tier = random.choices([1, 2, 3, 4, 5], weights=weights, k=1)[0]
+    params = CONTRACT_PARAMS[effective_tier]
+
+    # Label contrat rare
+    tier_label = ""
+    if effective_tier > level:
+        tier_label = {2: "🥈 Contrat Supérieur", 3: "🥇 Contrat Premium",
+                      4: "💎 Contrat Prestige", 5: "👑 Contrat Légendaire"}.get(effective_tier, "")
+
     cmds_obj = random.randint(*params["cmds"])
     reward   = random.randint(*params["reward"])
-    deadline = random.choice([24, 48, 72])  # plus de temps vu les objectifs
+    # Délai augmente avec le tier
+    deadline = {1: 48, 2: 48, 3: 72, 4: 96, 5: 120}.get(effective_tier, 48)
 
     prompt = (
         f"Tu es un générateur de contrats professionnels pour un jeu économique en français.\n"
@@ -160,8 +180,9 @@ async def _generate_contract(company: Company) -> dict | None:
         f"- Objectif : {cmds_obj} commandes d'équipe en {deadline}h\n"
         f"- Récompense proposée : {_fmt(reward)} $\n"
         f"- Client parmi ces types : {', '.join(clients[:3])}\n"
-        f"- Mission parmi ces types : {', '.join(missions[:3])}\n\n"
-        f"Réponds UNIQUEMENT en JSON valide (sans markdown) avec ces champs :\n"
+        f"- Mission parmi ces types : {', '.join(missions[:3])}\n"
+        + (f"- CONTRAT RARE DE HAUT RANG : rends la mission particulièrement ambitieuse et prestigieuse.\n" if tier_label else "")
+        + f"\nRéponds UNIQUEMENT en JSON valide (sans markdown) avec ces champs :\n"
         f"{{\"client\": \"...\", \"mission\": \"...\", \"detail\": \"...\"}}\n"
         f"- client : nom du client fictif (court, réaliste)\n"
         f"- mission : titre court de la mission (max 60 chars)\n"
@@ -179,6 +200,7 @@ async def _generate_contract(company: Company) -> dict | None:
             "objective_cmds": cmds_obj,
             "reward": reward,
             "deadline_hours": deadline,
+            "tier_label": tier_label,
         }
 
     try:
@@ -191,6 +213,7 @@ async def _generate_contract(company: Company) -> dict | None:
             "objective_cmds": cmds_obj,
             "reward": reward,
             "deadline_hours": deadline,
+            "tier_label": tier_label,
         }
     except Exception:
         return {
@@ -200,6 +223,7 @@ async def _generate_contract(company: Company) -> dict | None:
             "objective_cmds": cmds_obj,
             "reward": reward,
             "deadline_hours": deadline,
+            "tier_label": tier_label,
         }
 
 
@@ -285,10 +309,12 @@ async def job_dispatch_contracts(context: ContextTypes.DEFAULT_TYPE):
             await session.flush()  # pour avoir contract.id
 
             # Notifier le PDG
+            tier_label = data.get("tier_label", "")
+            intro = f"{tier_label}\n👇 Que souhaitez-vous faire ?" if tier_label else "👇 Que souhaitez-vous faire ?"
             try:
                 msg = await context.bot.send_message(
                     chat_id=company.owner_id,
-                    text=_contract_text(contract, "👇 Que souhaitez-vous faire ?"),
+                    text=_contract_text(contract, intro),
                     parse_mode="HTML",
                     reply_markup=_contract_keyboard(contract.id),
                 )

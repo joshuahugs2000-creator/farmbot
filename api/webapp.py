@@ -741,6 +741,8 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/bank/withdraw',webapp_bank_withdraw)
     app.router.add_post('/api/webapp/bank/loan',   webapp_bank_loan)
     app.router.add_post('/api/webapp/bank/repay',  webapp_bank_repay)
+    # ── Famille ─────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/family', webapp_family)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1054,3 +1056,78 @@ async def webapp_bank_repay(request: web.Request) -> web.Response:
         await session.commit()
 
     return web.json_response({'ok': True, 'msg': msg})
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉTAPE 2 — FAMILLE
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_family(request: web.Request) -> web.Response:
+    """GET /api/webapp/family?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from database.models import Relationship, RelationType
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        rels = (await session.execute(
+            select(Relationship).where(Relationship.user_id == uid)
+        )).scalars().all()
+
+        spouses, parents, children, friends = [], [], [], []
+
+        for rel in rels:
+            ru = (await session.execute(
+                select(User).where(User.user_id == rel.related_user_id)
+            )).scalar_one_or_none()
+            if not ru:
+                continue
+            member = {
+                'user_id':  ru.user_id,
+                'name':     ru.first_name,
+                'username': ru.username or '',
+                'karma':    ru.karma or 0,
+                'gender':   ru.gender or '',
+            }
+            if rel.relation_type == RelationType.SPOUSE:
+                spouses.append(member)
+            elif rel.relation_type == RelationType.PARENT:
+                # Si l'autre user est mon parent → je suis l'enfant
+                # La relation PARENT dans user_id = moi signifie "je suis parent de related_user_id"
+                children.append(member)
+            elif rel.relation_type == RelationType.FRIEND:
+                friends.append(member)
+
+        # Parents = ceux qui ont une relation PARENT pointant vers moi
+        parent_rels = (await session.execute(
+            select(Relationship).where(
+                Relationship.related_user_id == uid,
+                Relationship.relation_type == RelationType.PARENT
+            )
+        )).scalars().all()
+        for rel in parent_rels:
+            pu = (await session.execute(
+                select(User).where(User.user_id == rel.user_id)
+            )).scalar_one_or_none()
+            if pu:
+                parents.append({
+                    'user_id':  pu.user_id,
+                    'name':     pu.first_name,
+                    'username': pu.username or '',
+                    'karma':    pu.karma or 0,
+                    'gender':   pu.gender or '',
+                })
+
+    return web.json_response({
+        'family_name': user.family_name or '',
+        'spouses':  spouses,
+        'parents':  parents,
+        'children': children,
+        'friends':  friends,
+    })

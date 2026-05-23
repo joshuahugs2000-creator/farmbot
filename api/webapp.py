@@ -743,6 +743,18 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/bank/repay',  webapp_bank_repay)
     # ── Famille ─────────────────────────────────────────────────────────────
     app.router.add_get('/api/webapp/family', webapp_family)
+    # ── Jardin ──────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/garden',        webapp_garden)
+    app.router.add_post('/api/webapp/garden/plant', webapp_garden_plant)
+    app.router.add_post('/api/webapp/garden/harvest', webapp_garden_harvest)
+    # ── Classement ──────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/ranking', webapp_ranking)
+    # ── Crime ───────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/crime',   webapp_crime)
+    # ── Arena ───────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/arena',   webapp_arena)
+    # ── Diplômes ────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/diplomes', webapp_diplomes)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1130,4 +1142,362 @@ async def webapp_family(request: web.Request) -> web.Response:
         'parents':  parents,
         'children': children,
         'friends':  friends,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JARDIN
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_garden(request: web.Request) -> web.Response:
+    """GET /api/webapp/garden?user_id=xxx&group_id=xxx"""
+    uid      = int(request.rel_url.query.get('user_id', 0))
+    group_id = int(request.rel_url.query.get('group_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES, GARDEN_SLOTS
+    from database.models import Garden
+    from datetime import timedelta
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Récupérer les plantes du jardin
+        if group_id:
+            result = await session.execute(
+                select(Garden).where(Garden.user_id == uid, Garden.group_id == group_id, Garden.harvested == False)
+            )
+        else:
+            result = await session.execute(
+                select(Garden).where(Garden.user_id == uid, Garden.harvested == False)
+            )
+        plants = list(result.scalars().all())
+
+        slots = []
+        for slot_i in range(GARDEN_SLOTS):
+            g = next((p for p in plants if p.slot == slot_i), None)
+            if g:
+                pt        = PLANT_TYPES.get(g.plant_type, {})
+                grow_time = pt.get('grow_time', 3600)
+                ready_at  = g.planted_at + timedelta(seconds=grow_time)
+                now       = datetime.utcnow()
+                ready     = now >= ready_at
+                remaining = max(0, int((ready_at - now).total_seconds() / 60))
+                slots.append({
+                    'slot':       slot_i,
+                    'empty':      False,
+                    'plant_type': g.plant_type,
+                    'emoji':      pt.get('emoji', '🌱'),
+                    'value':      pt.get('value', 0),
+                    'ready':      ready,
+                    'remaining_min': remaining,
+                    'planted_at': g.planted_at.isoformat(),
+                    'garden_id':  g.id,
+                })
+            else:
+                slots.append({'slot': slot_i, 'empty': True})
+
+        plant_catalog = [
+            {'name': k, 'emoji': v['emoji'], 'grow_min': v['grow_time']//60, 'value': v['value']}
+            for k, v in PLANT_TYPES.items()
+        ]
+
+    return web.json_response({
+        'coins':       user.coins,
+        'slots':       slots,
+        'plant_types': plant_catalog,
+        'group_id':    group_id,
+    })
+
+
+async def webapp_garden_plant(request: web.Request) -> web.Response:
+    """POST /api/webapp/garden/plant  body: {user_id, group_id, slot, plant_type}"""
+    data      = await request.json()
+    uid       = int(data.get('user_id', 0))
+    group_id  = int(data.get('group_id', 0))
+    slot      = int(data.get('slot', 0))
+    plant_type = data.get('plant_type', '')
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES, GARDEN_SLOTS
+    from database.models import Garden
+
+    if plant_type not in PLANT_TYPES:
+        return web.json_response({'error': 'Plante inconnue'}, status=400)
+    if slot < 0 or slot >= GARDEN_SLOTS:
+        return web.json_response({'error': 'Slot invalide'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        existing = (await session.execute(
+            select(Garden).where(Garden.user_id == uid, Garden.slot == slot, Garden.harvested == False)
+        )).scalar_one_or_none()
+        if existing:
+            return web.json_response({'error': 'Ce slot est déjà occupé'}, status=400)
+
+        g = Garden(user_id=uid, group_id=group_id or 0, slot=slot, plant_type=plant_type)
+        session.add(g)
+        await session.commit()
+
+    pt = PLANT_TYPES[plant_type]
+    return web.json_response({'ok': True, 'emoji': pt['emoji'], 'grow_min': pt['grow_time']//60})
+
+
+async def webapp_garden_harvest(request: web.Request) -> web.Response:
+    """POST /api/webapp/garden/harvest  body: {user_id, garden_id}"""
+    data      = await request.json()
+    uid       = int(data.get('user_id', 0))
+    garden_id = int(data.get('garden_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES
+    from database.models import Garden
+    from datetime import timedelta
+
+    async with AsyncSessionLocal() as session:
+        g = (await session.execute(
+            select(Garden).where(Garden.id == garden_id, Garden.user_id == uid, Garden.harvested == False)
+        )).scalar_one_or_none()
+        if not g:
+            return web.json_response({'error': 'Plante introuvable'}, status=404)
+
+        pt       = PLANT_TYPES.get(g.plant_type, {})
+        grow_time = pt.get('grow_time', 3600)
+        ready_at = g.planted_at + timedelta(seconds=grow_time)
+        if datetime.utcnow() < ready_at:
+            return web.json_response({'error': 'Pas encore prête'}, status=400)
+
+        gain    = pt.get('value', 0) * 1000
+        g.harvested = True
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if user:
+            user.coins = (user.coins or 0) + gain
+        await session.commit()
+
+    return web.json_response({'ok': True, 'gain': gain, 'emoji': pt.get('emoji', '🌱')})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CLASSEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_ranking(request: web.Request) -> web.Response:
+    """GET /api/webapp/ranking?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.is_banned == False).order_by(User.coins.desc()).limit(20)
+        )
+        users = list(result.scalars().all())
+        ranking = []
+        for i, u in enumerate(users):
+            ranking.append({
+                'rank':      i + 1,
+                'user_id':   u.user_id,
+                'name':      u.first_name,
+                'username':  u.username or '',
+                'coins':     u.coins or 0,
+                'karma':     u.karma or 0,
+                'is_me':     u.user_id == uid,
+            })
+
+        # Position du joueur s'il n'est pas dans le top 20
+        my_pos = None
+        my_row = None
+        if not any(r['is_me'] for r in ranking):
+            count_r = await session.execute(
+                select(User).where(User.is_banned == False, User.coins > (
+                    (await session.execute(select(User.coins).where(User.user_id == uid))).scalar_one_or_none() or 0
+                ))
+            )
+            my_pos = len(list(count_r.scalars().all())) + 1
+            me = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+            if me:
+                my_row = {'rank': my_pos, 'user_id': me.user_id, 'name': me.first_name,
+                          'username': me.username or '', 'coins': me.coins or 0,
+                          'karma': me.karma or 0, 'is_me': True}
+
+    return web.json_response({'ranking': ranking, 'my_row': my_row})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CRIME
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_crime(request: web.Request) -> web.Response:
+    """GET /api/webapp/crime?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Vérifier prison (table raw SQL)
+        in_prison = False
+        prison_data = None
+        try:
+            r = await session.execute(
+                text("SELECT * FROM crime_prison WHERE user_id = :uid"),
+                {'uid': uid}
+            )
+            row = r.fetchone()
+            if row:
+                released_at = row.released_at
+                if isinstance(released_at, str):
+                    released_at = datetime.fromisoformat(released_at)
+                if datetime.utcnow() < released_at:
+                    in_prison   = True
+                    minutes_left = max(0, int((released_at - datetime.utcnow()).total_seconds() / 60))
+                    prison_data = {
+                        'bail_amount':   row.bail_amount,
+                        'minutes_left':  minutes_left,
+                        'released_at':   released_at.isoformat(),
+                    }
+        except Exception:
+            pass
+
+        # Historique crimes récents
+        crimes = []
+        try:
+            cr = await session.execute(
+                text("SELECT * FROM crime_log WHERE user_id = :uid ORDER BY committed_at DESC LIMIT 10"),
+                {'uid': uid}
+            )
+            for row in cr.fetchall():
+                crimes.append({
+                    'type':         row.crime_type if hasattr(row, 'crime_type') else '?',
+                    'result':       row.result if hasattr(row, 'result') else '?',
+                    'amount':       row.amount if hasattr(row, 'amount') else 0,
+                    'committed_at': str(row.committed_at) if hasattr(row, 'committed_at') else '',
+                })
+        except Exception:
+            pass
+
+        # Sécurité
+        security = 0
+        try:
+            sr = await session.execute(
+                text("SELECT level FROM crime_security WHERE user_id = :uid"),
+                {'uid': uid}
+            )
+            srow = sr.fetchone()
+            if srow:
+                security = srow.level
+        except Exception:
+            pass
+
+    return web.json_response({
+        'coins':      user.coins or 0,
+        'in_prison':  in_prison,
+        'prison':     prison_data,
+        'crimes':     crimes,
+        'security':   security,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ARENA
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_arena(request: web.Request) -> web.Response:
+    """GET /api/webapp/arena?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Historique combats
+        fights = []
+        for table in ('arena_cockfight_log', 'arena_ppc_log', 'arena_lancer_log'):
+            try:
+                r = await session.execute(
+                    text(f"SELECT * FROM {table} WHERE user_id = :uid ORDER BY played_at DESC LIMIT 5"),
+                    {'uid': uid}
+                )
+                for row in r.fetchall():
+                    fights.append({
+                        'type':      table.replace('arena_','').replace('_log',''),
+                        'result':    row.result if hasattr(row, 'result') else '?',
+                        'gain':      row.gain if hasattr(row, 'gain') else 0,
+                        'played_at': str(row.played_at) if hasattr(row, 'played_at') else '',
+                    })
+            except Exception:
+                pass
+
+        # Stats wins/losses
+        stats = {'wins': 0, 'losses': 0, 'total_gain': 0}
+        try:
+            r = await session.execute(
+                text("SELECT COUNT(*) FROM arena_cockfight_log WHERE user_id=:uid AND result='win'"), {'uid': uid}
+            )
+            stats['wins'] = r.scalar() or 0
+        except Exception:
+            pass
+
+    return web.json_response({
+        'coins':  user.coins or 0,
+        'fights': fights,
+        'stats':  stats,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DIPLÔMES
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_diplomes(request: web.Request) -> web.Response:
+    """GET /api/webapp/diplomes?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        cooldown_left = 0
+        if user.exam_cooldown:
+            cooldown_left = max(0, int((user.exam_cooldown - datetime.utcnow()).total_seconds() / 60))
+
+    DIPLOMES_INFO = [
+        {'key': 'bac',     'label': 'Baccalauréat', 'emoji': '📜', 'prérequis': None},
+        {'key': 'licence', 'label': 'Licence',       'emoji': '🎓', 'prérequis': 'bac'},
+        {'key': 'master',  'label': 'Master',         'emoji': '🏛️', 'prérequis': 'licence'},
+        {'key': 'mba',     'label': 'MBA',             'emoji': '💼', 'prérequis': 'master'},
+    ]
+
+    diplomes = []
+    for d in DIPLOMES_INFO:
+        key     = d['key']
+        field   = f'diplome_{key}'
+        obtained = getattr(user, field, False) or False
+        diplomes.append({
+            'key':       key,
+            'label':     d['label'],
+            'emoji':     d['emoji'],
+            'obtained':  obtained,
+            'prérequis': d['prérequis'],
+        })
+
+    return web.json_response({
+        'diplomes':      diplomes,
+        'domain':        user.diplome_domain or '',
+        'cooldown_left': cooldown_left,
+        'coins':         user.coins or 0,
     })

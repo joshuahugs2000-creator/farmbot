@@ -734,3 +734,323 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/api/webapp/portfolio',   webapp_market_portfolio)
     app.router.add_post('/api/webapp/market/action', webapp_market_action)
     app.router.add_post('/api/webapp/game',       webapp_game)
+    # ── Banque ──────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/bank',         webapp_bank_data)
+    app.router.add_post('/api/webapp/bank/open',   webapp_bank_open)
+    app.router.add_post('/api/webapp/bank/deposit',webapp_bank_deposit)
+    app.router.add_post('/api/webapp/bank/withdraw',webapp_bank_withdraw)
+    app.router.add_post('/api/webapp/bank/loan',   webapp_bank_loan)
+    app.router.add_post('/api/webapp/bank/repay',  webapp_bank_repay)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉTAPE 1 — BANQUE
+# ══════════════════════════════════════════════════════════════════════════════
+
+BANKS_DEF = {
+    "bronze":   {"name":"🥉 Banque Bronze","emoji":"🥉","rank":1,"desc":"Banque populaire, accessible à tous","min_deposit":1_000,"max_deposit":100_000_000_000,"interest_rate":0.01,"max_loan":5_000_000,"loan_rate":0.08,"loan_days":7},
+    "silver":   {"name":"🥈 Banque Silver","emoji":"🥈","rank":2,"desc":"Pour les épargnants sérieux","min_deposit":10_000,"max_deposit":100_000_000_000,"interest_rate":0.015,"max_loan":5_000_000,"loan_rate":0.06,"loan_days":14},
+    "gold":     {"name":"🥇 Banque Gold","emoji":"🥇","rank":3,"desc":"Banque des investisseurs fortunés","min_deposit":100_000,"max_deposit":100_000_000_000,"interest_rate":0.02,"max_loan":5_000_000,"loan_rate":0.05,"loan_days":21},
+    "platinum": {"name":"💠 Banque Platinum","emoji":"💠","rank":4,"desc":"Réservée aux élites financières","min_deposit":500_000,"max_deposit":100_000_000_000,"interest_rate":0.025,"max_loan":5_000_000,"loan_rate":0.04,"loan_days":30},
+    "diamond":  {"name":"💎 Banque Diamond","emoji":"💎","rank":5,"desc":"La banque des milliardaires","min_deposit":2_000_000,"max_deposit":100_000_000_000,"interest_rate":0.03,"max_loan":5_000_000,"loan_rate":0.03,"loan_days":60},
+}
+BANK_KEYS_ORDER = ["bronze","silver","gold","platinum","diamond"]
+
+from datetime import datetime as _dt
+
+
+async def webapp_bank_data(request: web.Request) -> web.Response:
+    """GET /api/webapp/bank — Comptes + prêts + catalogue banques."""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount, Loan
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        accounts_raw = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid)
+        )).scalars().all()
+
+        loans_raw = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == 'active')
+        )).scalars().all()
+
+        accounts = []
+        account_ids = set()
+        for acc in accounts_raw:
+            b = BANKS_DEF.get(acc.bank_id, {})
+            account_ids.add(acc.bank_id)
+            accounts.append({
+                'bank_id':       acc.bank_id,
+                'name':          b.get('name', acc.bank_id),
+                'emoji':         b.get('emoji', '🏦'),
+                'balance':       _fmt(acc.balance or 0),
+                'balance_raw':   int(acc.balance or 0),
+                'interest_rate': b.get('interest_rate', 0) * 100,
+                'max_loan':      _fmt(b.get('max_loan', 0)),
+                'max_loan_raw':  b.get('max_loan', 0),
+            })
+
+        loans = []
+        for loan in loans_raw:
+            b = BANKS_DEF.get(loan.bank_id, {})
+            overdue = _dt.utcnow() > loan.due_at if loan.due_at else False
+            loans.append({
+                'bank_id':   loan.bank_id,
+                'name':      b.get('name', loan.bank_id),
+                'emoji':     b.get('emoji', '🏦'),
+                'remaining': _fmt(loan.remaining or 0),
+                'remaining_raw': int(loan.remaining or 0),
+                'due_at':    loan.due_at.strftime('%d/%m/%Y') if loan.due_at else '—',
+                'overdue':   overdue,
+            })
+
+        # Banques disponibles (toutes, pour ouvrir un compte)
+        all_banks = []
+        for key in BANK_KEYS_ORDER:
+            b = BANKS_DEF[key]
+            all_banks.append({
+                'bank_id':       key,
+                'name':          b['name'],
+                'emoji':         b['emoji'],
+                'desc':          b['desc'],
+                'rank':          b['rank'],
+                'min_deposit':   _fmt(b['min_deposit']),
+                'min_deposit_raw': b['min_deposit'],
+                'interest_rate': b['interest_rate'] * 100,
+                'loan_rate':     b['loan_rate'] * 100,
+                'loan_days':     b['loan_days'],
+                'max_loan':      _fmt(b['max_loan']),
+                'has_account':   key in account_ids,
+            })
+
+        return web.json_response({
+            'wallet':   _fmt(user.coins or 0),
+            'wallet_raw': int(user.coins or 0),
+            'accounts': accounts,
+            'loans':    loans,
+            'banks':    all_banks,
+        })
+
+
+async def webapp_bank_open(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/open"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        existing = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if existing:
+            return web.json_response({'error': 'Compte déjà ouvert dans cette banque'})
+
+        acc = BankAccount(user_id=uid, bank_id=bank_id, balance=0, last_interest=_dt.utcnow())
+        session.add(acc)
+        await session.commit()
+
+    b = BANKS_DEF[bank_id]
+    return web.json_response({'ok': True, 'msg': f"✅ Compte ouvert à la {b['name']} !"})
+
+
+async def webapp_bank_deposit(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/deposit"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    b = BANKS_DEF[bank_id]
+    if amount < b['min_deposit']:
+        return web.json_response({'error': f"Dépôt minimum : {_fmt(b['min_deposit'])} $"})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Ouvre un compte d\'abord'})
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user or user.coins < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        if acc.balance + amount > b['max_deposit']:
+            return web.json_response({'error': 'Plafond de dépôt atteint'})
+
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) + CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Dépôt de {_fmt(amount)} $ effectué !"})
+
+
+async def webapp_bank_withdraw(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/withdraw"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Compte introuvable'})
+        if acc.balance < amount:
+            return web.json_response({'error': f"Solde insuffisant ({_fmt(acc.balance)} $ disponible)"})
+
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) - CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
+        )
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Retrait de {_fmt(amount)} $ effectué !"})
+
+
+async def webapp_bank_loan(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/loan"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    b = BANKS_DEF[bank_id]
+    if amount > b['max_loan']:
+        return web.json_response({'error': f"Prêt maximum : {_fmt(b['max_loan'])} $"})
+
+    from datetime import timedelta
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount, Loan
+
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Ouvre un compte dans cette banque d\'abord'})
+
+        existing_loan = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == 'active')
+        )).scalar_one_or_none()
+        if existing_loan:
+            return web.json_response({'error': 'Tu as déjà un prêt actif à rembourser'})
+
+        required = int(amount * 0.25)
+        if acc.balance < required:
+            return web.json_response({'error': f"Garantie insuffisante (besoin de {_fmt(required)} $ dans ce compte)"})
+
+        interest  = int(amount * b['loan_rate'])
+        total_due = amount + interest
+        due_at    = _dt.utcnow() + timedelta(days=b['loan_days'])
+
+        loan = Loan(user_id=uid, bank_id=bank_id, amount=amount, remaining=total_due,
+                    interest_rate=b['loan_rate'], due_at=due_at)
+        session.add(loan)
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Prêt de {_fmt(amount)} $ accordé ! À rembourser {_fmt(total_due)} $ avant le {due_at.strftime('%d/%m/%Y')}."})
+
+
+async def webapp_bank_repay(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/repay"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import Loan
+        loan = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.bank_id == bank_id, Loan.status == 'active')
+        )).scalar_one_or_none()
+        if not loan:
+            return web.json_response({'error': 'Aucun prêt actif dans cette banque'})
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user or user.coins < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        pay = min(amount, loan.remaining)
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": pay, "uid": uid}
+        )
+        loan.remaining -= pay
+        if loan.remaining <= 0:
+            loan.status = 'paid'
+            msg = f"✅ Prêt entièrement remboursé ({_fmt(pay)} $) !"
+        else:
+            msg = f"✅ Remboursement de {_fmt(pay)} $. Reste : {_fmt(loan.remaining)} $."
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': msg})

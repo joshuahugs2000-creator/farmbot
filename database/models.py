@@ -257,6 +257,7 @@ class Company(Base):
     last_active     = Column(DateTime, default=datetime.utcnow)  # pour détecter inactivité PDG
     last_annonce    = Column(DateTime, nullable=True)            # dernière annonce de recrutement
     last_rename     = Column(DateTime, nullable=True)            # dernier renommage de l'entreprise
+    last_retrait_pdg = Column(DateTime, nullable=True)           # dernier retrait PDG (cooldown 24h anti-exploit)
     extra_slots     = Column(Integer, default=0)                 # places supplémentaires achetées
     legal_reserve   = Column(BigInteger, default=0)              # réserve légale intouchable (10% des bénéfices)
     weekly_revenue  = Column(BigInteger, default=0)              # revenus nets de la semaine (reset après dividendes lundi)

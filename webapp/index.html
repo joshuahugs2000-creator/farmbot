@@ -1755,14 +1755,27 @@ async function fetchT(url, opts, ms=10000) {
   }
 }
 
+
+// ════ CACHE données déjà chargées ════
+let _cachedUser = null;
+let _cachedFamily = null;
+
 async function loadData() {
   if (!uid) { fillMock(); return; }
 
   try {
-    const res = await fetch(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`);
+    // Charge user ET family en parallèle dès le démarrage
+    const [res, resFam] = await Promise.all([
+      fetch(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
+      fetch(`/api/webapp/family?user_id=${uid}`)
+    ]);
     if (!res.ok) throw new Error();
     const data = await res.json();
     fillProfile(data);
+    _cachedUser = data;
+    if (resFam.ok) {
+      _cachedFamily = await resFam.json();
+    }
   } catch(e) {
     fillMock();
   }
@@ -3054,8 +3067,8 @@ async function bankOpenAccount(bank_id) {
 // ════════════════════════════════════════
 async function loadFamily() {
   try {
-    const r = await fetch(`/api/webapp/family?user_id=${uid}`);
-    const d = await r.json();
+    const d = _cachedFamily || await fetch(`/api/webapp/family?user_id=${uid}`).then(r=>r.ok?r.json():{spouses:[],parents:[],children:[],friends:[]}).catch(()=>({spouses:[],parents:[],children:[],friends:[]}));
+    if (!_cachedFamily) _cachedFamily = d;
     if (d.error) { showToast(d.error, true); return; }
 
     // Nom de famille
@@ -3272,13 +3285,12 @@ async function loadStats() {
   document.getElementById('stats-content').style.display='none';
   if (!uid) { document.getElementById('stats-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const [ur, fr] = await Promise.all([
-      fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
-      fetchT(`/api/webapp/family?user_id=${uid}`)
-    ]);
-    const u = ur.ok ? await ur.json() : {};
-    const f = fr.ok ? await fr.json() : {};
+    // Utilise le cache si disponible
+    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`).then(r=>r.ok?r.json():{});
+    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`).then(r=>r.ok?r.json():{});
     if (u.error) throw new Error(u.error);
+    if (!_cachedUser) _cachedUser = u;
+    if (!_cachedFamily) _cachedFamily = f;
     document.getElementById('stats-loading').style.display='none';
     document.getElementById('stats-content').style.display='block';
 
@@ -3308,9 +3320,9 @@ async function loadTree() {
   document.getElementById('tree-content').style.display='none';
   if (!uid) { document.getElementById('tree-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const r = await fetchT(`/api/webapp/family?user_id=${uid}`);
-    const d = r.ok ? await r.json() : {};
+    const d = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`).then(r=>r.ok?r.json():{});
     if (d.error) throw new Error(d.error);
+    if (!_cachedFamily) _cachedFamily = d;
     document.getElementById('tree-loading').style.display='none';
     document.getElementById('tree-content').style.display='block';
 
@@ -3370,10 +3382,11 @@ async function loadMood() {
   document.getElementById('mood-content').style.display='none';
   if (!uid) { document.getElementById('mood-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const r = await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`);
-    const u = r.ok ? await r.json() : {};
+    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`).then(r=>r.ok?r.json():{});
     if (u.error) throw new Error(u.error);
-    const f = await fetchT(`/api/webapp/family?user_id=${uid}`).then(x=>x.ok?x.json():{}).catch(()=>({}));
+    if (!_cachedUser) _cachedUser = u;
+    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`).then(x=>x.ok?x.json():{}).catch(()=>({}));
+    if (!_cachedFamily) _cachedFamily = f;
 
     document.getElementById('mood-loading').style.display='none';
     document.getElementById('mood-content').style.display='block';
@@ -3518,13 +3531,11 @@ async function loadSucces() {
   document.getElementById('succes-content').style.display='none';
   if (!uid) { document.getElementById('succes-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const [ur, fr] = await Promise.all([
-      fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
-      fetchT(`/api/webapp/family?user_id=${uid}`)
-    ]);
-    const u = ur.ok ? await ur.json() : {};
-    const f = fr.ok ? await fr.json() : {};
+    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`).then(r=>r.ok?r.json():{});
+    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`).then(r=>r.ok?r.json():{});
     if (u.error) throw new Error(u.error);
+    if (!_cachedUser) _cachedUser = u;
+    if (!_cachedFamily) _cachedFamily = f;
     document.getElementById('succes-loading').style.display='none';
     document.getElementById('succes-content').style.display='block';
 

@@ -43,7 +43,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .nav-btn.active .icon { filter: drop-shadow(0 0 6px var(--accent)); }
 
 /* ── PAGES ── */
-#app { height: 100%; padding-bottom: 70px; overflow-y: auto; }
+#app { height: 100%; padding-bottom: 120px; overflow-y: auto; }
 .page { display: none; padding: 16px; animation: fadeIn .3s ease; }
 .page.active { display: block; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -424,6 +424,51 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     </div>
   </div>
 
+
+  <!-- ══ PAGE FAMILLE ══ -->
+  <div class="page" id="page-family">
+    <div class="page-title">👨‍👩‍👧 Famille</div>
+
+    <!-- Nom de famille -->
+    <div id="family-name-card" style="display:none" class="card" style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-color:#a29bfe;margin-bottom:12px">
+      <div style="text-align:center">
+        <div style="font-size:11px;color:var(--text2);font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Nom de famille</div>
+        <div id="family-name-val" style="font-family:'Bangers',cursive;font-size:24px;color:#a29bfe;letter-spacing:2px">—</div>
+      </div>
+    </div>
+
+    <!-- Conjoint(s) -->
+    <div id="family-spouse-section" style="display:none">
+      <div class="card-title">💍 CONJOINT(S)</div>
+      <div id="family-spouse-list"></div>
+    </div>
+
+    <!-- Parents -->
+    <div id="family-parent-section" style="display:none">
+      <div class="card-title" style="margin-top:8px">👴 PARENTS</div>
+      <div id="family-parent-list"></div>
+    </div>
+
+    <!-- Enfants -->
+    <div id="family-child-section" style="display:none">
+      <div class="card-title" style="margin-top:8px">👶 ENFANTS</div>
+      <div id="family-child-list"></div>
+    </div>
+
+    <!-- Amis -->
+    <div id="family-friend-section" style="display:none">
+      <div class="card-title" style="margin-top:8px">🤝 AMIS</div>
+      <div id="family-friend-list"></div>
+    </div>
+
+    <!-- Vide -->
+    <div id="family-empty" style="display:none;text-align:center;padding:40px 20px;color:var(--text2)">
+      <div style="font-size:48px;margin-bottom:12px">🏠</div>
+      <div style="font-size:14px;font-weight:700">Tu n'as pas encore de famille.</div>
+      <div style="font-size:12px;margin-top:6px">Utilise /marry, /adopt, /friend dans le bot.</div>
+    </div>
+  </div>
+
   <!-- ══ PAGE JEUX ══ -->
   <div class="page" id="page-games">
     <div class="page-title">🎮 Casino</div>
@@ -622,13 +667,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 </div>
 
 <!-- ── NAV BAR ── -->
+<div id="subnav" style="display:none;position:fixed;bottom:62px;left:0;right:0;z-index:99;background:var(--card2);border-top:1px solid var(--border);padding:6px 10px;overflow-x:auto;white-space:nowrap;scrollbar-width:none"></div>
 <nav id="nav">
-  <button class="nav-btn active" onclick="showPage('profile',this)"><span class="icon">👤</span>Profil</button>
-  <button class="nav-btn" onclick="showPage('avatar',this)"><span class="icon">🎨</span>Avatar</button>
-  <button class="nav-btn" onclick="showPage('company',this)"><span class="icon">🏢</span>Boite</button>
-  <button class="nav-btn" onclick="showPage('bank',this);loadBank()"><span class="icon">🏦</span>Banque</button>
-  <button class="nav-btn" onclick="showPage('market',this);loadMarket()"><span class="icon">📈</span>Marché</button>
-  <button class="nav-btn" onclick="showPage('games',this)"><span class="icon">🎮</span>Jeux</button>
+  <button class="nav-btn active" onclick="mainTab('moi',this)"><span class="icon">👤</span>Moi</button>
+  <button class="nav-btn" onclick="mainTab('eco',this)"><span class="icon">💼</span>Économie</button>
+  <button class="nav-btn" onclick="mainTab('social',this)"><span class="icon">👥</span>Social</button>
+  <button class="nav-btn" onclick="mainTab('jeux',this)"><span class="icon">🎮</span>Jeux</button>
+  <button class="nav-btn" onclick="mainTab('plus',this)"><span class="icon">✨</span>Plus</button>
 </nav>
 
 <style>
@@ -1417,12 +1462,68 @@ function saveAvatar() {
 // ════════════════════════════════════════
 //  NAV
 // ════════════════════════════════════════
+// ════════════════════════════════════════
+//  NAVIGATION GROUPÉE (5 onglets)
+// ════════════════════════════════════════
+const MAIN_TABS = {
+  moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'}], def:'profile' },
+  eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company'},{l:'🌱 Jardin',p:'garden',fn:'loadGarden'}], def:'bank' },
+  social: { subs:[{l:'👨‍👩‍👧 Famille',p:'family',fn:'loadFamily'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'},{l:'⚔️ Crime',p:'crime'},{l:'🥊 Arena',p:'arena'},{l:'🎓 Diplômes',p:'diplomes'}], def:'family' },
+  jeux:   { subs:[], def:'games' },
+  plus:   { subs:[{l:'🎰 Loterie',p:'lottery'},{l:'🔨 Enchères',p:'auction'}], def:'lottery' },
+};
+let _curMain = 'moi';
+let _curSub  = 'profile';
+
+function mainTab(key, btn) {
+  _curMain = key;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const tab = MAIN_TABS[key];
+  const subnav = document.getElementById('subnav');
+  // Sous-nav
+  if (tab.subs.length) {
+    subnav.style.display = 'block';
+    subnav.innerHTML = tab.subs.map(s =>
+      `<button class="snav-btn${_curSub===s.p?' snav-active':''}" onclick="subTab('${s.p}','${s.fn||''}')">${s.l}</button>`
+    ).join('');
+    document.getElementById('app').style.paddingBottom = '120px';
+  } else {
+    subnav.style.display = 'none';
+    document.getElementById('app').style.paddingBottom = '70px';
+  }
+  // Affiche la page par défaut du groupe
+  const target = tab.subs.find(s => s.p === _curSub) ? _curSub : tab.def;
+  subTab(target, tab.subs.find(s=>s.p===target)?.fn || '');
+}
+
+function subTab(page, fn) {
+  _curSub = page;
+  // Mettre à jour sous-nav actif
+  document.querySelectorAll('.snav-btn').forEach(b => {
+    b.classList.toggle('snav-active', b.textContent.includes(MAIN_TABS[_curMain]?.subs.find(s=>s.p===page)?.l?.slice(-4)||'§§'));
+  });
+  document.querySelectorAll('.snav-btn').forEach(b => b.classList.remove('snav-active'));
+  const tab = MAIN_TABS[_curMain];
+  if (tab) {
+    document.getElementById('subnav').innerHTML = tab.subs.map(s =>
+      `<button class="snav-btn${s.p===page?' snav-active':''}" onclick="subTab('${s.p}','${s.fn||''}')">${s.l}</button>`
+    ).join('');
+  }
+  // Afficher la page
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const el = document.getElementById('page-'+page);
+  if (el) el.classList.add('active');
+  // Callback de chargement
+  if (fn && window[fn]) window[fn]();
+}
+
 function showPage(name, btn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
-  btn.classList.add('active');
-  if (name === 'avatar') { drawAvatar('avatar-canvas'); renderOptions(); }
+  const el = document.getElementById('page-'+name);
+  if (el) el.classList.add('active');
+  if (btn) btn.classList.add('active');
 }
 
 // ════════════════════════════════════════
@@ -2723,5 +2824,80 @@ async function bankOpenAccount(bank_id) {
 }
 
 </script>
+
+<style>
+/* ── SUBNAV ── */
+#subnav::-webkit-scrollbar { display:none; }
+.snav-btn {
+  display:inline-block; padding:6px 14px; border-radius:20px; font-size:12px;
+  font-weight:800; border:none; background:var(--card); color:var(--text2);
+  cursor:pointer; margin-right:6px; transition:all .2s; white-space:nowrap;
+}
+.snav-active { background:var(--accent) !important; color:#000 !important; }
+
+/* ── FAMILLE ── */
+.member-card {
+  display:flex; align-items:center; gap:12px;
+  background:var(--card); border-radius:14px; border:1px solid var(--border);
+  padding:12px; margin-bottom:8px;
+}
+.member-avatar-mini {
+  width:44px; height:44px; border-radius:50%;
+  background:var(--card2); display:flex; align-items:center; justify-content:center;
+  font-size:20px; flex-shrink:0; border:2px solid var(--border);
+}
+.member-info { flex:1; min-width:0; }
+.member-name { font-size:14px; font-weight:900; color:var(--text); }
+.member-sub  { font-size:11px; color:var(--text2); margin-top:2px; }
+.member-karma { font-size:12px; font-weight:800; color:var(--accent); }
+</style>
+
+// ════════════════════════════════════════
+//  FAMILLE
+// ════════════════════════════════════════
+async function loadFamily() {
+  try {
+    const r = await fetch(`/api/webapp/family?user_id=${uid}`);
+    const d = await r.json();
+    if (d.error) { showToast(d.error, true); return; }
+
+    // Nom de famille
+    const nameCard = document.getElementById('family-name-card');
+    if (d.family_name) {
+      nameCard.style.display = 'block';
+      document.getElementById('family-name-val').textContent = d.family_name;
+    } else {
+      nameCard.style.display = 'none';
+    }
+
+    const hasAny = d.spouses.length || d.parents.length || d.children.length || d.friends.length;
+    document.getElementById('family-empty').style.display = hasAny ? 'none' : 'block';
+
+    function renderMembers(list, secId, listId) {
+      const sec = document.getElementById(secId);
+      const el  = document.getElementById(listId);
+      if (!list.length) { sec.style.display='none'; return; }
+      sec.style.display = 'block';
+      el.innerHTML = list.map(m => `
+        <div class="member-card">
+          <div class="member-avatar-mini">${m.gender==='femme'?'👩':m.gender==='homme'?'👨':'👤'}</div>
+          <div class="member-info">
+            <div class="member-name">${m.name}</div>
+            <div class="member-sub">${m.username ? '@'+m.username : 'Pas de @username'}</div>
+          </div>
+          <div class="member-karma">${m.karma>=0?'+':''}${m.karma} karma</div>
+        </div>`).join('');
+    }
+
+    renderMembers(d.spouses,  'family-spouse-section', 'family-spouse-list');
+    renderMembers(d.parents,  'family-parent-section', 'family-parent-list');
+    renderMembers(d.children, 'family-child-section',  'family-child-list');
+    renderMembers(d.friends,  'family-friend-section', 'family-friend-list');
+
+  } catch(e) {
+    showToast('Erreur chargement famille', true);
+  }
+}
+
 </body>
 </html>

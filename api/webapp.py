@@ -749,12 +749,143 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/garden/harvest', webapp_garden_harvest)
     # ── Classement ──────────────────────────────────────────────────────────
     app.router.add_get('/api/webapp/ranking', webapp_ranking)
-    # ── Crime ───────────────────────────────────────────────────────────────
-    app.router.add_get('/api/webapp/crime',   webapp_crime)
-    # ── Arena ───────────────────────────────────────────────────────────────
-    app.router.add_get('/api/webapp/arena',   webapp_arena)
-    # ── Diplômes ────────────────────────────────────────────────────────────
-    app.router.add_get('/api/webapp/diplomes', webapp_diplomes)
+    # ── Journal / Événements / Annonces ─────────────────────────────────────
+    app.router.add_get('/api/webapp/journal',   webapp_journal)
+    app.router.add_get('/api/webapp/events',    webapp_events)
+    app.router.add_get('/api/webapp/annonces',  webapp_annonces)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOURNAL — dernières actions de l'utilisateur
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_journal(request: web.Request) -> web.Response:
+    """GET /api/webapp/journal?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _ddt
+    entries = []
+
+    async with AsyncSessionLocal() as session:
+        # Dernières transactions banque
+        try:
+            r = await session.execute(
+                text("""
+                    SELECT 'Dépôt banque' as title, '🏦' as emoji, amount, created_at
+                    FROM bank_transactions
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC LIMIT 5
+                """), {'uid': uid}
+            )
+            for row in r.fetchall():
+                entries.append({
+                    'emoji': '🏦',
+                    'title': 'Transaction bancaire',
+                    'body': f'{_fmt(row[2])} $',
+                    'date': str(row[3])[:10] if row[3] else '',
+                })
+        except Exception:
+            pass
+
+        # Derniers investissements
+        try:
+            invs = (await session.execute(
+                select(Investment).where(Investment.user_id == uid).order_by(Investment.bought_at.desc()).limit(5)
+            )).scalars().all()
+            for inv in invs:
+                a = ASSETS.get(inv.asset_id, {})
+                entries.append({
+                    'emoji': a.get('emoji', '📈'),
+                    'title': f"Achat {a.get('name', inv.asset_id)}",
+                    'body': f"{inv.quantity}x à {_fmt(inv.buy_price)} $ l'unité",
+                    'date': inv.bought_at.strftime('%d/%m/%Y') if inv.bought_at else '',
+                })
+        except Exception:
+            pass
+
+    # Trier par date décroissante
+    entries.sort(key=lambda e: e.get('date', ''), reverse=True)
+    return web.json_response({'entries': entries[:15]})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉVÉNEMENTS — événements globaux du bot
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_events(request: web.Request) -> web.Response:
+    """GET /api/webapp/events?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _ddt
+    events = []
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(
+                text("SELECT * FROM bot_events ORDER BY created_at DESC LIMIT 20")
+            )
+            for row in r.fetchall():
+                events.append({
+                    'emoji': getattr(row, 'emoji', '📅'),
+                    'title': getattr(row, 'title', '—'),
+                    'desc':  getattr(row, 'description', ''),
+                    'date':  str(getattr(row, 'created_at', ''))[:10],
+                    'color': getattr(row, 'color', 'var(--accent)'),
+                })
+        except Exception:
+            pass
+
+    if not events:
+        # Fallback : événements génériques basés sur les données dispo
+        from datetime import date
+        today = date.today().strftime('%d/%m/%Y')
+        events = [
+            {'emoji':'🌅','title':'Bienvenue sur Family Bot','desc':'La Mini App est maintenant disponible !','date':today,'color':'#a29bfe'},
+            {'emoji':'💰','title':'Marché actif','desc':'Des dizaines d\'assets disponibles à l\'achat.','date':today,'color':'#f7c948'},
+        ]
+
+    return web.json_response({'events': events})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ANNONCES
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_annonces(request: web.Request) -> web.Response:
+    """GET /api/webapp/annonces?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import date
+    annonces = []
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(
+                text("SELECT * FROM announcements ORDER BY created_at DESC LIMIT 20")
+            )
+            for row in r.fetchall():
+                annonces.append({
+                    'title':     getattr(row, 'title', '—'),
+                    'body':      getattr(row, 'body', ''),
+                    'date':      str(getattr(row, 'created_at', ''))[:10],
+                    'important': getattr(row, 'important', False),
+                })
+        except Exception:
+            pass
+
+    if not annonces:
+        today = date.today().strftime('%d/%m/%Y')
+        annonces = [
+            {'title':'Mini App lancée 🎉','body':'La webapp Family Bot est désormais en ligne. Profites-en pour consulter tes stats, gérer ta banque et jouer au casino !','date':today,'important':True},
+        ]
+
+    return web.json_response({'annonces': annonces})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1287,43 +1418,84 @@ async def webapp_garden_harvest(request: web.Request) -> web.Response:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def webapp_ranking(request: web.Request) -> web.Response:
-    """GET /api/webapp/ranking?user_id=xxx"""
+    """GET /api/webapp/ranking?user_id=xxx&cat=coins|family|company"""
     uid = int(request.rel_url.query.get('user_id', 0))
+    cat = request.rel_url.query.get('cat', 'coins')
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
 
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(User).where(User.is_banned == False).order_by(User.coins.desc()).limit(20)
-        )
-        users = list(result.scalars().all())
         ranking = []
-        for i, u in enumerate(users):
-            ranking.append({
-                'rank':      i + 1,
-                'user_id':   u.user_id,
-                'name':      u.first_name,
-                'username':  u.username or '',
-                'coins':     u.coins or 0,
-                'karma':     u.karma or 0,
-                'is_me':     u.user_id == uid,
-            })
-
-        # Position du joueur s'il n'est pas dans le top 20
-        my_pos = None
         my_row = None
-        if not any(r['is_me'] for r in ranking):
-            count_r = await session.execute(
-                select(User).where(User.is_banned == False, User.coins > (
-                    (await session.execute(select(User.coins).where(User.user_id == uid))).scalar_one_or_none() or 0
-                ))
+
+        if cat == 'coins':
+            result = await session.execute(
+                select(User).where(User.is_banned == False).order_by(User.coins.desc()).limit(20)
             )
-            my_pos = len(list(count_r.scalars().all())) + 1
-            me = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
-            if me:
-                my_row = {'rank': my_pos, 'user_id': me.user_id, 'name': me.first_name,
-                          'username': me.username or '', 'coins': me.coins or 0,
-                          'karma': me.karma or 0, 'is_me': True}
+            users = list(result.scalars().all())
+            for i, u in enumerate(users):
+                ranking.append({
+                    'rank': i + 1, 'user_id': u.user_id,
+                    'name': u.first_name, 'username': u.username or '',
+                    'value': u.coins or 0, 'is_me': u.user_id == uid,
+                })
+            if not any(r['is_me'] for r in ranking):
+                me = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+                if me:
+                    cnt = (await session.execute(
+                        select(func.count()).where(User.is_banned == False, User.coins > (me.coins or 0))
+                    )).scalar() or 0
+                    my_row = {'rank': cnt + 1, 'user_id': me.user_id, 'name': me.first_name,
+                              'username': me.username or '', 'value': me.coins or 0, 'is_me': True}
+
+        elif cat == 'family':
+            # Classement par taille de famille
+            rows = (await session.execute(
+                text("""
+                    SELECT u.user_id, u.first_name, u.username,
+                           COUNT(r.id) AS fam_size
+                    FROM users u
+                    LEFT JOIN relationships r ON r.user_id = u.user_id
+                    WHERE u.is_banned = false
+                    GROUP BY u.user_id, u.first_name, u.username
+                    ORDER BY fam_size DESC
+                    LIMIT 20
+                """)
+            )).fetchall()
+            for i, row in enumerate(rows):
+                ranking.append({
+                    'rank': i + 1, 'user_id': row[0],
+                    'name': row[1] or '—', 'username': row[2] or '',
+                    'value': row[3] or 0, 'is_me': row[0] == uid,
+                })
+
+        elif cat == 'company':
+            # Classement entreprises par valeur
+            result = await session.execute(
+                select(Company).where(Company.is_active == True).order_by(Company.value.desc()).limit(20)
+            )
+            companies = list(result.scalars().all())
+            for i, co in enumerate(companies):
+                # Trouver le PDG
+                pdg_emp = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == co.id,
+                        CompanyEmployee.role == 'pdg',
+                        CompanyEmployee.left_at == None
+                    )
+                )).scalar_one_or_none()
+                pdg_name = '—'
+                is_me = False
+                if pdg_emp:
+                    pdg_user = await session.get(User, pdg_emp.user_id)
+                    if pdg_user:
+                        pdg_name = pdg_user.first_name
+                        is_me = pdg_emp.user_id == uid
+                ranking.append({
+                    'rank': i + 1, 'user_id': co.id,
+                    'name': co.name, 'username': f'PDG: {pdg_name}',
+                    'value': co.value or 0, 'is_me': is_me,
+                })
 
     return web.json_response({'ranking': ranking, 'my_row': my_row})
 

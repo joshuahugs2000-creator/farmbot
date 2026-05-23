@@ -847,6 +847,29 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 </style>
 
 <script>
+
+// ════ DEBUG VISIBLE ════
+window._debugLog = [];
+window.onerror = function(msg, src, line, col, err) {
+  window._debugLog.push('❌ ' + msg + ' (ligne ' + line + ')');
+  showDebug();
+  return false;
+};
+function showDebug() {
+  let d = document.getElementById('_debug_box');
+  if (!d) {
+    d = document.createElement('div');
+    d.id = '_debug_box';
+    d.style = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#1a0000;color:#ff6b6b;font-size:11px;padding:8px;max-height:120px;overflow-y:auto;border-bottom:2px solid #ff6b6b;';
+    document.body.prepend(d);
+  }
+  d.innerHTML = window._debugLog.map(l => '<div>'+l+'</div>').join('');
+}
+function dbg(msg) {
+  window._debugLog.push('ℹ️ ' + msg);
+  showDebug();
+}
+
 // ════════════════════════════════════════
 //  TELEGRAM INIT
 // ════════════════════════════════════════
@@ -3190,6 +3213,7 @@ function rankCat(cat, btn) {
 }
 
 async function loadRanking() {
+  dbg('loadRanking uid='+uid);
   document.getElementById('ranking-loading').style.display='block';
   document.getElementById('ranking-content').style.display='none';
   if (!uid) { document.getElementById('ranking-list').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; document.getElementById('ranking-loading').style.display='none'; document.getElementById('ranking-content').style.display='block'; return; }
@@ -3234,7 +3258,7 @@ async function loadRanking() {
       myRow.style.display='none';
     }
   } catch(e) {
-    console.error('[ranking]', e);
+    dbg('ranking ERR: '+e.message);
     document.getElementById('ranking-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3243,6 +3267,7 @@ async function loadRanking() {
 //  STATS PERSO
 // ════════════════════════════════════════
 async function loadStats() {
+  dbg('loadStats uid='+uid);
   document.getElementById('stats-loading').style.display='block';
   document.getElementById('stats-content').style.display='none';
   if (!uid) { document.getElementById('stats-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
@@ -3270,7 +3295,7 @@ async function loadStats() {
     document.getElementById('st-company').textContent  = u.company || 'Sans emploi';
     document.getElementById('st-role').textContent     = u.role || '—';
   } catch(e) {
-    console.error('[stats]', e);
+    dbg('stats ERR: '+e.message);
     document.getElementById('stats-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3392,6 +3417,7 @@ async function loadMood() {
 //  JOURNAL
 // ════════════════════════════════════════
 async function loadJournal() {
+  dbg('loadJournal uid='+uid);
   document.getElementById('journal-loading').style.display='block';
   document.getElementById('journal-content').style.display='none';
   if (!uid) { document.getElementById('journal-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
@@ -3416,7 +3442,7 @@ async function loadJournal() {
       </div>`
     ).join('');
   } catch(e) {
-    console.error('[journal]', e);
+    dbg('journal ERR: '+e.message);
     document.getElementById('journal-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }

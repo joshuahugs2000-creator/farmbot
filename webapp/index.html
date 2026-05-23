@@ -2877,6 +2877,16 @@ window.addEventListener('load', () => {
   drawAvatar('profile-avatar-mini');
   renderOptions();
   loadData();
+  // Précharge toutes les données en arrière-plan dès le démarrage
+  setTimeout(() => {
+    if (uid) {
+      // Précharge ranking, journal, events, annonces pendant que l'user est sur Moi
+      fetch(`/api/webapp/ranking?user_id=${uid}&cat=coins`).then(r=>r.ok?r.json():{}).then(d=>{ if(!d.error) window._cachedRanking = d; }).catch(()=>{});
+      fetch(`/api/webapp/journal?user_id=${uid}`).then(r=>r.ok?r.json():{entries:[]}).then(d=>{ window._cachedJournal = d; }).catch(()=>{});
+      fetch(`/api/webapp/events?user_id=${uid}`).then(r=>r.ok?r.json():{events:[]}).then(d=>{ window._cachedEvents = d; }).catch(()=>{});
+      fetch(`/api/webapp/annonces?user_id=${uid}`).then(r=>r.ok?r.json():{annonces:[]}).then(d=>{ window._cachedAnnonces = d; }).catch(()=>{});
+    }
+  }, 500);
   setTimeout(() => {
     document.getElementById('loading').style.opacity = '0';
     setTimeout(() => document.getElementById('loading').style.display = 'none', 300);
@@ -3231,8 +3241,7 @@ async function loadRanking() {
   document.getElementById('ranking-content').style.display='none';
   if (!uid) { document.getElementById('ranking-list').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; document.getElementById('ranking-loading').style.display='none'; document.getElementById('ranking-content').style.display='block'; return; }
   try {
-    const r = await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`);
-    const d = r.ok ? await r.json() : {};
+    const d = (_rankCat === 'coins' && window._cachedRanking) ? window._cachedRanking : await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`).then(r=>r.ok?r.json():{});
     if (d.error) throw new Error(d.error);
     document.getElementById('ranking-loading').style.display='none';
     document.getElementById('ranking-content').style.display='block';
@@ -3435,8 +3444,7 @@ async function loadJournal() {
   document.getElementById('journal-content').style.display='none';
   if (!uid) { document.getElementById('journal-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const r = await fetchT(`/api/webapp/journal?user_id=${uid}`);
-    const d = r.ok ? await r.json() : {entries:[]};
+    const d = window._cachedJournal || await fetchT(`/api/webapp/journal?user_id=${uid}`).then(r=>r.ok?r.json():{entries:[]}).catch(()=>({entries:[]}));
     document.getElementById('journal-loading').style.display='none';
     document.getElementById('journal-content').style.display='block';
     const list = d.entries || [];
@@ -3468,8 +3476,7 @@ async function loadEvents() {
   document.getElementById('events-content').style.display='none';
   if (!uid) { document.getElementById('events-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const r = await fetchT(`/api/webapp/events?user_id=${uid}`);
-    const d = r.ok ? await r.json() : {events:[]};
+    const d = window._cachedEvents || await fetchT(`/api/webapp/events?user_id=${uid}`).then(r=>r.ok?r.json():{events:[]}).catch(()=>({events:[]}));
     document.getElementById('events-loading').style.display='none';
     document.getElementById('events-content').style.display='block';
     const list = d.events || [];
@@ -3500,8 +3507,7 @@ async function loadAnnonces() {
   document.getElementById('annonces-content').style.display='none';
   if (!uid) { document.getElementById('annonces-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const r = await fetchT(`/api/webapp/annonces?user_id=${uid}`);
-    const d = r.ok ? await r.json() : {annonces:[]};
+    const d = window._cachedAnnonces || await fetchT(`/api/webapp/annonces?user_id=${uid}`).then(r=>r.ok?r.json():{annonces:[]}).catch(()=>({annonces:[]}));
     document.getElementById('annonces-loading').style.display='none';
     document.getElementById('annonces-content').style.display='block';
     const list = d.annonces || [];

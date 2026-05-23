@@ -1714,6 +1714,24 @@ function stars(r) {
 // ════════════════════════════════════════
 //  LOAD DATA FROM API
 // ════════════════════════════════════════
+
+// ════════════════════════════════════════
+//  FETCH WITH TIMEOUT
+// ════════════════════════════════════════
+async function fetchT(url, opts, ms=10000) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, { ...opts, signal: ctrl.signal });
+    clearTimeout(tid);
+    return r;
+  } catch(e) {
+    clearTimeout(tid);
+    if (e.name === 'AbortError') throw new Error('Timeout — serveur trop lent');
+    throw e;
+  }
+}
+
 async function loadData() {
   if (!uid) { fillMock(); return; }
 
@@ -3175,8 +3193,9 @@ async function loadRanking() {
   document.getElementById('ranking-loading').style.display='block';
   document.getElementById('ranking-content').style.display='none';
   try {
-    const r = await fetch(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`);
-    const d = await r.json();
+    const r = await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`);
+    const d = r.ok ? await r.json() : {};
+    if (d.error) throw new Error(d.error);
     document.getElementById('ranking-loading').style.display='none';
     document.getElementById('ranking-content').style.display='block';
 
@@ -3214,7 +3233,7 @@ async function loadRanking() {
       myRow.style.display='none';
     }
   } catch(e) {
-    document.getElementById('ranking-loading').textContent = 'Erreur chargement';
+    document.getElementById('ranking-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
 
@@ -3226,11 +3245,12 @@ async function loadStats() {
   document.getElementById('stats-content').style.display='none';
   try {
     const [ur, fr] = await Promise.all([
-      fetch(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
-      fetch(`/api/webapp/family?user_id=${uid}`)
+      fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
+      fetchT(`/api/webapp/family?user_id=${uid}`)
     ]);
-    const u = await ur.json();
-    const f = await fr.json();
+    const u = ur.ok ? await ur.json() : {};
+    const f = fr.ok ? await fr.json() : {};
+    if (u.error) throw new Error(u.error);
     document.getElementById('stats-loading').style.display='none';
     document.getElementById('stats-content').style.display='block';
 
@@ -3247,7 +3267,7 @@ async function loadStats() {
     document.getElementById('st-company').textContent  = u.company || 'Sans emploi';
     document.getElementById('st-role').textContent     = u.role || '—';
   } catch(e) {
-    document.getElementById('stats-loading').textContent = 'Erreur chargement';
+    document.getElementById('stats-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
 
@@ -3258,8 +3278,9 @@ async function loadTree() {
   document.getElementById('tree-loading').style.display='block';
   document.getElementById('tree-content').style.display='none';
   try {
-    const r = await fetch(`/api/webapp/family?user_id=${uid}`);
-    const d = await r.json();
+    const r = await fetchT(`/api/webapp/family?user_id=${uid}`);
+    const d = r.ok ? await r.json() : {};
+    if (d.error) throw new Error(d.error);
     document.getElementById('tree-loading').style.display='none';
     document.getElementById('tree-content').style.display='block';
 
@@ -3306,7 +3327,7 @@ async function loadTree() {
 
     vis.innerHTML = html;
   } catch(e) {
-    document.getElementById('tree-loading').textContent = 'Erreur chargement';
+    document.getElementById('tree-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
 
@@ -3317,9 +3338,10 @@ async function loadMood() {
   document.getElementById('mood-loading').style.display='block';
   document.getElementById('mood-content').style.display='none';
   try {
-    const r = await fetch(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`);
-    const u = await r.json();
-    const f = await fetch(`/api/webapp/family?user_id=${uid}`).then(x=>x.json()).catch(()=>({}));
+    const r = await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`);
+    const u = r.ok ? await r.json() : {};
+    if (u.error) throw new Error(u.error);
+    const f = await fetchT(`/api/webapp/family?user_id=${uid}`).then(x=>x.ok?x.json():{}).catch(()=>({}));
 
     document.getElementById('mood-loading').style.display='none';
     document.getElementById('mood-content').style.display='block';
@@ -3354,7 +3376,7 @@ async function loadMood() {
     document.getElementById('mood-family').textContent  = family >= 3 ? '❤️ Entouré' : family >= 1 ? '🤗 Un peu' : '😔 Seul';
     document.getElementById('mood-job').textContent     = hasJob ? '💼 Employé' : '🏠 Sans emploi';
   } catch(e) {
-    document.getElementById('mood-loading').textContent = 'Erreur chargement';
+    document.getElementById('mood-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
 
@@ -3365,8 +3387,8 @@ async function loadJournal() {
   document.getElementById('journal-loading').style.display='block';
   document.getElementById('journal-content').style.display='none';
   try {
-    const r = await fetch(`/api/webapp/journal?user_id=${uid}`);
-    const d = await r.json();
+    const r = await fetchT(`/api/webapp/journal?user_id=${uid}`);
+    const d = r.ok ? await r.json() : {entries:[]};
     document.getElementById('journal-loading').style.display='none';
     document.getElementById('journal-content').style.display='block';
     const list = d.entries || [];
@@ -3385,7 +3407,7 @@ async function loadJournal() {
       </div>`
     ).join('');
   } catch(e) {
-    document.getElementById('journal-loading').textContent = 'Erreur chargement';
+    document.getElementById('journal-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
 
@@ -3396,8 +3418,8 @@ async function loadEvents() {
   document.getElementById('events-loading').style.display='block';
   document.getElementById('events-content').style.display='none';
   try {
-    const r = await fetch(`/api/webapp/events?user_id=${uid}`);
-    const d = await r.json();
+    const r = await fetchT(`/api/webapp/events?user_id=${uid}`);
+    const d = r.ok ? await r.json() : {events:[]};
     document.getElementById('events-loading').style.display='none';
     document.getElementById('events-content').style.display='block';
     const list = d.events || [];
@@ -3415,7 +3437,7 @@ async function loadEvents() {
       </div>`
     ).join('');
   } catch(e) {
-    document.getElementById('events-loading').textContent = 'Erreur chargement';
+    document.getElementById('events-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
 
@@ -3426,8 +3448,8 @@ async function loadAnnonces() {
   document.getElementById('annonces-loading').style.display='block';
   document.getElementById('annonces-content').style.display='none';
   try {
-    const r = await fetch(`/api/webapp/annonces?user_id=${uid}`);
-    const d = await r.json();
+    const r = await fetchT(`/api/webapp/annonces?user_id=${uid}`);
+    const d = r.ok ? await r.json() : {annonces:[]};
     document.getElementById('annonces-loading').style.display='none';
     document.getElementById('annonces-content').style.display='block';
     const list = d.annonces || [];
@@ -3444,7 +3466,7 @@ async function loadAnnonces() {
       </div>`
     ).join('');
   } catch(e) {
-    document.getElementById('annonces-loading').textContent = 'Erreur chargement';
+    document.getElementById('annonces-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
 
@@ -3456,11 +3478,12 @@ async function loadSucces() {
   document.getElementById('succes-content').style.display='none';
   try {
     const [ur, fr] = await Promise.all([
-      fetch(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
-      fetch(`/api/webapp/family?user_id=${uid}`)
+      fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
+      fetchT(`/api/webapp/family?user_id=${uid}`)
     ]);
-    const u = await ur.json();
-    const f = await fr.json();
+    const u = ur.ok ? await ur.json() : {};
+    const f = fr.ok ? await fr.json() : {};
+    if (u.error) throw new Error(u.error);
     document.getElementById('succes-loading').style.display='none';
     document.getElementById('succes-content').style.display='block';
 
@@ -3494,7 +3517,7 @@ async function loadSucces() {
       </div>`
     ).join('');
   } catch(e) {
-    document.getElementById('succes-loading').textContent = 'Erreur chargement';
+    document.getElementById('succes-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
 

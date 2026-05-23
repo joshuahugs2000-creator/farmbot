@@ -1942,14 +1942,12 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_user.coins -= amount
         company.treasury += amount
 
-        # 💡 Un dépôt augmente la valeur de l'entreprise proportionnellement,
-        # mais avec un coefficient réduit (50%) pour éviter l'exploit double-dip
-        # (dépôt → vente parts gonflées → récupère mise + profit instantané).
-        # La valeur reflète ainsi l'apport de capital sans permettre
-        # une spéculation immédiate à 100%.
-        # 1 $ injecté = +1 $ de valeur (capital réel, pas spéculatif)
+        # 💡 Un dépôt augmente la valeur de l'entreprise à 50% seulement.
+        # Cela évite l'exploit : dépôt → vente parts gonflées → récupère mise + profit.
+        # Avec 50% : déposer 5B → valeur +2.5B → vendre 99 parts → récupère ~2.475B
+        # (perte nette pour le joueur, donc aucun intérêt à exploiter).
         valeur_plancher = LEVELS[1][2]
-        gain_valeur = amount
+        gain_valeur = amount // 2  # 50% seulement — anti-exploit double-dip
         company.value = max(valeur_plancher, company.value + gain_valeur)
 
         await _update_level(session, company)
@@ -2005,6 +2003,20 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Limite : max 30% de la valeur par retrait
+
+        # ── Cooldown 24h anti-exploit ────────────────────────────────────────
+        # Sans délai, le PDG vide la trésorerie en 5 transactions (30%×30%×...)
+        # avant que les actionnaires ne puissent réagir.
+        if company.last_retrait_pdg and (datetime.utcnow() - company.last_retrait_pdg) < timedelta(hours=24):
+            remaining = timedelta(hours=24) - (datetime.utcnow() - company.last_retrait_pdg)
+            h, m = divmod(int(remaining.total_seconds() / 60), 60)
+            await update.message.reply_text(
+                f"❌ Un seul retrait par <b>24h</b> est autorisé.\n"
+                f"⏳ Prochain retrait dans <b>{h}h {m}min</b>.",
+                parse_mode="HTML"
+            )
+            return
+
         max_retrait = int(company.value * 0.30)
         if amount > max_retrait:
             await update.message.reply_text(
@@ -2052,6 +2064,8 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         company.treasury -= amount
         company.value = max(valeur_plancher, company.value - perte_valeur)
         db_user.coins += amount
+        # Mettre à jour le timestamp du dernier retrait (cooldown 24h)
+        company.last_retrait_pdg = datetime.utcnow()
         await _add_log(session, company.id, "retrait",
                        f"Retrait PDG ({user.first_name})", amount=amount)
         await session.commit()
@@ -2297,26 +2311,40 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Tout actionnaire peut vendre toutes ses parts (y compris le PDG)
-        can_sell = my_shares
+        # Le PDG doit conserver au moins 51 parts (contrôle majoritaire).
+        # Cela empêche l'exploit : créer → déposer → vendre 99 parts → dissolution.
+        if emp and emp.role == "pdg":
+            can_sell = max(0, my_shares - 51)
+            if can_sell == 0:
+                await update.message.reply_text(
+                    f"❌ En tant que PDG, tu dois conserver au moins <b>51 parts</b> "
+                    f"(contrôle majoritaire).\n"
+                    f"Tu as <b>{my_shares} parts</b> — impossible d\'en vendre.",
+                    parse_mode="HTML"
+                )
+                return
+        else:
+            can_sell = my_shares
 
         if qty <= 0:
             await update.message.reply_text("❌ La quantité doit être supérieure à 0.")
             return
 
-        if my_shares < qty:
-            await update.message.reply_text(f"❌ Tu n'as que {my_shares} parts dans cette entreprise.")
+        if qty > can_sell:
+            if emp and emp.role == "pdg":
+                await update.message.reply_text(
+                    f"❌ En tant que PDG tu dois garder <b>51 parts</b> minimum.\n"
+                    f"Tu peux vendre au maximum <b>{can_sell} parts</b>.",
+                    parse_mode="HTML"
+                )
+            else:
+                await update.message.reply_text(f"❌ Tu n'as que {my_shares} parts dans cette entreprise.")
             return
 
         total = qty * price_each
         db_user = await get_user(session, user.id)
 
-        # ── RACHAT PAR LE MARCHÉ (pas par la trésorerie) ────────────────────
-        # Le marché rachète les parts : le vendeur reçoit ses coins,
-        # la valeur de l'entreprise diminue proportionnellement,
-        # et le nombre total de parts diminue.
-        # Prix par part reste identique : (value - total) / (total_shares - qty)
-        # → les autres actionnaires ne sont pas lésés.
+        # ── RACHAT PAR LE MARCHÉ ────────────────────────────────────────────
         db_user.coins += total
         company.value = max(1_000_000, company.value - total)
         company.total_shares = max(1, company.total_shares - qty)
@@ -2528,6 +2556,33 @@ async def accepteroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ── Vérification limite 51 parts PDG (anti-exploit dissolution) ─────
+        # Même règle que /vendreparts : le PDG doit garder au minimum 51 parts.
+        # Sans cette vérification, un complice peut faire /acheterparts 99
+        # et le PDG accepte via /accepteroffre → contournement total du fix.
+        pdg_shares_row = (await session.execute(
+            select(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.owner_id == user.id,
+            )
+        )).scalar_one_or_none()
+        pdg_shares_qty = pdg_shares_row.quantity if pdg_shares_row else 0
+        can_sell_pdg = max(0, pdg_shares_qty - 51)
+        if offer.quantity > can_sell_pdg:
+            offer.status = "rejected"
+            buyer = await session.get(User, offer.buyer_id)
+            if buyer:
+                buyer.coins += offer.total_price
+            await session.commit()
+            await update.message.reply_text(
+                f"❌ Offre refusée automatiquement.\n\n"
+                f"En tant que PDG tu dois conserver au moins <b>51 parts</b>.\n"
+                f"Tu détiens <b>{pdg_shares_qty} parts</b> et peux en vendre au max <b>{can_sell_pdg}</b>.\n"
+                f"L'acheteur a été remboursé.",
+                parse_mode="HTML"
+            )
+            return
+
         # ── Transaction ──────────────────────────────────────────────────────
         offer.status = "accepted"
         qty = offer.quantity
@@ -2706,14 +2761,47 @@ async def cederentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Mettre à jour owner_id
         company.owner_id = target.user_id
 
+        # ── Transfert des parts ──────────────────────────────────────────────
+        # L'ancien PDG cède TOUTES ses parts au nouveau PDG.
+        # Sans ça : l'ancien PDG garde ses parts → peut dissoudre via un complice
+        # ou continuer à toucher des dividendes sans contrôle.
+        old_share = (await session.execute(
+            select(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.owner_id == user.id,
+            )
+        )).scalar_one_or_none()
+
+        new_share = (await session.execute(
+            select(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.owner_id == target.user_id,
+            )
+        )).scalar_one_or_none()
+
+        parts_cedees = 0
+        if old_share and old_share.quantity > 0:
+            parts_cedees = old_share.quantity
+            if new_share:
+                new_share.quantity += parts_cedees
+            else:
+                session.add(CompanyShare(
+                    company_id=company.id,
+                    owner_id=target.user_id,
+                    quantity=parts_cedees,
+                ))
+            old_share.quantity = 0
+            company.owner_shares = parts_cedees
+
         await _add_log(session, company.id, "cession_pdg",
-                       f"👑 PDG transféré : {user.first_name} → {target.first_name}")
+                       f"👑 PDG transféré : {user.first_name} → {target.first_name} ({parts_cedees} parts cédées)")
         await session.commit()
 
         await update.message.reply_text(
             f"👑 <b>Titre PDG transféré !</b>\n\n"
             f"👤 <b>{target.first_name}</b> est le nouveau <b>PDG de {company.name}</b>.\n"
-            f"Tu restes dans l'entreprise en tant que <b>Directeur</b>.",
+            f"📦 <b>{parts_cedees} parts</b> transférées au nouveau PDG.\n"
+            f"Tu restes dans l'entreprise en tant que <b>Directeur</b> (sans parts).",
             parse_mode="HTML"
         )
 
@@ -3184,12 +3272,13 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         )).scalars().all()
         total_shares = company.total_shares or 100
-        # ✅ On distribue la trésorerie RÉELLE intégralement.
-        # Le plafonnement à company.value était une protection anti-exploit
-        # (dépôt → vente parts → dissolution = double-dip) mais ce cas est
-        # désormais couvert par le ratio 50% sur les dépôts.
-        # À la dissolution, les actionnaires récupèrent ce qu'il y a en caisse, point.
-        treasury = company.treasury
+        # ✅ Protection anti-exploit dissolution :
+        # On distribue min(trésorerie, valeur de l'entreprise).
+        # Sans ce plafond : dépôt 5B → tréso = 5B, valeur = 2.5B (50%)
+        # → vente 99 parts → récupère ~2.475B → dissolution → reçoit encore ~50M de tréso.
+        # Avec ce plafond : la dissolution ne peut jamais reverser plus que ce que
+        # l'entreprise "vaut", ce qui élimine le double-dip tréso → valeur → dissolution.
+        treasury = min(company.treasury, company.value)
 
         # Récupérer les employés pour les libérer
         emps = (await session.execute(

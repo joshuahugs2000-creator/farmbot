@@ -3192,6 +3192,7 @@ function rankCat(cat, btn) {
 async function loadRanking() {
   document.getElementById('ranking-loading').style.display='block';
   document.getElementById('ranking-content').style.display='none';
+  if (!uid) { document.getElementById('ranking-list').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; document.getElementById('ranking-loading').style.display='none'; document.getElementById('ranking-content').style.display='block'; return; }
   try {
     const r = await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`);
     const d = r.ok ? await r.json() : {};
@@ -3233,6 +3234,7 @@ async function loadRanking() {
       myRow.style.display='none';
     }
   } catch(e) {
+    console.error('[ranking]', e);
     document.getElementById('ranking-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3243,6 +3245,7 @@ async function loadRanking() {
 async function loadStats() {
   document.getElementById('stats-loading').style.display='block';
   document.getElementById('stats-content').style.display='none';
+  if (!uid) { document.getElementById('stats-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
     const [ur, fr] = await Promise.all([
       fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
@@ -3267,6 +3270,7 @@ async function loadStats() {
     document.getElementById('st-company').textContent  = u.company || 'Sans emploi';
     document.getElementById('st-role').textContent     = u.role || '—';
   } catch(e) {
+    console.error('[stats]', e);
     document.getElementById('stats-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3277,6 +3281,7 @@ async function loadStats() {
 async function loadTree() {
   document.getElementById('tree-loading').style.display='block';
   document.getElementById('tree-content').style.display='none';
+  if (!uid) { document.getElementById('tree-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
     const r = await fetchT(`/api/webapp/family?user_id=${uid}`);
     const d = r.ok ? await r.json() : {};
@@ -3327,6 +3332,7 @@ async function loadTree() {
 
     vis.innerHTML = html;
   } catch(e) {
+    console.error('[tree]', e);
     document.getElementById('tree-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3337,6 +3343,7 @@ async function loadTree() {
 async function loadMood() {
   document.getElementById('mood-loading').style.display='block';
   document.getElementById('mood-content').style.display='none';
+  if (!uid) { document.getElementById('mood-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
     const r = await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`);
     const u = r.ok ? await r.json() : {};
@@ -3376,6 +3383,7 @@ async function loadMood() {
     document.getElementById('mood-family').textContent  = family >= 3 ? '❤️ Entouré' : family >= 1 ? '🤗 Un peu' : '😔 Seul';
     document.getElementById('mood-job').textContent     = hasJob ? '💼 Employé' : '🏠 Sans emploi';
   } catch(e) {
+    console.error('[mood]', e);
     document.getElementById('mood-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3386,6 +3394,7 @@ async function loadMood() {
 async function loadJournal() {
   document.getElementById('journal-loading').style.display='block';
   document.getElementById('journal-content').style.display='none';
+  if (!uid) { document.getElementById('journal-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
     const r = await fetchT(`/api/webapp/journal?user_id=${uid}`);
     const d = r.ok ? await r.json() : {entries:[]};
@@ -3407,6 +3416,7 @@ async function loadJournal() {
       </div>`
     ).join('');
   } catch(e) {
+    console.error('[journal]', e);
     document.getElementById('journal-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3417,6 +3427,7 @@ async function loadJournal() {
 async function loadEvents() {
   document.getElementById('events-loading').style.display='block';
   document.getElementById('events-content').style.display='none';
+  if (!uid) { document.getElementById('events-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
     const r = await fetchT(`/api/webapp/events?user_id=${uid}`);
     const d = r.ok ? await r.json() : {events:[]};
@@ -3437,6 +3448,7 @@ async function loadEvents() {
       </div>`
     ).join('');
   } catch(e) {
+    console.error('[events]', e);
     document.getElementById('events-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3447,6 +3459,7 @@ async function loadEvents() {
 async function loadAnnonces() {
   document.getElementById('annonces-loading').style.display='block';
   document.getElementById('annonces-content').style.display='none';
+  if (!uid) { document.getElementById('annonces-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
     const r = await fetchT(`/api/webapp/annonces?user_id=${uid}`);
     const d = r.ok ? await r.json() : {annonces:[]};
@@ -3466,6 +3479,7 @@ async function loadAnnonces() {
       </div>`
     ).join('');
   } catch(e) {
+    console.error('[annonces]', e);
     document.getElementById('annonces-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
@@ -3476,6 +3490,7 @@ async function loadAnnonces() {
 async function loadSucces() {
   document.getElementById('succes-loading').style.display='block';
   document.getElementById('succes-content').style.display='none';
+  if (!uid) { document.getElementById('succes-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
     const [ur, fr] = await Promise.all([
       fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
@@ -3517,6 +3532,7 @@ async function loadSucces() {
       </div>`
     ).join('');
   } catch(e) {
+    console.error('[succes]', e);
     document.getElementById('succes-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }

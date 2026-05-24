@@ -1062,6 +1062,24 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 </div>
 
+<!-- ══ PAGE JOURNAL ══ -->
+<div class="page" id="page-journal">
+  <div class="page-title">📖 Journal</div>
+  <div id="journal-list"><div class="plus-loader">Chargement…</div></div>
+</div>
+
+<!-- ══ PAGE EVENEMENTS ══ -->
+<div class="page" id="page-events">
+  <div class="page-title">🗓️ Événements</div>
+  <div id="events-list"><div class="plus-loader">Chargement…</div></div>
+</div>
+
+<!-- ══ PAGE ANNONCES ══ -->
+<div class="page" id="page-annonces">
+  <div class="page-title">📢 Annonces</div>
+  <div id="annonces-list"><div class="plus-loader">Chargement…</div></div>
+</div>
+
 <!-- ── NAV BAR ── -->
 <div id="subnav" style="display:none;position:fixed;bottom:62px;left:0;right:0;z-index:99;background:linear-gradient(180deg,rgba(15,15,26,0) 0%,var(--card2) 20%);border-top:1px solid var(--border);padding:8px 12px;overflow-x:auto;white-space:nowrap;scrollbar-width:none"></div>
 <nav id="nav">
@@ -1069,6 +1087,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <button class="nav-btn" onclick="mainTab('eco',this)"><span class="icon">💼</span>Économie</button>
   <button class="nav-btn" onclick="mainTab('jeux',this)"><span class="icon">🎮</span>Jeux</button>
   <button class="nav-btn" onclick="mainTab('social',this)"><span class="icon">👥</span>Social</button>
+  <button class="nav-btn" onclick="mainTab('plus',this)"><span class="icon">✨</span>Plus</button>
 </nav>
 
 <style>
@@ -1888,6 +1907,7 @@ const MAIN_TABS = {
   eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company',fn:'loadCompany'}], def:'bank' },
   jeux:   { subs:[], def:'games' },
   social: { subs:[{l:'👨‍👩‍👧 Famille',p:'famille',fn:'loadFamille'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'}], def:'famille' },
+  plus:   { subs:[{l:'📖 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'}], def:'journal' },
 };
 let _curMain = 'moi';
 let _curSub  = 'profile';
@@ -4298,29 +4318,158 @@ async function _gardenHarvest(gardenId) {
 }
 
 // ════════════════════════════════════════
-//  CLASSEMENT
+//  PLUS — CSS (injected once)
 // ════════════════════════════════════════
-// ════════════════════════════════════════
-//  CLASSEMENT MULTI-CATÉGORIE
-// ════════════════════════════════════════
+(function injectPlusCSS() {
+  if (document.getElementById('plus-css')) return;
+  const s = document.createElement('style');
+  s.id = 'plus-css';
+  s.textContent = `
+    .plus-loader { text-align:center; color:var(--text2); padding:40px 0; font-size:14px; }
+
+    /* ── JOURNAL ── */
+    .journal-entry {
+      display:flex; gap:12px; align-items:flex-start;
+      background:var(--card); border:1px solid var(--border);
+      border-radius:14px; padding:14px; margin-bottom:10px;
+      animation: slideInUp .35s ease both;
+    }
+    .journal-entry-icon {
+      font-size:26px; width:42px; height:42px; border-radius:12px;
+      background:var(--card2); display:flex; align-items:center; justify-content:center;
+      flex-shrink:0;
+    }
+    .journal-entry-body { flex:1; min-width:0; }
+    .journal-entry-title { font-size:13px; font-weight:700; color:var(--text); margin-bottom:3px; }
+    .journal-entry-desc  { font-size:12px; color:var(--accent); font-weight:600; }
+    .journal-entry-date  { font-size:11px; color:var(--text2); margin-top:4px; }
+
+    /* ── ÉVÉNEMENTS ── */
+    .event-card {
+      border-radius:16px; padding:16px; margin-bottom:12px;
+      border-left:4px solid var(--accent);
+      background:var(--card);
+      animation: slideInUp .35s ease both;
+      position:relative; overflow:hidden;
+    }
+    .event-card::before {
+      content:''; position:absolute; top:0; right:0; width:80px; height:80px;
+      border-radius:50%; background:var(--event-color,var(--accent));
+      opacity:.08; transform:translate(25px,-25px);
+    }
+    .event-header { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    .event-emoji  { font-size:28px; }
+    .event-title  { font-size:14px; font-weight:800; color:var(--text); }
+    .event-desc   { font-size:12px; color:var(--text2); line-height:1.5; }
+    .event-date   { font-size:11px; color:var(--accent); font-weight:600; margin-top:8px; }
+
+    /* ── ANNONCES ── */
+    .annonce-card {
+      border-radius:16px; padding:16px; margin-bottom:12px;
+      background:var(--card); border:1px solid var(--border);
+      animation: slideInUp .35s ease both;
+    }
+    .annonce-card.important {
+      border-color:#f7c948; background:linear-gradient(135deg,rgba(247,201,72,.07),var(--card));
+    }
+    .annonce-badge {
+      display:inline-block; font-size:10px; font-weight:800; letter-spacing:.5px;
+      padding:2px 8px; border-radius:20px; margin-bottom:8px;
+      background:#f7c948; color:#000;
+    }
+    .annonce-title { font-size:14px; font-weight:800; color:var(--text); margin-bottom:6px; }
+    .annonce-body  { font-size:12px; color:var(--text2); line-height:1.6; }
+    .annonce-date  { font-size:11px; color:var(--text2); margin-top:8px; }
+
+    @keyframes slideInUp {
+      from { opacity:0; transform:translateY(16px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+  `;
+  document.head.appendChild(s);
+})();
 
 // ════════════════════════════════════════
-async // ════════════════════════════════════════
-//  ARBRE FAMILIAL
-// ════════════════════════════════════════
-async // ════════════════════════════════════════
-//  HUMEUR
-// ════════════════════════════════════════
-async // ════════════════════════════════════════
 //  JOURNAL
 // ════════════════════════════════════════
-async // ════════════════════════════════════════
+async function loadJournal() {
+  const el = document.getElementById('journal-list');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">Chargement…</div>';
+  try {
+    const r = await fetchT(`/api/webapp/journal?user_id=${uid}`, {}, 12000);
+    const d = await r.json();
+    const entries = d.entries || [];
+    if (!entries.length) {
+      el.innerHTML = '<div class="plus-loader">Aucune entrée pour l\'instant.</div>'; return;
+    }
+    el.innerHTML = entries.map((e, i) => `
+      <div class="journal-entry" style="animation-delay:${i*0.05}s">
+        <div class="journal-entry-icon">${e.emoji || '📌'}</div>
+        <div class="journal-entry-body">
+          <div class="journal-entry-title">${e.title || '—'}</div>
+          <div class="journal-entry-desc">${e.body || ''}</div>
+          <div class="journal-entry-date">🕐 ${e.date || ''}</div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
+  }
+}
+
+// ════════════════════════════════════════
 //  ÉVÉNEMENTS
 // ════════════════════════════════════════
-async // ════════════════════════════════════════
+async function loadEvents() {
+  const el = document.getElementById('events-list');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">Chargement…</div>';
+  try {
+    const r = await fetchT(`/api/webapp/events?user_id=${uid}`, {}, 12000);
+    const d = await r.json();
+    const events = d.events || [];
+    if (!events.length) {
+      el.innerHTML = '<div class="plus-loader">Aucun événement récent.</div>'; return;
+    }
+    el.innerHTML = events.map((ev, i) => `
+      <div class="event-card" style="border-left-color:${ev.color||'var(--accent)'};--event-color:${ev.color||'var(--accent)'};animation-delay:${i*0.06}s">
+        <div class="event-header">
+          <span class="event-emoji">${ev.emoji || '📅'}</span>
+          <span class="event-title">${ev.title || '—'}</span>
+        </div>
+        ${ev.desc ? `<div class="event-desc">${ev.desc}</div>` : ''}
+        <div class="event-date">📆 ${ev.date || ''}</div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
+  }
+}
+
+// ════════════════════════════════════════
 //  ANNONCES
 // ════════════════════════════════════════
-async // ════════════════════════════════════════
-//  SUCCÈS
-// ════════════════════════════════════════
-async
+async function loadAnnonces() {
+  const el = document.getElementById('annonces-list');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">Chargement…</div>';
+  try {
+    const r = await fetchT(`/api/webapp/annonces?user_id=${uid}`, {}, 12000);
+    const d = await r.json();
+    const annonces = d.annonces || [];
+    if (!annonces.length) {
+      el.innerHTML = '<div class="plus-loader">Aucune annonce.</div>'; return;
+    }
+    el.innerHTML = annonces.map((a, i) => `
+      <div class="annonce-card${a.important ? ' important' : ''}" style="animation-delay:${i*0.06}s">
+        ${a.important ? '<span class="annonce-badge">⚡ IMPORTANT</span>' : ''}
+        <div class="annonce-title">${a.title || '—'}</div>
+        <div class="annonce-body">${a.body || ''}</div>
+        <div class="annonce-date">📅 ${a.date || ''}</div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
+  }
+}

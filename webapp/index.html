@@ -1823,29 +1823,25 @@ function mainTab(key, btn) {
   // Sous-nav
   if (tab.subs.length) {
     subnav.style.display = 'block';
-    subnav.innerHTML = tab.subs.map(s =>
-      `<button class="snav-btn${_curSub===s.p?' snav-active':''}" onclick="subTab('${s.p}','${s.fn||''}')">${s.l}</button>`
-    ).join('');
     document.getElementById('app').style.paddingBottom = '120px';
   } else {
     subnav.style.display = 'none';
     document.getElementById('app').style.paddingBottom = '70px';
   }
-  // Affiche la page par défaut du groupe
-  const target = tab.subs.find(s => s.p === _curSub) ? _curSub : tab.def;
-  subTab(target, tab.subs.find(s=>s.p===target)?.fn || '');
+  // Affiche la page par défaut du groupe (toujours la def quand on change de tab principal)
+  const targetSub = tab.subs.find(s => s.p === _curSub) || tab.subs.find(s => s.p === tab.def) || tab.subs[0];
+  const target = targetSub ? targetSub.p : tab.def;
+  const targetFn = targetSub ? (targetSub.fn || '') : '';
+  subTab(target, targetFn);
 }
 
 function subTab(page, fn) {
   _curSub = page;
-  // Mettre à jour sous-nav actif
-  document.querySelectorAll('.snav-btn').forEach(b => {
-    b.classList.toggle('snav-active', b.textContent.includes(MAIN_TABS[_curMain]?.subs.find(s=>s.p===page)?.l?.slice(-4)||'§§'));
-  });
-  document.querySelectorAll('.snav-btn').forEach(b => b.classList.remove('snav-active'));
+  // Rebuild subnav with correct active state
   const tab = MAIN_TABS[_curMain];
-  if (tab) {
-    document.getElementById('subnav').innerHTML = tab.subs.map(s =>
+  const subnav = document.getElementById('subnav');
+  if (tab && tab.subs.length) {
+    subnav.innerHTML = tab.subs.map(s =>
       `<button class="snav-btn${s.p===page?' snav-active':''}" onclick="subTab('${s.p}','${s.fn||''}')">${s.l}</button>`
     ).join('');
   }
@@ -1853,8 +1849,9 @@ function subTab(page, fn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const el = document.getElementById('page-'+page);
   if (el) el.classList.add('active');
-  // Callback de chargement
-  if (fn && window[fn]) window[fn]();
+  // Callback de chargement — résoudre fn depuis MAIN_TABS si non fourni
+  const resolvedFn = fn || (tab && tab.subs.find(s=>s.p===page)?.fn) || '';
+  if (resolvedFn && window[resolvedFn]) window[resolvedFn]();
 }
 
 function showPage(name, btn) {

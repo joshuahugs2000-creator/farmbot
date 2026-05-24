@@ -303,24 +303,25 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div id="co-content" style="display:none;">
 
       <!-- Header entreprise -->
-      <div class="card" style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-color:#f7c948;text-align:center;padding:20px;">
-        <div style="font-family:'Bangers',cursive;font-size:28px;color:var(--accent);letter-spacing:2px;" id="co-name">—</div>
-        <div style="color:var(--text2);font-size:13px;margin-top:4px;" id="co-level">—</div>
-        <div style="margin-top:8px;" id="co-stars">—</div>
-        <div id="co-frozen-banner" style="display:none;margin-top:10px;background:#e55;color:#fff;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;">🔒 TRÉSORERIE GELÉE — Impôts impayés</div>
-        <div style="margin-top:10px;">
-          <span style="background:var(--bg);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--text2);" id="co-sector">—</span>
-          <span style="background:var(--bg);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--accent);margin-left:6px;" id="co-role-badge">—</span>
+      <div class="card" style="background:linear-gradient(135deg,#0d1117,#1a1a2e,#16213e);border:2px solid rgba(247,201,72,.4);text-align:center;padding:20px;position:relative;overflow:hidden;">
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#ff6b6b,var(--accent));"></div>
+        <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--accent);letter-spacing:2px;text-shadow:0 0 20px rgba(247,201,72,.4);" id="co-name">—</div>
+        <div style="color:var(--text2);font-size:12px;margin-top:4px;" id="co-level">—</div>
+        <div style="margin:8px 0;" id="co-stars">—</div>
+        <div id="co-frozen-banner" style="display:none;background:#e55;color:#fff;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:700;margin-bottom:8px;">🔒 TRÉSORERIE GELÉE — Impôts impayés</div>
+        <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;">
+          <span style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--text2);" id="co-sector">—</span>
+          <span style="background:rgba(247,201,72,.12);border:1px solid rgba(247,201,72,.3);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--accent);font-weight:700;" id="co-role-badge">—</span>
         </div>
       </div>
 
       <!-- Onglets -->
-      <div class="tab-bar" style="margin:12px 0 0;">
-        <button class="tab-btn active" onclick="coTab('general',this)">📊 Général</button>
-        <button class="tab-btn" onclick="coTab('equipe',this)">👥 Équipe</button>
-        <button class="tab-btn" onclick="coTab('contrats',this)">📋 Contrats</button>
-        <button class="tab-btn" onclick="coTab('impots',this)">🏛️ Impôts</button>
-        <button class="tab-btn" onclick="coTab('logs',this)">📜 Logs</button>
+      <div class="tab-bar" style="margin:14px 0 0;display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;">
+        <button class="co-tab-btn active" onclick="coTab('general',this)" data-tab="general">📊 Général</button>
+        <button class="co-tab-btn" onclick="coTab('equipe',this)" data-tab="equipe">👥 Équipe</button>
+        <button class="co-tab-btn" onclick="coTab('contrats',this)" data-tab="contrats">📋 Contrats</button>
+        <button class="co-tab-btn" onclick="coTab('impots',this)" data-tab="impots">🏛️ Impôts</button>
+        <button class="co-tab-btn" onclick="coTab('logs',this)" data-tab="logs">📜 Logs</button>
       </div>
 
       <!-- ── ONGLET GÉNÉRAL ── -->
@@ -329,8 +330,17 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <div class="card-title">💰 FINANCES</div>
           <div class="stat-row"><span class="stat-label">Valeur</span><span class="stat-value gold" id="co-value">—</span></div>
           <div class="stat-row"><span class="stat-label">Trésorerie</span><span class="stat-value gold" id="co-treasury">—</span></div>
+          <div class="stat-row"><span class="stat-label">Revenu hebdo</span><span class="stat-value" id="co-weekly" style="color:var(--success)">—</span></div>
+          <div class="stat-row"><span class="stat-label">Réserve légale</span><span class="stat-value" id="co-legal-reserve">—</span></div>
           <div class="stat-row"><span class="stat-label">Dette fiscale</span><span class="stat-value" id="co-taxdebt" style="color:#e55;">—</span></div>
+        </div>
+
+        <div class="card" style="margin-top:10px;">
+          <div class="card-title">📊 ACTIVITÉ</div>
           <div class="stat-row"><span class="stat-label">Mes commandes</span><span class="stat-value" id="co-mycmds">—</span></div>
+          <div class="stat-row"><span class="stat-label">Cmds équipe total</span><span class="stat-value" id="co-totalcmds">—</span></div>
+          <div class="stat-row"><span class="stat-label">Équipe</span><span class="stat-value" id="co-emp-count">—</span></div>
+          <div class="stat-row"><span class="stat-label">Contrats actifs</span><span class="stat-value" id="co-nb-contrats">—</span></div>
         </div>
 
         <!-- Actions PDG -->
@@ -347,6 +357,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <!-- Parts -->
         <div class="card" style="margin-top:10px;">
           <div class="card-title">📜 ACTIONNARIAT</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:12px;color:var(--text2);">Parts émises : <span id="co-total-shares" style="color:var(--text1);font-weight:700;">—</span></span>
+          </div>
           <div id="co-parts-list"><div style="color:var(--text2);font-size:13px;">—</div></div>
         </div>
       </div>
@@ -3162,7 +3175,7 @@ function coTab(tab, btn) {
   ['general','equipe','contrats','impots','logs'].forEach(t => {
     document.getElementById('co-tab-'+t).style.display = t===tab ? 'block' : 'none';
   });
-  document.querySelectorAll('#page-company .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#page-company .co-tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
 
@@ -3208,13 +3221,24 @@ async function loadCompany() {
     document.getElementById('co-mycmds').textContent = (co.my_cmds || 0).toLocaleString() + ' cmds';
     if (co.is_pdg) document.getElementById('co-pdg-actions').style.display = 'block';
 
+    // Nouveaux champs
+    document.getElementById('co-weekly').textContent = co.weekly_revenue || '0 $';
+    document.getElementById('co-legal-reserve').textContent = co.legal_reserve || '0 $';
+    document.getElementById('co-totalcmds').textContent = (co.total_cmds || 0).toLocaleString() + ' cmds';
+    document.getElementById('co-emp-count').textContent = `${co.nb_employees || 0} / ${co.max_employees || 50}`;
+    document.getElementById('co-nb-contrats').textContent = (co.nb_contrats || 0) + ' / 2';
+    document.getElementById('co-total-shares').textContent = `${co.total_shares || 100} parts`;
+
     // Parts
     const partsEl = document.getElementById('co-parts-list');
     if (co.parts && co.parts.length > 0) {
       partsEl.innerHTML = co.parts.map(p =>
         `<div class="stat-row" style="${p.is_me?'background:rgba(247,201,72,.08);border-radius:8px;padding:4px 8px;':''}">
-          <span class="stat-label">${p.is_me ? '👤 Moi' : p.name}</span>
-          <span class="stat-value gold">${p.parts} parts</span>
+          <div>
+            <span class="stat-label">${p.is_me ? '👤 Moi' : p.name}</span>
+            ${p.username ? `<div style="font-size:11px;color:var(--text2);">@${p.username}</div>` : ''}
+          </div>
+          <span class="stat-value gold">${(p.parts||0).toLocaleString()} parts</span>
         </div>`).join('');
     } else {
       partsEl.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun actionnaire enregistré.</div>';
@@ -3355,6 +3379,21 @@ async function coPayerImpots() {
   cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all .2s;
 }
 .rank-cat-active { background:var(--accent) !important; color:#000 !important; }
+
+/* ── ONGLETS ENTREPRISE ── */
+.co-tab-btn {
+  display:inline-flex; align-items:center; gap:4px;
+  padding:7px 14px; border-radius:12px; font-size:12px;
+  font-weight:800; border:1px solid var(--border);
+  background:var(--card); color:var(--text2);
+  cursor:pointer; white-space:nowrap; flex-shrink:0;
+  transition:all .2s; font-family:'Nunito',sans-serif;
+}
+.co-tab-btn.active {
+  background:linear-gradient(135deg,#f7c948,#e6b800);
+  color:#000; border-color:transparent;
+  box-shadow:0 2px 12px rgba(247,201,72,.35);
+}
 
 /* ── SUBNAV ── */
 #subnav::-webkit-scrollbar { display:none; }

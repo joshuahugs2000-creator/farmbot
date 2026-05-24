@@ -1142,6 +1142,77 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .bank-quick-btn { flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-weight:800;font-size:12px;cursor:pointer; }
 </style>
 
+<style>
+.rank-cat-btn {
+  display:inline-block; padding:7px 16px; border-radius:20px; font-size:12px;
+  font-weight:800; border:none; background:var(--card); color:var(--text2);
+  cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all .2s;
+}
+.rank-cat-active { background:var(--accent) !important; color:#000 !important; }
+
+/* ── ONGLETS MARCHÉ ── */
+.mkt-tab-btn {
+  padding:10px 24px; border-radius:14px; font-size:13px;
+  font-weight:800; border:1px solid var(--border);
+  background:var(--card); color:var(--text2);
+  cursor:pointer; transition:all .2s; font-family:'Nunito',sans-serif;
+  box-shadow:0 1px 4px rgba(0,0,0,.3);
+}
+.mkt-tab-btn.active {
+  background:linear-gradient(135deg,#f7c948,#e6b800);
+  color:#000; border-color:transparent;
+  box-shadow:0 3px 14px rgba(247,201,72,.4);
+}
+
+/* ── ONGLETS ENTREPRISE ── */
+.co-tab-btn {
+  display:inline-flex; align-items:center; gap:4px;
+  padding:7px 14px; border-radius:12px; font-size:12px;
+  font-weight:800; border:1px solid var(--border);
+  background:var(--card); color:var(--text2);
+  cursor:pointer; white-space:nowrap; flex-shrink:0;
+  transition:all .2s; font-family:'Nunito',sans-serif;
+}
+.co-tab-btn.active {
+  background:linear-gradient(135deg,#f7c948,#e6b800);
+  color:#000; border-color:transparent;
+  box-shadow:0 2px 12px rgba(247,201,72,.35);
+}
+
+/* ── SUBNAV ── */
+#subnav::-webkit-scrollbar { display:none; }
+.snav-btn {
+  display:inline-flex; align-items:center; gap:4px;
+  padding:6px 14px; border-radius:20px; font-size:12px;
+  font-weight:800; border:1px solid var(--border);
+  background:var(--card); color:var(--text2);
+  cursor:pointer; margin-right:6px; transition:all .2s;
+  white-space:nowrap; font-family:'Nunito',sans-serif;
+  box-shadow:0 1px 4px rgba(0,0,0,.3);
+}
+.snav-active {
+  background:linear-gradient(135deg,#f7c948,#e6b800) !important;
+  color:#000 !important; border-color:transparent !important;
+  box-shadow:0 2px 10px rgba(247,201,72,.4) !important;
+}
+
+/* ── FAMILLE ── */
+.member-card {
+  display:flex; align-items:center; gap:12px;
+  background:var(--card); border-radius:14px; border:1px solid var(--border);
+  padding:12px; margin-bottom:8px;
+}
+.member-avatar-mini {
+  width:44px; height:44px; border-radius:50%;
+  background:var(--card2); display:flex; align-items:center; justify-content:center;
+  font-size:20px; flex-shrink:0; border:2px solid var(--border);
+}
+.member-info { flex:1; min-width:0; }
+.member-name { font-size:14px; font-weight:900; color:var(--text); }
+.member-sub  { font-size:11px; color:var(--text2); margin-top:2px; }
+.member-karma { font-size:12px; font-weight:800; color:var(--accent); }
+</style>
+
 <script>
 
 // ════ DEBUG VISIBLE ════
@@ -4171,83 +4242,12 @@ async function coPayerImpots() {
   } catch(e) { msgEl.textContent = 'Erreur réseau'; }
 }
 
-</script>
-
-<style>
-.rank-cat-btn {
-  display:inline-block; padding:7px 16px; border-radius:20px; font-size:12px;
-  font-weight:800; border:none; background:var(--card); color:var(--text2);
-  cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all .2s;
-}
-.rank-cat-active { background:var(--accent) !important; color:#000 !important; }
-
-/* ── ONGLETS MARCHÉ ── */
-.mkt-tab-btn {
-  padding:10px 24px; border-radius:14px; font-size:13px;
-  font-weight:800; border:1px solid var(--border);
-  background:var(--card); color:var(--text2);
-  cursor:pointer; transition:all .2s; font-family:'Nunito',sans-serif;
-  box-shadow:0 1px 4px rgba(0,0,0,.3);
-}
-.mkt-tab-btn.active {
-  background:linear-gradient(135deg,#f7c948,#e6b800);
-  color:#000; border-color:transparent;
-  box-shadow:0 3px 14px rgba(247,201,72,.4);
-}
-
-/* ── ONGLETS ENTREPRISE ── */
-.co-tab-btn {
-  display:inline-flex; align-items:center; gap:4px;
-  padding:7px 14px; border-radius:12px; font-size:12px;
-  font-weight:800; border:1px solid var(--border);
-  background:var(--card); color:var(--text2);
-  cursor:pointer; white-space:nowrap; flex-shrink:0;
-  transition:all .2s; font-family:'Nunito',sans-serif;
-}
-.co-tab-btn.active {
-  background:linear-gradient(135deg,#f7c948,#e6b800);
-  color:#000; border-color:transparent;
-  box-shadow:0 2px 12px rgba(247,201,72,.35);
-}
-
-/* ── SUBNAV ── */
-#subnav::-webkit-scrollbar { display:none; }
-.snav-btn {
-  display:inline-flex; align-items:center; gap:4px;
-  padding:6px 14px; border-radius:20px; font-size:12px;
-  font-weight:800; border:1px solid var(--border);
-  background:var(--card); color:var(--text2);
-  cursor:pointer; margin-right:6px; transition:all .2s;
-  white-space:nowrap; font-family:'Nunito',sans-serif;
-  box-shadow:0 1px 4px rgba(0,0,0,.3);
-}
-.snav-active {
-  background:linear-gradient(135deg,#f7c948,#e6b800) !important;
-  color:#000 !important; border-color:transparent !important;
-  box-shadow:0 2px 10px rgba(247,201,72,.4) !important;
-}
-
-/* ── FAMILLE ── */
-.member-card {
-  display:flex; align-items:center; gap:12px;
-  background:var(--card); border-radius:14px; border:1px solid var(--border);
-  padding:12px; margin-bottom:8px;
-}
-.member-avatar-mini {
-  width:44px; height:44px; border-radius:50%;
-  background:var(--card2); display:flex; align-items:center; justify-content:center;
-  font-size:20px; flex-shrink:0; border:2px solid var(--border);
-}
-.member-info { flex:1; min-width:0; }
-.member-name { font-size:14px; font-weight:900; color:var(--text); }
-.member-sub  { font-size:11px; color:var(--text2); margin-top:2px; }
-.member-karma { font-size:12px; font-weight:800; color:var(--accent); }
-</style>
 
 // ════════════════════════════════════════
 //  FAMILLE
 // ════════════════════════════════════════
-async // ════════════════════════════════════════
+
+// ════════════════════════════════════════
 //  JARDIN
 // ════════════════════════════════════════
 let _gardenGroupId = 0;
@@ -4711,3 +4711,5 @@ async function submitBid() {
     }
   } catch(e) { showToast('Erreur réseau'); }
 }
+
+</script>

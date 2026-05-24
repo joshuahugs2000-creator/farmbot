@@ -757,6 +757,8 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/company/depot',       webapp_company_depot)
     app.router.add_post('/api/webapp/company/retrait',     webapp_company_retrait)
     app.router.add_post('/api/webapp/company/payerimpots', webapp_company_payerimpots)
+    app.router.add_post('/api/webapp/company/accepter',    webapp_company_accepter)
+    app.router.add_post('/api/webapp/company/refuser',     webapp_company_refuser)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2112,3 +2114,148 @@ async def webapp_company_payerimpots(request: web.Request) -> web.Response:
     if not company.treasury_frozen:
         msg += ' Trésorerie dégelée !'
     return web.json_response({'ok': True, 'msg': msg})
+
+
+async def webapp_company_accepter(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/accepter"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        app = (await session.execute(
+            select(CompanyApplication).where(
+                CompanyApplication.company_id == company.id,
+                CompanyApplication.user_id == target_id,
+                CompanyApplication.status == 'pending',
+            )
+        )).scalar_one_or_none()
+        if not app:
+            return web.json_response({'error': 'Candidature introuvable ou déjà traitée'})
+
+        # Vérifier capacité
+        from sqlalchemy import func as _func2
+        nb_emp = (await session.execute(
+            select(_func2.count()).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar()
+        max_emp = {1:5,2:10,3:50,4:100,5:200}.get(company.level or 1, 50) + (company.extra_slots or 0)
+        if nb_emp >= max_emp:
+            return web.json_response({'error': f'Entreprise au complet ({nb_emp}/{max_emp})'})
+
+        candidate = await session.get(User, target_id)
+
+        # Rôle selon diplôme
+        role = 'stagiaire'
+        if candidate:
+            if candidate.diplome_mba:       role = 'directeur'
+            elif candidate.diplome_master:  role = 'manager'
+            elif candidate.diplome_licence: role = 'employe'
+            elif candidate.diplome_bac:     role = 'employe'
+            # PDG ailleurs → forcer employe
+            own_co = (await session.execute(
+                select(Company).where(
+                    Company.owner_id == candidate.user_id,
+                    Company.is_active == True,
+                    Company.is_bot_company == False,
+                )
+            )).scalar_one_or_none()
+            if own_co:
+                role = 'employe'
+
+        app.status = 'accepted'
+        new_emp = CompanyEmployee(company_id=company.id, user_id=target_id, role=role)
+        session.add(new_emp)
+
+        from database.models import CompanyLog as _CLog
+        session.add(_CLog(
+            company_id=company.id,
+            event_type='recrutement',
+            description=f"{candidate.first_name if candidate else target_id} recruté comme {role}",
+        ))
+        await session.commit()
+
+        # Notifier le candidat via Telegram
+        if candidate:
+            try:
+                import httpx
+                from config import BOT_TOKEN as _BT
+                await httpx.AsyncClient().post(
+                    f'https://api.telegram.org/bot{_BT}/sendMessage',
+                    json={
+                        'chat_id': candidate.user_id,
+                        'text': f"🎉 Ta candidature chez <b>{company.name}</b> a été <b>acceptée</b> ! Tu es désormais <b>{role.capitalize()}</b>.",
+                        'parse_mode': 'HTML',
+                    }, timeout=5
+                )
+            except Exception:
+                pass
+
+        name = candidate.first_name if candidate else str(target_id)
+        return web.json_response({'ok': True, 'msg': f'✅ {name} recruté(e) comme {role.capitalize()} !'})
+
+
+async def webapp_company_refuser(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/refuser"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        app = (await session.execute(
+            select(CompanyApplication).where(
+                CompanyApplication.company_id == company.id,
+                CompanyApplication.user_id == target_id,
+                CompanyApplication.status == 'pending',
+            )
+        )).scalar_one_or_none()
+        if not app:
+            return web.json_response({'error': 'Candidature introuvable ou déjà traitée'})
+
+        app.status = 'rejected'
+        candidate = await session.get(User, target_id)
+        await session.commit()
+
+        if candidate:
+            try:
+                import httpx
+                from config import BOT_TOKEN as _BT
+                await httpx.AsyncClient().post(
+                    f'https://api.telegram.org/bot{_BT}/sendMessage',
+                    json={
+                        'chat_id': candidate.user_id,
+                        'text': f"😔 Ta candidature chez <b>{company.name}</b> a été <b>refusée</b>.\n💡 Tu peux postuler ailleurs avec /listeboites.",
+                        'parse_mode': 'HTML',
+                    }, timeout=5
+                )
+            except Exception:
+                pass
+
+        name = candidate.first_name if candidate else str(target_id)
+        return web.json_response({'ok': True, 'msg': f'❌ Candidature de {name} refusée.'})

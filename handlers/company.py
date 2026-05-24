@@ -2044,6 +2044,14 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if company.is_bot_company:
             await update.message.reply_text("❌ Tu ne peux pas retirer de fonds d'une entreprise officielle.")
             return
+        if company.treasury_frozen:
+            await update.message.reply_text(
+                f"🔒 <b>Trésorerie gelée par l'Agence Fiscale.</b>\n\n"
+                f"💳 Paie au moins 50% de ta dette fiscale pour débloquer :\n"
+                f"<code>/payerimpots [montant]</code>",
+                parse_mode="HTML"
+            )
+            return
         if company.treasury < amount:
             await update.message.reply_text(f"❌ Trésorerie insuffisante. Disponible : {_fmt(company.treasury)} $")
             return
@@ -3318,6 +3326,20 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Distribution directe de la trésorerie (value = treasury, pas de double dip possible)
         treasury = company.treasury
 
+        # 🏛️ Si trésorerie gelée → impôts prélevés en premier
+        tax_preleve = 0
+        if company.treasury_frozen and company.tax_debt > 0:
+            from database.models import StateCaisse
+            tax_preleve = min(company.tax_debt, treasury)
+            treasury -= tax_preleve
+            caisse = (await session.execute(select(StateCaisse))).scalar_one_or_none()
+            if not caisse:
+                caisse = StateCaisse(total=0)
+                session.add(caisse)
+            caisse.total += tax_preleve
+            company.tax_debt = 0
+            company.treasury_frozen = False
+
         # Récupérer les employés pour les libérer
         emps = (await session.execute(
             select(CompanyEmployee).where(
@@ -3384,7 +3406,8 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         await update.message.reply_text(
             f"🏚️ <b>{company.name}</b> a été dissoute.\n\n"
-            f"💰 <b>{_fmt(total_distribue)} $</b> distribués aux actionnaires selon leurs parts.\n"
+            + (f"🏛️ <b>{_fmt(tax_preleve)} $</b> prélevés par l'Agence Fiscale (impôts impayés).\n" if tax_preleve > 0 else "")
+            + f"💰 <b>{_fmt(total_distribue)} $</b> distribués aux actionnaires selon leurs parts.\n"
             f"👥 Tous les employés ont été libérés sans cooldown.",
             parse_mode="HTML"
         )

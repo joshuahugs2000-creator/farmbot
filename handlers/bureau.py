@@ -1,5 +1,10 @@
 """
-📋 Bureau des Contrats — contrats B2B générés selon le profil de l'entreprise
+📋 Bureau des Contrats — contrats basés sur un objectif de commandes d'équipe
+Même mécanique que les contrats automatiques :
+  - PDG soumet son dossier → 3 contrats proposés avec objectif en commandes
+  - PDG choisit → toute l'équipe doit atteindre l'objectif
+  - Job horaire vérifie → verse la récompense si objectif atteint
+  - Si délai dépassé sans objectif atteint → contrat échoué
 """
 import random
 from datetime import datetime, timedelta
@@ -11,6 +16,30 @@ from telegram.ext import ContextTypes
 from database import AsyncSessionLocal
 from database.models import Company, BureauContrat, CompanyEmployee
 from handlers.company import _fmt, _add_log
+
+
+# Objectifs de commandes et récompenses selon la trésorerie
+def _get_contract_params(treasury: int) -> list[dict]:
+    """Génère 3 niveaux de contrats selon la trésorerie."""
+    if treasury < 500_000_000:  # < 500M
+        return [
+            {"cmds": random.randint(300,  500),  "rate": 0.08, "days": 7},
+            {"cmds": random.randint(600,  900),  "rate": 0.12, "days": 14},
+            {"cmds": random.randint(900, 1400),  "rate": 0.18, "days": 21},
+        ]
+    elif treasury < 5_000_000_000:  # < 5B
+        return [
+            {"cmds": random.randint(1000, 1500), "rate": 0.05, "days": 10},
+            {"cmds": random.randint(2000, 3000), "rate": 0.09, "days": 20},
+            {"cmds": random.randint(3500, 5000), "rate": 0.14, "days": 30},
+        ]
+    else:  # 5B+
+        return [
+            {"cmds": random.randint(3000,  5000), "rate": 0.03, "days": 15},
+            {"cmds": random.randint(6000,  9000), "rate": 0.06, "days": 21},
+            {"cmds": random.randint(10000,15000), "rate": 0.10, "days": 30},
+        ]
+
 
 # ─── TEMPLATES DE CONTRATS PAR SECTEUR ───────────────────────────────────────
 CONTRATS_TEMPLATES = {
@@ -57,11 +86,8 @@ CONTRATS_TEMPLATES = {
         ("Aménagement commercial", "Aménager un espace de coworking pour un opérateur national."),
     ],
 }
-
-# Secteur par défaut si non reconnu
 DEFAULT_SECTOR = "commerce"
 
-# Clients fictifs
 CLIENTS = [
     "Groupe Meridian", "Holdings Apex", "TerraVast Corp", "Nexus Partners",
     "Alliance Stratégique", "Consortium Delta", "Fonds Olympia", "Société Générale du Sud",
@@ -70,31 +96,31 @@ CLIENTS = [
 ]
 
 
+async def _get_employee_total_cmds(session, company_id: int) -> int:
+    """Somme des command_count de tous les employés actifs."""
+    result = await session.execute(
+        select(func.sum(CompanyEmployee.command_count)).where(
+            CompanyEmployee.company_id == company_id,
+            CompanyEmployee.left_at == None,
+        )
+    )
+    return result.scalar() or 0
+
+
 def _generate_contracts(company: Company, employees: int) -> list[dict]:
-    """Génère 3 propositions de contrats adaptées au profil de l'entreprise."""
+    """Génère 3 propositions de contrats avec objectifs en commandes."""
     sector = company.sector if company.sector in CONTRATS_TEMPLATES else DEFAULT_SECTOR
     templates = CONTRATS_TEMPLATES[sector]
     selected = random.sample(templates, min(3, len(templates)))
 
-    treasury = company.treasury
+    params = _get_contract_params(company.treasury)
     contracts = []
-
-    # Durées et taux de rendement selon la taille
-    if treasury < 500_000_000:          # < 500M
-        durations = [7, 14, 21]
-        rates = [0.08, 0.12, 0.18]     # 8%, 12%, 18% de la tréso
-    elif treasury < 5_000_000_000:      # < 5B
-        durations = [10, 20, 30]
-        rates = [0.05, 0.09, 0.14]
-    else:                               # 5B+
-        durations = [15, 21, 30]
-        rates = [0.03, 0.06, 0.10]
 
     for i, (title, desc) in enumerate(selected):
         client = random.choice(CLIENTS)
-        duration = durations[i]
-        reward = int(treasury * rates[i])
-        reward = max(reward, 1_000_000)  # minimum 1M
+        p = params[i]
+        reward = int(company.treasury * p["rate"])
+        reward = max(reward, 1_000_000)
 
         # Bonus employés
         if employees >= 5:
@@ -106,7 +132,8 @@ def _generate_contracts(company: Company, employees: int) -> list[dict]:
             "title": title,
             "description": f"{desc} Client : <b>{client}</b>.",
             "reward": reward,
-            "duration_days": duration,
+            "duration_days": p["days"],
+            "objective_cmds": p["cmds"],
         })
 
     return contracts
@@ -164,8 +191,7 @@ async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
         # Générer 3 contrats
         proposals = _generate_contracts(company, employees)
 
-        # Sauvegarder les propositions temporairement
-        # On supprime d'abord les anciennes propositions en attente
+        # Supprimer anciennes propositions en attente
         old_pending = (await session.execute(
             select(BureauContrat).where(
                 BureauContrat.company_id == company.id,
@@ -184,6 +210,7 @@ async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
                 description=p["description"],
                 reward=p["reward"],
                 duration_days=p["duration_days"],
+                objective_cmds=p["objective_cmds"],
                 status="pending",
             )
             session.add(record)
@@ -192,7 +219,6 @@ async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await session.commit()
 
-        # Afficher les 3 propositions
         sector_label = company.sector.capitalize()
         msg = (
             f"📋 <b>BUREAU DES CONTRATS</b>\n"
@@ -206,13 +232,13 @@ async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
             msg += (
                 f"<b>Contrat {i}</b> — {p['title']}\n"
                 f"📝 {p['description']}\n"
+                f"🎯 Objectif : <b>{p['objective_cmds']:,} commandes d'équipe</b>\n"
+                f"⏳ Délai : <b>{p['duration_days']} jours</b>\n"
                 f"💵 Récompense : <b>{_fmt(p['reward'])} $</b>\n"
-                f"⏳ Durée : <b>{p['duration_days']} jours</b>\n"
                 f"✅ <code>/choisircontrat {cid}</code>\n\n"
             )
 
         msg += "💡 Tu as <b>24h</b> pour choisir avant expiration des offres."
-
         await update.message.reply_text(msg, parse_mode="HTML")
 
 
@@ -246,7 +272,6 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Contrat introuvable ou déjà expiré.")
             return
 
-        # Vérifier limite 2 contrats actifs
         active_count = (await session.execute(
             select(func.count()).where(
                 BureauContrat.company_id == company.id,
@@ -258,13 +283,14 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Tu as déjà 2 contrats actifs.")
             return
 
-        # Activer le contrat
+        # Activer le contrat — snapshot commandes actuelles
         now = datetime.utcnow()
         contract.status = "active"
         contract.starts_at = now
         contract.ends_at = now + timedelta(days=contract.duration_days)
+        contract.cmds_at_start = await _get_employee_total_cmds(session, company.id)
 
-        # Supprimer les autres propositions en attente
+        # Supprimer autres propositions en attente
         other_pending = (await session.execute(
             select(BureauContrat).where(
                 BureauContrat.company_id == company.id,
@@ -276,16 +302,43 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await session.delete(old)
 
         await _add_log(session, company.id, "contrat_bureau",
-                       f"Contrat '{contract.title}' accepté — {_fmt(contract.reward)} $ à l'échéance")
+                       f"Contrat '{contract.title}' accepté — objectif {contract.objective_cmds:,} cmds · {_fmt(contract.reward)} $ à l'échéance")
         await session.commit()
+
+        # Notifier tous les employés
+        emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+                CompanyEmployee.role != "pdg",
+            )
+        )).scalars().all()
+
+        deadline_str = contract.ends_at.strftime("%d/%m à %H:%M UTC")
+        for emp in emps:
+            try:
+                await context.bot.send_message(
+                    chat_id=emp.user_id,
+                    text=(
+                        f"📋 <b>Nouveau contrat Bureau pour {company.name} !</b>\n\n"
+                        f"📌 <b>Mission :</b> {contract.title}\n\n"
+                        f"🎯 Objectif équipe : <b>{contract.objective_cmds:,} commandes</b>\n"
+                        f"⏰ Deadline : <b>{deadline_str}</b>\n"
+                        f"💰 Récompense : <b>{_fmt(contract.reward)} $</b>\n\n"
+                        f"💪 Soyez actifs sur le bot pour atteindre l'objectif !"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
         await update.message.reply_text(
             f"✅ <b>Contrat accepté !</b>\n\n"
             f"📋 <b>{contract.title}</b>\n"
-            f"💵 Récompense : <b>{_fmt(contract.reward)} $</b>\n"
-            f"📅 Fin le : <b>{contract.ends_at.strftime('%d/%m/%Y à %Hh%M')}</b>\n\n"
-            f"La récompense sera versée automatiquement dans la trésorerie à l'échéance.\n"
-            f"📊 Suivi : <code>/mescontratsbc</code>",
+            f"🎯 Objectif : <b>{contract.objective_cmds:,} commandes d'équipe</b>\n"
+            f"⏰ Deadline : <b>{deadline_str}</b>\n"
+            f"💵 Récompense : <b>{_fmt(contract.reward)} $</b>\n\n"
+            f"Toute l'équipe a été notifiée. Suivez la progression avec <code>/mescontratsbc</code>",
             parse_mode="HTML"
         )
 
@@ -321,14 +374,25 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         now = datetime.utcnow()
-        msg = f"📋 <b>CONTRATS — {company.name}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        msg = f"📋 <b>CONTRATS BUREAU — {company.name}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
         for c in contracts:
             if c.status == "active":
                 remaining = c.ends_at - now if c.ends_at else timedelta(0)
                 days = remaining.days
                 hours = remaining.seconds // 3600
-                status_str = f"🟢 En cours — {days}j {hours}h restants"
+
+                # Progression commandes
+                total_now = await _get_employee_total_cmds(session, company.id)
+                done = max(0, total_now - (c.cmds_at_start or 0))
+                obj = c.objective_cmds or 1
+                pct = min(100, int(done / obj * 100))
+                bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+
+                status_str = (
+                    f"🟢 En cours — {days}j {hours}h restants\n"
+                    f"   [{bar}] {done:,}/{obj:,} cmds ({pct}%)"
+                )
             elif c.status == "completed":
                 status_str = "✅ Terminé"
             else:
@@ -336,7 +400,7 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             msg += (
                 f"<b>{c.title}</b>\n"
-                f"💵 {_fmt(c.reward)} $ · ⏳ {c.duration_days}j\n"
+                f"💵 {_fmt(c.reward)} $ · 🎯 {c.objective_cmds:,} cmds · ⏳ {c.duration_days}j\n"
                 f"{status_str}\n\n"
             )
 
@@ -345,56 +409,87 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── JOB : vérifier les contrats terminés ────────────────────────────────────
 async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
-    """Verse les récompenses des contrats terminés dans la trésorerie."""
+    """Vérifie chaque heure si les contrats bureau sont complétés ou expirés."""
     async with AsyncSessionLocal() as session:
         now = datetime.utcnow()
 
-        completed = (await session.execute(
-            select(BureauContrat).where(
-                BureauContrat.status == "active",
-                BureauContrat.ends_at <= now,
-            )
+        active_contracts = (await session.execute(
+            select(BureauContrat).where(BureauContrat.status == "active")
         )).scalars().all()
 
-        for contract in completed:
+        for contract in active_contracts:
             company = await session.get(Company, contract.company_id)
             if not company or not company.is_active:
                 contract.status = "failed"
                 continue
 
-            # Verser la récompense dans la trésorerie
-            company.treasury += contract.reward
-            company.value = company.treasury
-            contract.status = "completed"
+            total_now = await _get_employee_total_cmds(session, contract.company_id)
+            cmds_done = max(0, total_now - (contract.cmds_at_start or 0))
+            obj = contract.objective_cmds or 1
 
-            await _add_log(session, company.id, "contrat_bureau",
-                           f"Contrat '{contract.title}' terminé — +{_fmt(contract.reward)} $",
-                           amount=contract.reward)
+            # Contrat réussi — objectif atteint
+            if cmds_done >= obj:
+                contract.status = "completed"
+                company.treasury += contract.reward
+                company.value = company.treasury
 
-            # Notifier le PDG
-            pdg_emp = (await session.execute(
-                select(CompanyEmployee).where(
-                    CompanyEmployee.company_id == company.id,
-                    CompanyEmployee.role == "pdg",
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar_one_or_none()
+                await _add_log(session, company.id, "contrat_bureau",
+                               f"Contrat '{contract.title}' terminé — +{_fmt(contract.reward)} $",
+                               amount=contract.reward)
 
-            if pdg_emp:
-                try:
-                    await context.bot.send_message(
-                        chat_id=pdg_emp.user_id,
-                        text=(
-                            f"📋 <b>Contrat terminé !</b>\n\n"
-                            f"🏢 <b>{company.name}</b>\n"
-                            f"📄 <b>{contract.title}</b>\n"
-                            f"💰 <b>+{_fmt(contract.reward)} $</b> versés en trésorerie !\n\n"
-                            f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n\n"
-                            f"Tu peux soumettre un nouveau dossier : <code>/soumettredossier</code>"
-                        ),
-                        parse_mode="HTML"
+                pdg_emp = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.role == "pdg",
+                        CompanyEmployee.left_at == None,
                     )
-                except Exception:
-                    pass
+                )).scalar_one_or_none()
+
+                if pdg_emp:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=pdg_emp.user_id,
+                            text=(
+                                f"🎉 <b>Contrat Bureau accompli !</b>\n\n"
+                                f"🏢 <b>{company.name}</b>\n"
+                                f"📄 <b>{contract.title}</b>\n"
+                                f"✅ Objectif atteint : <b>{cmds_done:,} / {obj:,} commandes</b>\n"
+                                f"💰 <b>+{_fmt(contract.reward)} $</b> versés en trésorerie !\n\n"
+                                f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n\n"
+                                f"Tu peux soumettre un nouveau dossier : <code>/soumettredossier</code>"
+                            ),
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+
+            # Contrat expiré — délai dépassé sans objectif atteint
+            elif contract.ends_at and now > contract.ends_at:
+                contract.status = "failed"
+
+                pdg_emp = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.role == "pdg",
+                        CompanyEmployee.left_at == None,
+                    )
+                )).scalar_one_or_none()
+
+                if pdg_emp:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=pdg_emp.user_id,
+                            text=(
+                                f"⚠️ <b>Contrat Bureau échoué !</b>\n\n"
+                                f"🏢 <b>{company.name}</b>\n"
+                                f"📄 <b>{contract.title}</b>\n"
+                                f"❌ Objectif non atteint : <b>{cmds_done:,} / {obj:,} commandes</b>\n"
+                                f"Aucune récompense versée.\n\n"
+                                f"Soumets un nouveau dossier : <code>/soumettredossier</code>"
+                            ),
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
 
         await session.commit()

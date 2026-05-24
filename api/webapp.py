@@ -288,6 +288,14 @@ async def webapp_market_portfolio(request: web.Request) -> web.Response:
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
 
+    try:
+        return await _webapp_market_portfolio_inner(uid)
+    except Exception as e:
+        import traceback
+        return web.json_response({'error': str(e), 'trace': traceback.format_exc()}, status=500)
+
+
+async def _webapp_market_portfolio_inner(uid: int) -> web.Response:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Investment).where(Investment.user_id == uid, Investment.status == 'active')

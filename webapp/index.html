@@ -484,9 +484,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div class="page-title">📈 Marché</div>
 
     <!-- onglets -->
-    <div class="tab-bar" id="market-tabs">
-      <button class="tab-btn active" onclick="mktTab('catalog',this)">🏪 Catalogue</button>
-      <button class="tab-btn" onclick="mktTab('portfolio',this)">💼 Portfolio</button>
+    <div class="tab-bar" id="market-tabs" style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="mkt-tab-btn active" onclick="mktTab('catalog',this)">🏪 Catalogue</button>
+      <button class="mkt-tab-btn" onclick="mktTab('portfolio',this)">💼 Portfolio</button>
     </div>
 
     <!-- ── CATALOGUE ── -->
@@ -2006,7 +2006,7 @@ let _mktActiveCat = null;
 let _mktModalAsset = null;
 
 function mktTab(tab, btn) {
-  document.querySelectorAll('#market-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#market-tabs .mkt-tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('mkt-catalog').style.display   = tab === 'catalog'   ? '' : 'none';
   document.getElementById('mkt-portfolio').style.display = tab === 'portfolio' ? '' : 'none';
@@ -3398,14 +3398,20 @@ async function loadCompany() {
       if (co.candidatures && co.candidatures.length > 0) {
         noCandsEl.style.display = 'none';
         candsEl.innerHTML = co.candidatures.map(c =>
-          `<div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;">
-            <div style="font-size:30px;flex-shrink:0;">👤</div>
-            <div style="flex:1;">
-              <div style="font-weight:700;color:var(--text1);">${c.name}</div>
-              ${c.username?`<div style="font-size:12px;color:var(--text2);">@${c.username}</div>`:''}
-              <div style="font-size:11px;color:var(--text2);margin-top:2px;">${c.date}</div>
+          `<div class="card" style="margin-bottom:10px;" id="cand-card-${c.user_id}">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+              <div style="width:44px;height:44px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;border:2px solid var(--border);">👤</div>
+              <div style="flex:1;">
+                <div style="font-weight:800;color:var(--text1);">${c.name}</div>
+                ${c.username?`<div style="font-size:12px;color:var(--accent);">@${c.username}</div>`:''}
+                <div style="font-size:11px;color:var(--text2);margin-top:2px;">📅 ${c.date}</div>
+              </div>
             </div>
-            <div style="font-size:12px;color:var(--text2);text-align:center;">Répondre via<br><code>/acceptercandidature</code><br>ou <code>/refuser</code></div>
+            <div style="display:flex;gap:8px;" id="cand-actions-${c.user_id}">
+              <button onclick="coAccepterCand(${c.user_id})" style="flex:1;padding:10px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--success),#00b894);color:#000;font-weight:800;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;">✅ Accepter</button>
+              <button onclick="coRefuserCand(${c.user_id})" style="flex:1;padding:10px;border-radius:12px;border:none;background:rgba(229,85,85,.15);border:1px solid #e55;color:#e55;font-weight:800;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;">❌ Refuser</button>
+            </div>
+            <div id="cand-msg-${c.user_id}" style="text-align:center;margin-top:8px;font-size:12px;color:var(--text2);min-height:14px;"></div>
           </div>`).join('');
       } else {
         candsEl.innerHTML = '';
@@ -3429,6 +3435,46 @@ async function loadCompany() {
       logsEl.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun historique.</div>';
     }
   } catch(e) { console.error('loadCompany:', e); }
+}
+
+async function coAccepterCand(targetId) {
+  const msgEl = document.getElementById(`cand-msg-${targetId}`);
+  const actEl = document.getElementById(`cand-actions-${targetId}`);
+  if (msgEl) msgEl.textContent = '⏳ En cours...';
+  try {
+    const r = await fetch('/api/webapp/company/accepter', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: uid, target_id: targetId})
+    });
+    const d = await r.json();
+    if (d.error) { if (msgEl) msgEl.textContent = d.error; return; }
+    showToast(d.msg);
+    const card = document.getElementById(`cand-card-${targetId}`);
+    if (card) card.style.opacity = '0.4';
+    if (actEl) actEl.innerHTML = `<div style="text-align:center;color:var(--success);font-size:13px;font-weight:800;width:100%;">✅ Accepté</div>`;
+    if (msgEl) msgEl.textContent = '';
+    setTimeout(() => loadCompany(), 1500);
+  } catch(e) { if (msgEl) msgEl.textContent = 'Erreur réseau'; }
+}
+
+async function coRefuserCand(targetId) {
+  const msgEl = document.getElementById(`cand-msg-${targetId}`);
+  const actEl = document.getElementById(`cand-actions-${targetId}`);
+  if (msgEl) msgEl.textContent = '⏳ En cours...';
+  try {
+    const r = await fetch('/api/webapp/company/refuser', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: uid, target_id: targetId})
+    });
+    const d = await r.json();
+    if (d.error) { if (msgEl) msgEl.textContent = d.error; return; }
+    showToast(d.msg);
+    const card = document.getElementById(`cand-card-${targetId}`);
+    if (card) card.style.opacity = '0.4';
+    if (actEl) actEl.innerHTML = `<div style="text-align:center;color:#e55;font-size:13px;font-weight:800;width:100%;">❌ Refusé</div>`;
+    if (msgEl) msgEl.textContent = '';
+    setTimeout(() => loadCompany(), 1500);
+  } catch(e) { if (msgEl) msgEl.textContent = 'Erreur réseau'; }
 }
 
 function coShowDepot() {
@@ -3491,6 +3537,20 @@ async function coPayerImpots() {
   cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all .2s;
 }
 .rank-cat-active { background:var(--accent) !important; color:#000 !important; }
+
+/* ── ONGLETS MARCHÉ ── */
+.mkt-tab-btn {
+  padding:10px 24px; border-radius:14px; font-size:13px;
+  font-weight:800; border:1px solid var(--border);
+  background:var(--card); color:var(--text2);
+  cursor:pointer; transition:all .2s; font-family:'Nunito',sans-serif;
+  box-shadow:0 1px 4px rgba(0,0,0,.3);
+}
+.mkt-tab-btn.active {
+  background:linear-gradient(135deg,#f7c948,#e6b800);
+  color:#000; border-color:transparent;
+  box-shadow:0 3px 14px rgba(247,201,72,.4);
+}
 
 /* ── ONGLETS ENTREPRISE ── */
 .co-tab-btn {

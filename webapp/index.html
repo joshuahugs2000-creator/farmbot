@@ -2220,7 +2220,8 @@ async function loadPortfolio() {
 }
 
 async function sellPosition(invId) {
-  if (!confirm('Confirmer la vente de cette position ?')) return;
+  const ok = await showConfirmModal('Vendre cette position ?', 'La vente sera immédiate au prix actuel du marché.', '💸 Vendre', 'var(--accent2)');
+  if (!ok) return;
   try {
     const r = await fetch('/api/webapp/market/action', {
       method: 'POST',
@@ -4122,6 +4123,63 @@ async function loadSucces() {
     document.getElementById('succes-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
   }
 }
+
+</script>
+
+<!-- ══ CONFIRM MODAL CUSTOM ═══════════════════════════════════════════════ -->
+<div id="confirm-modal-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0);backdrop-filter:blur(0px);transition:background .25s,backdrop-filter .25s;align-items:flex-end;justify-content:center;">
+  <div id="confirm-modal-sheet" style="width:100%;max-width:480px;background:linear-gradient(160deg,#1e1e35 0%,#16213e 100%);border:1px solid rgba(247,201,72,.18);border-radius:28px 28px 0 0;padding:28px 24px 40px;transform:translateY(100%);transition:transform .32s cubic-bezier(.4,0,.2,1);box-shadow:0 -8px 40px rgba(0,0,0,.6),0 -1px 0 rgba(247,201,72,.12);">
+    <div style="width:36px;height:4px;border-radius:4px;background:rgba(255,255,255,.15);margin:0 auto 24px;"></div>
+    <div id="confirm-modal-emoji" style="font-size:40px;text-align:center;margin-bottom:12px;line-height:1;">💸</div>
+    <div id="confirm-modal-title" style="font-family:'Bangers',cursive;font-size:26px;letter-spacing:1.5px;color:var(--accent);text-align:center;margin-bottom:8px;">Confirmer ?</div>
+    <div id="confirm-modal-body" style="font-size:13px;color:var(--text2);text-align:center;line-height:1.5;margin-bottom:28px;"></div>
+    <div style="display:flex;gap:12px;">
+      <button id="confirm-modal-cancel" onclick="_closeConfirmModal(false)" style="flex:1;padding:15px;border-radius:16px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-family:'Nunito',sans-serif;font-size:14px;font-weight:800;cursor:pointer;">Annuler</button>
+      <button id="confirm-modal-ok" onclick="_closeConfirmModal(true)" style="flex:2;padding:15px;border-radius:16px;border:none;background:var(--accent2);color:#fff;font-family:'Nunito',sans-serif;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;">Confirmer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let _confirmResolve = null;
+
+function showConfirmModal(title, body, okLabel, okColor) {
+  okLabel = okLabel || 'Confirmer';
+  okColor = okColor || 'var(--accent2)';
+  return new Promise(function(resolve) {
+    _confirmResolve = resolve;
+    var overlay = document.getElementById('confirm-modal-overlay');
+    var sheet   = document.getElementById('confirm-modal-sheet');
+    document.getElementById('confirm-modal-title').textContent = title;
+    document.getElementById('confirm-modal-body').textContent  = body || '';
+    var okBtn = document.getElementById('confirm-modal-ok');
+    okBtn.textContent    = okLabel;
+    okBtn.style.background = okColor;
+    var emojiMatch = okLabel.match(/^\p{Emoji}/u);
+    document.getElementById('confirm-modal-emoji').textContent = emojiMatch ? emojiMatch[0] : '❓';
+    overlay.style.display = 'flex';
+    requestAnimationFrame(function() {
+      overlay.style.background = 'rgba(0,0,0,.72)';
+      overlay.style.backdropFilter = 'blur(6px)';
+      sheet.style.transform = 'translateY(0)';
+    });
+  });
+}
+
+function _closeConfirmModal(result) {
+  var overlay = document.getElementById('confirm-modal-overlay');
+  var sheet   = document.getElementById('confirm-modal-sheet');
+  overlay.style.background = 'rgba(0,0,0,0)';
+  overlay.style.backdropFilter = 'blur(0px)';
+  sheet.style.transform = 'translateY(100%)';
+  setTimeout(function() { overlay.style.display = 'none'; }, 320);
+  if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+}
+
+document.getElementById('confirm-modal-overlay').addEventListener('click', function(e) {
+  if (e.target === document.getElementById('confirm-modal-overlay')) _closeConfirmModal(false);
+});
+</script>
 
 </body>
 </html>

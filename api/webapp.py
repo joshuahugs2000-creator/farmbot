@@ -236,54 +236,25 @@ async def webapp_save_avatar(request: web.Request) -> web.Response:
 
 
 async def webapp_index(request: web.Request) -> web.Response:
-    """Sert une page d'attente légère. Le vrai HTML est chargé via POST /api/webapp/load après validation."""
-    gate = """<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{min-height:100vh;background:#0f0f1a;display:flex;align-items:center;justify-content:center;font-family:sans-serif}
-  .msg{text-align:center;padding:32px;color:#a0a0b0;font-size:14px}
-  .spin{width:40px;height:40px;border:3px solid #2a2a3a;border-top-color:#f7c948;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px}
-  @keyframes spin{to{transform:rotate(360deg)}}
-</style>
-</head><body>
-<div class="msg"><div class="spin"></div>Vérification en cours…</div>
-<script>
-(async function() {
-  const tg = window.Telegram.WebApp;
-  tg.ready();
-  tg.expand();
-  const initData = tg.initData;
-  const uid = tg.initDataUnsafe?.user?.id;
-  if (!uid) {
-    document.body.innerHTML = '<div class="msg">⛔ Ouvre cette app depuis Telegram.</div>';
-    return;
-  }
-  try {
-    const res = await fetch('/api/webapp/load', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({init_data: initData, user_id: uid})
-    });
-    if (res.status === 403) {
-      document.body.innerHTML = '<div class="msg" style="max-width:300px;margin:auto"><div style="font-size:64px;margin-bottom:16px">🚧</div><div style="font-size:22px;font-weight:900;color:#f7c948;margin-bottom:10px;letter-spacing:2px">BIENTÔT</div>La Mini App <b style="color:#f0f0f0">Family Bot</b> arrive bientôt !</div>';
-      return;
-    }
-    if (!res.ok) {
-      document.body.innerHTML = '<div class="msg">❌ Erreur serveur. Réessaie.</div>';
-      return;
-    }
-    const html = await res.text();
-    document.open(); document.write(html); document.close();
-  } catch(e) {
-    document.body.innerHTML = '<div class="msg">❌ Erreur réseau.</div>';
-  }
-})();
-</script>
-</body></html>"""
-    return web.Response(text=gate, content_type='text/html')
+    """Sert la Mini App HTML — accès restreint côté serveur."""
+    import os
+
+    # Récupérer user_id depuis query params (Telegram le passe via tgWebAppData)
+    user_id_str = request.rel_url.query.get('user_id') or request.rel_url.query.get('tgWebAppData')
+
+    # Bloquer côté serveur si user_id fourni et pas dans la whitelist
+    if user_id_str:
+        try:
+            uid_int = int(user_id_str)
+            if not _is_allowed(uid_int):
+                return web.Response(text=_build_locked_page(), content_type='text/html')
+        except ValueError:
+            pass
+
+    path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
+    with open(path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return web.Response(text=content, content_type='text/html')
 
 
 async def webapp_load_app(request: web.Request) -> web.Response:
@@ -296,18 +267,32 @@ async def webapp_load_app(request: web.Request) -> web.Response:
     uid       = body.get('user_id')
     init_data = body.get('init_data', '')
 
-    # Validation : soit initData valide (production), soit uid whitelisté (dev sans initData)
     valid_init = _verify_init_data(init_data)
     valid_uid  = uid and _is_allowed(int(uid))
 
     if not (valid_init or valid_uid):
-        return web.Response(text="⛔ Accès refusé.", status=403)
+        return web.Response(text=_build_locked_page(), content_type='text/html', status=403)
 
     import os
     path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
     return web.Response(text=content, content_type='text/html')
+
+
+def _build_locked_page() -> str:
+    return """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;background:#0f0f1a;display:flex;align-items:center;justify-content:center;font-family:sans-serif}</style>
+</head><body>
+<div style="text-align:center;padding:32px;max-width:320px">
+  <div style="font-size:72px">🚧</div>
+  <div style="font-size:26px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div>
+  <div style="color:#a0a0b0;font-size:14px;line-height:1.8">
+    La Mini App <b style="color:#f0f0f0">Family Bot</b><br>arrive très bientôt !
+  </div>
+</div>
+</body></html>"""
 
 
 

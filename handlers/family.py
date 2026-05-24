@@ -402,6 +402,12 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = f"👨‍👦 {mention(sender)} a officiellement adopte {mention(target)} !"
             await log_event("adoption", a=sender.first_name, b=target.first_name)
 
+        elif req_type_str == "sibling":
+            await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.SIBLING, req.group_id)
+            relation_type = "siblings"
+            caption = f"👫 {mention(sender)} et {mention(target)} sont maintenant frère/sœur !"
+            await log_event("sibling", a=sender.first_name, b=target.first_name)
+
         else:
             await add_relationship(session, req.from_user_id, req.to_user_id, RelationType.FRIEND, req.group_id)
             relation_type = "friends"
@@ -651,6 +657,42 @@ async def marry_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=req_keyboard,
             parse_mode=ParseMode.HTML,
         )
+
+# ─── /brother & /sister ──────────────────────────────────────────────────────
+
+async def _sibling_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, label: str):
+    """Commande commune pour /brother et /sister."""
+    sender = await ensure_user(update.effective_user)
+    target = await parse_target(update, context)
+    if not target:
+        await update.message.reply_text(
+            f"Usage : Réponds au message de la personne + /{label}  ou  /{label} @pseudo"
+        )
+        return
+    if target.user_id == sender.user_id:
+        await update.message.reply_text("❌ Tu ne peux pas être ton propre frère/sœur !")
+        return
+    async with AsyncSessionLocal() as session:
+        if await relationship_exists(session, sender.user_id, target.user_id, RelationType.SIBLING):
+            await update.message.reply_text("❌ Vous êtes déjà frère/sœur !")
+            return
+        req = await create_request(session, sender.user_id, target.user_id,
+                                   RequestType.FRIEND, update.effective_chat.id)
+        # On stocke le type sibling dans le message de la demande
+        emoji = "👦" if label == "brother" else "👧"
+        await update.message.reply_text(
+            f"{emoji} <b>{mention_tg(update.effective_user)}</b> veut être ton "
+            f"{'frère' if label == 'brother' else 'sœur'}, <b>{mention(target)}</b> !",
+            reply_markup=_req_keyboard(req.id, "sibling"),
+            parse_mode=ParseMode.HTML,
+        )
+
+async def brother(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _sibling_cmd(update, context, "brother")
+
+async def sister(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _sibling_cmd(update, context, "sister")
+
 
 async def familyphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from PIL import Image

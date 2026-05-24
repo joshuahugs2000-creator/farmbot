@@ -1669,15 +1669,55 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ─── COMMANDE : /demissionner ─────────────────────────────────────────────────
+# ─── COMMANDE : /demissionner [nom_entreprise] ────────────────────────────────
 
 async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, user.id)
-        if not company:
+
+        # ── Récupérer TOUTES les entreprises où le joueur est actif ──────────
+        rows = (await session.execute(
+            select(CompanyEmployee, Company).join(
+                Company, Company.id == CompanyEmployee.company_id
+            ).where(
+                CompanyEmployee.user_id == user.id,
+                CompanyEmployee.left_at == None,
+                Company.is_active == True,
+            )
+        )).all()
+
+        if not rows:
             await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
             return
+
+        # ── Si plusieurs entreprises : demander laquelle cibler ──────────────
+        if len(rows) > 1 and not context.args:
+            liste = "\n".join(
+                f"• <code>/demissionner {row[1].name}</code> — {row[0].role.capitalize()}"
+                for row in rows
+            )
+            await update.message.reply_text(
+                f"⚠️ Tu es membre de plusieurs entreprises. Précise laquelle :\n\n{liste}",
+                parse_mode="HTML"
+            )
+            return
+
+        # ── Sélectionner la bonne entreprise ─────────────────────────────────
+        if context.args:
+            target_name = " ".join(context.args).strip().lower()
+            match = next(
+                (row for row in rows if row[1].name.lower() == target_name),
+                None
+            )
+            if not match:
+                await update.message.reply_text(
+                    f"❌ Entreprise <b>{' '.join(context.args)}</b> introuvable parmi tes appartenances.",
+                    parse_mode="HTML"
+                )
+                return
+            emp, company = match[0], match[1]
+        else:
+            emp, company = rows[0][0], rows[0][1]
 
         if emp.role == "pdg":
             # Vérifier qu'il y a un directeur pour reprendre

@@ -771,6 +771,9 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/api/webapp/journal',   webapp_journal)
     app.router.add_get('/api/webapp/events',    webapp_events)
     app.router.add_get('/api/webapp/annonces',  webapp_annonces)
+    app.router.add_get('/api/webapp/auctions/live',      webapp_auctions_live)
+    app.router.add_get('/api/webapp/auctions/inventory', webapp_auctions_inventory)
+    app.router.add_post('/api/webapp/auctions/bid',      webapp_auctions_bid)
     app.router.add_get('/api/webapp/company',              webapp_company_data)
     app.router.add_post('/api/webapp/company/depot',       webapp_company_depot)
     app.router.add_post('/api/webapp/company/retrait',     webapp_company_retrait)
@@ -981,6 +984,140 @@ async def webapp_annonces(request: web.Request) -> web.Response:
 # ══════════════════════════════════════════════════════════════════════════════
 #  ÉTAPE 1 — BANQUE
 # ══════════════════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ENCHÈRES — Live + Inventaire + Mise
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_auctions_live(request: web.Request) -> web.Response:
+    """GET /api/webapp/auctions/live?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    auctions = []
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(text("""
+                SELECT id, item_id, item_name, item_emoji, rarity, true_value,
+                       start_price, current_bid, leader_id, leader_name, ends_at
+                FROM auction_sessions
+                WHERE status = 'active'
+                ORDER BY ends_at ASC
+                LIMIT 20
+            """))
+            for row in r.fetchall():
+                auctions.append({
+                    'id':          row[0],
+                    'item_id':     row[1],
+                    'item_name':   row[2],
+                    'item_emoji':  row[3],
+                    'rarity':      row[4],
+                    'true_value':  row[5],
+                    'start_price': row[6],
+                    'current_bid': row[7],
+                    'leader_id':   row[8],
+                    'leader_name': row[9],
+                    'ends_at':     str(row[10]) if row[10] else None,
+                })
+        except Exception as e:
+            return web.json_response({'auctions': [], 'error': str(e)})
+
+    return web.json_response({'auctions': auctions})
+
+
+async def webapp_auctions_inventory(request: web.Request) -> web.Response:
+    """GET /api/webapp/auctions/inventory?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    items = []
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(text("""
+                SELECT item_id, item_name, item_emoji, rarity, true_value, acquired_at
+                FROM auction_inventory
+                WHERE user_id = :uid
+                ORDER BY acquired_at DESC
+                LIMIT 50
+            """), {'uid': uid})
+            for row in r.fetchall():
+                items.append({
+                    'item_id':     row[0],
+                    'item_name':   row[1],
+                    'item_emoji':  row[2],
+                    'rarity':      row[3],
+                    'true_value':  row[4],
+                    'acquired_at': str(row[5])[:10] if row[5] else '',
+                })
+        except Exception as e:
+            return web.json_response({'items': [], 'error': str(e)})
+
+    return web.json_response({'items': items})
+
+
+async def webapp_auctions_bid(request: web.Request) -> web.Response:
+    """POST /api/webapp/auctions/bid  body: {user_id, auction_id, amount}"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'ok': False, 'error': 'JSON invalide'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    auction_id = int(body.get('auction_id', 0))
+    amount     = int(body.get('amount', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'ok': False, 'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(text("""
+                SELECT id, current_bid, leader_id, status
+                FROM auction_sessions WHERE id = :aid
+            """), {'aid': auction_id})
+            row = r.fetchone()
+            if not row:
+                return web.json_response({'ok': False, 'error': 'Enchère introuvable'})
+            _, current_bid, leader_id, status = row
+            if status != 'active':
+                return web.json_response({'ok': False, 'error': 'Enchère terminée'})
+            if leader_id == uid:
+                return web.json_response({'ok': False, 'error': 'Tu mènes déjà !'})
+            if amount <= current_bid:
+                return web.json_response({'ok': False, 'error': f'Mise trop basse (min {current_bid + 1} $)'})
+
+            # Récupérer le nom du leader
+            ru = await session.execute(text("SELECT username FROM users WHERE telegram_id = :uid"), {'uid': uid})
+            row_u = ru.fetchone()
+            leader_name = row_u[0] if row_u else str(uid)
+
+            # Vérifier les fonds
+            rc = await session.execute(text("SELECT coins FROM users WHERE telegram_id = :uid"), {'uid': uid})
+            row_c = rc.fetchone()
+            if not row_c or row_c[0] < amount:
+                return web.json_response({'ok': False, 'error': 'Fonds insuffisants'})
+
+            # Débiter + update enchère
+            await session.execute(text("UPDATE users SET coins = coins - :amt WHERE telegram_id = :uid"), {'amt': amount, 'uid': uid})
+            # Rembourser l'ancien leader
+            if leader_id:
+                await session.execute(text("UPDATE users SET coins = coins + :amt WHERE telegram_id = :lid"), {'amt': current_bid, 'lid': leader_id})
+            await session.execute(text("""
+                UPDATE auction_sessions
+                SET current_bid = :amt, leader_id = :uid, leader_name = :name
+                WHERE id = :aid
+            """), {'amt': amount, 'uid': uid, 'name': leader_name, 'aid': auction_id})
+            await session.commit()
+            return web.json_response({'ok': True})
+        except Exception as e:
+            await session.rollback()
+            return web.json_response({'ok': False, 'error': str(e)})
+
 
 BANKS_DEF = {
     "bronze":   {"name":"🥉 Banque Bronze","emoji":"🥉","rank":1,"desc":"Banque populaire, accessible à tous","min_deposit":1_000,"max_deposit":100_000_000_000,"interest_rate":0.01,"max_loan":5_000_000,"loan_rate":0.08,"loan_days":7},

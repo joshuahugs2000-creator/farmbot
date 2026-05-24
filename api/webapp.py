@@ -1685,6 +1685,23 @@ async def webapp_diplomes(request: web.Request) -> web.Response:
 # ══════════════════════════════════════════════════════════════════════════════
 from database.models import TaxRecord, BureauContrat, CompanyApplication, CompanyAutoContract, CompanyShareOffer
 
+
+async def _get_user_company(session, uid: int):
+    """Retourne (Company, CompanyEmployee) pour l utilisateur, ou (None, None)."""
+    emp = (await session.execute(
+        select(CompanyEmployee).where(
+            CompanyEmployee.user_id == uid,
+            CompanyEmployee.left_at == None,
+        )
+    )).scalar_one_or_none()
+    if not emp:
+        return None, None
+    company = await session.get(Company, emp.company_id)
+    if not company or not company.is_active:
+        return None, None
+    return company, emp
+
+
 async def webapp_company_data(request: web.Request) -> web.Response:
     """GET /api/webapp/company — données complètes entreprise"""
     uid = int(request.rel_url.query.get('user_id', 0))
@@ -2192,16 +2209,17 @@ async def webapp_company_accepter(request: web.Request) -> web.Response:
         # Notifier le candidat via Telegram
         if candidate:
             try:
-                import httpx
+                import aiohttp as _aiohttp
                 from config import BOT_TOKEN as _BT
-                await httpx.AsyncClient().post(
-                    f'https://api.telegram.org/bot{_BT}/sendMessage',
-                    json={
-                        'chat_id': candidate.user_id,
-                        'text': f"🎉 Ta candidature chez <b>{company.name}</b> a été <b>acceptée</b> ! Tu es désormais <b>{role.capitalize()}</b>.",
-                        'parse_mode': 'HTML',
-                    }, timeout=5
-                )
+                async with _aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f'https://api.telegram.org/bot{_BT}/sendMessage',
+                        json={
+                            'chat_id': candidate.user_id,
+                            'text': f"🎉 Ta candidature chez <b>{company.name}</b> a été <b>acceptée</b> ! Tu es désormais <b>{role.capitalize()}</b>.",
+                            'parse_mode': 'HTML',
+                        }, timeout=_aiohttp.ClientTimeout(total=5)
+                    )
             except Exception:
                 pass
 
@@ -2244,16 +2262,17 @@ async def webapp_company_refuser(request: web.Request) -> web.Response:
 
         if candidate:
             try:
-                import httpx
+                import aiohttp as _aiohttp
                 from config import BOT_TOKEN as _BT
-                await httpx.AsyncClient().post(
-                    f'https://api.telegram.org/bot{_BT}/sendMessage',
-                    json={
-                        'chat_id': candidate.user_id,
-                        'text': f"😔 Ta candidature chez <b>{company.name}</b> a été <b>refusée</b>.\n💡 Tu peux postuler ailleurs avec /listeboites.",
-                        'parse_mode': 'HTML',
-                    }, timeout=5
-                )
+                async with _aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f'https://api.telegram.org/bot{_BT}/sendMessage',
+                        json={
+                            'chat_id': candidate.user_id,
+                            'text': f"😔 Ta candidature chez <b>{company.name}</b> a été <b>refusée</b>.\n💡 Tu peux postuler ailleurs avec /listeboites.",
+                            'parse_mode': 'HTML',
+                        }, timeout=_aiohttp.ClientTimeout(total=5)
+                    )
             except Exception:
                 pass
 

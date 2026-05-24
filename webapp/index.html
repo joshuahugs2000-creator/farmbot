@@ -1057,27 +1057,58 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         </div>
       </div>
 
-    </div><!-- /#game-view -->
+    </div><!-- /#game-view -->\n  </div>
+
+  <!-- ══ PAGE JOURNAL ══ -->
+  <div class="page" id="page-journal">
+    <div class="page-title">📖 Journal</div>
+    <div id="journal-list"><div class="plus-loader">⏳ Chargement…</div></div>
   </div>
 
-</div>
+  <!-- ══ PAGE EVENEMENTS ══ -->
+  <div class="page" id="page-events">
+    <div class="page-title">🗓️ Événements</div>
+    <div id="events-list"><div class="plus-loader">⏳ Chargement…</div></div>
+  </div>
 
-<!-- ══ PAGE JOURNAL ══ -->
-<div class="page" id="page-journal">
-  <div class="page-title">📖 Journal</div>
-  <div id="journal-list"><div class="plus-loader">Chargement…</div></div>
-</div>
+  <!-- ══ PAGE ANNONCES ══ -->
+  <div class="page" id="page-annonces">
+    <div class="page-title">📢 Annonces</div>
+    <div id="annonces-list"><div class="plus-loader">⏳ Chargement…</div></div>
+  </div>
 
-<!-- ══ PAGE EVENEMENTS ══ -->
-<div class="page" id="page-events">
-  <div class="page-title">🗓️ Événements</div>
-  <div id="events-list"><div class="plus-loader">Chargement…</div></div>
-</div>
+  <!-- ══ PAGE ENCHERES ══ -->
+  <div class="page" id="page-encheres">
+    <div class="page-title">🔨 Enchères</div>
 
-<!-- ══ PAGE ANNONCES ══ -->
-<div class="page" id="page-annonces">
-  <div class="page-title">📢 Annonces</div>
-  <div id="annonces-list"><div class="plus-loader">Chargement…</div></div>
+    <!-- Tabs: En cours / Mon inventaire -->
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="enc-tab-btn active" onclick="encTab('live',this)">🔴 En cours</button>
+      <button class="enc-tab-btn" onclick="encTab('inventory',this)">🎒 Mon inventaire</button>
+    </div>
+
+    <div id="enc-live">
+      <div id="enc-live-list"><div class="plus-loader">⏳ Chargement…</div></div>
+    </div>
+    <div id="enc-inventory" style="display:none">
+      <div id="enc-inv-list"><div class="plus-loader">⏳ Chargement…</div></div>
+    </div>
+
+    <!-- Modal mise -->
+    <div id="enc-bid-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center">
+      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">
+        <div id="enc-bid-title" style="font-size:16px;font-weight:900;margin-bottom:6px"></div>
+        <div id="enc-bid-current" style="font-size:13px;color:var(--text2);margin-bottom:16px"></div>
+        <input id="enc-bid-input" type="number" placeholder="Votre mise ($)"
+          style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;box-sizing:border-box;margin-bottom:12px"/>
+        <div style="display:flex;gap:10px">
+          <button onclick="submitBid()" style="flex:1;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-weight:900;font-size:14px;cursor:pointer">⚡ Enchérir</button>
+          <button onclick="closeBidModal()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-weight:700;font-size:14px;cursor:pointer">Annuler</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ── NAV BAR ── -->
@@ -1907,7 +1938,7 @@ const MAIN_TABS = {
   eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company',fn:'loadCompany'}], def:'bank' },
   jeux:   { subs:[], def:'games' },
   social: { subs:[{l:'👨‍👩‍👧 Famille',p:'famille',fn:'loadFamille'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'}], def:'famille' },
-  plus:   { subs:[{l:'📖 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'}], def:'journal' },
+  plus:   { subs:[{l:'📖 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'},{l:'🔨 Enchères',p:'encheres',fn:'loadEncheres'}], def:'journal' },
 };
 let _curMain = 'moi';
 let _curSub  = 'profile';
@@ -4385,6 +4416,61 @@ async function _gardenHarvest(gardenId) {
       from { opacity:0; transform:translateY(16px); }
       to   { opacity:1; transform:translateY(0); }
     }
+
+    /* ── ENCHERES ── */
+    .enc-tab-btn {
+      flex:1; padding:10px; border-radius:12px; border:1px solid var(--border);
+      background:var(--card2); color:var(--text2); font-size:13px; font-weight:700;
+      cursor:pointer; transition:.2s;
+    }
+    .enc-tab-btn.active { background:var(--accent); color:#000; border-color:var(--accent); }
+
+    .auction-card {
+      border-radius:18px; padding:0; margin-bottom:14px; overflow:hidden;
+      background:var(--card); border:1px solid var(--border);
+      animation: slideInUp .35s ease both;
+    }
+    .auction-header {
+      display:flex; align-items:center; gap:14px; padding:16px 16px 12px;
+      border-bottom:1px solid var(--border);
+    }
+    .auction-emoji {
+      font-size:36px; width:56px; height:56px; border-radius:14px;
+      background:var(--card2); display:flex; align-items:center; justify-content:center;
+      flex-shrink:0;
+    }
+    .auction-name  { font-size:15px; font-weight:900; color:var(--text); }
+    .auction-rarity { font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; display:inline-block; margin-top:3px; }
+    .rarity-commun     { background:#636e72; color:#fff; }
+    .rarity-rare       { background:#0984e3; color:#fff; }
+    .rarity-epique     { background:#6c5ce7; color:#fff; }
+    .rarity-legendaire { background:#f7c948; color:#000; }
+    .auction-body { padding:14px 16px; }
+    .auction-row  { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:13px; }
+    .auction-label { color:var(--text2); }
+    .auction-val   { font-weight:800; color:var(--text); }
+    .auction-val.gold { color:#f7c948; }
+    .auction-leader { font-size:12px; color:var(--text2); margin-bottom:12px; }
+    .auction-timer  { font-size:12px; font-weight:700; color:#e17055; }
+    .bid-btn {
+      width:100%; padding:13px; border-radius:12px; border:none;
+      background:linear-gradient(135deg,#f7c948,#e67e22); color:#000;
+      font-weight:900; font-size:14px; cursor:pointer;
+      box-shadow:0 4px 16px rgba(247,201,72,.3);
+      transition:.15s; active:transform:scale(.97);
+    }
+    .bid-btn:disabled { background:var(--card2); color:var(--text2); box-shadow:none; cursor:default; }
+
+    .inv-card {
+      display:flex; gap:14px; align-items:center; padding:14px;
+      background:var(--card); border:1px solid var(--border);
+      border-radius:16px; margin-bottom:10px;
+      animation: slideInUp .35s ease both;
+    }
+    .inv-emoji { font-size:32px; width:50px; height:50px; border-radius:12px; background:var(--card2); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .inv-name  { font-size:13px; font-weight:800; color:var(--text); }
+    .inv-val   { font-size:12px; color:#f7c948; font-weight:700; margin-top:2px; }
+    .inv-date  { font-size:11px; color:var(--text2); margin-top:2px; }
   `;
   document.head.appendChild(s);
 })();
@@ -4472,4 +4558,156 @@ async function loadAnnonces() {
   } catch(e) {
     el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
   }
+}
+
+// ════════════════════════════════════════
+//  ENCHÈRES
+// ════════════════════════════════════════
+let _encCurTab = 'live';
+let _encBidAuctionId = null;
+
+function encTab(tab, btn) {
+  _encCurTab = tab;
+  document.querySelectorAll('.enc-tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('enc-live').style.display      = tab === 'live'      ? '' : 'none';
+  document.getElementById('enc-inventory').style.display = tab === 'inventory' ? '' : 'none';
+  if (tab === 'live')      _loadAuctionLive();
+  if (tab === 'inventory') _loadAuctionInventory();
+}
+
+function _rarityClass(r) {
+  const m = { commun:'rarity-commun', rare:'rarity-rare', epique:'rarity-epique', legendaire:'rarity-legendaire' };
+  return m[(r||'').toLowerCase()] || 'rarity-commun';
+}
+function _rarityLabel(r) {
+  const m = { commun:'⚪ Commun', rare:'🔵 Rare', epique:'🟣 Épique', legendaire:'🟡 Légendaire' };
+  return m[(r||'').toLowerCase()] || r;
+}
+function _timeLeft(endsAt) {
+  if (!endsAt) return '—';
+  const diff = new Date(endsAt) - Date.now();
+  if (diff <= 0) return 'Terminé';
+  const m = Math.floor(diff / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return m > 0 ? `${m}min ${s}s` : `${s}s`;
+}
+
+async function _loadAuctionLive() {
+  const el = document.getElementById('enc-live-list');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT(`/api/webapp/auctions/live?user_id=${uid}`, {}, 12000);
+    const d = await r.json();
+    const auctions = d.auctions || [];
+    if (!auctions.length) {
+      el.innerHTML = '<div class="plus-loader">Aucune enchère en cours.</div>'; return;
+    }
+    el.innerHTML = auctions.map((a, i) => {
+      const isLeader = a.leader_id == uid;
+      return `
+      <div class="auction-card" style="animation-delay:${i*0.07}s">
+        <div class="auction-header">
+          <div class="auction-emoji">${a.item_emoji || '📦'}</div>
+          <div>
+            <div class="auction-name">${a.item_name}</div>
+            <span class="auction-rarity ${_rarityClass(a.rarity)}">${_rarityLabel(a.rarity)}</span>
+          </div>
+        </div>
+        <div class="auction-body">
+          <div class="auction-row">
+            <span class="auction-label">Valeur réelle</span>
+            <span class="auction-val">${fmt(a.true_value)}</span>
+          </div>
+          <div class="auction-row">
+            <span class="auction-label">Mise actuelle</span>
+            <span class="auction-val gold">⚡ ${fmt(a.current_bid)}</span>
+          </div>
+          <div class="auction-leader">${isLeader ? '👑 <b>Tu mènes !</b>' : (a.leader_name ? `🏃 Meneur : <b>${a.leader_name}</b>` : 'Aucune mise encore')}</div>
+          <div class="auction-row">
+            <span class="auction-timer" id="enc-timer-${a.id}">⏱ ${_timeLeft(a.ends_at)}</span>
+          </div>
+          <button class="bid-btn" onclick="openBidModal(${a.id},'${a.item_name.replace(/'/g,"\\'")}',${a.current_bid})"${isLeader?' disabled':''}>
+            ${isLeader ? '✅ Tu mènes' : '⚡ Enchérir'}
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+    // Update timers every second
+    setInterval(() => {
+      auctions.forEach(a => {
+        const t = document.getElementById(`enc-timer-${a.id}`);
+        if (t) t.textContent = `⏱ ${_timeLeft(a.ends_at)}`;
+      });
+    }, 1000);
+  } catch(e) {
+    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
+  }
+}
+
+async function _loadAuctionInventory() {
+  const el = document.getElementById('enc-inv-list');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT(`/api/webapp/auctions/inventory?user_id=${uid}`, {}, 12000);
+    const d = await r.json();
+    const items = d.items || [];
+    if (!items.length) {
+      el.innerHTML = '<div class="plus-loader">Ton inventaire est vide.</div>'; return;
+    }
+    el.innerHTML = items.map((it, i) => `
+      <div class="inv-card" style="animation-delay:${i*0.05}s">
+        <div class="inv-emoji">${it.item_emoji || '📦'}</div>
+        <div>
+          <div class="inv-name">${it.item_name}</div>
+          <div class="inv-val">💰 ${fmt(it.true_value)}</div>
+          <div class="inv-date">📅 ${(it.acquired_at||'').slice(0,10)}</div>
+        </div>
+        <span class="auction-rarity ${_rarityClass(it.rarity)}" style="margin-left:auto">${_rarityLabel(it.rarity)}</span>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
+  }
+}
+
+async function loadEncheres() {
+  _encCurTab = 'live';
+  document.querySelectorAll('.enc-tab-btn').forEach((b,i) => b.classList.toggle('active', i===0));
+  document.getElementById('enc-live').style.display = '';
+  document.getElementById('enc-inventory').style.display = 'none';
+  _loadAuctionLive();
+}
+
+function openBidModal(auctionId, name, currentBid) {
+  _encBidAuctionId = auctionId;
+  document.getElementById('enc-bid-title').textContent = `🔨 ${name}`;
+  document.getElementById('enc-bid-current').textContent = `Mise actuelle : ${fmt(currentBid)}`;
+  document.getElementById('enc-bid-input').value = '';
+  const modal = document.getElementById('enc-bid-modal');
+  modal.style.display = 'flex';
+}
+function closeBidModal() {
+  document.getElementById('enc-bid-modal').style.display = 'none';
+  _encBidAuctionId = null;
+}
+async function submitBid() {
+  const amount = parseInt(document.getElementById('enc-bid-input').value);
+  if (!amount || amount <= 0) { showToast('Montant invalide'); return; }
+  try {
+    const r = await fetch('/api/webapp/auctions/bid', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, auction_id: _encBidAuctionId, amount })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showToast(`⚡ Mise de ${fmt(amount)} placée !`);
+      closeBidModal();
+      _loadAuctionLive();
+    } else {
+      showToast(d.error || 'Erreur');
+    }
+  } catch(e) { showToast('Erreur réseau'); }
 }

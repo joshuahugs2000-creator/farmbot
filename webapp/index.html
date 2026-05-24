@@ -319,8 +319,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <div class="tab-bar" style="margin:14px 0 0;display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;">
         <button class="co-tab-btn active" onclick="coTab('general',this)" data-tab="general">📊 Général</button>
         <button class="co-tab-btn" onclick="coTab('equipe',this)" data-tab="equipe">👥 Équipe</button>
-        <button class="co-tab-btn" onclick="coTab('contrats',this)" data-tab="contrats">📋 Contrats</button>
+        <button class="co-tab-btn" onclick="coTab('contrats',this)" data-tab="contrats">📋 Bureau</button>
+        <button class="co-tab-btn" onclick="coTab('auto',this)" data-tab="auto">🤖 Auto</button>
         <button class="co-tab-btn" onclick="coTab('impots',this)" data-tab="impots">🏛️ Impôts</button>
+        <button class="co-tab-btn" onclick="coTab('parts',this)" data-tab="parts">📜 Parts</button>
+        <button class="co-tab-btn" onclick="coTab('candidatures',this)" data-tab="candidatures">📥 Candidats</button>
         <button class="co-tab-btn" onclick="coTab('logs',this)" data-tab="logs">📜 Logs</button>
       </div>
 
@@ -372,18 +375,27 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         </div>
       </div>
 
-      <!-- ── ONGLET CONTRATS ── -->
+      <!-- ── ONGLET BUREAU DES CONTRATS ── -->
       <div id="co-tab-contrats" style="display:none;">
-        <div id="co-contrats-list" style="margin-top:10px;"></div>
+        <div style="color:var(--text2);font-size:12px;text-align:center;padding:10px 0;">Contrats Bureau des Contrats · max 2 simultanés</div>
+        <div id="co-contrats-list" style="margin-top:6px;"></div>
         <div style="text-align:center;margin-top:10px;">
-          <div style="color:var(--text2);font-size:12px;">Pour soumettre un dossier : <code>/soumettredossier</code> sur le bot</div>
+          <div style="color:var(--text2);font-size:12px;">Soumettre un dossier : <code>/soumettredossier</code> sur le bot</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET CONTRATS AUTO ── -->
+      <div id="co-tab-auto" style="display:none;">
+        <div style="color:var(--text2);font-size:12px;text-align:center;padding:10px 0;">Contrats proposés automatiquement par l'IA</div>
+        <div id="co-auto-list" style="margin-top:6px;"></div>
+        <div style="text-align:center;margin-top:10px;">
+          <div style="color:var(--text2);font-size:12px;">Gérer les contrats auto : <code>/mescontratsauto</code></div>
         </div>
       </div>
 
       <!-- ── ONGLET IMPÔTS ── -->
       <div id="co-tab-impots" style="display:none;">
         <div id="co-taxes-list" style="margin-top:10px;"></div>
-        <!-- Zone paiement PDG -->
         <div id="co-tax-pay-zone" style="display:none;margin-top:10px;">
           <div class="card">
             <div class="card-title">💳 PAYER LES IMPÔTS</div>
@@ -397,6 +409,31 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div id="co-no-taxes" style="display:none;text-align:center;padding:30px 0;">
           <div style="font-size:36px;">✅</div>
           <div style="color:var(--text2);margin-top:8px;">Aucun impôt en attente.</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET PARTS & OFFRES ── -->
+      <div id="co-tab-parts" style="display:none;">
+        <div class="card" style="margin-top:10px;">
+          <div class="card-title">📜 ACTIONNARIAT</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:12px;color:var(--text2);">Parts totales : <span id="co-total-shares2" style="color:var(--text1);font-weight:700;">—</span></span>
+          </div>
+          <div id="co-parts-list2"></div>
+        </div>
+        <div class="card" style="margin-top:10px;" id="co-share-offers-card" style="display:none;">
+          <div class="card-title">💼 OFFRES EN ATTENTE</div>
+          <div id="co-share-offers-list"></div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET CANDIDATURES ── -->
+      <div id="co-tab-candidatures" style="display:none;">
+        <div id="co-cands-list" style="margin-top:10px;"></div>
+        <div id="co-no-cands" style="display:none;text-align:center;padding:30px 0;">
+          <div style="font-size:36px;">📥</div>
+          <div style="color:var(--text2);margin-top:8px;">Aucune candidature en attente.</div>
+          <div style="color:var(--text2);font-size:12px;margin-top:4px;">Les joueurs postulent via /postuler</div>
         </div>
       </div>
 
@@ -946,7 +983,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 </div>
 
 <!-- ── NAV BAR ── -->
-<div id="subnav" style="display:none;position:fixed;bottom:62px;left:0;right:0;z-index:99;background:var(--card2);border-top:1px solid var(--border);padding:6px 10px;overflow-x:auto;white-space:nowrap;scrollbar-width:none"></div>
+<div id="subnav" style="display:none;position:fixed;bottom:62px;left:0;right:0;z-index:99;background:linear-gradient(180deg,rgba(15,15,26,0) 0%,var(--card2) 20%);border-top:1px solid var(--border);padding:8px 12px;overflow-x:auto;white-space:nowrap;scrollbar-width:none"></div>
 <nav id="nav">
   <button class="nav-btn active" onclick="mainTab('moi',this)"><span class="icon">👤</span>Moi</button>
   <button class="nav-btn" onclick="mainTab('eco',this)"><span class="icon">💼</span>Économie</button>
@@ -3172,8 +3209,9 @@ async function bankOpenAccount(bank_id) {
 let _coData = null;
 
 function coTab(tab, btn) {
-  ['general','equipe','contrats','impots','logs'].forEach(t => {
-    document.getElementById('co-tab-'+t).style.display = t===tab ? 'block' : 'none';
+  ['general','equipe','contrats','auto','impots','parts','candidatures','logs'].forEach(t => {
+    const el = document.getElementById('co-tab-'+t);
+    if (el) el.style.display = t===tab ? 'block' : 'none';
   });
   document.querySelectorAll('#page-company .co-tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -3301,6 +3339,80 @@ async function loadCompany() {
       document.getElementById('co-tax-pay-zone').style.display = 'none';
     }
 
+    // Parts (onglet Parts)
+    const partsEl2 = document.getElementById('co-parts-list2');
+    if (partsEl2) {
+      document.getElementById('co-total-shares2').textContent = (co.total_shares||100) + ' parts';
+      if (co.parts && co.parts.length > 0) {
+        partsEl2.innerHTML = co.parts.map(p =>
+          `<div class="stat-row" style="${p.is_me?'background:rgba(247,201,72,.08);border-radius:8px;padding:4px 8px;':''}">
+            <div><span class="stat-label">${p.is_me?'👤 Moi':p.name}</span>${p.username?`<div style="font-size:11px;color:var(--text2)">@${p.username}</div>`:''}</div>
+            <span class="stat-value gold">${(p.parts||0).toLocaleString()} pts</span>
+          </div>`).join('');
+      } else {
+        partsEl2.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun actionnaire.</div>';
+      }
+      // Offres de parts
+      const soEl = document.getElementById('co-share-offers-list');
+      if (soEl && co.share_offers && co.share_offers.length > 0) {
+        document.getElementById('co-share-offers-card').style.display = 'block';
+        soEl.innerHTML = co.share_offers.map(so =>
+          `<div class="card" style="margin-bottom:8px;border-color:rgba(247,201,72,.3);">
+            <div style="font-weight:700;color:var(--text1);">${so.buyer_name}${so.buyer_username?' <span style="color:var(--text2);font-size:12px;">@'+so.buyer_username+'</span>':''}</div>
+            <div class="stat-row" style="margin-top:6px;"><span class="stat-label">Parts demandées</span><span class="stat-value gold">${so.quantity}</span></div>
+            <div class="stat-row"><span class="stat-label">Prix unitaire</span><span class="stat-value">${so.price_each} $</span></div>
+            <div class="stat-row"><span class="stat-label">Total</span><span class="stat-value gold">${so.total_price} $</span></div>
+            <div style="font-size:11px;color:var(--text2);margin-top:4px;">Expire : ${so.expires_at}</div>
+            <div style="color:var(--text2);font-size:12px;margin-top:8px;">Répondre via <code>/gereroffre</code> sur le bot</div>
+          </div>`).join('');
+      }
+    }
+
+    // Contrats Auto
+    const autoEl = document.getElementById('co-auto-list');
+    if (autoEl) {
+      if (co.auto_contrats && co.auto_contrats.length > 0) {
+        autoEl.innerHTML = co.auto_contrats.map(ac => {
+          const bar = `<div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;margin:8px 0;"><div style="width:${ac.pct}%;height:100%;background:${ac.pct>=100?'var(--success)':'var(--accent4)'};border-radius:6px;transition:width .3s;"></div></div>`;
+          const statusColor = ac.status==='active'?'var(--success)':ac.status==='negotiating'?'var(--accent)':'var(--text2)';
+          const statusLabel = {active:'🟢 En cours',negotiating:'🤝 Négociation',pending:'⏳ En attente'}[ac.status]||ac.status;
+          return `<div class="card" style="margin-bottom:10px;border-color:rgba(162,155,254,.3);">
+            <div style="font-weight:800;color:var(--accent4);margin-bottom:4px;">🤖 ${ac.client}</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">${ac.desc}</div>
+            <div style="font-size:12px;color:${statusColor};margin-bottom:4px;">${statusLabel}</div>
+            ${bar}
+            <div class="stat-row"><span class="stat-label">Progression</span><span class="stat-value">${ac.cmds_done.toLocaleString()} / ${ac.objective.toLocaleString()} cmds (${ac.pct}%)</span></div>
+            <div class="stat-row"><span class="stat-label">Récompense</span><span class="stat-value gold">${ac.reward} $</span></div>
+            <div class="stat-row"><span class="stat-label">Deadline</span><span class="stat-value">${ac.deadline_at} (${ac.days_left}j)</span></div>
+          </div>`;
+        }).join('');
+      } else {
+        autoEl.innerHTML = `<div class="card" style="text-align:center;padding:30px;"><div style="font-size:36px;">🤖</div><div style="color:var(--text2);margin-top:8px;">Aucun contrat IA actif.</div><div style="color:var(--text2);font-size:12px;margin-top:4px;">Attends une proposition automatique du bot.</div></div>`;
+      }
+    }
+
+    // Candidatures
+    const candsEl = document.getElementById('co-cands-list');
+    const noCandsEl = document.getElementById('co-no-cands');
+    if (candsEl) {
+      if (co.candidatures && co.candidatures.length > 0) {
+        noCandsEl.style.display = 'none';
+        candsEl.innerHTML = co.candidatures.map(c =>
+          `<div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;">
+            <div style="font-size:30px;flex-shrink:0;">👤</div>
+            <div style="flex:1;">
+              <div style="font-weight:700;color:var(--text1);">${c.name}</div>
+              ${c.username?`<div style="font-size:12px;color:var(--text2);">@${c.username}</div>`:''}
+              <div style="font-size:11px;color:var(--text2);margin-top:2px;">${c.date}</div>
+            </div>
+            <div style="font-size:12px;color:var(--text2);text-align:center;">Répondre via<br><code>/acceptercandidature</code><br>ou <code>/refuser</code></div>
+          </div>`).join('');
+      } else {
+        candsEl.innerHTML = '';
+        noCandsEl.style.display = 'block';
+      }
+    }
+
     // Logs
     const logsEl = document.getElementById('co-logs-list');
     if (co.logs && co.logs.length > 0) {
@@ -3321,7 +3433,7 @@ async function loadCompany() {
 
 function coShowDepot() {
   if (!_coData) return;
-  document.getElementById('co-depot-wallet').textContent = fmt(_userData?.coins||0) + ' $';
+  document.getElementById('co-depot-wallet').textContent = fmt(_cachedUser?.coins||0) + ' $';
   document.getElementById('co-depot-amount').value = '';
   document.getElementById('co-depot-msg').textContent = '';
   document.getElementById('co-depot-modal').style.display = 'flex';
@@ -3398,11 +3510,19 @@ async function coPayerImpots() {
 /* ── SUBNAV ── */
 #subnav::-webkit-scrollbar { display:none; }
 .snav-btn {
-  display:inline-block; padding:6px 14px; border-radius:20px; font-size:12px;
-  font-weight:800; border:none; background:var(--card); color:var(--text2);
-  cursor:pointer; margin-right:6px; transition:all .2s; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:4px;
+  padding:6px 14px; border-radius:20px; font-size:12px;
+  font-weight:800; border:1px solid var(--border);
+  background:var(--card); color:var(--text2);
+  cursor:pointer; margin-right:6px; transition:all .2s;
+  white-space:nowrap; font-family:'Nunito',sans-serif;
+  box-shadow:0 1px 4px rgba(0,0,0,.3);
 }
-.snav-active { background:var(--accent) !important; color:#000 !important; }
+.snav-active {
+  background:linear-gradient(135deg,#f7c948,#e6b800) !important;
+  color:#000 !important; border-color:transparent !important;
+  box-shadow:0 2px 10px rgba(247,201,72,.4) !important;
+}
 
 /* ── FAMILLE ── */
 .member-card {

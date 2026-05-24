@@ -2171,7 +2171,11 @@ async function loadPortfolio() {
   list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Chargement…</p>';
   try {
     const r = await fetch(`/api/webapp/portfolio?user_id=${uid}`);
-    if (!r.ok) { list.innerHTML = '<p style="color:var(--accent2);text-align:center;">Erreur serveur ('+r.status+')</p>'; return; }
+    if (!r.ok) {
+      const errData = await r.json().catch(() => ({}));
+      list.innerHTML = '<p style="color:var(--accent2);text-align:center;font-size:11px;word-break:break-all;">'+r.status+': '+(errData.error||'?')+'<br>'+(errData.trace||'').substring(0,300)+'</p>';
+      return;
+    }
     const d = await r.json();
     const s = d.summary || {};
     document.getElementById('mk-count').textContent    = s.count || '0';

@@ -15,6 +15,7 @@ class RelationType(enum.Enum):
     SPOUSE = "spouse"
     PARENT = "parent"
     FRIEND = "friend"
+    SIBLING = "sibling"
 
 
 class RequestType(enum.Enum):

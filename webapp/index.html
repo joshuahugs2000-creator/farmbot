@@ -2238,7 +2238,7 @@ async function loadDiplomes() {
         <div class="dip-emoji" style="${!dip.obtained ? 'filter:grayscale(1);opacity:.4' : ''}">${dip.obtained ? dip.emoji : '🔒'}</div>
         <div class="dip-info">
           <div class="dip-name" style="${dip.obtained ? `color:${DIP_COLORS[i]}` : ''}">${dip.label}</div>
-          <div class="dip-sub">${dip.obtained ? `<span style="color:${DIP_COLORS[i]}">✓ Obtenu</span>` : (dip['prérequis'] ? `Nécessite : ${dip['prérequis']}` : 'Disponible')}</div>
+          <div class="dip-sub">${dip.obtained ? `<span style="color:${DIP_COLORS[i]}">✓ Obtenu</span>` : (dip['prerequis'] ? `Nécessite : ${dip['prerequis']}` : 'Disponible')}</div>
         </div>
         ${dip.obtained ? `<div class="dip-check" style="color:${DIP_COLORS[i]}">✦</div>` : ''}
       </div>

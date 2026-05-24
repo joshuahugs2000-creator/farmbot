@@ -2003,6 +2003,7 @@ function fillProfile(d) {
 let _mktCatalog   = {};
 let _mktCats      = [];
 let _mktActiveCat = null;
+let _mktLoadedUid = null;
 let _mktModalAsset = null;
 
 function mktTab(tab, btn) {
@@ -2014,7 +2015,8 @@ function mktTab(tab, btn) {
 }
 
 async function loadMarket() {
-  if (_mktCats.length) return; // déjà chargé
+  if (_mktCats.length && uid && _mktLoadedUid === uid) return; // déjà chargé pour ce user
+  _mktLoadedUid = uid;
   try {
     const r = await fetch(`/api/webapp/market?user_id=${uid}`);
     const d = await r.json();

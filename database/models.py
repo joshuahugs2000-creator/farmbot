@@ -262,6 +262,8 @@ class Company(Base):
     extra_slots     = Column(Integer, default=0)                 # places supplémentaires achetées
     legal_reserve   = Column(BigInteger, default=0)              # réserve légale intouchable (10% des bénéfices)
     weekly_revenue  = Column(BigInteger, default=0)              # revenus nets de la semaine (reset après dividendes lundi)
+    treasury_frozen = Column(Boolean, default=False)             # trésorerie gelée par l'agence fiscale
+    tax_debt        = Column(BigInteger, default=0)              # total impôts impayés cumulés
 
 
 class CompanyEmployee(Base):
@@ -390,3 +392,37 @@ class CompanySettings(Base):
     company_id    = Column(Integer, ForeignKey("companies.id"), nullable=False, unique=True)
     auto_payroll  = Column(Boolean, default=False)   # True = paie auto selon suggestions
     next_contract_at = Column(DateTime, nullable=True)  # prochain contrat IA planifié
+
+
+class TaxRecord(Base):
+    """Facture d'impôt journalière par entreprise."""
+    __tablename__ = "tax_records"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    company_id   = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    amount_due   = Column(BigInteger, nullable=False)
+    amount_paid  = Column(BigInteger, default=0)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    due_at       = Column(DateTime, nullable=False)             # created_at + 24h
+    status       = Column(String(20), default="pending")        # pending / paid / partial / overdue
+
+
+class StateCaisse(Base):
+    """Caisse d'État — cumul des impôts collectés."""
+    __tablename__ = "state_caisse"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    total        = Column(BigInteger, default=0)
+
+
+class BureauContrat(Base):
+    """Contrat proposé par le Bureau des Contrats."""
+    __tablename__ = "bureau_contrats"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    company_id   = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    title        = Column(String(200), nullable=False)
+    description  = Column(String(600), nullable=False)
+    reward       = Column(BigInteger, nullable=False)
+    duration_days= Column(Integer, nullable=False)              # 3 à 30 jours
+    starts_at    = Column(DateTime, nullable=True)
+    ends_at      = Column(DateTime, nullable=True)
+    status       = Column(String(20), default="pending")        # pending / active / completed / failed
+    created_at   = Column(DateTime, default=datetime.utcnow)

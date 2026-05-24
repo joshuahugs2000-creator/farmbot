@@ -33,9 +33,12 @@ def _is_allowed(user_id: int) -> bool:
 
 
 def _fmt(n):
-    if not n:
+    try:
+        if not n:
+            return 0
+        return int(float(n))
+    except Exception:
         return 0
-    return int(n)
 
 
 async def webapp_user(request: web.Request) -> web.Response:
@@ -295,36 +298,41 @@ async def webapp_market_portfolio(request: web.Request) -> web.Response:
         total_invested = 0
         total_current = 0
         for inv in investments:
-            a = ASSETS.get(inv.asset_id, {})
-            if not a:
+            try:
+                a = ASSETS.get(inv.asset_id, {})
+                if not a:
+                    continue
+                buy_price = inv.buy_price or 0
+                quantity  = inv.quantity or 0
+                buy_total = buy_price * quantity
+                cur_price = _current_price(inv.asset_id)
+                cur_total = cur_price * quantity
+                pnl = cur_total - buy_total
+                pnl_pct = round((pnl / buy_total) * 100, 1) if buy_total else 0
+                total_invested += buy_total
+                total_current += cur_total
+                positions.append({
+                    'id': inv.id,
+                    'asset_id': inv.asset_id,
+                    'name': a.get('name', inv.asset_id),
+                    'emoji': a.get('emoji', '📊'),
+                    'risk': a.get('risk', 'medium'),
+                    'risk_emoji': _risk_emoji(a.get('risk', 'medium')),
+                    'quantity': quantity,
+                    'buy_price': buy_price,
+                    'buy_price_fmt': _fmt(buy_price),
+                    'cur_price': cur_price,
+                    'cur_price_fmt': _fmt(cur_price),
+                    'buy_total_fmt': _fmt(buy_total),
+                    'cur_total_fmt': _fmt(cur_total),
+                    'pnl': pnl,
+                    'pnl_fmt': ('+' if pnl >= 0 else '') + _fmt(abs(pnl)),
+                    'pnl_pct': pnl_pct,
+                    'pnl_positive': pnl >= 0,
+                    'bought_at': inv.bought_at.strftime('%d/%m/%Y') if inv.bought_at else '—',
+                })
+            except Exception:
                 continue
-            buy_total = inv.buy_price * inv.quantity
-            cur_price = _current_price(inv.asset_id)
-            cur_total = cur_price * inv.quantity
-            pnl = cur_total - buy_total
-            pnl_pct = round((pnl / buy_total) * 100, 1) if buy_total else 0
-            total_invested += buy_total
-            total_current += cur_total
-            positions.append({
-                'id': inv.id,
-                'asset_id': inv.asset_id,
-                'name': a.get('name', inv.asset_id),
-                'emoji': a.get('emoji', '📊'),
-                'risk': a.get('risk', 'medium'),
-                'risk_emoji': _risk_emoji(a.get('risk', 'medium')),
-                'quantity': inv.quantity,
-                'buy_price': inv.buy_price,
-                'buy_price_fmt': _fmt(inv.buy_price),
-                'cur_price': cur_price,
-                'cur_price_fmt': _fmt(cur_price),
-                'buy_total_fmt': _fmt(buy_total),
-                'cur_total_fmt': _fmt(cur_total),
-                'pnl': pnl,
-                'pnl_fmt': ('+' if pnl >= 0 else '') + _fmt(abs(pnl)),
-                'pnl_pct': pnl_pct,
-                'pnl_positive': pnl >= 0,
-                'bought_at': inv.bought_at.strftime('%d/%m/%Y') if inv.bought_at else '—',
-            })
 
         total_pnl = total_current - total_invested
         return web.json_response({

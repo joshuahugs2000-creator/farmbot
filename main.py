@@ -19,7 +19,7 @@ from database import init_db
 from handlers.misc     import start, help_cmd, leaderboard, mode, toggle, nouveautes_cmd, nouveautes_callback, helpentreprise_cmd
 from handlers.family   import (
     marry, adopt, friend, divorce, disown, unfriend,
-    setfamilyname, leave, familyphoto,
+    setfamilyname, leave, familyphoto, brother, sister,
     request_callback, leave_callback,
     setsexe, setmariage, marry_type_callback,
 )
@@ -463,6 +463,8 @@ async def main():
     app.add_handler(CommandHandler("divorce",       _prison_checked(divorce)))
     app.add_handler(CommandHandler("disown",        _prison_checked(disown)))
     app.add_handler(CommandHandler("unfriend",      _prison_checked(unfriend)))
+    app.add_handler(CommandHandler("brother",       _prison_checked(brother)))
+    app.add_handler(CommandHandler("sister",        _prison_checked(sister)))
     app.add_handler(CommandHandler("leave",         _prison_checked(leave)))
     app.add_handler(CommandHandler("setsexe",       _prison_checked(setsexe)))
     app.add_handler(CommandHandler("setmariage",    _prison_checked(setmariage)))

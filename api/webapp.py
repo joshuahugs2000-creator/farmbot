@@ -18,6 +18,9 @@ WEBAPP_WHITELIST = {
 
 def _is_allowed(user_id: int) -> bool:
     return user_id in WEBAPP_WHITELIST
+
+
+def _verify_init_data(init_data: str) -> bool:
     """Vérifie la signature Telegram initData."""
     if not init_data:
         return False
@@ -233,15 +236,72 @@ async def webapp_save_avatar(request: web.Request) -> web.Response:
 
 
 async def webapp_index(request: web.Request) -> web.Response:
-    """Sert la Mini App HTML — accès restreint."""
-    # Récupérer l'user_id depuis les query params (passé par Telegram initData)
-    user_id_str = request.rel_url.query.get('user_id')
-    if user_id_str:
-        try:
-            if not _is_allowed(int(user_id_str)):
-                return web.Response(text="⛔ Accès refusé. Mini App en cours de développement.", status=403)
-        except ValueError:
-            return web.Response(text="⛔ Accès refusé.", status=403)
+    """Sert une page d'attente légère. Le vrai HTML est chargé via POST /api/webapp/load après validation."""
+    gate = """<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{min-height:100vh;background:#0f0f1a;display:flex;align-items:center;justify-content:center;font-family:sans-serif}
+  .msg{text-align:center;padding:32px;color:#a0a0b0;font-size:14px}
+  .spin{width:40px;height:40px;border:3px solid #2a2a3a;border-top-color:#f7c948;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head><body>
+<div class="msg"><div class="spin"></div>Vérification en cours…</div>
+<script>
+(async function() {
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+  const initData = tg.initData;
+  const uid = tg.initDataUnsafe?.user?.id;
+  if (!uid) {
+    document.body.innerHTML = '<div class="msg">⛔ Ouvre cette app depuis Telegram.</div>';
+    return;
+  }
+  try {
+    const res = await fetch('/api/webapp/load', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({init_data: initData, user_id: uid})
+    });
+    if (res.status === 403) {
+      document.body.innerHTML = '<div class="msg" style="max-width:300px;margin:auto"><div style="font-size:64px;margin-bottom:16px">🚧</div><div style="font-size:22px;font-weight:900;color:#f7c948;margin-bottom:10px;letter-spacing:2px">BIENTÔT</div>La Mini App <b style="color:#f0f0f0">Family Bot</b> arrive bientôt !</div>';
+      return;
+    }
+    if (!res.ok) {
+      document.body.innerHTML = '<div class="msg">❌ Erreur serveur. Réessaie.</div>';
+      return;
+    }
+    const html = await res.text();
+    document.open(); document.write(html); document.close();
+  } catch(e) {
+    document.body.innerHTML = '<div class="msg">❌ Erreur réseau.</div>';
+  }
+})();
+</script>
+</body></html>"""
+    return web.Response(text=gate, content_type='text/html')
+
+
+async def webapp_load_app(request: web.Request) -> web.Response:
+    """POST /api/webapp/load — valide initData Telegram et sert le vrai HTML si autorisé."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(text="Bad request", status=400)
+
+    uid       = body.get('user_id')
+    init_data = body.get('init_data', '')
+
+    # Validation : soit initData valide (production), soit uid whitelisté (dev sans initData)
+    valid_init = _verify_init_data(init_data)
+    valid_uid  = uid and _is_allowed(int(uid))
+
+    if not (valid_init or valid_uid):
+        return web.Response(text="⛔ Accès refusé.", status=403)
 
     import os
     path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
@@ -746,6 +806,7 @@ def setup_webapp_routes(app: web.Application):
     """Enregistre les routes de la Mini App."""
     app.router.add_get('/',                       webapp_index)
     app.router.add_get('/webapp',                 webapp_index)
+    app.router.add_post('/api/webapp/load',       webapp_load_app)
     app.router.add_get('/api/webapp/user',        webapp_user)
     app.router.add_post('/api/webapp/avatar',     webapp_save_avatar)
     app.router.add_get('/api/webapp/market',      webapp_market_catalog)
@@ -1092,21 +1153,21 @@ async def webapp_auctions_bid(request: web.Request) -> web.Response:
                 return web.json_response({'ok': False, 'error': f'Mise trop basse (min {current_bid + 1} $)'})
 
             # Récupérer le nom du leader
-            ru = await session.execute(text("SELECT username FROM users WHERE telegram_id = :uid"), {'uid': uid})
+            ru = await session.execute(text("SELECT username FROM users WHERE user_id = :uid"), {'uid': uid})
             row_u = ru.fetchone()
             leader_name = row_u[0] if row_u else str(uid)
 
             # Vérifier les fonds
-            rc = await session.execute(text("SELECT coins FROM users WHERE telegram_id = :uid"), {'uid': uid})
+            rc = await session.execute(text("SELECT coins FROM users WHERE user_id = :uid"), {'uid': uid})
             row_c = rc.fetchone()
             if not row_c or row_c[0] < amount:
                 return web.json_response({'ok': False, 'error': 'Fonds insuffisants'})
 
             # Débiter + update enchère
-            await session.execute(text("UPDATE users SET coins = coins - :amt WHERE telegram_id = :uid"), {'amt': amount, 'uid': uid})
+            await session.execute(text("UPDATE users SET coins = coins - :amt WHERE user_id = :uid"), {'amt': amount, 'uid': uid})
             # Rembourser l'ancien leader
             if leader_id:
-                await session.execute(text("UPDATE users SET coins = coins + :amt WHERE telegram_id = :lid"), {'amt': current_bid, 'lid': leader_id})
+                await session.execute(text("UPDATE users SET coins = coins + :amt WHERE user_id = :lid"), {'amt': current_bid, 'lid': leader_id})
             await session.execute(text("""
                 UPDATE auction_sessions
                 SET current_bid = :amt, leader_id = :uid, leader_name = :name

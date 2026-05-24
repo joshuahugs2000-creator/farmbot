@@ -289,27 +289,209 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   </div>
 
   <!-- ══ PAGE GAINS ══ -->
+  <style>
+    .gains-card {
+      background: linear-gradient(135deg, #0d1117 0%, #141925 100%);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+    .gains-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+    }
+    .gains-card.daily::before { background: linear-gradient(90deg, #f7c948, #ffb347, #f7c948); }
+    .gains-card.work::before  { background: linear-gradient(90deg, #6c63ff, #a78bfa, #6c63ff); }
+
+    .gains-icon-wrap {
+      width: 54px; height: 54px;
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .gains-icon-wrap.daily { background: rgba(247,201,72,0.12); border: 1px solid rgba(247,201,72,0.25); }
+    .gains-icon-wrap.work  { background: rgba(108,99,255,0.12); border: 1px solid rgba(108,99,255,0.25); }
+
+    @keyframes pulseIcon {
+      0%,100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+    }
+    .gains-icon-wrap.available { animation: pulseIcon 2s ease-in-out infinite; }
+
+    .gains-label {
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text2);
+      margin-bottom: 4px;
+    }
+    .gains-title {
+      font-family: 'Bangers', cursive;
+      font-size: 22px;
+      letter-spacing: 1px;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .gains-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+    .gains-badge.avail  { background: rgba(0,200,100,0.15); color: #00c864; border: 1px solid rgba(0,200,100,0.3); }
+    .gains-badge.wait   { background: rgba(255,255,255,0.06); color: var(--text2); border: 1px solid rgba(255,255,255,0.1); }
+
+    .gains-action-btn {
+      width: 100%;
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 14px;
+      border: none;
+      font-family: 'Bangers', cursive;
+      font-size: 19px;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .gains-action-btn.daily-active {
+      background: linear-gradient(135deg, #f7c948, #ffb347);
+      color: #000;
+      box-shadow: 0 4px 20px rgba(247,201,72,0.35);
+    }
+    .gains-action-btn.work-active {
+      background: linear-gradient(135deg, #6c63ff, #a78bfa);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(108,99,255,0.35);
+    }
+    .gains-action-btn:disabled {
+      background: rgba(255,255,255,0.06) !important;
+      color: var(--text2) !important;
+      box-shadow: none !important;
+      cursor: not-allowed;
+    }
+    .gains-action-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.08); }
+    .gains-action-btn:not(:disabled):active { transform: translateY(0); }
+
+    .gains-result-box {
+      margin-top: 10px;
+      min-height: 22px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 10px;
+      padding: 0 8px;
+    }
+
+    /* ── DIPLÔMES ── */
+    .dip-track {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      position: relative;
+      padding-left: 36px;
+    }
+    .dip-track::before {
+      content: '';
+      position: absolute;
+      left: 17px; top: 24px; bottom: 24px;
+      width: 2px;
+      background: linear-gradient(to bottom, rgba(247,201,72,0.5), rgba(108,99,255,0.5), rgba(255,107,107,0.5), rgba(0,200,100,0.5));
+    }
+    .dip-node {
+      position: relative;
+      padding: 14px 16px 14px 20px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: all 0.3s;
+    }
+    .dip-node.obtained {
+      background: rgba(247,201,72,0.05);
+      border-color: rgba(247,201,72,0.2);
+    }
+    .dip-node.obtained:nth-child(2) { border-color: rgba(108,99,255,0.25); background: rgba(108,99,255,0.05); }
+    .dip-node.obtained:nth-child(3) { border-color: rgba(255,107,107,0.25); background: rgba(255,107,107,0.05); }
+    .dip-node.obtained:nth-child(4) { border-color: rgba(0,200,100,0.25); background: rgba(0,200,100,0.05); }
+
+    .dip-dot {
+      position: absolute;
+      left: -28px;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.2);
+      background: #0d1117;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8px;
+      top: 50%; transform: translateY(-50%);
+    }
+    .dip-dot.done { border-color: var(--accent); background: rgba(247,201,72,0.2); }
+    .dip-dot.done::after { content: '✓'; color: var(--accent); font-size: 9px; font-weight: 900; }
+
+    .dip-emoji { font-size: 30px; line-height: 1; flex-shrink: 0; }
+    .dip-info { flex: 1; }
+    .dip-name { font-weight: 900; font-size: 15px; color: var(--text); }
+    .dip-sub { font-size: 11px; color: var(--text2); margin-top: 3px; }
+    .dip-check { font-size: 18px; }
+
+    @keyframes dipGlow {
+      0%,100% { box-shadow: 0 0 0 rgba(247,201,72,0); }
+      50% { box-shadow: 0 0 16px rgba(247,201,72,0.2); }
+    }
+    .dip-node.obtained { animation: dipGlow 3s ease-in-out infinite; }
+
+    .dip-domain-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(108,99,255,0.1);
+      border: 1px solid rgba(108,99,255,0.25);
+      border-radius: 20px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #a78bfa;
+      margin-bottom: 18px;
+    }
+  </style>
+
   <div class="page" id="page-gains">
     <div class="page-title">💰 Gains</div>
     <div id="gains-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
     <div id="gains-content" style="display:none">
 
       <!-- Daily -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-title">🎁 Bonus quotidien</div>
-        <div class="stat-row"><span class="stat-label">Disponible</span><span class="stat-value" id="daily-status">—</span></div>
-        <div id="daily-cooldown-row" class="stat-row" style="display:none"><span class="stat-label">Prochain dans</span><span class="stat-value" id="daily-cooldown">—</span></div>
-        <button id="daily-btn" onclick="claimDaily()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">🎁 RÉCUPÉRER</button>
-        <div id="daily-result" style="margin-top:8px;text-align:center;font-weight:700;min-height:20px;font-size:14px;"></div>
+      <div class="gains-card daily">
+        <div class="gains-icon-wrap daily" id="daily-icon-wrap">🎁</div>
+        <div class="gains-label">Bonus quotidien</div>
+        <div class="gains-title">Coffre du jour</div>
+        <span class="gains-badge avail" id="daily-badge" style="display:none">✦ Disponible maintenant</span>
+        <span class="gains-badge wait" id="daily-badge-wait" style="display:none">⏳ <span id="daily-cooldown">Demain</span></span>
+        <button id="daily-btn" class="gains-action-btn daily-active" onclick="claimDaily()">🎁 RÉCUPÉRER</button>
+        <div class="gains-result-box" id="daily-result"></div>
       </div>
 
       <!-- Work -->
-      <div class="card">
-        <div class="card-title">💼 Travail</div>
-        <div class="stat-row"><span class="stat-label">Disponible</span><span class="stat-value" id="work-status">—</span></div>
-        <div id="work-cooldown-row" class="stat-row" style="display:none"><span class="stat-label">Prochain dans</span><span class="stat-value" id="work-cooldown">—</span></div>
-        <button id="work-btn" onclick="claimWork()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💼 TRAVAILLER</button>
-        <div id="work-result" style="margin-top:8px;text-align:center;font-weight:700;min-height:20px;font-size:14px;"></div>
+      <div class="gains-card work">
+        <div class="gains-icon-wrap work" id="work-icon-wrap">💼</div>
+        <div class="gains-label">Travail</div>
+        <div class="gains-title">Gagner sa vie</div>
+        <span class="gains-badge avail" id="work-badge" style="display:none">✦ Prêt à travailler</span>
+        <span class="gains-badge wait" id="work-badge-wait" style="display:none">⏳ Repos — <span id="work-cooldown">—</span></span>
+        <button id="work-btn" class="gains-action-btn work-active" onclick="claimWork()">💼 TRAVAILLER</button>
+        <div class="gains-result-box" id="work-result"></div>
       </div>
 
     </div>
@@ -320,15 +502,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div class="page-title">🎓 Diplômes</div>
     <div id="diplomes-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
     <div id="diplomes-content" style="display:none">
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-title">📚 Domaine d'études</div>
-        <div class="stat-row"><span class="stat-label">Spécialité</span><span class="stat-value" id="dip-domain">—</span></div>
-      </div>
-      <div id="diplomes-list" style="display:grid;gap:10px;"></div>
-      <div id="diplomes-cooldown-card" class="card" style="display:none;margin-top:12px;text-align:center;padding:16px;">
-        <div style="font-size:28px;margin-bottom:6px">⏳</div>
-        <div style="font-size:13px;color:var(--text2)">Prochain examen disponible dans</div>
-        <div style="font-size:22px;font-weight:900;color:var(--accent);margin-top:4px" id="dip-cooldown-val">—</div>
+      <div id="dip-domain-wrap" style="display:none" class="dip-domain-pill">🎓 <span id="dip-domain">—</span></div>
+      <div class="dip-track" id="diplomes-list"></div>
+      <div id="diplomes-cooldown-card" class="card" style="display:none;margin-top:4px;text-align:center;padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);">
+        <div style="font-size:26px;margin-bottom:6px">⏳</div>
+        <div style="font-size:12px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">Prochain examen dans</div>
+        <div style="font-size:24px;font-weight:900;color:var(--accent);margin-top:6px;font-family:'Bangers',cursive;letter-spacing:2px" id="dip-cooldown-val">—</div>
       </div>
     </div>
   </div>
@@ -1874,59 +2053,70 @@ function fillProfile(d) {
 
 async function loadGains() {
   if (!uid) return;
-  document.getElementById('gains-loading').style.display = 'block';
-  document.getElementById('gains-content').style.display = 'none';
+  // Pas de hide/show si déjà visible — évite le clignotement
+  const content = document.getElementById('gains-content');
+  if (content.style.display === 'none') {
+    document.getElementById('gains-loading').style.display = 'block';
+  }
   try {
     const r = await fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 15000);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
 
-    // Daily
-    const dailyBtn = document.getElementById('daily-btn');
-    const dailyStatus = document.getElementById('daily-status');
-    const dailyCDRow = document.getElementById('daily-cooldown-row');
-    if (d.daily_available) {
-      dailyStatus.textContent = '✅ Disponible';
-      dailyStatus.style.color = 'var(--success)';
-      dailyBtn.disabled = false;
-      dailyBtn.style.opacity = '1';
-      dailyCDRow.style.display = 'none';
-    } else {
-      dailyStatus.textContent = '⏳ Déjà récupéré';
-      dailyStatus.style.color = 'var(--text2)';
-      dailyBtn.disabled = true;
-      dailyBtn.style.opacity = '0.4';
-      dailyBtn.style.cursor = 'not-allowed';
-      dailyCDRow.style.display = '';
-      document.getElementById('daily-cooldown').textContent = 'Demain';
-    }
-
-    // Work
-    const workBtn = document.getElementById('work-btn');
-    const workStatus = document.getElementById('work-status');
-    const workCDRow = document.getElementById('work-cooldown-row');
-    if (d.work_available) {
-      workStatus.textContent = '✅ Disponible';
-      workStatus.style.color = 'var(--success)';
-      workBtn.disabled = false;
-      workBtn.style.opacity = '1';
-      workCDRow.style.display = 'none';
-    } else {
-      workStatus.textContent = '⏳ En repos';
-      workStatus.style.color = 'var(--text2)';
-      workBtn.disabled = true;
-      workBtn.style.opacity = '0.4';
-      workBtn.style.cursor = 'not-allowed';
-      workCDRow.style.display = '';
-      const h = Math.floor(d.work_wait_min / 60);
-      const m = d.work_wait_min % 60;
-      document.getElementById('work-cooldown').textContent = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
-    }
+    _applyGainsState(d);
 
     document.getElementById('gains-loading').style.display = 'none';
-    document.getElementById('gains-content').style.display = 'block';
+    content.style.display = 'block';
   } catch(e) {
     document.getElementById('gains-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
+  }
+}
+
+function _applyGainsState(d) {
+  // Daily
+  const dailyBtn  = document.getElementById('daily-btn');
+  const dBadge    = document.getElementById('daily-badge');
+  const dBadgeW   = document.getElementById('daily-badge-wait');
+  const dIconWrap = document.getElementById('daily-icon-wrap');
+  if (d.daily_available) {
+    dailyBtn.disabled = false;
+    dailyBtn.className = 'gains-action-btn daily-active';
+    dailyBtn.textContent = '🎁 RÉCUPÉRER';
+    dBadge.style.display = '';
+    dBadgeW.style.display = 'none';
+    dIconWrap.classList.add('available');
+  } else {
+    dailyBtn.disabled = true;
+    dailyBtn.className = 'gains-action-btn daily-active';
+    dailyBtn.textContent = '✔ Récupéré';
+    dBadge.style.display = 'none';
+    dBadgeW.style.display = '';
+    document.getElementById('daily-cooldown').textContent = 'Demain';
+    dIconWrap.classList.remove('available');
+  }
+
+  // Work
+  const workBtn  = document.getElementById('work-btn');
+  const wBadge   = document.getElementById('work-badge');
+  const wBadgeW  = document.getElementById('work-badge-wait');
+  const wIconWrap = document.getElementById('work-icon-wrap');
+  if (d.work_available) {
+    workBtn.disabled = false;
+    workBtn.className = 'gains-action-btn work-active';
+    workBtn.textContent = '💼 TRAVAILLER';
+    wBadge.style.display = '';
+    wBadgeW.style.display = 'none';
+    wIconWrap.classList.add('available');
+  } else {
+    workBtn.disabled = true;
+    workBtn.className = 'gains-action-btn work-active';
+    workBtn.textContent = '😴 En repos';
+    wBadge.style.display = 'none';
+    wBadgeW.style.display = '';
+    const h = Math.floor(d.work_wait_min / 60);
+    const m = d.work_wait_min % 60;
+    document.getElementById('work-cooldown').textContent = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
+    wIconWrap.classList.remove('available');
   }
 }
 
@@ -1934,7 +2124,7 @@ async function claimDaily() {
   if (!uid) return;
   const btn = document.getElementById('daily-btn');
   btn.disabled = true;
-  btn.textContent = '⏳ En cours…';
+  btn.textContent = '⏳…';
   const res = document.getElementById('daily-result');
   try {
     const r = await fetchT('/api/webapp/gains/daily', {
@@ -1947,25 +2137,27 @@ async function claimDaily() {
     if (d.status === 'already') {
       res.textContent = '⏳ Déjà récupéré aujourd\'hui !';
       res.style.color = 'var(--text2)';
+      btn.textContent = '✔ Récupéré';
     } else {
       res.textContent = `🎁 +${fmt(d.amount)} $ gagné !`;
       res.style.color = 'var(--success)';
       _cachedUser = null;
-      loadGains();
-      return;
+      // Mise à jour sur place, pas de reload complet
+      _applyGainsState({daily_available: false, work_available: document.getElementById('work-btn').disabled === false, work_wait_min: 0});
     }
   } catch(e) {
     res.textContent = e.message;
     res.style.color = 'var(--accent2)';
+    btn.textContent = '🎁 RÉCUPÉRER';
+    btn.disabled = false;
   }
-  btn.textContent = '🎁 RÉCUPÉRER';
 }
 
 async function claimWork() {
   if (!uid) return;
   const btn = document.getElementById('work-btn');
   btn.disabled = true;
-  btn.textContent = '⏳ En cours…';
+  btn.textContent = '⏳…';
   const res = document.getElementById('work-result');
   const JOBS = [
     '👨‍🌾 Tu as travaillé aux champs',
@@ -1976,6 +2168,8 @@ async function claimWork() {
     '🍳 Tu as cuisiné au restaurant',
     '📦 Tu as livré des colis',
     '🎨 Tu as vendu tes tableaux',
+    '🚢 Tu as navigué sur des mers lointaines',
+    '💊 Tu as travaillé à la pharmacie',
   ];
   try {
     const r = await fetchT('/api/webapp/gains/work', {
@@ -1989,47 +2183,64 @@ async function claimWork() {
       const h = Math.floor(d.wait_min / 60);
       const m = d.wait_min % 60;
       const dur = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
-      res.textContent = `😴 Tu es fatigué·e ! Reviens dans ${dur}`;
+      res.textContent = `😴 Tu es fatigué·e — reviens dans ${dur}`;
       res.style.color = 'var(--text2)';
+      btn.textContent = '😴 En repos';
     } else {
       const job = JOBS[Math.floor(Math.random() * JOBS.length)];
       res.textContent = `${job} — +${fmt(d.amount)} $ !`;
       res.style.color = 'var(--success)';
       _cachedUser = null;
-      loadGains();
-      return;
+      // Fetch le vrai cooldown depuis l'API
+      const rd = await fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 10000);
+      const newState = await rd.json();
+      if (!newState.error) _applyGainsState(newState);
     }
   } catch(e) {
     res.textContent = e.message;
     res.style.color = 'var(--accent2)';
+    btn.textContent = '💼 TRAVAILLER';
+    btn.disabled = false;
   }
-  btn.textContent = '💼 TRAVAILLER';
 }
 
 // ════════════════════════════════════════
 //  DIPLÔMES
 // ════════════════════════════════════════
 
+const DIP_COLORS = ['#f7c948','#a78bfa','#ff6b6b','#00c864'];
+
 async function loadDiplomes() {
-  if (!uid) { return; }
-  document.getElementById('diplomes-loading').style.display = 'block';
-  document.getElementById('diplomes-content').style.display = 'none';
+  if (!uid) return;
+  const content = document.getElementById('diplomes-content');
+  if (content.style.display === 'none') {
+    document.getElementById('diplomes-loading').style.display = 'block';
+  }
   try {
     const r = await fetchT(`/api/webapp/diplomes?user_id=${uid}`, {}, 15000);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
 
-    document.getElementById('dip-domain').textContent = d.domain || 'Non défini';
+    // Domaine
+    const domWrap = document.getElementById('dip-domain-wrap');
+    if (d.domain) {
+      document.getElementById('dip-domain').textContent = d.domain;
+      domWrap.style.display = '';
+    } else {
+      domWrap.style.display = 'none';
+    }
 
+    // Liste
     const list = document.getElementById('diplomes-list');
-    list.innerHTML = d.diplomes.map(dip => `
-      <div class="card" style="display:flex;align-items:center;gap:14px;padding:14px 16px;opacity:${dip.obtained ? '1' : '0.5'}">
-        <div style="font-size:32px;line-height:1">${dip.obtained ? dip.emoji : '🔒'}</div>
-        <div style="flex:1">
-          <div style="font-weight:900;font-size:15px;color:var(--text)">${dip.label}</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:2px">${dip.obtained ? '✅ Obtenu' : (dip['prérequis'] ? `Nécessite : ${dip['prérequis']}` : 'Disponible')}</div>
+    list.innerHTML = d.diplomes.map((dip, i) => `
+      <div class="dip-node${dip.obtained ? ' obtained' : ''}" style="${dip.obtained ? `border-color:${DIP_COLORS[i]}44;background:${DIP_COLORS[i]}08;` : ''}">
+        <div class="dip-dot${dip.obtained ? ' done' : ''}" style="${dip.obtained ? `border-color:${DIP_COLORS[i]};` : ''}"></div>
+        <div class="dip-emoji" style="${!dip.obtained ? 'filter:grayscale(1);opacity:.4' : ''}">${dip.obtained ? dip.emoji : '🔒'}</div>
+        <div class="dip-info">
+          <div class="dip-name" style="${dip.obtained ? `color:${DIP_COLORS[i]}` : ''}">${dip.label}</div>
+          <div class="dip-sub">${dip.obtained ? `<span style="color:${DIP_COLORS[i]}">✓ Obtenu</span>` : (dip['prérequis'] ? `Nécessite : ${dip['prérequis']}` : 'Disponible')}</div>
         </div>
-        ${dip.obtained ? '<div style="font-size:20px">✨</div>' : ''}
+        ${dip.obtained ? `<div class="dip-check" style="color:${DIP_COLORS[i]}">✦</div>` : ''}
       </div>
     `).join('');
 
@@ -2043,7 +2254,7 @@ async function loadDiplomes() {
     }
 
     document.getElementById('diplomes-loading').style.display = 'none';
-    document.getElementById('diplomes-content').style.display = 'block';
+    content.style.display = 'block';
   } catch(e) {
     document.getElementById('diplomes-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
   }

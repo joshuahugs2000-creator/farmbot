@@ -1931,19 +1931,21 @@ async function loadData() {
   if (!uid) { fillMock(); return; }
 
   try {
-    // Charge user ET family en parallèle dès le démarrage
+    // Charge user ET family en parallèle dès le démarrage — timeout 20s pour Railway cold start
     const [res, resFam] = await Promise.all([
-      fetch(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`),
-      fetch(`/api/webapp/family?user_id=${uid}`)
+      fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`, {}, 20000),
+      fetchT(`/api/webapp/family?user_id=${uid}`, {}, 20000),
     ]);
-    if (!res.ok) throw new Error();
+    if (!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
+    if (data.error) throw new Error(data.error);
     fillProfile(data);
     _cachedUser = data;
     if (resFam.ok) {
       _cachedFamily = await resFam.json();
     }
   } catch(e) {
+    console.warn('[loadData]', e.message);
     fillMock();
   }
 }
@@ -3059,16 +3061,11 @@ window.addEventListener('load', () => {
   drawAvatar('profile-avatar-mini');
   renderOptions();
   loadData();
-  // Précharge toutes les données en arrière-plan dès le démarrage
-  setTimeout(() => {
-    if (uid) {
-      // Précharge ranking, journal, events, annonces pendant que l'user est sur Moi
-      fetch(`/api/webapp/ranking?user_id=${uid}&cat=coins`).then(r=>r.ok?r.json():{}).then(d=>{ if(!d.error) window._cachedRanking = d; }).catch(()=>{});
-      fetch(`/api/webapp/journal?user_id=${uid}`).then(r=>r.ok?r.json():{entries:[]}).then(d=>{ window._cachedJournal = d; }).catch(()=>{});
-      fetch(`/api/webapp/events?user_id=${uid}`).then(r=>r.ok?r.json():{events:[]}).then(d=>{ window._cachedEvents = d; }).catch(()=>{});
-      fetch(`/api/webapp/annonces?user_id=${uid}`).then(r=>r.ok?r.json():{annonces:[]}).then(d=>{ window._cachedAnnonces = d; }).catch(()=>{});
-    }
-  }, 500);
+  // Précharge en cascade — délais échelonnés pour ne pas saturer le serveur
+  setTimeout(() => { if (uid) fetchT(`/api/webapp/ranking?user_id=${uid}&cat=coins`,{},20000).then(r=>r.ok?r.json():null).then(d=>{ if(d&&!d.error) window._cachedRanking = d; }).catch(()=>{}); }, 1500);
+  setTimeout(() => { if (uid) fetchT(`/api/webapp/journal?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{entries:[]}).then(d=>{ window._cachedJournal = d; }).catch(()=>{}); }, 2500);
+  setTimeout(() => { if (uid) fetchT(`/api/webapp/events?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{events:[]}).then(d=>{ window._cachedEvents = d; }).catch(()=>{}); }, 3500);
+  setTimeout(() => { if (uid) fetchT(`/api/webapp/annonces?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{annonces:[]}).then(d=>{ window._cachedAnnonces = d; }).catch(()=>{}); }, 4500);
   setTimeout(() => {
     document.getElementById('loading').style.opacity = '0';
     setTimeout(() => document.getElementById('loading').style.display = 'none', 300);
@@ -3781,12 +3778,14 @@ function rankCat(cat, btn) {
 
 async function loadRanking() {
   dbg('loadRanking uid='+uid);
-  document.getElementById('ranking-loading').style.display='block';
+  const loadEl = document.getElementById('ranking-loading');
+  loadEl.innerHTML = 'Chargement…';
+  loadEl.style.display='block';
   document.getElementById('ranking-content').style.display='none';
-  if (!uid) { document.getElementById('ranking-list').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; document.getElementById('ranking-loading').style.display='none'; document.getElementById('ranking-content').style.display='block'; return; }
+  if (!uid) { loadEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const d = (_rankCat === 'coins' && window._cachedRanking) ? window._cachedRanking : await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`).then(r=>r.ok?r.json():{});
-    if (d.error) throw new Error(d.error);
+    const d = (_rankCat === 'coins' && window._cachedRanking) ? window._cachedRanking : await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`, {}, 20000).then(r=>r.ok?r.json():(r.json().catch(()=>({error:'Erreur '+r.status}))));
+    if (!d || d.error) throw new Error(d?.error || 'Réponse invalide');
     document.getElementById('ranking-loading').style.display='none';
     document.getElementById('ranking-content').style.display='block';
 
@@ -3825,7 +3824,12 @@ async function loadRanking() {
     }
   } catch(e) {
     dbg('ranking ERR: '+e.message);
-    document.getElementById('ranking-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
+    document.getElementById('ranking-loading').innerHTML = `
+      <div style="text-align:center;padding:24px">
+        <div style="font-size:32px;margin-bottom:12px">❌</div>
+        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
+        <button onclick="loadRanking()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
+      </div>`;
   }
 }
 
@@ -3861,7 +3865,12 @@ async function loadStats() {
     document.getElementById('st-role').textContent     = u.role || '—';
   } catch(e) {
     dbg('stats ERR: '+e.message);
-    document.getElementById('stats-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
+    document.getElementById('stats-loading').innerHTML = `
+      <div style="text-align:center;padding:24px">
+        <div style="font-size:32px;margin-bottom:12px">❌</div>
+        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
+        <button onclick="loadStats()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
+      </div>`;
   }
 }
 
@@ -3923,7 +3932,12 @@ async function loadTree() {
     vis.innerHTML = html;
   } catch(e) {
     console.error('[tree]', e);
-    document.getElementById('tree-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
+    document.getElementById('tree-loading').innerHTML = `
+      <div style="text-align:center;padding:24px">
+        <div style="font-size:32px;margin-bottom:12px">❌</div>
+        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
+        <button onclick="loadTree()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
+      </div>`;
   }
 }
 
@@ -3975,7 +3989,12 @@ async function loadMood() {
     document.getElementById('mood-job').textContent     = hasJob ? '💼 Employé' : '🏠 Sans emploi';
   } catch(e) {
     console.error('[mood]', e);
-    document.getElementById('mood-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
+    document.getElementById('mood-loading').innerHTML = `
+      <div style="text-align:center;padding:24px">
+        <div style="font-size:32px;margin-bottom:12px">❌</div>
+        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
+        <button onclick="loadMood()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
+      </div>`;
   }
 }
 

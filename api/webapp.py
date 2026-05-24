@@ -753,6 +753,10 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/api/webapp/journal',   webapp_journal)
     app.router.add_get('/api/webapp/events',    webapp_events)
     app.router.add_get('/api/webapp/annonces',  webapp_annonces)
+    app.router.add_get('/api/webapp/company',              webapp_company_data)
+    app.router.add_post('/api/webapp/company/depot',       webapp_company_depot)
+    app.router.add_post('/api/webapp/company/retrait',     webapp_company_retrait)
+    app.router.add_post('/api/webapp/company/payerimpots', webapp_company_payerimpots)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1673,3 +1677,344 @@ async def webapp_diplomes(request: web.Request) -> web.Response:
         'cooldown_left': cooldown_left,
         'coins':         user.coins or 0,
     })
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ENTREPRISE — système complet
+# ══════════════════════════════════════════════════════════════════════════════
+from database.models import TaxRecord, BureauContrat
+
+async def webapp_company_data(request: web.Request) -> web.Response:
+    """GET /api/webapp/company — données complètes entreprise"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        # Trouver l'entreprise du user (PDG ou employé)
+        emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.user_id == uid,
+                CompanyEmployee.left_at == None,
+            ).order_by(
+                CompanyEmployee.role == 'pdg',
+            ).limit(1)
+        )).scalar_one_or_none()
+
+        if not emp:
+            return web.json_response({'company': None})
+
+        company = await session.get(Company, emp.company_id)
+        if not company or not company.is_active:
+            return web.json_response({'company': None})
+
+        # Employés
+        all_emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalars().all()
+
+        employees = []
+        for e in all_emps:
+            eu = await session.get(__import__('database.models', fromlist=['User']).User, e.user_id)
+            employees.append({
+                'user_id':     e.user_id,
+                'name':        eu.first_name if eu else '—',
+                'username':    eu.username if eu else '',
+                'role':        e.role,
+                'cmd_count':   e.command_count or 0,
+                'joined_at':   e.joined_at.strftime('%d/%m/%Y') if e.joined_at else '—',
+                'is_me':       e.user_id == uid,
+            })
+
+        # Parts
+        parts_data = []
+        try:
+            from database.models import CompanyShares
+            shares = (await session.execute(
+                select(CompanyShares).where(CompanyShares.company_id == company.id)
+            )).scalars().all()
+            for s in shares:
+                su = await session.get(__import__('database.models', fromlist=['User']).User, s.user_id)
+                parts_data.append({
+                    'user_id': s.user_id,
+                    'name':    su.first_name if su else '—',
+                    'parts':   s.shares,
+                    'is_me':   s.user_id == uid,
+                })
+        except Exception:
+            pass
+
+        # Contrats Bureau
+        contrats = (await session.execute(
+            select(BureauContrat).where(
+                BureauContrat.company_id == company.id,
+                BureauContrat.status.in_(['active', 'pending']),
+            )
+        )).scalars().all()
+
+        from sqlalchemy import func as _func
+        total_cmds = (await session.execute(
+            select(_func.sum(CompanyEmployee.command_count)).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar() or 0
+
+        contrats_data = []
+        from datetime import datetime as _dtnow
+        now = _dtnow.utcnow()
+        for c in contrats:
+            cmds_done = max(0, total_cmds - (c.cmds_at_start or 0))
+            obj = c.objective_cmds or 1
+            pct = min(100, int(cmds_done / obj * 100))
+            remaining_days = (c.ends_at - now).days if c.ends_at else 0
+            contrats_data.append({
+                'id':            c.id,
+                'title':         c.title,
+                'reward':        _fmt(c.reward),
+                'reward_raw':    c.reward,
+                'objective':     c.objective_cmds,
+                'cmds_done':     cmds_done,
+                'pct':           pct,
+                'status':        c.status,
+                'days_left':     max(0, remaining_days),
+                'ends_at':       c.ends_at.strftime('%d/%m à %H:%M') if c.ends_at else '—',
+            })
+
+        # Impôts
+        tax_records = (await session.execute(
+            select(TaxRecord).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == 'pending',
+            ).order_by(TaxRecord.created_at.desc())
+        )).scalars().all()
+
+        tax_data = []
+        for t in tax_records:
+            tax_data.append({
+                'id':          t.id,
+                'amount_due':  _fmt(t.amount_due),
+                'amount_due_raw': t.amount_due,
+                'amount_paid': _fmt(t.amount_paid or 0),
+                'remaining':   _fmt((t.amount_due or 0) - (t.amount_paid or 0)),
+                'remaining_raw': (t.amount_due or 0) - (t.amount_paid or 0),
+                'due_at':      t.due_at.strftime('%d/%m à %H:%M') if t.due_at else '—',
+                'overdue':     now > t.due_at if t.due_at else False,
+            })
+
+        # Logs
+        from database.models import CompanyLog
+        logs = []
+        try:
+            log_rows = (await session.execute(
+                select(CompanyLog).where(
+                    CompanyLog.company_id == company.id,
+                ).order_by(CompanyLog.created_at.desc()).limit(20)
+            )).scalars().all()
+            for l in log_rows:
+                logs.append({
+                    'event': l.event_type,
+                    'desc':  l.description or '',
+                    'amount': _fmt(l.amount) if l.amount else '',
+                    'date':  l.created_at.strftime('%d/%m %H:%M') if l.created_at else '',
+                })
+        except Exception:
+            pass
+
+        # Niveau
+        LEVELS = {1:('⭐','Startup'),2:('⭐⭐','PME'),3:('⭐⭐⭐','ETI'),4:('⭐⭐⭐⭐','Grande Entreprise'),5:('⭐⭐⭐⭐⭐','Multinationale')}
+        lvl_emoji, lvl_name = LEVELS.get(company.level or 1, ('⭐','Startup'))
+
+        return web.json_response({
+            'company': {
+                'id':            company.id,
+                'name':          company.name,
+                'sector':        company.sector or '—',
+                'level':         company.level or 1,
+                'level_label':   f"{lvl_emoji} {lvl_name}",
+                'reputation':    company.reputation or 0,
+                'value':         _fmt(company.value),
+                'value_raw':     company.value or 0,
+                'treasury':      _fmt(company.treasury),
+                'treasury_raw':  company.treasury or 0,
+                'frozen':        company.treasury_frozen or False,
+                'tax_debt':      _fmt(company.tax_debt or 0),
+                'tax_debt_raw':  company.tax_debt or 0,
+                'is_pdg':        emp.role == 'pdg',
+                'my_role':       emp.role,
+                'my_cmds':       emp.command_count or 0,
+                'employees':     employees,
+                'parts':         parts_data,
+                'contrats':      contrats_data,
+                'taxes':         tax_data,
+                'logs':          logs,
+            }
+        })
+
+
+async def webapp_company_depot(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/depot"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
+
+        from database.models import User as UserModel
+        user = await session.get(UserModel, uid)
+        if not user or (user.coins or 0) < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        user.coins -= amount
+        company.treasury = (company.treasury or 0) + amount
+        company.value = company.treasury
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f'✅ {_fmt(amount)} $ déposés en trésorerie !'})
+
+
+async def webapp_company_retrait(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/retrait"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
+        if company.treasury_frozen:
+            return web.json_response({'error': '🔒 Trésorerie gelée — paie tes impôts d\'abord'})
+        if (company.treasury or 0) < amount:
+            return web.json_response({'error': f'Trésorerie insuffisante ({_fmt(company.treasury)} $ disponible)'})
+
+        from database.models import User as UserModel
+        user = await session.get(UserModel, uid)
+        if not user:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        # Cooldown 24h
+        from datetime import timedelta
+        from database.models import CompanyLog
+        last_retrait = (await session.execute(
+            select(CompanyLog).where(
+                CompanyLog.company_id == company.id,
+                CompanyLog.event_type == 'retrait',
+            ).order_by(CompanyLog.created_at.desc()).limit(1)
+        )).scalar_one_or_none()
+
+        if last_retrait and last_retrait.created_at:
+            from datetime import datetime as _dtnow2
+            since = (_dtnow2.utcnow() - last_retrait.created_at).total_seconds()
+            if since < 86400:
+                h = int((86400 - since) // 3600)
+                m = int(((86400 - since) % 3600) // 60)
+                return web.json_response({'error': f'⏳ Cooldown retrait : encore {h}h{m:02d}m à attendre'})
+
+        company.treasury -= amount
+        company.value = company.treasury
+        user.coins = (user.coins or 0) + amount
+
+        log = CompanyLog(
+            company_id=company.id,
+            event_type='retrait',
+            description=f'Retrait PDG via webapp',
+            amount=amount,
+        )
+        session.add(log)
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f'✅ {_fmt(amount)} $ retirés de la trésorerie !'})
+
+
+async def webapp_company_payerimpots(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/payerimpots"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
+        if (company.treasury or 0) < amount:
+            return web.json_response({'error': 'Trésorerie insuffisante'})
+
+        # Payer sur les factures pendantes
+        pending = (await session.execute(
+            select(TaxRecord).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == 'pending',
+            ).order_by(TaxRecord.created_at.asc())
+        )).scalars().all()
+
+        remaining_payment = amount
+        for record in pending:
+            if remaining_payment <= 0:
+                break
+            owed = (record.amount_due or 0) - (record.amount_paid or 0)
+            pay = min(owed, remaining_payment)
+            record.amount_paid = (record.amount_paid or 0) + pay
+            remaining_payment -= pay
+            if record.amount_paid >= record.amount_due:
+                record.status = 'paid'
+
+        company.treasury -= amount
+        company.value = company.treasury
+        company.tax_debt = max(0, (company.tax_debt or 0) - amount)
+
+        # Vérifier si dette soldée → dégeler
+        total_remaining = sum(
+            (r.amount_due or 0) - (r.amount_paid or 0)
+            for r in pending if r.status == 'pending'
+        )
+        if total_remaining <= 0 and company.treasury_frozen:
+            company.treasury_frozen = False
+
+        # Ajouter à la caisse d'État
+        from database.models import StateCaisse
+        caisse = (await session.execute(select(StateCaisse))).scalar_one_or_none()
+        if caisse:
+            caisse.total = (caisse.total or 0) + amount
+
+        await session.commit()
+
+    msg = f'✅ {_fmt(amount)} $ d\'impôts payés !'
+    if not company.treasury_frozen:
+        msg += ' Trésorerie dégelée !'
+    return web.json_response({'ok': True, 'msg': msg})

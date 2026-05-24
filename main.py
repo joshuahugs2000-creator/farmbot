@@ -432,10 +432,12 @@ def _prison_checked(handler_func):
 
 
 async def main():
+    from telegram.ext import AIORateLimiter
     app = (
         Application.builder()
         .token(BOT_TOKEN)
         .updater(None)
+        .rate_limiter(AIORateLimiter(max_retries=3))
         .post_init(on_startup)
         .build()
     )

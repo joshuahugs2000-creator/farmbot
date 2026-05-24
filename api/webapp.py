@@ -1724,47 +1724,54 @@ async def webapp_arena(request: web.Request) -> web.Response:
 
 async def webapp_diplomes(request: web.Request) -> web.Response:
     """GET /api/webapp/diplomes?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    import traceback as _tb
+    try:
+        uid = int(request.rel_url.query.get('user_id', 0))
+        if not _is_allowed(uid):
+            return web.json_response({'error': 'unauthorized'}, status=403)
 
-    DIPLOMES_INFO = [
-        {'key': 'bac',     'label': 'Baccalauréat', 'emoji': '📜', 'prérequis': None},
-        {'key': 'licence', 'label': 'Licence',       'emoji': '🎓', 'prérequis': 'bac'},
-        {'key': 'master',  'label': 'Master',         'emoji': '🏛️', 'prérequis': 'licence'},
-        {'key': 'mba',     'label': 'MBA',             'emoji': '💼', 'prérequis': 'master'},
-    ]
+        DIPLOMES_INFO = [
+            {'key': 'bac',     'label': 'Baccalaureat', 'emoji': '📜', 'prerequis': None},
+            {'key': 'licence', 'label': 'Licence',       'emoji': '🎓', 'prerequis': 'bac'},
+            {'key': 'master',  'label': 'Master',        'emoji': '🏛', 'prerequis': 'licence'},
+            {'key': 'mba',     'label': 'MBA',           'emoji': '💼', 'prerequis': 'master'},
+        ]
 
-    async with AsyncSessionLocal() as session:
-        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
-        if not user:
-            return web.json_response({'error': 'user not found'}, status=404)
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+            if not user:
+                return web.json_response({'error': 'user not found'}, status=404)
 
-        cooldown_left = 0
-        if user.exam_cooldown:
-            cooldown_left = max(0, int((user.exam_cooldown - datetime.utcnow()).total_seconds() / 60))
+            cooldown_left = 0
+            if user.exam_cooldown:
+                cooldown_left = max(0, int((user.exam_cooldown - datetime.utcnow()).total_seconds() / 60))
 
-        diplomes = []
-        for d in DIPLOMES_INFO:
-            key      = d['key']
-            field    = f'diplome_{key}'
-            obtained = bool(getattr(user, field, False))
-            diplomes.append({
-                'key':       key,
-                'label':     d['label'],
-                'emoji':     d['emoji'],
-                'obtained':  obtained,
-                'prérequis': d['prérequis'],
-            })
+            diplomes = []
+            for d in DIPLOMES_INFO:
+                key      = d['key']
+                field    = f'diplome_{key}'
+                obtained = bool(getattr(user, field, False))
+                diplomes.append({
+                    'key':       key,
+                    'label':     d['label'],
+                    'emoji':     d['emoji'],
+                    'obtained':  obtained,
+                    'prerequis': d['prerequis'],
+                })
 
-        payload = {
-            'diplomes':      diplomes,
-            'domain':        user.diplome_domain or '',
-            'cooldown_left': cooldown_left,
-            'coins':         user.coins or 0,
-        }
+            payload = {
+                'diplomes':      diplomes,
+                'domain':        user.diplome_domain or '',
+                'cooldown_left': cooldown_left,
+                'coins':         int(user.coins or 0),
+            }
 
-    return web.json_response(payload)
+        return web.json_response(payload)
+
+    except Exception as _e:
+        return web.json_response({'error': 'DIPLOMES_ERR: ' + str(_e), 'trace': _tb.format_exc()[-600:]})
+
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ENTREPRISE — système complet

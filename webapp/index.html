@@ -1964,27 +1964,28 @@ function fillProfile(d) {
     } catch(e) {}
   }
 
-  document.getElementById('pf-name').textContent    = d.name || firstName;
-  document.getElementById('pf-title').textContent   = d.title || 'Citoyen';
-  document.getElementById('pf-coins').textContent   = '💰 ' + fmt(d.coins);
-  document.getElementById('pf-cash').textContent    = fmt(d.coins);
-  document.getElementById('pf-bank').textContent    = fmt(d.bank_total);
-  document.getElementById('pf-debt').textContent    = fmt(d.loans_total);
-  document.getElementById('pf-total').textContent   = fmt(d.fortune_totale);
-  document.getElementById('pf-karma').textContent   = (d.karma>=0?'+':'')+d.karma;
-  document.getElementById('pf-rank').textContent    = '#'+d.rank+' / '+d.total_players;
-  document.getElementById('pf-diplomes').textContent= d.diplomes || '—';
-  document.getElementById('co-name').textContent    = d.company || '—';
-  document.getElementById('co-level').textContent   = d.company_level || '—';
-  document.getElementById('co-stars').textContent   = d.company_rep ? stars(d.company_rep) : '—';
-  document.getElementById('co-value').textContent   = fmt(d.company_value);
-  document.getElementById('co-treasury').textContent= fmt(d.company_treasury);
-  document.getElementById('co-revenue').textContent = fmt(d.company_revenue_day);
-  document.getElementById('co-employees').textContent= d.company_employees || '—';
-  document.getElementById('co-myrole').textContent  = d.role || '—';
-  document.getElementById('co-owner').textContent   = d.company_owner || '—';
-  document.getElementById('pf-company').textContent = d.company || 'Sans emploi';
-  document.getElementById('pf-role').textContent    = d.role || '—';
+  const _set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  _set('pf-name',     d.name || firstName);
+  _set('pf-title',    d.title || 'Citoyen');
+  _set('pf-coins',    '💰 ' + fmt(d.coins));
+  _set('pf-cash',     fmt(d.coins));
+  _set('pf-bank',     fmt(d.bank_total));
+  _set('pf-debt',     fmt(d.loans_total));
+  _set('pf-total',    fmt(d.fortune_totale));
+  _set('pf-karma',    (d.karma>=0?'+':'')+d.karma);
+  _set('pf-rank',     '#'+d.rank+' / '+d.total_players);
+  _set('pf-diplomes', d.diplomes || '—');
+  _set('co-name',     d.company || '—');
+  _set('co-level',     d.company_level || '—');
+  _set('co-stars',     d.company_rep ? stars(d.company_rep) : '—');
+  _set('co-value',     fmt(d.company_value));
+  _set('co-treasury',  fmt(d.company_treasury));
+  _set('co-revenue',   fmt(d.company_revenue_day));
+  _set('co-employees', d.company_employees || '—');
+  _set('co-myrole',    d.role || '—');
+  _set('co-owner',     d.company_owner || '—');
+  _set('pf-company',   d.company || 'Sans emploi');
+  _set('pf-role',      d.role || '—');
 
   if (d.portfolio) {
     document.getElementById('mk-invested').textContent = fmt(d.portfolio.invested);
@@ -2017,15 +2018,20 @@ function mktTab(tab, btn) {
 async function loadMarket() {
   if (_mktCats.length && uid && _mktLoadedUid === uid) return; // déjà chargé pour ce user
   _mktLoadedUid = uid;
+  if (!uid) { document.getElementById('mkt-assets-list').innerHTML = '<p style="color:var(--text2);text-align:center;">Connexion requise</p>'; return; }
   try {
     const r = await fetch(`/api/webapp/market?user_id=${uid}`);
+    if (!r.ok) throw new Error('HTTP '+r.status);
     const d = await r.json();
+    if (d.error) throw new Error(d.error);
     _mktCatalog = d.catalog || {};
     _mktCats    = d.categories || [];
+    _mktLoadedUid = uid;
     _buildCatFilter();
     if (_mktCats.length) mktSetCat(_mktCats[0]);
   } catch(e) {
-    document.getElementById('mkt-assets-list').innerHTML = '<p style="color:var(--text2);text-align:center;">Erreur chargement marché</p>';
+    _mktCats = []; _mktLoadedUid = null; // reset cache pour retry
+    document.getElementById('mkt-assets-list').innerHTML = '<p style="color:var(--text2);text-align:center;">Erreur: '+e.message+'</p>';
   }
 }
 
@@ -2161,9 +2167,11 @@ async function confirmBuy() {
 
 async function loadPortfolio() {
   const list = document.getElementById('mk-positions-list');
+  if (!uid) { list.innerHTML = '<p style="color:var(--accent2);text-align:center;">Connexion requise</p>'; return; }
   list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Chargement…</p>';
   try {
     const r = await fetch(`/api/webapp/portfolio?user_id=${uid}`);
+    if (!r.ok) { list.innerHTML = '<p style="color:var(--accent2);text-align:center;">Erreur serveur ('+r.status+')</p>'; return; }
     const d = await r.json();
     const s = d.summary || {};
     document.getElementById('mk-count').textContent    = s.count || '0';

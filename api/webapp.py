@@ -1731,17 +1731,19 @@ async def webapp_company_data(request: web.Request) -> web.Response:
         # Parts
         parts_data = []
         try:
-            from database.models import CompanyShares
+            from database.models import CompanyShare
             shares = (await session.execute(
-                select(CompanyShares).where(CompanyShares.company_id == company.id)
+                select(CompanyShare).where(CompanyShare.company_id == company.id)
             )).scalars().all()
+            UserModel2 = __import__('database.models', fromlist=['User']).User
             for s in shares:
-                su = await session.get(__import__('database.models', fromlist=['User']).User, s.user_id)
+                su = await session.get(UserModel2, s.owner_id)
                 parts_data.append({
-                    'user_id': s.user_id,
-                    'name':    su.first_name if su else '—',
-                    'parts':   s.shares,
-                    'is_me':   s.user_id == uid,
+                    'user_id': s.owner_id,
+                    'name':    (su.first_name or su.username or '—') if su else '—',
+                    'username': su.username if su else '',
+                    'parts':   s.quantity,
+                    'is_me':   s.owner_id == uid,
                 })
         except Exception:
             pass
@@ -1846,10 +1848,21 @@ async def webapp_company_data(request: web.Request) -> web.Response:
                 'my_role':       emp.role,
                 'my_cmds':       emp.command_count or 0,
                 'employees':     employees,
+                'nb_employees':  len(employees),
+                'max_employees': {1:5,2:10,3:50,4:100,5:200}.get(company.level or 1, 50) + (company.extra_slots or 0),
                 'parts':         parts_data,
+                'total_shares':  company.total_shares or 100,
+                'owner_shares':  company.owner_shares or 100,
                 'contrats':      contrats_data,
+                'nb_contrats':   len(contrats_data),
                 'taxes':         tax_data,
                 'logs':          logs,
+                'total_cmds':    int(total_cmds),
+                'owner_id':      company.owner_id,
+                'weekly_revenue': _fmt(company.weekly_revenue or 0),
+                'weekly_revenue_raw': company.weekly_revenue or 0,
+                'legal_reserve': _fmt(company.legal_reserve or 0),
+                'legal_reserve_raw': company.legal_reserve or 0,
             }
         })
 

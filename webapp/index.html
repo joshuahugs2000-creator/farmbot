@@ -291,26 +291,143 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <!-- ══ PAGE ENTREPRISE ══ -->
   <div class="page" id="page-company">
     <div class="page-title">🏢 Entreprise</div>
-    <div class="card" id="company-card">
-      <div class="company-header">
-        <div class="company-name" id="co-name">—</div>
-        <div class="company-level" id="co-level">—</div>
-        <div class="rep-stars" id="co-stars">—</div>
+
+    <!-- Pas d'entreprise -->
+    <div id="co-none" style="display:none;text-align:center;padding:40px 0;">
+      <div style="font-size:48px;margin-bottom:12px;">🏗️</div>
+      <div style="color:var(--text2);font-size:15px;">Tu n'es dans aucune entreprise.</div>
+      <div style="color:var(--text2);font-size:13px;margin-top:8px;">Utilise /postuler sur le bot.</div>
+    </div>
+
+    <!-- Contenu entreprise -->
+    <div id="co-content" style="display:none;">
+
+      <!-- Header entreprise -->
+      <div class="card" style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-color:#f7c948;text-align:center;padding:20px;">
+        <div style="font-family:'Bangers',cursive;font-size:28px;color:var(--accent);letter-spacing:2px;" id="co-name">—</div>
+        <div style="color:var(--text2);font-size:13px;margin-top:4px;" id="co-level">—</div>
+        <div style="margin-top:8px;" id="co-stars">—</div>
+        <div id="co-frozen-banner" style="display:none;margin-top:10px;background:#e55;color:#fff;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;">🔒 TRÉSORERIE GELÉE — Impôts impayés</div>
+        <div style="margin-top:10px;">
+          <span style="background:var(--bg);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--text2);" id="co-sector">—</span>
+          <span style="background:var(--bg);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--accent);margin-left:6px;" id="co-role-badge">—</span>
+        </div>
+      </div>
+
+      <!-- Onglets -->
+      <div class="tab-bar" style="margin:12px 0 0;">
+        <button class="tab-btn active" onclick="coTab('general',this)">📊 Général</button>
+        <button class="tab-btn" onclick="coTab('equipe',this)">👥 Équipe</button>
+        <button class="tab-btn" onclick="coTab('contrats',this)">📋 Contrats</button>
+        <button class="tab-btn" onclick="coTab('impots',this)">🏛️ Impôts</button>
+        <button class="tab-btn" onclick="coTab('logs',this)">📜 Logs</button>
+      </div>
+
+      <!-- ── ONGLET GÉNÉRAL ── -->
+      <div id="co-tab-general">
+        <div class="card" style="margin-top:10px;">
+          <div class="card-title">💰 FINANCES</div>
+          <div class="stat-row"><span class="stat-label">Valeur</span><span class="stat-value gold" id="co-value">—</span></div>
+          <div class="stat-row"><span class="stat-label">Trésorerie</span><span class="stat-value gold" id="co-treasury">—</span></div>
+          <div class="stat-row"><span class="stat-label">Dette fiscale</span><span class="stat-value" id="co-taxdebt" style="color:#e55;">—</span></div>
+          <div class="stat-row"><span class="stat-label">Mes commandes</span><span class="stat-value" id="co-mycmds">—</span></div>
+        </div>
+
+        <!-- Actions PDG -->
+        <div id="co-pdg-actions" style="display:none;">
+          <div class="card" style="margin-top:10px;">
+            <div class="card-title">⚡ ACTIONS PDG</div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <button class="btn-success" style="flex:1;" onclick="coShowDepot()">💰 Déposer</button>
+              <button class="btn-outline" style="flex:1;" onclick="coShowRetrait()">💸 Retirer</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Parts -->
+        <div class="card" style="margin-top:10px;">
+          <div class="card-title">📜 ACTIONNARIAT</div>
+          <div id="co-parts-list"><div style="color:var(--text2);font-size:13px;">—</div></div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET ÉQUIPE ── -->
+      <div id="co-tab-equipe" style="display:none;">
+        <div class="card" style="margin-top:10px;">
+          <div class="card-title">👥 ÉQUIPE</div>
+          <div id="co-employees-list"><div style="color:var(--text2);font-size:13px;">Chargement...</div></div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET CONTRATS ── -->
+      <div id="co-tab-contrats" style="display:none;">
+        <div id="co-contrats-list" style="margin-top:10px;"></div>
+        <div style="text-align:center;margin-top:10px;">
+          <div style="color:var(--text2);font-size:12px;">Pour soumettre un dossier : <code>/soumettredossier</code> sur le bot</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET IMPÔTS ── -->
+      <div id="co-tab-impots" style="display:none;">
+        <div id="co-taxes-list" style="margin-top:10px;"></div>
+        <!-- Zone paiement PDG -->
+        <div id="co-tax-pay-zone" style="display:none;margin-top:10px;">
+          <div class="card">
+            <div class="card-title">💳 PAYER LES IMPÔTS</div>
+            <div style="color:var(--text2);font-size:12px;margin-bottom:10px;">Les paiements s'appliquent aux factures les plus anciennes en premier.</div>
+            <input id="co-tax-amount" type="number" placeholder="Montant à payer"
+              style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:15px;margin-bottom:10px;">
+            <button class="btn-success" style="width:100%;" onclick="coPayerImpots()">🏛️ Payer les impôts</button>
+            <div id="co-tax-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:16px;"></div>
+          </div>
+        </div>
+        <div id="co-no-taxes" style="display:none;text-align:center;padding:30px 0;">
+          <div style="font-size:36px;">✅</div>
+          <div style="color:var(--text2);margin-top:8px;">Aucun impôt en attente.</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET LOGS ── -->
+      <div id="co-tab-logs" style="display:none;">
+        <div class="card" style="margin-top:10px;">
+          <div class="card-title">📜 HISTORIQUE</div>
+          <div id="co-logs-list"><div style="color:var(--text2);font-size:13px;">Chargement...</div></div>
+        </div>
+      </div>
+
+    </div><!-- /co-content -->
+
+    <!-- Modal dépôt -->
+    <div id="co-depot-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:flex-end;">
+      <div style="background:var(--card);border-radius:20px 20px 0 0;padding:24px;width:100%;box-sizing:border-box;">
+        <div style="font-size:17px;font-weight:800;color:var(--text1);margin-bottom:16px;">💰 Déposer en trésorerie</div>
+        <div style="color:var(--text2);font-size:13px;margin-bottom:12px;">Solde disponible : <span id="co-depot-wallet" style="color:var(--accent);font-weight:700;">—</span></div>
+        <input id="co-depot-amount" type="number" placeholder="Montant"
+          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;color:var(--text1);font-size:16px;margin-bottom:12px;">
+        <div style="display:flex;gap:8px;">
+          <button class="btn-outline" style="flex:1;" onclick="coCloseDepot()">Annuler</button>
+          <button class="btn-success" style="flex:1;" onclick="coConfirmDepot()">✅ Déposer</button>
+        </div>
+        <div id="co-depot-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:16px;"></div>
       </div>
     </div>
-    <div class="card">
-      <div class="card-title">💰 Finances</div>
-      <div class="stat-row"><span class="stat-label">Valeur</span><span class="stat-value gold" id="co-value">—</span></div>
-      <div class="stat-row"><span class="stat-label">Trésorerie</span><span class="stat-value gold" id="co-treasury">—</span></div>
-      <div class="stat-row"><span class="stat-label">Revenu/jour</span><span class="stat-value green" id="co-revenue">—</span></div>
+
+    <!-- Modal retrait -->
+    <div id="co-retrait-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:flex-end;">
+      <div style="background:var(--card);border-radius:20px 20px 0 0;padding:24px;width:100%;box-sizing:border-box;">
+        <div style="font-size:17px;font-weight:800;color:var(--text1);margin-bottom:16px;">💸 Retirer de la trésorerie</div>
+        <div style="color:var(--text2);font-size:13px;margin-bottom:12px;">Trésorerie : <span id="co-retrait-treasury" style="color:var(--accent);font-weight:700;">—</span></div>
+        <input id="co-retrait-amount" type="number" placeholder="Montant"
+          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;color:var(--text1);font-size:16px;margin-bottom:12px;">
+        <div style="display:flex;gap:8px;">
+          <button class="btn-outline" style="flex:1;" onclick="coCloseRetrait()">Annuler</button>
+          <button class="btn-primary" style="flex:1;" onclick="coConfirmRetrait()">💸 Retirer</button>
+        </div>
+        <div id="co-retrait-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:16px;"></div>
+      </div>
     </div>
-    <div class="card">
-      <div class="card-title">👥 Équipe</div>
-      <div class="stat-row"><span class="stat-label">Employés</span><span class="stat-value" id="co-employees">—</span></div>
-      <div class="stat-row"><span class="stat-label">Mon rôle</span><span class="stat-value" id="co-myrole">—</span></div>
-      <div class="stat-row"><span class="stat-label">PDG</span><span class="stat-value" id="co-owner">—</span></div>
-    </div>
-  </div>
+
+  </div><!-- /page-company -->
 
   <!-- ══ PAGE MARCHÉ ══ -->
   <div class="page" id="page-market">
@@ -1639,7 +1756,7 @@ function saveAvatar() {
 // ════════════════════════════════════════
 const MAIN_TABS = {
   moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'}], def:'profile' },
-  eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company'},{l:'🌱 Jardin',p:'garden',fn:'loadGarden'}], def:'bank' },
+  eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company',fn:'loadCompany'},{l:'🌱 Jardin',p:'garden',fn:'loadGarden'}], def:'bank' },
   social: { subs:[{l:'👨‍👩‍👧 Famille',p:'family',fn:'loadFamily'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'},{l:'📊 Stats',p:'stats',fn:'loadStats'},{l:'🌳 Arbre',p:'tree',fn:'loadTree'},{l:'🎭 Humeur',p:'mood',fn:'loadMood'}], def:'family' },
   jeux:   { subs:[], def:'games' },
   plus:   { subs:[{l:'📰 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'},{l:'🏅 Succès',p:'succes',fn:'loadSucces'}], def:'journal' },
@@ -3034,6 +3151,199 @@ async function bankOpenAccount(bank_id) {
   } catch(e) {
     showToast('Erreur réseau', true);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  ENTREPRISE
+// ══════════════════════════════════════════════════════════════════════════
+let _coData = null;
+
+function coTab(tab, btn) {
+  ['general','equipe','contrats','impots','logs'].forEach(t => {
+    document.getElementById('co-tab-'+t).style.display = t===tab ? 'block' : 'none';
+  });
+  document.querySelectorAll('#page-company .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function _coRoleLabel(role) {
+  const map = {pdg:'👑 PDG', directeur:'🎖️ Directeur', manager:'🗂️ Manager', employe:'👷 Employé', stagiaire:'🎓 Stagiaire'};
+  return map[role] || role;
+}
+
+function _coRepStars(rep) {
+  const full = Math.floor(rep);
+  const half = rep % 1 >= 0.5;
+  let s = '';
+  for (let i=0;i<5;i++) {
+    if (i < full) s += '⭐';
+    else if (i === full && half) s += '✨';
+    else s += '☆';
+  }
+  return s;
+}
+
+async function loadCompany() {
+  try {
+    const r = await fetch(`/api/webapp/company?user_id=${uid}`);
+    const d = await r.json();
+    const co = d.company;
+    if (!co) {
+      document.getElementById('co-none').style.display = 'block';
+      document.getElementById('co-content').style.display = 'none';
+      return;
+    }
+    _coData = co;
+    document.getElementById('co-none').style.display = 'none';
+    document.getElementById('co-content').style.display = 'block';
+    document.getElementById('co-name').textContent = co.name;
+    document.getElementById('co-level').textContent = co.level_label;
+    document.getElementById('co-stars').textContent = _coRepStars(co.reputation);
+    document.getElementById('co-sector').textContent = '🏭 ' + co.sector;
+    document.getElementById('co-role-badge').textContent = _coRoleLabel(co.my_role);
+    document.getElementById('co-frozen-banner').style.display = co.frozen ? 'block' : 'none';
+    document.getElementById('co-value').textContent = fmt(co.value_raw) + ' $';
+    document.getElementById('co-treasury').textContent = fmt(co.treasury_raw) + ' $';
+    document.getElementById('co-taxdebt').textContent = co.tax_debt_raw > 0 ? fmt(co.tax_debt_raw) + ' $' : '—';
+    document.getElementById('co-mycmds').textContent = (co.my_cmds || 0).toLocaleString() + ' cmds';
+    if (co.is_pdg) document.getElementById('co-pdg-actions').style.display = 'block';
+
+    // Parts
+    const partsEl = document.getElementById('co-parts-list');
+    if (co.parts && co.parts.length > 0) {
+      partsEl.innerHTML = co.parts.map(p =>
+        `<div class="stat-row" style="${p.is_me?'background:rgba(247,201,72,.08);border-radius:8px;padding:4px 8px;':''}">
+          <span class="stat-label">${p.is_me ? '👤 Moi' : p.name}</span>
+          <span class="stat-value gold">${p.parts} parts</span>
+        </div>`).join('');
+    } else {
+      partsEl.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun actionnaire enregistré.</div>';
+    }
+
+    // Équipe
+    const empEl = document.getElementById('co-employees-list');
+    if (co.employees && co.employees.length > 0) {
+      empEl.innerHTML = co.employees.map(e =>
+        `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);${e.is_me?'background:rgba(247,201,72,.06);border-radius:8px;padding:8px;':''}">
+          <div>
+            <div style="font-weight:700;color:var(--text1)">${e.name}${e.is_me?' <span style="color:var(--accent);font-size:11px;">(moi)</span>':''}</div>
+            <div style="font-size:12px;color:var(--text2)">@${e.username||'—'} · Depuis ${e.joined_at}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:12px;color:var(--accent);font-weight:700;">${_coRoleLabel(e.role)}</div>
+            <div style="font-size:11px;color:var(--text2);">${(e.cmd_count||0).toLocaleString()} cmds</div>
+          </div>
+        </div>`).join('');
+    } else {
+      empEl.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun employé.</div>';
+    }
+
+    // Contrats
+    const contratsEl = document.getElementById('co-contrats-list');
+    if (co.contrats && co.contrats.length > 0) {
+      contratsEl.innerHTML = co.contrats.map(c => {
+        const bar = `<div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;margin:8px 0;"><div style="width:${c.pct}%;height:100%;background:${c.pct>=100?'var(--success)':'var(--accent)'};border-radius:6px;"></div></div>`;
+        return `<div class="card" style="margin-bottom:10px;">
+          <div style="font-weight:800;color:var(--text1);margin-bottom:4px;">📋 ${c.title}</div>
+          <div style="font-size:12px;color:var(--text2);">Statut : <span style="color:${c.status==='active'?'var(--success)':'var(--accent)'}">${c.status==='active'?'🟢 En cours':'⏳ En attente'}</span></div>
+          ${bar}
+          <div class="stat-row"><span class="stat-label">Progression</span><span class="stat-value">${(c.cmds_done||0).toLocaleString()} / ${(c.objective||0).toLocaleString()} cmds (${c.pct}%)</span></div>
+          <div class="stat-row"><span class="stat-label">Récompense</span><span class="stat-value gold">${c.reward} $</span></div>
+          <div class="stat-row"><span class="stat-label">Deadline</span><span class="stat-value">${c.ends_at} (${c.days_left}j)</span></div>
+        </div>`;
+      }).join('');
+    } else {
+      contratsEl.innerHTML = `<div class="card" style="text-align:center;padding:30px;"><div style="font-size:36px;">📋</div><div style="color:var(--text2);margin-top:8px;">Aucun contrat actif.</div><div style="color:var(--text2);font-size:12px;margin-top:4px;">Lance <code>/soumettredossier</code> sur le bot.</div></div>`;
+    }
+
+    // Impôts
+    const taxesEl = document.getElementById('co-taxes-list');
+    if (co.taxes && co.taxes.length > 0) {
+      document.getElementById('co-no-taxes').style.display = 'none';
+      if (co.is_pdg) document.getElementById('co-tax-pay-zone').style.display = 'block';
+      taxesEl.innerHTML = co.taxes.map(t =>
+        `<div class="card" style="margin-bottom:8px;border-color:${t.overdue?'#e55':'var(--border)'};">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div style="font-weight:700;color:${t.overdue?'#e55':'var(--text1)'};">${t.overdue?'⚠️ EN RETARD':'🧾 En attente'}</div>
+            <div style="font-size:12px;color:var(--text2);">Échéance : ${t.due_at}</div>
+          </div>
+          <div class="stat-row" style="margin-top:8px;"><span class="stat-label">Montant dû</span><span class="stat-value" style="color:#e55;">${t.amount_due} $</span></div>
+          <div class="stat-row"><span class="stat-label">Déjà payé</span><span class="stat-value green">${t.amount_paid} $</span></div>
+          <div class="stat-row"><span class="stat-label">Reste</span><span class="stat-value gold">${t.remaining} $</span></div>
+        </div>`).join('');
+    } else {
+      taxesEl.innerHTML = '';
+      document.getElementById('co-no-taxes').style.display = 'block';
+      document.getElementById('co-tax-pay-zone').style.display = 'none';
+    }
+
+    // Logs
+    const logsEl = document.getElementById('co-logs-list');
+    if (co.logs && co.logs.length > 0) {
+      const logIcons = {depot:'💰',retrait:'💸',recrutement:'👥',licenciement:'🚪',salaire:'💵',paie:'💵',contrat:'🤝',contrat_bureau:'📋',dissolution:'💥',impot:'🏛️'};
+      logsEl.innerHTML = co.logs.map(l =>
+        `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);align-items:flex-start;">
+          <span style="font-size:20px;">${logIcons[l.event]||'📝'}</span>
+          <div style="flex:1;">
+            <div style="font-size:13px;color:var(--text1);">${l.desc||l.event}</div>
+            <div style="font-size:11px;color:var(--text2);">${l.date}${l.amount?' · '+l.amount+' $':''}</div>
+          </div>
+        </div>`).join('');
+    } else {
+      logsEl.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun historique.</div>';
+    }
+  } catch(e) { console.error('loadCompany:', e); }
+}
+
+function coShowDepot() {
+  if (!_coData) return;
+  document.getElementById('co-depot-wallet').textContent = fmt(_userData?.coins||0) + ' $';
+  document.getElementById('co-depot-amount').value = '';
+  document.getElementById('co-depot-msg').textContent = '';
+  document.getElementById('co-depot-modal').style.display = 'flex';
+}
+function coCloseDepot() { document.getElementById('co-depot-modal').style.display = 'none'; }
+async function coConfirmDepot() {
+  const amount = parseInt(document.getElementById('co-depot-amount').value)||0;
+  if (!amount) return;
+  try {
+    const r = await fetch('/api/webapp/company/depot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
+    const d = await r.json();
+    if (d.error) { document.getElementById('co-depot-msg').textContent = d.error; return; }
+    showToast(d.msg); coCloseDepot(); loadCompany();
+  } catch(e) { document.getElementById('co-depot-msg').textContent = 'Erreur réseau'; }
+}
+
+function coShowRetrait() {
+  if (!_coData) return;
+  document.getElementById('co-retrait-treasury').textContent = fmt(_coData.treasury_raw) + ' $';
+  document.getElementById('co-retrait-amount').value = '';
+  document.getElementById('co-retrait-msg').textContent = '';
+  document.getElementById('co-retrait-modal').style.display = 'flex';
+}
+function coCloseRetrait() { document.getElementById('co-retrait-modal').style.display = 'none'; }
+async function coConfirmRetrait() {
+  const amount = parseInt(document.getElementById('co-retrait-amount').value)||0;
+  if (!amount) return;
+  try {
+    const r = await fetch('/api/webapp/company/retrait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
+    const d = await r.json();
+    if (d.error) { document.getElementById('co-retrait-msg').textContent = d.error; return; }
+    showToast(d.msg); coCloseRetrait(); loadCompany();
+  } catch(e) { document.getElementById('co-retrait-msg').textContent = 'Erreur réseau'; }
+}
+
+async function coPayerImpots() {
+  const amount = parseInt(document.getElementById('co-tax-amount').value)||0;
+  if (!amount) return;
+  const msgEl = document.getElementById('co-tax-msg');
+  msgEl.textContent = '⏳ En cours...';
+  try {
+    const r = await fetch('/api/webapp/company/payerimpots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
+    const d = await r.json();
+    if (d.error) { msgEl.textContent = d.error; return; }
+    showToast(d.msg); msgEl.textContent = ''; loadCompany();
+  } catch(e) { msgEl.textContent = 'Erreur réseau'; }
 }
 
 </script>

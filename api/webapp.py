@@ -778,6 +778,72 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/company/accepter',    webapp_company_accepter)
     app.router.add_post('/api/webapp/company/refuser',     webapp_company_refuser)
 
+    app.router.add_get('/api/webapp/gains',        webapp_gains)
+    app.router.add_post('/api/webapp/gains/daily', webapp_gains_daily)
+    app.router.add_post('/api/webapp/gains/work',  webapp_gains_work)
+    app.router.add_get('/api/webapp/diplomes',     webapp_diplomes)
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GAINS — Daily & Work
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_gains(request: web.Request) -> web.Response:
+    """GET /api/webapp/gains?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from datetime import datetime
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+        now = datetime.utcnow()
+        now_key = now.strftime('%Y-%m-%d')
+        daily_available = (user.last_daily != now_key)
+        work_available = True
+        work_wait_min = 0
+        if user.last_work:
+            from database.db import get_karma_level
+            level = get_karma_level(user.karma or 0)
+            base_cd = 8 * 3600
+            reduction = level.get('work_red', 0) / 100
+            cooldown = int(base_cd * (1 - reduction))
+            elapsed = (now - user.last_work).total_seconds()
+            if elapsed < cooldown:
+                work_available = False
+                work_wait_min = int((cooldown - elapsed) / 60)
+    return web.json_response({
+        'daily_available': daily_available,
+        'work_available':  work_available,
+        'work_wait_min':   work_wait_min,
+    })
+
+
+async def webapp_gains_daily(request: web.Request) -> web.Response:
+    """POST /api/webapp/gains/daily"""
+    data = await request.json()
+    uid = int(data.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from database.db import claim_daily
+    async with AsyncSessionLocal() as session:
+        result = await claim_daily(session, uid)
+    return web.json_response(result)
+
+
+async def webapp_gains_work(request: web.Request) -> web.Response:
+    """POST /api/webapp/gains/work"""
+    data = await request.json()
+    uid = int(data.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from database.db import claim_work
+    async with AsyncSessionLocal() as session:
+        result = await claim_work(session, uid)
+    return web.json_response(result)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  JOURNAL — dernières actions de l'utilisateur

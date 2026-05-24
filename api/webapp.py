@@ -334,7 +334,7 @@ async def _webapp_market_portfolio_inner(uid: int) -> web.Response:
                     'buy_total_fmt': _fmt(buy_total),
                     'cur_total_fmt': _fmt(cur_total),
                     'pnl': pnl,
-                    'pnl_fmt': ('+' if pnl >= 0 else '') + _fmt(abs(pnl)),
+                    'pnl_fmt': ('+' if pnl >= 0 else '') + str(_fmt(abs(pnl))),
                     'pnl_pct': pnl_pct,
                     'pnl_positive': pnl >= 0,
                     'bought_at': inv.bought_at.strftime('%d/%m/%Y') if inv.bought_at else '—',
@@ -348,7 +348,7 @@ async def _webapp_market_portfolio_inner(uid: int) -> web.Response:
             'summary': {
                 'invested': _fmt(total_invested),
                 'current': _fmt(total_current),
-                'pnl': ('+' if total_pnl >= 0 else '') + _fmt(abs(total_pnl)),
+                'pnl': ('+' if total_pnl >= 0 else '') + str(_fmt(abs(total_pnl))),
                 'pnl_positive': total_pnl >= 0,
                 'count': len(positions),
             }

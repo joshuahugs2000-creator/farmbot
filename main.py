@@ -99,6 +99,8 @@ from handlers.wealth_drain import (
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.diplome import diplome_cmd, diplome_callback
+from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse_cmd
+from handlers.bureau import soumettredossier_cmd, choisircontrat_cmd, mescontratsbc_cmd, bureau_check_job
 from handlers.company import (
     init_company_tables, update_company_activity,
     listeboites_cmd, listeboites_callback,
@@ -693,6 +695,15 @@ async def main():
     app.add_handler(CommandHandler("refusercontrat",  _prison_checked(refusercontrat_cmd)))
     app.add_handler(CommandHandler("mescontrats",     _prison_checked(mescontrats_cmd)))
 
+    # ── Agence Fiscale ────────────────────────────────────────────────────────
+    app.add_handler(CommandHandler("payerimpots",     _prison_checked(payerimpots_cmd)))
+    app.add_handler(CommandHandler("caisse",          caisse_cmd))
+
+    # ── Bureau des Contrats ───────────────────────────────────────────────────
+    app.add_handler(CommandHandler("soumettredossier", _prison_checked(soumettredossier_cmd)))
+    app.add_handler(CommandHandler("choisircontrat",   _prison_checked(choisircontrat_cmd)))
+    app.add_handler(CommandHandler("mescontratsbc",    _prison_checked(mescontratsbc_cmd)))
+
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))
     app.add_handler(CommandHandler("expertise", _prison_checked(expertise)))
@@ -807,6 +818,28 @@ async def main():
         interval=timedelta(hours=1),
         first=timedelta(minutes=35),
         name="check_auto_contracts",
+    )
+
+    # ── Agence Fiscale — factures 8h chaque matin ─────────────────────────────
+    app.job_queue.run_daily(
+        tax_daily_job,
+        time=dt_time(hour=8, minute=0, tzinfo=tz_paris),
+        name="tax_daily",
+    )
+    # Vérification impayés toutes les heures
+    app.job_queue.run_repeating(
+        tax_overdue_job,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=10),
+        name="tax_overdue_check",
+    )
+
+    # ── Bureau des Contrats — vérification toutes les heures ─────────────────
+    app.job_queue.run_repeating(
+        bureau_check_job,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=45),
+        name="bureau_contrats_check",
     )
 
     # ── Serveur aiohttp : /webhook (Telegram) + / (UptimeRobot) ──────────────

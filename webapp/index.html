@@ -3617,13 +3617,37 @@ async function coPayerImpots() {
 //  FAMILLE
 // ════════════════════════════════════════
 async function loadFamily() {
+  // Affiche un état de chargement
+  const sections = ['family-spouse-section','family-parent-section','family-child-section','family-friend-section'];
+  sections.forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
+  const emptyEl = document.getElementById('family-empty');
+  const nameCard = document.getElementById('family-name-card');
+  if (emptyEl) emptyEl.style.display='none';
+
+  // Loader temporaire
+  let loaderEl = document.getElementById('family-loader');
+  if (!loaderEl) {
+    loaderEl = document.createElement('div');
+    loaderEl.id = 'family-loader';
+    loaderEl.style.cssText = 'text-align:center;padding:40px;color:var(--text2)';
+    document.getElementById('page-family').appendChild(loaderEl);
+  }
+  loaderEl.style.display = 'block';
+  loaderEl.innerHTML = 'Chargement…';
+
+  if (!uid) {
+    loaderEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>';
+    return;
+  }
+
   try {
-    const d = _cachedFamily || await fetch(`/api/webapp/family?user_id=${uid}`).then(r=>r.ok?r.json():{spouses:[],parents:[],children:[],friends:[]}).catch(()=>({spouses:[],parents:[],children:[],friends:[]}));
+    const d = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`, {}, 20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'Erreur '+r.status);}));
     if (!_cachedFamily) _cachedFamily = d;
-    if (d.error) { showToast(d.error, true); return; }
+    if (d.error) throw new Error(d.error);
+
+    loaderEl.style.display = 'none';
 
     // Nom de famille
-    const nameCard = document.getElementById('family-name-card');
     if (d.family_name) {
       nameCard.style.display = 'block';
       document.getElementById('family-name-val').textContent = d.family_name;
@@ -3631,14 +3655,14 @@ async function loadFamily() {
       nameCard.style.display = 'none';
     }
 
-    const hasAny = d.spouses.length || d.parents.length || d.children.length || d.friends.length;
-    document.getElementById('family-empty').style.display = hasAny ? 'none' : 'block';
+    const hasAny = (d.spouses||[]).length || (d.parents||[]).length || (d.children||[]).length || (d.friends||[]).length;
+    if (emptyEl) emptyEl.style.display = hasAny ? 'none' : 'block';
 
     function renderMembers(list, secId, listId) {
       const sec = document.getElementById(secId);
       const el  = document.getElementById(listId);
-      if (!list.length) { sec.style.display='none'; return; }
-      sec.style.display = 'block';
+      if (!list||!list.length) { if(sec) sec.style.display='none'; return; }
+      if(sec) sec.style.display = 'block';
       el.innerHTML = list.map(m => `
         <div class="member-card">
           <div class="member-avatar-mini">${m.gender==='femme'?'👩':m.gender==='homme'?'👨':'👤'}</div>
@@ -3656,7 +3680,12 @@ async function loadFamily() {
     renderMembers(d.friends,  'family-friend-section', 'family-friend-list');
 
   } catch(e) {
-    showToast('Erreur chargement famille', true);
+    loaderEl.innerHTML = `
+      <div style="text-align:center;padding:24px">
+        <div style="font-size:32px;margin-bottom:12px">❌</div>
+        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
+        <button onclick="_cachedFamily=null;loadFamily()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
+      </div>`;
   }
 }
 
@@ -3838,13 +3867,14 @@ async function loadRanking() {
 // ════════════════════════════════════════
 async function loadStats() {
   dbg('loadStats uid='+uid);
-  document.getElementById('stats-loading').style.display='block';
+  const loadEl = document.getElementById('stats-loading');
+  loadEl.innerHTML = 'Chargement…';
+  loadEl.style.display='block';
   document.getElementById('stats-content').style.display='none';
-  if (!uid) { document.getElementById('stats-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
+  if (!uid) { loadEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    // Utilise le cache si disponible
-    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`).then(r=>r.ok?r.json():{});
-    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`).then(r=>r.ok?r.json():{});
+    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`,{},20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'HTTP '+r.status);}));
+    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'HTTP '+r.status);}));
     if (u.error) throw new Error(u.error);
     if (!_cachedUser) _cachedUser = u;
     if (!_cachedFamily) _cachedFamily = f;
@@ -3869,7 +3899,7 @@ async function loadStats() {
       <div style="text-align:center;padding:24px">
         <div style="font-size:32px;margin-bottom:12px">❌</div>
         <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
-        <button onclick="loadStats()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
+        <button onclick="_cachedUser=null;_cachedFamily=null;loadStats()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
       </div>`;
   }
 }
@@ -3878,11 +3908,13 @@ async function loadStats() {
 //  ARBRE FAMILIAL
 // ════════════════════════════════════════
 async function loadTree() {
-  document.getElementById('tree-loading').style.display='block';
+  const loadEl = document.getElementById('tree-loading');
+  loadEl.innerHTML = 'Chargement…';
+  loadEl.style.display='block';
   document.getElementById('tree-content').style.display='none';
-  if (!uid) { document.getElementById('tree-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
+  if (!uid) { loadEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const d = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`).then(r=>r.ok?r.json():{});
+    const d = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'HTTP '+r.status);}));
     if (d.error) throw new Error(d.error);
     if (!_cachedFamily) _cachedFamily = d;
     document.getElementById('tree-loading').style.display='none';
@@ -3936,7 +3968,7 @@ async function loadTree() {
       <div style="text-align:center;padding:24px">
         <div style="font-size:32px;margin-bottom:12px">❌</div>
         <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
-        <button onclick="loadTree()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
+        <button onclick="_cachedFamily=null;loadTree()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
       </div>`;
   }
 }
@@ -3945,14 +3977,16 @@ async function loadTree() {
 //  HUMEUR
 // ════════════════════════════════════════
 async function loadMood() {
-  document.getElementById('mood-loading').style.display='block';
+  const loadEl = document.getElementById('mood-loading');
+  loadEl.innerHTML = 'Chargement…';
+  loadEl.style.display='block';
   document.getElementById('mood-content').style.display='none';
-  if (!uid) { document.getElementById('mood-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
+  if (!uid) { loadEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
   try {
-    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`).then(r=>r.ok?r.json():{});
+    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`,{},20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'HTTP '+r.status);}));
     if (u.error) throw new Error(u.error);
     if (!_cachedUser) _cachedUser = u;
-    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`).then(x=>x.ok?x.json():{}).catch(()=>({}));
+    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`,{},20000).then(x=>x.ok?x.json():{}).catch(()=>({}));
     if (!_cachedFamily) _cachedFamily = f;
 
     document.getElementById('mood-loading').style.display='none';
@@ -3993,7 +4027,7 @@ async function loadMood() {
       <div style="text-align:center;padding:24px">
         <div style="font-size:32px;margin-bottom:12px">❌</div>
         <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
-        <button onclick="loadMood()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
+        <button onclick="_cachedUser=null;_cachedFamily=null;loadMood()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
       </div>`;
   }
 }

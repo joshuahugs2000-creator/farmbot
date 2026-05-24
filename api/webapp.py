@@ -1744,7 +1744,8 @@ async def webapp_diplomes(request: web.Request) -> web.Response:
 
             cooldown_left = 0
             if user.exam_cooldown:
-                cooldown_left = max(0, int((user.exam_cooldown - datetime.utcnow()).total_seconds() / 60))
+                from datetime import datetime as _dt_now
+                cooldown_left = max(0, int((user.exam_cooldown - _dt_now.utcnow()).total_seconds() / 60))
 
             diplomes = []
             for d in DIPLOMES_INFO:

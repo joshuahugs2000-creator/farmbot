@@ -2310,87 +2310,164 @@ function mktTab(tab, btn) {
 //  SOCIAL — FAMILLE & CLASSEMENT
 // ════════════════════════════════════════
 
-/* ── CSS injecté une seule fois ── */
-(function() {
+(function injectSocialCSS() {
   if (document.getElementById('social-css')) return;
   const s = document.createElement('style');
   s.id = 'social-css';
   s.textContent = `
-    .fam-section-title {
-      font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
-      color: var(--text2); margin: 16px 0 8px; padding-left: 2px;
+    /* ── Famille ── */
+    .fam-header {
+      text-align:center; padding: 10px 0 18px;
     }
-    .fam-member {
-      display: flex; align-items: center; gap: 12px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+    .fam-family-name {
+      font-family:'Bangers',cursive; font-size:28px; letter-spacing:3px;
+      color:var(--accent); text-shadow: 0 0 20px rgba(247,201,72,.35);
     }
-    .fam-avatar {
-      width: 40px; height: 40px; border-radius: 50%;
-      background: linear-gradient(135deg,#2a2a4a,#1a1a2e);
-      border: 2px solid rgba(255,255,255,0.1);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; flex-shrink: 0;
+    .fam-section-label {
+      font-size:10px; letter-spacing:2.5px; text-transform:uppercase;
+      color:var(--text2); margin: 18px 0 8px 2px; display:flex; align-items:center; gap:8px;
     }
-    .fam-name { font-weight: 900; font-size: 14px; color: var(--text); }
-    .fam-sub  { font-size: 11px; color: var(--text2); margin-top: 2px; }
-    .fam-karma { margin-left: auto; font-size: 12px; color: var(--accent); font-weight: 700; }
-    .fam-empty {
-      text-align: center; padding: 24px 0; color: var(--text2); font-size: 13px;
+    .fam-section-label::after {
+      content:''; flex:1; height:1px; background:rgba(255,255,255,0.06);
+    }
+    .fam-card {
+      display:flex; align-items:center; gap:13px;
+      background:rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.07);
+      border-radius:16px; padding:13px 15px; margin-bottom:8px;
+      animation: famSlideIn 0.3s ease both;
+    }
+    @keyframes famSlideIn {
+      from { opacity:0; transform:translateX(-12px); }
+      to   { opacity:1; transform:translateX(0); }
+    }
+    .fam-av {
+      width:42px; height:42px; border-radius:50%;
+      background:linear-gradient(135deg,#1e1e3a,#2a2a4a);
+      border:2px solid rgba(255,255,255,0.1);
+      display:flex; align-items:center; justify-content:center;
+      font-size:20px; flex-shrink:0;
+    }
+    .fam-info { flex:1; min-width:0; }
+    .fam-nm { font-weight:900; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .fam-un { font-size:11px; color:var(--text2); margin-top:1px; }
+    .fam-kp { font-size:12px; color:var(--accent); font-weight:800; white-space:nowrap; }
+    .fam-empty { text-align:center; padding:18px 0; color:var(--text2); font-size:13px; opacity:.6; }
+
+    /* ── Classement ── */
+    .rank-tabs-wrap {
+      display:flex; gap:6px; margin-bottom:16px; overflow-x:auto; padding-bottom:2px;
     }
     .rank-tab-btn {
-      padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);
-      background: rgba(255,255,255,0.04); color: var(--text2);
-      font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
-      transition: all 0.2s; flex-shrink: 0;
+      padding:7px 14px; border-radius:20px;
+      border:1px solid rgba(255,255,255,0.1);
+      background:rgba(255,255,255,0.04); color:var(--text2);
+      font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap;
+      transition:all 0.2s; flex-shrink:0; font-family:'Nunito',sans-serif;
     }
-    .rank-tab-btn.active {
-      background: var(--accent); color: #000; border-color: var(--accent);
+    .rank-tab-btn.active { background:var(--accent); color:#000; border-color:var(--accent); }
+
+    /* Top 3 podium */
+    .rank-podium {
+      display:flex; justify-content:center; align-items:flex-end;
+      gap:10px; margin-bottom:18px; padding: 0 4px;
     }
+    .rank-podium-col { display:flex; flex-direction:column; align-items:center; flex:1; }
+    .rank-podium-col.p1 { order:2; }
+    .rank-podium-col.p2 { order:1; }
+    .rank-podium-col.p3 { order:3; }
+    .rank-pod-avatar {
+      width:46px; height:46px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      font-size:22px; margin-bottom:6px; position:relative;
+    }
+    .rank-pod-avatar.p1 {
+      width:56px; height:56px; font-size:26px;
+      background:linear-gradient(135deg,#f7c948,#ffb347);
+      box-shadow:0 0 20px rgba(247,201,72,.5);
+    }
+    .rank-pod-avatar.p2 {
+      background:linear-gradient(135deg,#a0a0b0,#c8c8d8);
+      box-shadow:0 0 12px rgba(192,192,210,.3);
+    }
+    .rank-pod-avatar.p3 {
+      background:linear-gradient(135deg,#b87333,#d4956a);
+      box-shadow:0 0 12px rgba(184,115,51,.3);
+    }
+    .rank-pod-crown {
+      position:absolute; top:-10px; font-size:16px;
+      animation: crownBob 2s ease-in-out infinite;
+    }
+    @keyframes crownBob {
+      0%,100% { transform:translateY(0) rotate(-5deg); }
+      50%      { transform:translateY(-3px) rotate(5deg); }
+    }
+    .rank-pod-name {
+      font-size:11px; font-weight:800; text-align:center;
+      max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+      color:var(--text);
+    }
+    .rank-pod-val {
+      font-size:10px; font-weight:700; margin-top:2px; text-align:center;
+    }
+    .rank-pod-val.p1 { color:var(--accent); }
+    .rank-pod-val.p2 { color:#c8c8d8; }
+    .rank-pod-val.p3 { color:#d4956a; }
+    .rank-pod-base {
+      width:100%; border-radius:10px 10px 0 0; margin-top:8px;
+    }
+    .rank-pod-base.p1 { height:52px; background:linear-gradient(180deg,rgba(247,201,72,.2),rgba(247,201,72,.05)); border:1px solid rgba(247,201,72,.3); }
+    .rank-pod-base.p2 { height:36px; background:linear-gradient(180deg,rgba(192,192,210,.15),rgba(192,192,210,.03)); border:1px solid rgba(192,192,210,.2); }
+    .rank-pod-base.p3 { height:24px; background:linear-gradient(180deg,rgba(184,115,51,.15),rgba(184,115,51,.03)); border:1px solid rgba(184,115,51,.2); }
+
+    /* Rows 4+ */
     .rank-row {
-      display: flex; align-items: center; gap: 12px;
-      padding: 11px 14px; border-radius: 14px; margin-bottom: 7px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.06);
-      transition: background 0.2s;
+      display:flex; align-items:center; gap:11px;
+      padding:11px 14px; border-radius:14px; margin-bottom:7px;
+      background:rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.06);
+      animation: rankIn 0.25s ease both;
     }
     .rank-row.me {
-      background: rgba(247,201,72,0.08);
-      border-color: rgba(247,201,72,0.3);
+      background:rgba(247,201,72,0.07);
+      border-color:rgba(247,201,72,0.3);
     }
-    .rank-medal { font-size: 20px; width: 28px; text-align: center; flex-shrink: 0; }
-    .rank-name  { flex: 1; font-weight: 700; font-size: 14px; }
-    .rank-sub   { font-size: 11px; color: var(--text2); margin-top: 1px; }
-    .rank-val   { font-size: 13px; font-weight: 900; color: var(--accent); }
-    .rank-separator {
-      text-align: center; color: var(--text2); font-size: 20px;
-      letter-spacing: 4px; margin: 6px 0;
+    @keyframes rankIn {
+      from { opacity:0; transform:translateY(8px); }
+      to   { opacity:1; transform:translateY(0); }
     }
+    .rank-pos { font-size:12px; font-weight:900; color:var(--text2); width:26px; text-align:center; flex-shrink:0; }
+    .rank-info { flex:1; min-width:0; }
+    .rank-nm { font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .rank-un { font-size:10px; color:var(--text2); margin-top:1px; }
+    .rank-amount { font-size:13px; font-weight:900; color:var(--accent); white-space:nowrap; }
+    .rank-me-tag {
+      font-size:9px; background:rgba(247,201,72,.15); color:var(--accent);
+      border-radius:6px; padding:1px 5px; margin-left:4px; font-weight:900;
+    }
+    .rank-dotdot { text-align:center; color:var(--text2); font-size:18px; letter-spacing:4px; margin:4px 0 8px; }
   `;
   document.head.appendChild(s);
 })();
 
+/* ── Famille ── */
 const GENDER_EMOJI = { m: '👨', f: '👩', '': '👤' };
 const FAM_SECTIONS = [
-  { key: 'spouses',  label: '💍 Conjoint(e)s',  empty: 'Aucun conjoint'  },
-  { key: 'parents',  label: '👴👵 Parents',       empty: 'Aucun parent'   },
-  { key: 'children', label: '👶 Enfants',         empty: null             },
-  { key: 'friends',  label: '🤝 Amis',            empty: 'Aucun ami'      },
+  { key:'spouses',  label:'💍 Conjoint(e)s', empty:'Aucun conjoint'  },
+  { key:'parents',  label:'👴 Parents',       empty:'Aucun parent'   },
+  { key:'children', label:'👶 Enfants',       empty:null             },
+  { key:'friends',  label:'🤝 Amis',          empty:'Aucun ami'      },
 ];
 
 async function loadFamille() {
   if (!uid) return;
   const content = document.getElementById('fam-content');
-  if (content.style.display === 'none') {
-    document.getElementById('fam-loading').style.display = 'block';
-  }
+  if (content.style.display === 'none') document.getElementById('fam-loading').style.display = 'block';
   try {
     const r = await fetchT(`/api/webapp/family?user_id=${uid}`, {}, 15000);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
 
-    // Nom de famille
     const nameCard = document.getElementById('fam-name-card');
     if (d.family_name) {
       document.getElementById('fam-name').textContent = d.family_name;
@@ -2399,32 +2476,28 @@ async function loadFamille() {
       nameCard.style.display = 'none';
     }
 
-    // Sections
-    const sections = document.getElementById('fam-sections');
     let html = '';
     for (const sec of FAM_SECTIONS) {
       const members = d[sec.key] || [];
       if (!members.length && !sec.empty) continue;
-      html += `<div class="fam-section-title">${sec.label}</div>`;
+      html += `<div class="fam-section-label">${sec.label}</div>`;
       if (!members.length) {
         html += `<div class="fam-empty">${sec.empty}</div>`;
       } else {
-        for (const m of members) {
+        members.forEach((m, i) => {
           const em = GENDER_EMOJI[m.gender] || '👤';
-          html += `
-            <div class="fam-member">
-              <div class="fam-avatar">${em}</div>
-              <div>
-                <div class="fam-name">${m.name}</div>
-                <div class="fam-sub">${m.username ? '@' + m.username : 'Pas de pseudo'}</div>
-              </div>
-              <div class="fam-karma">⭐ ${m.karma}</div>
-            </div>`;
-        }
+          html += `<div class="fam-card" style="animation-delay:${i*0.05}s">
+            <div class="fam-av">${em}</div>
+            <div class="fam-info">
+              <div class="fam-nm">${m.name}</div>
+              <div class="fam-un">${m.username ? '@'+m.username : 'Sans pseudo'}</div>
+            </div>
+            <div class="fam-kp">⭐ ${m.karma}</div>
+          </div>`;
+        });
       }
     }
-    sections.innerHTML = html;
-
+    document.getElementById('fam-sections').innerHTML = html;
     document.getElementById('fam-loading').style.display = 'none';
     content.style.display = 'block';
   } catch(e) {
@@ -2432,6 +2505,7 @@ async function loadFamille() {
   }
 }
 
+/* ── Classement ── */
 let _rankCat = 'coins';
 
 function rankTab(cat, btn) {
@@ -2441,8 +2515,10 @@ function rankTab(cat, btn) {
   loadRanking();
 }
 
-const MEDALS = ['🥇','🥈','🥉'];
-const RANK_LABELS = { coins: '$', family: 'liens', company: '$' };
+function _fmtRankVal(val, cat) {
+  if (cat === 'family') return val + ' liens';
+  return fmt(val); // fmt inclut déjà le $
+}
 
 async function loadRanking() {
   if (!uid) return;
@@ -2454,34 +2530,63 @@ async function loadRanking() {
     const d = await r.json();
     if (d.error) throw new Error(d.error);
 
-    const unit = RANK_LABELS[_rankCat] || '';
+    const rows = d.ranking || [];
+    const top3 = rows.slice(0, 3);
+    const rest  = rows.slice(3);
+
     let html = '';
-    for (const row of d.ranking) {
-      const medal = row.rank <= 3 ? MEDALS[row.rank - 1] : `<span style="font-size:13px;color:var(--text2)">#${row.rank}</span>`;
-      const sub = row.username ? '@' + row.username : '';
-      html += `
-        <div class="rank-row${row.is_me ? ' me' : ''}">
-          <div class="rank-medal">${medal}</div>
-          <div>
-            <div class="rank-name">${row.name}${row.is_me ? ' <span style="font-size:10px;color:var(--accent);background:rgba(247,201,72,.15);border-radius:8px;padding:1px 6px;">MOI</span>' : ''}</div>
-            ${sub ? `<div class="rank-sub">${sub}</div>` : ''}
-          </div>
-          <div class="rank-val">${fmt(row.value)} ${unit}</div>
-        </div>`;
+
+    // ── Podium top 3 ──
+    if (top3.length >= 1) {
+      const podOrder = [top3[1], top3[0], top3[2]].filter(Boolean);
+      const podClass = top3[1] ? ['p2','p1','p3'] : ['p1'];
+      const emojis   = ['🥈','🥇','🥉'];
+
+      html += '<div class="rank-podium">';
+      podOrder.forEach((row, i) => {
+        const cls = podClass[i];
+        const isMe = row.is_me;
+        html += `
+          <div class="rank-podium-col ${cls}">
+            <div class="rank-pod-avatar ${cls}">
+              ${cls==='p1' ? '<span class="rank-pod-crown">👑</span>' : ''}
+              ${emojis[i]}
+            </div>
+            <div class="rank-pod-name">${row.name}${isMe?' ✦':''}</div>
+            <div class="rank-pod-val ${cls}">${_fmtRankVal(row.value, _rankCat)}</div>
+            <div class="rank-pod-base ${cls}"></div>
+          </div>`;
+      });
+      html += '</div>';
     }
+
+    // ── Rows 4+ ──
+    rest.forEach((row, i) => {
+      const isMe = row.is_me;
+      html += `
+        <div class="rank-row${isMe?' me':''}" style="animation-delay:${i*0.04}s">
+          <div class="rank-pos">#${row.rank}</div>
+          <div class="rank-info">
+            <div class="rank-nm">${row.name}${isMe?'<span class="rank-me-tag">MOI</span>':''}</div>
+            ${row.username ? `<div class="rank-un">@${row.username}</div>` : ''}
+          </div>
+          <div class="rank-amount">${_fmtRankVal(row.value, _rankCat)}</div>
+        </div>`;
+    });
+
     document.getElementById('rank-list').innerHTML = html;
     document.getElementById('rank-list').style.display = 'block';
 
     // Ma position si hors top 20
     if (d.my_row) {
       document.getElementById('rank-myrow').innerHTML = `
-        <div class="rank-separator">• • •</div>
+        <div class="rank-dotdot">• • •</div>
         <div class="rank-row me">
-          <div class="rank-medal"><span style="font-size:13px;color:var(--text2)">#${d.my_row.rank}</span></div>
-          <div>
-            <div class="rank-name">${d.my_row.name} <span style="font-size:10px;color:var(--accent);background:rgba(247,201,72,.15);border-radius:8px;padding:1px 6px;">MOI</span></div>
+          <div class="rank-pos">#${d.my_row.rank}</div>
+          <div class="rank-info">
+            <div class="rank-nm">${d.my_row.name}<span class="rank-me-tag">MOI</span></div>
           </div>
-          <div class="rank-val">${fmt(d.my_row.value)} ${unit}</div>
+          <div class="rank-amount">${_fmtRankVal(d.my_row.value, _rankCat)}</div>
         </div>`;
       document.getElementById('rank-myrow').style.display = 'block';
     }

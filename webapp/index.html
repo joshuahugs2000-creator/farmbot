@@ -512,6 +512,32 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     </div>
   </div>
 
+  <!-- ══ PAGE FAMILLE ══ -->
+  <div class="page" id="page-famille">
+    <div class="page-title">👨‍👩‍👧 Famille</div>
+    <div id="fam-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
+    <div id="fam-content" style="display:none">
+      <div id="fam-name-card" style="display:none;text-align:center;padding:14px 0 6px;">
+        <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text2);margin-bottom:4px">Nom de famille</div>
+        <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--accent);letter-spacing:2px" id="fam-name">—</div>
+      </div>
+      <div id="fam-sections"></div>
+    </div>
+  </div>
+
+  <!-- ══ PAGE CLASSEMENT ══ -->
+  <div class="page" id="page-ranking">
+    <div class="page-title">🏆 Classement</div>
+    <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px" id="rank-tabs">
+      <button class="rank-tab-btn active" onclick="rankTab('coins',this)">💰 Fortune</button>
+      <button class="rank-tab-btn" onclick="rankTab('family',this)">👨‍👩‍👧 Famille</button>
+      <button class="rank-tab-btn" onclick="rankTab('company',this)">🏢 Entreprise</button>
+    </div>
+    <div id="rank-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
+    <div id="rank-list" style="display:none"></div>
+    <div id="rank-myrow" style="display:none;margin-top:10px"></div>
+  </div>
+
   <!-- ══ PAGE ENTREPRISE ══ -->
   <div class="page" id="page-company">
     <div class="page-title">🏢 Entreprise</div>
@@ -1042,6 +1068,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <button class="nav-btn active" onclick="mainTab('moi',this)"><span class="icon">👤</span>Moi</button>
   <button class="nav-btn" onclick="mainTab('eco',this)"><span class="icon">💼</span>Économie</button>
   <button class="nav-btn" onclick="mainTab('jeux',this)"><span class="icon">🎮</span>Jeux</button>
+  <button class="nav-btn" onclick="mainTab('social',this)"><span class="icon">👥</span>Social</button>
 </nav>
 
 <style>
@@ -1858,8 +1885,9 @@ function saveAvatar() {
 // ════════════════════════════════════════
 const MAIN_TABS = {
   moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'},{l:'💰 Gains',p:'gains',fn:'loadGains'},{l:'🎓 Diplômes',p:'diplomes',fn:'loadDiplomes'}], def:'profile' },
-  eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company',fn:'loadCompany'},{l:'🌱 Jardin',p:'garden',fn:'loadGarden'}], def:'bank' },
+  eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company',fn:'loadCompany'}], def:'bank' },
   jeux:   { subs:[], def:'games' },
+  social: { subs:[{l:'👨‍👩‍👧 Famille',p:'famille',fn:'loadFamille'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'}], def:'famille' },
 };
 let _curMain = 'moi';
 let _curSub  = 'profile';
@@ -2276,6 +2304,192 @@ function mktTab(tab, btn) {
   document.getElementById('mkt-catalog').style.display   = tab === 'catalog'   ? '' : 'none';
   document.getElementById('mkt-portfolio').style.display = tab === 'portfolio' ? '' : 'none';
   if (tab === 'portfolio') loadPortfolio();
+}
+
+// ════════════════════════════════════════
+//  SOCIAL — FAMILLE & CLASSEMENT
+// ════════════════════════════════════════
+
+/* ── CSS injecté une seule fois ── */
+(function() {
+  if (document.getElementById('social-css')) return;
+  const s = document.createElement('style');
+  s.id = 'social-css';
+  s.textContent = `
+    .fam-section-title {
+      font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--text2); margin: 16px 0 8px; padding-left: 2px;
+    }
+    .fam-member {
+      display: flex; align-items: center; gap: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+    }
+    .fam-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg,#2a2a4a,#1a1a2e);
+      border: 2px solid rgba(255,255,255,0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .fam-name { font-weight: 900; font-size: 14px; color: var(--text); }
+    .fam-sub  { font-size: 11px; color: var(--text2); margin-top: 2px; }
+    .fam-karma { margin-left: auto; font-size: 12px; color: var(--accent); font-weight: 700; }
+    .fam-empty {
+      text-align: center; padding: 24px 0; color: var(--text2); font-size: 13px;
+    }
+    .rank-tab-btn {
+      padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04); color: var(--text2);
+      font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+      transition: all 0.2s; flex-shrink: 0;
+    }
+    .rank-tab-btn.active {
+      background: var(--accent); color: #000; border-color: var(--accent);
+    }
+    .rank-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 11px 14px; border-radius: 14px; margin-bottom: 7px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      transition: background 0.2s;
+    }
+    .rank-row.me {
+      background: rgba(247,201,72,0.08);
+      border-color: rgba(247,201,72,0.3);
+    }
+    .rank-medal { font-size: 20px; width: 28px; text-align: center; flex-shrink: 0; }
+    .rank-name  { flex: 1; font-weight: 700; font-size: 14px; }
+    .rank-sub   { font-size: 11px; color: var(--text2); margin-top: 1px; }
+    .rank-val   { font-size: 13px; font-weight: 900; color: var(--accent); }
+    .rank-separator {
+      text-align: center; color: var(--text2); font-size: 20px;
+      letter-spacing: 4px; margin: 6px 0;
+    }
+  `;
+  document.head.appendChild(s);
+})();
+
+const GENDER_EMOJI = { m: '👨', f: '👩', '': '👤' };
+const FAM_SECTIONS = [
+  { key: 'spouses',  label: '💍 Conjoint(e)s',  empty: 'Aucun conjoint'  },
+  { key: 'parents',  label: '👴👵 Parents',       empty: 'Aucun parent'   },
+  { key: 'children', label: '👶 Enfants',         empty: null             },
+  { key: 'friends',  label: '🤝 Amis',            empty: 'Aucun ami'      },
+];
+
+async function loadFamille() {
+  if (!uid) return;
+  const content = document.getElementById('fam-content');
+  if (content.style.display === 'none') {
+    document.getElementById('fam-loading').style.display = 'block';
+  }
+  try {
+    const r = await fetchT(`/api/webapp/family?user_id=${uid}`, {}, 15000);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    // Nom de famille
+    const nameCard = document.getElementById('fam-name-card');
+    if (d.family_name) {
+      document.getElementById('fam-name').textContent = d.family_name;
+      nameCard.style.display = 'block';
+    } else {
+      nameCard.style.display = 'none';
+    }
+
+    // Sections
+    const sections = document.getElementById('fam-sections');
+    let html = '';
+    for (const sec of FAM_SECTIONS) {
+      const members = d[sec.key] || [];
+      if (!members.length && !sec.empty) continue;
+      html += `<div class="fam-section-title">${sec.label}</div>`;
+      if (!members.length) {
+        html += `<div class="fam-empty">${sec.empty}</div>`;
+      } else {
+        for (const m of members) {
+          const em = GENDER_EMOJI[m.gender] || '👤';
+          html += `
+            <div class="fam-member">
+              <div class="fam-avatar">${em}</div>
+              <div>
+                <div class="fam-name">${m.name}</div>
+                <div class="fam-sub">${m.username ? '@' + m.username : 'Pas de pseudo'}</div>
+              </div>
+              <div class="fam-karma">⭐ ${m.karma}</div>
+            </div>`;
+        }
+      }
+    }
+    sections.innerHTML = html;
+
+    document.getElementById('fam-loading').style.display = 'none';
+    content.style.display = 'block';
+  } catch(e) {
+    document.getElementById('fam-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
+  }
+}
+
+let _rankCat = 'coins';
+
+function rankTab(cat, btn) {
+  _rankCat = cat;
+  document.querySelectorAll('.rank-tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadRanking();
+}
+
+const MEDALS = ['🥇','🥈','🥉'];
+const RANK_LABELS = { coins: '$', family: 'liens', company: '$' };
+
+async function loadRanking() {
+  if (!uid) return;
+  document.getElementById('rank-loading').style.display = 'block';
+  document.getElementById('rank-list').style.display = 'none';
+  document.getElementById('rank-myrow').style.display = 'none';
+  try {
+    const r = await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`, {}, 15000);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    const unit = RANK_LABELS[_rankCat] || '';
+    let html = '';
+    for (const row of d.ranking) {
+      const medal = row.rank <= 3 ? MEDALS[row.rank - 1] : `<span style="font-size:13px;color:var(--text2)">#${row.rank}</span>`;
+      const sub = row.username ? '@' + row.username : '';
+      html += `
+        <div class="rank-row${row.is_me ? ' me' : ''}">
+          <div class="rank-medal">${medal}</div>
+          <div>
+            <div class="rank-name">${row.name}${row.is_me ? ' <span style="font-size:10px;color:var(--accent);background:rgba(247,201,72,.15);border-radius:8px;padding:1px 6px;">MOI</span>' : ''}</div>
+            ${sub ? `<div class="rank-sub">${sub}</div>` : ''}
+          </div>
+          <div class="rank-val">${fmt(row.value)} ${unit}</div>
+        </div>`;
+    }
+    document.getElementById('rank-list').innerHTML = html;
+    document.getElementById('rank-list').style.display = 'block';
+
+    // Ma position si hors top 20
+    if (d.my_row) {
+      document.getElementById('rank-myrow').innerHTML = `
+        <div class="rank-separator">• • •</div>
+        <div class="rank-row me">
+          <div class="rank-medal"><span style="font-size:13px;color:var(--text2)">#${d.my_row.rank}</span></div>
+          <div>
+            <div class="rank-name">${d.my_row.name} <span style="font-size:10px;color:var(--accent);background:rgba(247,201,72,.15);border-radius:8px;padding:1px 6px;">MOI</span></div>
+          </div>
+          <div class="rank-val">${fmt(d.my_row.value)} ${unit}</div>
+        </div>`;
+      document.getElementById('rank-myrow').style.display = 'block';
+    }
+
+    document.getElementById('rank-loading').style.display = 'none';
+  } catch(e) {
+    document.getElementById('rank-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
+  }
 }
 
 async function loadMarket() {

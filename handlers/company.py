@@ -993,7 +993,7 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # PDG ne peut pas postuler ailleurs (doit d'abord céder sa boite)
+        # Vérifier si PDG (pour forcer le rôle employé)
         own_company = (await session.execute(
             select(Company).where(
                 Company.owner_id == user.id,
@@ -1001,13 +1001,7 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 Company.is_bot_company == False,
             )
         )).scalar_one_or_none()
-        if own_company:
-            await update.message.reply_text(
-                f"❌ Tu es PDG de <b>{own_company.name}</b>.\n"
-                f"Un PDG ne peut pas postuler dans une autre entreprise.",
-                parse_mode="HTML"
-            )
-            return
+        is_pdg_elsewhere = own_company is not None
 
         # Cooldown démission (7 jours, sauf si on quitte une bot company)
         last_left_row = (await session.execute(
@@ -1131,9 +1125,13 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                        f"{user.first_name} a postulé")
         await session.commit()
 
+        pdg_note = (
+            f"\n⚠️ Tu es PDG de <b>{own_company.name}</b>. Si tu es recruté, tu seras considéré comme <b>Employé</b> dans cette entreprise."
+            if is_pdg_elsewhere else ""
+        )
         await update.message.reply_text(
             f"📩 Ta candidature pour <b>{target.name}</b> a été envoyée !\n"
-            f"Le PDG ou les Directeurs vont l'examiner.",
+            f"Le PDG ou les Directeurs vont l'examiner.{pdg_note}",
             parse_mode="HTML"
         )
 
@@ -1265,6 +1263,20 @@ async def accepter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif candidate and candidate.diplome_licence:role = "employe"   # Licence → employe
         elif candidate and candidate.diplome_bac:    role = "employe"
 
+        # Si le candidat est PDG d'une autre entreprise → forcer employe
+        is_pdg_elsewhere = False
+        if candidate:
+            own_co = (await session.execute(
+                select(Company).where(
+                    Company.owner_id == candidate.user_id,
+                    Company.is_active == True,
+                    Company.is_bot_company == False,
+                )
+            )).scalar_one_or_none()
+            if own_co:
+                is_pdg_elsewhere = True
+                role = "employe"
+
         new_emp = CompanyEmployee(
             company_id=company.id,
             user_id=target_id,
@@ -1276,9 +1288,10 @@ async def accepter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
 
         role_emoji = ROLE_EMOJI.get(role, "👤")
+        pdg_note = f"\n⚠️ PDG d'une autre entreprise — rôle limité à <b>Employé</b>." if is_pdg_elsewhere else ""
         await update.message.reply_text(
             f"✅ <b>{candidate.first_name if candidate else target_id}</b> a rejoint <b>{company.name}</b> "
-            f"en tant que {role_emoji} <b>{role.capitalize()}</b> !",
+            f"en tant que {role_emoji} <b>{role.capitalize()}</b> !{pdg_note}",
             parse_mode="HTML"
         )
 

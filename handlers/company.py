@@ -1994,14 +1994,7 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         db_user.coins -= amount
         company.treasury += amount
-
-        # 💡 Un dépôt augmente la valeur de l'entreprise à 50% seulement.
-        # Cela évite l'exploit : dépôt → vente parts gonflées → récupère mise + profit.
-        # Avec 50% : déposer 5B → valeur +2.5B → vendre 99 parts → récupère ~2.475B
-        # (perte nette pour le joueur, donc aucun intérêt à exploiter).
-        valeur_plancher = LEVELS[1][2]
-        gain_valeur = amount // 2  # 50% seulement — anti-exploit double-dip
-        company.value = max(valeur_plancher, company.value + gain_valeur)
+        company.value = company.treasury  # valeur = trésorerie
 
         await _update_level(session, company)
         await _add_log(session, company.id, "depot",
@@ -2011,7 +2004,7 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> déposé dans la trésorerie de <b>{company.name}</b>.\n"
             f"🏦 Trésorerie : {_fmt(company.treasury)} $\n"
-            f"📈 Valeur de l'entreprise : {_fmt(company.value)} $ <i>(+{_fmt(gain_valeur)} $)</i>",
+            f"📈 Valeur de l'entreprise : {_fmt(company.value)} $",
             parse_mode="HTML"
         )
 
@@ -2109,13 +2102,9 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Retrait : symétrique au dépôt (ratio 50%) — la valeur baisse de 50% du montant retiré.
-        # On protège un plancher = niveau 1 minimum pour éviter de crasher l'entreprise.
-        DEPOT_VALUE_RATIO = 0.50
-        valeur_plancher = max(LEVELS[1][2], company.value - company.treasury)
-        perte_valeur = int(amount * DEPOT_VALUE_RATIO)
+        # Retrait : la valeur suit la trésorerie directement
         company.treasury -= amount
-        company.value = max(valeur_plancher, company.value - perte_valeur)
+        company.value = company.treasury
         db_user.coins += amount
         # Mettre à jour le timestamp du dernier retrait (cooldown 24h)
         company.last_retrait_pdg = datetime.utcnow()
@@ -2352,8 +2341,8 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Prix calculé automatiquement depuis la valeur de l'entreprise
-        price_each = company.value // company.total_shares if company.total_shares > 0 else 1
+        # Prix calculé depuis la trésorerie (value = treasury)
+        price_each = company.treasury // company.total_shares if company.total_shares > 0 else 1
 
         my_shares = await _get_shares(session, company.id, user.id)
         if my_shares <= 0:
@@ -2399,7 +2388,8 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # ── RACHAT PAR LE MARCHÉ ────────────────────────────────────────────
         db_user.coins += total
-        company.value = max(1_000_000, company.value - total)
+        company.treasury -= total
+        company.value = company.treasury
         company.total_shares = max(1, company.total_shares - qty)
         await _update_level(session, company)
 
@@ -2474,7 +2464,7 @@ async def acheterparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Seulement <b>{available}</b> parts disponibles à l'achat.", parse_mode="HTML")
             return
 
-        price_per = company.value // company.total_shares
+        price_per = company.treasury // company.total_shares if company.total_shares > 0 else 1
         total = qty * price_per
         db_user = await get_user(session, user.id)
 
@@ -3199,7 +3189,7 @@ async def mesparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not company or not company.is_active:
                 continue
             sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
-            price_per = company.value // company.total_shares if company.total_shares > 0 else 0
+            price_per = company.treasury // company.total_shares if company.total_shares > 0 else 0
             val = s.quantity * price_per
             total_value += val
             pct = (s.quantity / company.total_shares) * 100
@@ -3251,7 +3241,7 @@ async def offresparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        price_per = company.value // company.total_shares if company.total_shares > 0 else 0
+        price_per = company.treasury // company.total_shares if company.total_shares > 0 else 0
         lines = [
             f"💼 <b>OFFRES DE PARTS — {company.name}</b>",
             f"<i>{len(offers)} offre(s) en attente · Prix actuel : {_fmt(price_per)} $/part</i>",
@@ -3325,13 +3315,8 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         )).scalars().all()
         total_shares = company.total_shares or 100
-        # ✅ Protection anti-exploit dissolution :
-        # On distribue min(trésorerie, valeur de l'entreprise).
-        # Sans ce plafond : dépôt 5B → tréso = 5B, valeur = 2.5B (50%)
-        # → vente 99 parts → récupère ~2.475B → dissolution → reçoit encore ~50M de tréso.
-        # Avec ce plafond : la dissolution ne peut jamais reverser plus que ce que
-        # l'entreprise "vaut", ce qui élimine le double-dip tréso → valeur → dissolution.
-        treasury = min(company.treasury, company.value)
+        # Distribution directe de la trésorerie (value = treasury, pas de double dip possible)
+        treasury = company.treasury
 
         # Récupérer les employés pour les libérer
         emps = (await session.execute(

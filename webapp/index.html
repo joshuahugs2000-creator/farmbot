@@ -288,6 +288,51 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <button class="save-btn" onclick="saveAvatar()">💾 SAUVEGARDER</button>
   </div>
 
+  <!-- ══ PAGE GAINS ══ -->
+  <div class="page" id="page-gains">
+    <div class="page-title">💰 Gains</div>
+    <div id="gains-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
+    <div id="gains-content" style="display:none">
+
+      <!-- Daily -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">🎁 Bonus quotidien</div>
+        <div class="stat-row"><span class="stat-label">Disponible</span><span class="stat-value" id="daily-status">—</span></div>
+        <div id="daily-cooldown-row" class="stat-row" style="display:none"><span class="stat-label">Prochain dans</span><span class="stat-value" id="daily-cooldown">—</span></div>
+        <button id="daily-btn" onclick="claimDaily()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">🎁 RÉCUPÉRER</button>
+        <div id="daily-result" style="margin-top:8px;text-align:center;font-weight:700;min-height:20px;font-size:14px;"></div>
+      </div>
+
+      <!-- Work -->
+      <div class="card">
+        <div class="card-title">💼 Travail</div>
+        <div class="stat-row"><span class="stat-label">Disponible</span><span class="stat-value" id="work-status">—</span></div>
+        <div id="work-cooldown-row" class="stat-row" style="display:none"><span class="stat-label">Prochain dans</span><span class="stat-value" id="work-cooldown">—</span></div>
+        <button id="work-btn" onclick="claimWork()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💼 TRAVAILLER</button>
+        <div id="work-result" style="margin-top:8px;text-align:center;font-weight:700;min-height:20px;font-size:14px;"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ PAGE DIPLOMES ══ -->
+  <div class="page" id="page-diplomes">
+    <div class="page-title">🎓 Diplômes</div>
+    <div id="diplomes-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
+    <div id="diplomes-content" style="display:none">
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">📚 Domaine d'études</div>
+        <div class="stat-row"><span class="stat-label">Spécialité</span><span class="stat-value" id="dip-domain">—</span></div>
+      </div>
+      <div id="diplomes-list" style="display:grid;gap:10px;"></div>
+      <div id="diplomes-cooldown-card" class="card" style="display:none;margin-top:12px;text-align:center;padding:16px;">
+        <div style="font-size:28px;margin-bottom:6px">⏳</div>
+        <div style="font-size:13px;color:var(--text2)">Prochain examen disponible dans</div>
+        <div style="font-size:22px;font-weight:900;color:var(--accent);margin-top:4px" id="dip-cooldown-val">—</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ PAGE ENTREPRISE ══ -->
   <div class="page" id="page-company">
     <div class="page-title">🏢 Entreprise</div>
@@ -593,51 +638,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 
   <!-- ══ PAGE FAMILLE ══ -->
-  <div class="page" id="page-family">
-    <div class="page-title">👨‍👩‍👧 Famille</div>
-
-    <!-- Nom de famille -->
-    <div id="family-name-card" style="display:none" class="card" style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-color:#a29bfe;margin-bottom:12px">
-      <div style="text-align:center">
-        <div style="font-size:11px;color:var(--text2);font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Nom de famille</div>
-        <div id="family-name-val" style="font-family:'Bangers',cursive;font-size:24px;color:#a29bfe;letter-spacing:2px">—</div>
-      </div>
-    </div>
-
-    <!-- Conjoint(s) -->
-    <div id="family-spouse-section" style="display:none">
-      <div class="card-title">💍 CONJOINT(S)</div>
-      <div id="family-spouse-list"></div>
-    </div>
-
-    <!-- Parents -->
-    <div id="family-parent-section" style="display:none">
-      <div class="card-title" style="margin-top:8px">👴 PARENTS</div>
-      <div id="family-parent-list"></div>
-    </div>
-
-    <!-- Enfants -->
-    <div id="family-child-section" style="display:none">
-      <div class="card-title" style="margin-top:8px">👶 ENFANTS</div>
-      <div id="family-child-list"></div>
-    </div>
-
-    <!-- Amis -->
-    <div id="family-friend-section" style="display:none">
-      <div class="card-title" style="margin-top:8px">🤝 AMIS</div>
-      <div id="family-friend-list"></div>
-    </div>
-
-    <!-- Vide -->
-    <div id="family-empty" style="display:none;text-align:center;padding:40px 20px;color:var(--text2)">
-      <div style="font-size:48px;margin-bottom:12px">🏠</div>
-      <div style="font-size:14px;font-weight:700">Tu n'as pas encore de famille.</div>
-      <div style="font-size:12px;margin-top:6px">Utilise /marry, /adopt, /friend dans le bot.</div>
-    </div>
-  </div>
-
-
-  <!-- ══ PAGE JARDIN ══ -->
   <div class="page" id="page-garden">
     <div class="page-title">🌱 Jardin</div>
     <div id="garden-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
@@ -660,131 +660,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   </div>
 
   <!-- ══ PAGE CLASSEMENT ══ -->
-  <div class="page" id="page-ranking">
-    <div class="page-title">🏆 Classement</div>
-    <!-- Filtres catégories -->
-    <div id="ranking-cats" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch">
-      <button class="rank-cat-btn rank-cat-active" onclick="rankCat('coins',this)">💰 Fortune</button>
-      <button class="rank-cat-btn" onclick="rankCat('family',this)">👨‍👩‍👧 Famille</button>
-      <button class="rank-cat-btn" onclick="rankCat('company',this)">🏢 Entreprises</button>
-    </div>
-    <div id="ranking-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="ranking-content" style="display:none">
-      <div id="ranking-list"></div>
-      <div id="ranking-myrow" style="margin-top:10px"></div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE STATS PERSO ══ -->
-  <div class="page" id="page-stats">
-    <div class="page-title">📊 Stats Perso</div>
-    <div id="stats-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="stats-content" style="display:none">
-      <div class="card">
-        <div class="card-title">💰 ÉCONOMIE</div>
-        <div class="stat-row"><span class="stat-label">En poche</span><span class="stat-value gold" id="st-coins">—</span></div>
-        <div class="stat-row"><span class="stat-label">En banque</span><span class="stat-value gold" id="st-bank">—</span></div>
-        <div class="stat-row"><span class="stat-label">Fortune totale</span><span class="stat-value gold" id="st-fortune">—</span></div>
-        <div class="stat-row"><span class="stat-label">Investissements</span><span class="stat-value" id="st-invest">—</span></div>
-      </div>
-      <div class="card">
-        <div class="card-title">⭐ RÉPUTATION</div>
-        <div class="stat-row"><span class="stat-label">Karma</span><span class="stat-value" id="st-karma">—</span></div>
-        <div class="stat-row"><span class="stat-label">Classement</span><span class="stat-value" id="st-rank">—</span></div>
-        <div class="stat-row"><span class="stat-label">Diplômes</span><span class="stat-value" id="st-diplomes">—</span></div>
-      </div>
-      <div class="card">
-        <div class="card-title">👥 SOCIAL</div>
-        <div class="stat-row"><span class="stat-label">Conjoint(s)</span><span class="stat-value" id="st-spouses">—</span></div>
-        <div class="stat-row"><span class="stat-label">Enfants</span><span class="stat-value" id="st-children">—</span></div>
-        <div class="stat-row"><span class="stat-label">Amis</span><span class="stat-value" id="st-friends">—</span></div>
-      </div>
-      <div class="card">
-        <div class="card-title">🏢 EMPLOI</div>
-        <div class="stat-row"><span class="stat-label">Entreprise</span><span class="stat-value" id="st-company">—</span></div>
-        <div class="stat-row"><span class="stat-label">Poste</span><span class="stat-value" id="st-role">—</span></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE ARBRE FAMILIAL ══ -->
-  <div class="page" id="page-tree">
-    <div class="page-title">🌳 Arbre Familial</div>
-    <div id="tree-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="tree-content" style="display:none">
-      <div id="tree-name-card" class="card" style="text-align:center;border-color:#a29bfe;display:none">
-        <div style="font-size:11px;color:var(--text2);font-weight:800;text-transform:uppercase;letter-spacing:1px">Nom de famille</div>
-        <div id="tree-family-name" style="font-family:'Bangers',cursive;font-size:26px;color:#a29bfe;letter-spacing:2px;margin-top:4px">—</div>
-      </div>
-      <!-- Arbre visuel -->
-      <div id="tree-visual" style="margin:8px 0"></div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE HUMEUR ══ -->
-  <div class="page" id="page-mood">
-    <div class="page-title">🎭 Humeur</div>
-    <div id="mood-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="mood-content" style="display:none">
-      <div class="card" style="text-align:center;padding:24px">
-        <div id="mood-emoji" style="font-size:64px;margin-bottom:12px">😐</div>
-        <div id="mood-label" style="font-family:'Bangers',cursive;font-size:22px;color:var(--accent);letter-spacing:1px">—</div>
-        <div id="mood-desc" style="font-size:13px;color:var(--text2);margin-top:8px">—</div>
-      </div>
-      <div class="card">
-        <div class="card-title">📈 FACTEURS D'HUMEUR</div>
-        <div class="stat-row"><span class="stat-label">Karma</span><span class="stat-value" id="mood-karma">—</span></div>
-        <div class="stat-row"><span class="stat-label">Finances</span><span class="stat-value" id="mood-finance">—</span></div>
-        <div class="stat-row"><span class="stat-label">Famille</span><span class="stat-value" id="mood-family">—</span></div>
-        <div class="stat-row"><span class="stat-label">Emploi</span><span class="stat-value" id="mood-job">—</span></div>
-      </div>
-      <div class="card" style="text-align:center">
-        <div style="font-size:12px;color:var(--text2)">L'humeur évolue selon ton karma, tes finances et ta vie sociale dans le bot.</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE JOURNAL ══ -->
-  <div class="page" id="page-journal">
-    <div class="page-title">📰 Journal</div>
-    <div id="journal-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="journal-content" style="display:none">
-      <div id="journal-list" style="display:grid;gap:8px"></div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE ÉVÉNEMENTS ══ -->
-  <div class="page" id="page-events">
-    <div class="page-title">🗓️ Événements</div>
-    <div id="events-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="events-content" style="display:none">
-      <div id="events-list" style="display:grid;gap:8px"></div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE ANNONCES ══ -->
-  <div class="page" id="page-annonces">
-    <div class="page-title">📢 Annonces</div>
-    <div id="annonces-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="annonces-content" style="display:none">
-      <div id="annonces-list" style="display:grid;gap:8px"></div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE SUCCÈS ══ -->
-  <div class="page" id="page-succes">
-    <div class="page-title">🏅 Succès</div>
-    <div id="succes-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="succes-content" style="display:none">
-      <div id="succes-progress" class="card" style="margin-bottom:12px">
-        <div class="card-title">🏆 PROGRESSION</div>
-        <div class="stat-row"><span class="stat-label">Succès débloqués</span><span class="stat-value gold" id="succes-count">— / —</span></div>
-      </div>
-      <div id="succes-list" style="display:grid;gap:8px"></div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE JEUX ══ -->
   <div class="page" id="page-games">
     <div class="page-title">🎮 Casino</div>
 
@@ -987,9 +862,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 <nav id="nav">
   <button class="nav-btn active" onclick="mainTab('moi',this)"><span class="icon">👤</span>Moi</button>
   <button class="nav-btn" onclick="mainTab('eco',this)"><span class="icon">💼</span>Économie</button>
-  <button class="nav-btn" onclick="mainTab('social',this)"><span class="icon">👥</span>Social</button>
   <button class="nav-btn" onclick="mainTab('jeux',this)"><span class="icon">🎮</span>Jeux</button>
-  <button class="nav-btn" onclick="mainTab('plus',this)"><span class="icon">✨</span>Plus</button>
 </nav>
 
 <style>
@@ -1805,11 +1678,9 @@ function saveAvatar() {
 //  NAVIGATION GROUPÉE (5 onglets)
 // ════════════════════════════════════════
 const MAIN_TABS = {
-  moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'}], def:'profile' },
+  moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'},{l:'💰 Gains',p:'gains',fn:'loadGains'},{l:'🎓 Diplômes',p:'diplomes',fn:'loadDiplomes'}], def:'profile' },
   eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company',fn:'loadCompany'},{l:'🌱 Jardin',p:'garden',fn:'loadGarden'}], def:'bank' },
-  social: { subs:[{l:'👨‍👩‍👧 Famille',p:'family',fn:'loadFamily'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'},{l:'📊 Stats',p:'stats',fn:'loadStats'},{l:'🌳 Arbre',p:'tree',fn:'loadTree'},{l:'🎭 Humeur',p:'mood',fn:'loadMood'}], def:'family' },
   jeux:   { subs:[], def:'games' },
-  plus:   { subs:[{l:'📰 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'},{l:'🏅 Succès',p:'succes',fn:'loadSucces'}], def:'journal' },
 };
 let _curMain = 'moi';
 let _curSub  = 'profile';
@@ -1993,6 +1864,188 @@ function fillProfile(d) {
     const el = document.getElementById('mk-pnl');
     el.textContent = (pnl>=0?'+':'')+fmt(Math.abs(pnl));
     el.className = 'stat-value '+(pnl>=0?'green':'red');
+  }
+}
+
+
+// ════════════════════════════════════════
+//  GAINS (DAILY + WORK)
+// ════════════════════════════════════════
+
+async function loadGains() {
+  if (!uid) return;
+  document.getElementById('gains-loading').style.display = 'block';
+  document.getElementById('gains-content').style.display = 'none';
+  try {
+    const r = await fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 15000);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    // Daily
+    const dailyBtn = document.getElementById('daily-btn');
+    const dailyStatus = document.getElementById('daily-status');
+    const dailyCDRow = document.getElementById('daily-cooldown-row');
+    if (d.daily_available) {
+      dailyStatus.textContent = '✅ Disponible';
+      dailyStatus.style.color = 'var(--success)';
+      dailyBtn.disabled = false;
+      dailyBtn.style.opacity = '1';
+      dailyCDRow.style.display = 'none';
+    } else {
+      dailyStatus.textContent = '⏳ Déjà récupéré';
+      dailyStatus.style.color = 'var(--text2)';
+      dailyBtn.disabled = true;
+      dailyBtn.style.opacity = '0.4';
+      dailyBtn.style.cursor = 'not-allowed';
+      dailyCDRow.style.display = '';
+      document.getElementById('daily-cooldown').textContent = 'Demain';
+    }
+
+    // Work
+    const workBtn = document.getElementById('work-btn');
+    const workStatus = document.getElementById('work-status');
+    const workCDRow = document.getElementById('work-cooldown-row');
+    if (d.work_available) {
+      workStatus.textContent = '✅ Disponible';
+      workStatus.style.color = 'var(--success)';
+      workBtn.disabled = false;
+      workBtn.style.opacity = '1';
+      workCDRow.style.display = 'none';
+    } else {
+      workStatus.textContent = '⏳ En repos';
+      workStatus.style.color = 'var(--text2)';
+      workBtn.disabled = true;
+      workBtn.style.opacity = '0.4';
+      workBtn.style.cursor = 'not-allowed';
+      workCDRow.style.display = '';
+      const h = Math.floor(d.work_wait_min / 60);
+      const m = d.work_wait_min % 60;
+      document.getElementById('work-cooldown').textContent = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
+    }
+
+    document.getElementById('gains-loading').style.display = 'none';
+    document.getElementById('gains-content').style.display = 'block';
+  } catch(e) {
+    document.getElementById('gains-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
+  }
+}
+
+async function claimDaily() {
+  if (!uid) return;
+  const btn = document.getElementById('daily-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ En cours…';
+  const res = document.getElementById('daily-result');
+  try {
+    const r = await fetchT('/api/webapp/gains/daily', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: uid})
+    }, 15000);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    if (d.status === 'already') {
+      res.textContent = '⏳ Déjà récupéré aujourd\'hui !';
+      res.style.color = 'var(--text2)';
+    } else {
+      res.textContent = `🎁 +${fmt(d.amount)} $ gagné !`;
+      res.style.color = 'var(--success)';
+      _cachedUser = null;
+      loadGains();
+      return;
+    }
+  } catch(e) {
+    res.textContent = e.message;
+    res.style.color = 'var(--accent2)';
+  }
+  btn.textContent = '🎁 RÉCUPÉRER';
+}
+
+async function claimWork() {
+  if (!uid) return;
+  const btn = document.getElementById('work-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ En cours…';
+  const res = document.getElementById('work-result');
+  const JOBS = [
+    '👨‍🌾 Tu as travaillé aux champs',
+    '🚗 Tu as conduit un taxi',
+    '👨‍💻 Tu as codé toute la nuit',
+    '🏗️ Tu as construit des maisons',
+    '🎤 Tu as animé une soirée',
+    '🍳 Tu as cuisiné au restaurant',
+    '📦 Tu as livré des colis',
+    '🎨 Tu as vendu tes tableaux',
+  ];
+  try {
+    const r = await fetchT('/api/webapp/gains/work', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: uid})
+    }, 15000);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    if (d.status === 'cooldown') {
+      const h = Math.floor(d.wait_min / 60);
+      const m = d.wait_min % 60;
+      const dur = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
+      res.textContent = `😴 Tu es fatigué·e ! Reviens dans ${dur}`;
+      res.style.color = 'var(--text2)';
+    } else {
+      const job = JOBS[Math.floor(Math.random() * JOBS.length)];
+      res.textContent = `${job} — +${fmt(d.amount)} $ !`;
+      res.style.color = 'var(--success)';
+      _cachedUser = null;
+      loadGains();
+      return;
+    }
+  } catch(e) {
+    res.textContent = e.message;
+    res.style.color = 'var(--accent2)';
+  }
+  btn.textContent = '💼 TRAVAILLER';
+}
+
+// ════════════════════════════════════════
+//  DIPLÔMES
+// ════════════════════════════════════════
+
+async function loadDiplomes() {
+  if (!uid) { return; }
+  document.getElementById('diplomes-loading').style.display = 'block';
+  document.getElementById('diplomes-content').style.display = 'none';
+  try {
+    const r = await fetchT(`/api/webapp/diplomes?user_id=${uid}`, {}, 15000);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    document.getElementById('dip-domain').textContent = d.domain || 'Non défini';
+
+    const list = document.getElementById('diplomes-list');
+    list.innerHTML = d.diplomes.map(dip => `
+      <div class="card" style="display:flex;align-items:center;gap:14px;padding:14px 16px;opacity:${dip.obtained ? '1' : '0.5'}">
+        <div style="font-size:32px;line-height:1">${dip.obtained ? dip.emoji : '🔒'}</div>
+        <div style="flex:1">
+          <div style="font-weight:900;font-size:15px;color:var(--text)">${dip.label}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">${dip.obtained ? '✅ Obtenu' : (dip['prérequis'] ? `Nécessite : ${dip['prérequis']}` : 'Disponible')}</div>
+        </div>
+        ${dip.obtained ? '<div style="font-size:20px">✨</div>' : ''}
+      </div>
+    `).join('');
+
+    if (d.cooldown_left > 0) {
+      const h = Math.floor(d.cooldown_left / 60);
+      const m = d.cooldown_left % 60;
+      document.getElementById('dip-cooldown-val').textContent = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
+      document.getElementById('diplomes-cooldown-card').style.display = 'block';
+    } else {
+      document.getElementById('diplomes-cooldown-card').style.display = 'none';
+    }
+
+    document.getElementById('diplomes-loading').style.display = 'none';
+    document.getElementById('diplomes-content').style.display = 'block';
+  } catch(e) {
+    document.getElementById('diplomes-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
   }
 }
 
@@ -3613,80 +3666,7 @@ async function coPayerImpots() {
 // ════════════════════════════════════════
 //  FAMILLE
 // ════════════════════════════════════════
-async function loadFamily() {
-  // Affiche un état de chargement
-  const sections = ['family-spouse-section','family-parent-section','family-child-section','family-friend-section'];
-  sections.forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
-  const emptyEl = document.getElementById('family-empty');
-  const nameCard = document.getElementById('family-name-card');
-  if (emptyEl) emptyEl.style.display='none';
-
-  // Loader temporaire
-  let loaderEl = document.getElementById('family-loader');
-  if (!loaderEl) {
-    loaderEl = document.createElement('div');
-    loaderEl.id = 'family-loader';
-    loaderEl.style.cssText = 'text-align:center;padding:40px;color:var(--text2)';
-    document.getElementById('page-family').appendChild(loaderEl);
-  }
-  loaderEl.style.display = 'block';
-  loaderEl.innerHTML = 'Chargement…';
-
-  if (!uid) {
-    loaderEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>';
-    return;
-  }
-
-  try {
-    const d = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`, {}, 20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'Erreur '+r.status);}));
-    if (!_cachedFamily) _cachedFamily = d;
-    if (d.error) throw new Error(d.error);
-
-    loaderEl.style.display = 'none';
-
-    // Nom de famille
-    if (d.family_name) {
-      nameCard.style.display = 'block';
-      document.getElementById('family-name-val').textContent = d.family_name;
-    } else {
-      nameCard.style.display = 'none';
-    }
-
-    const hasAny = (d.spouses||[]).length || (d.parents||[]).length || (d.children||[]).length || (d.friends||[]).length;
-    if (emptyEl) emptyEl.style.display = hasAny ? 'none' : 'block';
-
-    function renderMembers(list, secId, listId) {
-      const sec = document.getElementById(secId);
-      const el  = document.getElementById(listId);
-      if (!list||!list.length) { if(sec) sec.style.display='none'; return; }
-      if(sec) sec.style.display = 'block';
-      el.innerHTML = list.map(m => `
-        <div class="member-card">
-          <div class="member-avatar-mini">${m.gender==='femme'?'👩':m.gender==='homme'?'👨':'👤'}</div>
-          <div class="member-info">
-            <div class="member-name">${m.name}</div>
-            <div class="member-sub">${m.username ? '@'+m.username : 'Pas de @username'}</div>
-          </div>
-          <div class="member-karma">${m.karma>=0?'+':''}${m.karma} karma</div>
-        </div>`).join('');
-    }
-
-    renderMembers(d.spouses,  'family-spouse-section', 'family-spouse-list');
-    renderMembers(d.parents,  'family-parent-section', 'family-parent-list');
-    renderMembers(d.children, 'family-child-section',  'family-child-list');
-    renderMembers(d.friends,  'family-friend-section', 'family-friend-list');
-
-  } catch(e) {
-    loaderEl.innerHTML = `
-      <div style="text-align:center;padding:24px">
-        <div style="font-size:32px;margin-bottom:12px">❌</div>
-        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
-        <button onclick="_cachedFamily=null;loadFamily()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
-      </div>`;
-  }
-}
-
-// ════════════════════════════════════════
+async // ════════════════════════════════════════
 //  JARDIN
 // ════════════════════════════════════════
 let _gardenGroupId = 0;
@@ -3793,443 +3773,24 @@ async function _gardenHarvest(gardenId) {
 // ════════════════════════════════════════
 //  CLASSEMENT MULTI-CATÉGORIE
 // ════════════════════════════════════════
-let _rankCat = 'coins';
-
-function rankCat(cat, btn) {
-  _rankCat = cat;
-  document.querySelectorAll('.rank-cat-btn').forEach(b => b.classList.remove('rank-cat-active'));
-  if (btn) btn.classList.add('rank-cat-active');
-  loadRanking();
-}
-
-async function loadRanking() {
-  dbg('loadRanking uid='+uid);
-  const loadEl = document.getElementById('ranking-loading');
-  loadEl.innerHTML = 'Chargement…';
-  loadEl.style.display='block';
-  document.getElementById('ranking-content').style.display='none';
-  if (!uid) { loadEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
-  try {
-    const d = (_rankCat === 'coins' && window._cachedRanking) ? window._cachedRanking : await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`, {}, 20000).then(r=>r.ok?r.json():(r.json().catch(()=>({error:'Erreur '+r.status}))));
-    if (!d || d.error) throw new Error(d?.error || 'Réponse invalide');
-    document.getElementById('ranking-loading').style.display='none';
-    document.getElementById('ranking-content').style.display='block';
-
-    const medals = ['🥇','🥈','🥉'];
-    const valKey = _rankCat === 'coins' ? 'value' : _rankCat === 'family' ? 'value' : 'value';
-    const valLabel = _rankCat === 'coins' ? (u => fmt(u.value)) :
-                     _rankCat === 'family' ? (u => u.value + ' membres') :
-                     (u => fmt(u.value));
-
-    document.getElementById('ranking-list').innerHTML = (d.ranking || []).map(u =>
-      `<div class="card" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;${u.is_me?'border-color:var(--accent);':''}">
-        <div style="font-size:${u.rank<=3?'22':'16'}px;min-width:28px;text-align:center;font-weight:800">${medals[u.rank-1]||'#'+u.rank}</div>
-        <div style="flex:1">
-          <div style="font-weight:700;${u.is_me?'color:var(--accent)':''}">${u.name}${u.is_me?' 👈':''}</div>
-          <div style="font-size:12px;color:var(--text2)">${u.username?'@'+u.username:''}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-weight:800;color:var(--accent)">${valLabel(u)}</div>
-        </div>
-      </div>`
-    ).join('');
-
-    const myRow = document.getElementById('ranking-myrow');
-    if (d.my_row) {
-      myRow.innerHTML = `<div class="card" style="border-color:var(--accent);background:linear-gradient(135deg,var(--card),var(--card2))">
-        <div style="font-size:12px;color:var(--text2);text-align:center;margin-bottom:8px">TA POSITION</div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="font-size:20px;font-weight:800;min-width:28px">#${d.my_row.rank}</div>
-          <div style="flex:1"><div style="font-weight:700;color:var(--accent)">${d.my_row.name}</div></div>
-          <div style="font-weight:800;color:var(--accent)">${valLabel(d.my_row)}</div>
-        </div>
-      </div>`;
-      myRow.style.display='block';
-    } else {
-      myRow.style.display='none';
-    }
-  } catch(e) {
-    dbg('ranking ERR: '+e.message);
-    document.getElementById('ranking-loading').innerHTML = `
-      <div style="text-align:center;padding:24px">
-        <div style="font-size:32px;margin-bottom:12px">❌</div>
-        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
-        <button onclick="loadRanking()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
-      </div>`;
-  }
-}
 
 // ════════════════════════════════════════
-//  STATS PERSO
-// ════════════════════════════════════════
-async function loadStats() {
-  dbg('loadStats uid='+uid);
-  const loadEl = document.getElementById('stats-loading');
-  loadEl.innerHTML = 'Chargement…';
-  loadEl.style.display='block';
-  document.getElementById('stats-content').style.display='none';
-  if (!uid) { loadEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
-  try {
-    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`,{},20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'HTTP '+r.status);}));
-    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'HTTP '+r.status);}));
-    if (u.error) throw new Error(u.error);
-    if (!_cachedUser) _cachedUser = u;
-    if (!_cachedFamily) _cachedFamily = f;
-    document.getElementById('stats-loading').style.display='none';
-    document.getElementById('stats-content').style.display='block';
-
-    document.getElementById('st-coins').textContent   = fmt(u.coins);
-    document.getElementById('st-bank').textContent    = fmt(u.bank_total);
-    document.getElementById('st-fortune').textContent = fmt(u.fortune_totale);
-    document.getElementById('st-invest').textContent  = fmt(u.portfolio?.invested) || '—';
-    document.getElementById('st-karma').textContent   = (u.karma>=0?'+':'')+u.karma;
-    document.getElementById('st-rank').textContent    = '#'+(u.rank||'—')+' / '+(u.total_players||'—');
-    document.getElementById('st-diplomes').textContent = u.diplomes || '—';
-    document.getElementById('st-spouses').textContent  = (f.spouses||[]).length || '0';
-    document.getElementById('st-children').textContent = (f.children||[]).length || '0';
-    document.getElementById('st-friends').textContent  = (f.friends||[]).length || '0';
-    document.getElementById('st-company').textContent  = u.company || 'Sans emploi';
-    document.getElementById('st-role').textContent     = u.role || '—';
-  } catch(e) {
-    dbg('stats ERR: '+e.message);
-    document.getElementById('stats-loading').innerHTML = `
-      <div style="text-align:center;padding:24px">
-        <div style="font-size:32px;margin-bottom:12px">❌</div>
-        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
-        <button onclick="_cachedUser=null;_cachedFamily=null;loadStats()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
-      </div>`;
-  }
-}
-
-// ════════════════════════════════════════
+async // ════════════════════════════════════════
 //  ARBRE FAMILIAL
 // ════════════════════════════════════════
-async function loadTree() {
-  const loadEl = document.getElementById('tree-loading');
-  loadEl.innerHTML = 'Chargement…';
-  loadEl.style.display='block';
-  document.getElementById('tree-content').style.display='none';
-  if (!uid) { loadEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
-  try {
-    const d = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'HTTP '+r.status);}));
-    if (d.error) throw new Error(d.error);
-    if (!_cachedFamily) _cachedFamily = d;
-    document.getElementById('tree-loading').style.display='none';
-    document.getElementById('tree-content').style.display='block';
-
-    const nameCard = document.getElementById('tree-name-card');
-    if (d.family_name) {
-      nameCard.style.display='block';
-      document.getElementById('tree-family-name').textContent = d.family_name;
-    } else {
-      nameCard.style.display='none';
-    }
-
-    // Arbre visuel simplifié
-    const vis = document.getElementById('tree-visual');
-    let html = '';
-
-    if (d.parents?.length) {
-      html += `<div style="text-align:center;margin-bottom:4px;font-size:11px;color:var(--text2);font-weight:800;text-transform:uppercase;letter-spacing:1px">Parents</div>`;
-      html += `<div style="display:flex;gap:8px;justify-content:center;margin-bottom:8px">${d.parents.map(m=>`<div class="member-card" style="flex:1;max-width:160px;margin:0"><div class="member-avatar-mini">${m.gender==='femme'?'👩':'👨'}</div><div class="member-info"><div class="member-name">${m.name}</div><div class="member-sub">${m.username?'@'+m.username:''}</div></div></div>`).join('')}</div>`;
-      html += `<div style="text-align:center;color:var(--border);font-size:24px;line-height:1">│</div>`;
-    }
-
-    // Moi
-    html += `<div class="card" style="border-color:var(--accent);text-align:center;margin:4px 0;padding:12px"><div style="font-size:28px">${avatar?.gender==='f'?'👩':'👨'}</div><div style="font-family:'Bangers',cursive;font-size:18px;color:var(--accent);margin-top:4px">MOI</div></div>`;
-
-    if (d.spouses?.length) {
-      html += `<div style="text-align:center;margin:8px 0 4px;font-size:11px;color:var(--text2);font-weight:800;text-transform:uppercase;letter-spacing:1px">Conjoint(s)</div>`;
-      html += `<div style="display:flex;gap:8px;justify-content:center;margin-bottom:8px">${d.spouses.map(m=>`<div class="member-card" style="flex:1;max-width:160px;margin:0"><div class="member-avatar-mini">💍</div><div class="member-info"><div class="member-name">${m.name}</div><div class="member-sub">${m.username?'@'+m.username:''}</div></div></div>`).join('')}</div>`;
-    }
-
-    if (d.children?.length) {
-      html += `<div style="text-align:center;color:var(--border);font-size:24px;line-height:1">│</div>`;
-      html += `<div style="text-align:center;margin:4px 0;font-size:11px;color:var(--text2);font-weight:800;text-transform:uppercase;letter-spacing:1px">Enfants</div>`;
-      html += `<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">${d.children.map(m=>`<div class="member-card" style="flex:1;min-width:120px;max-width:160px;margin:0"><div class="member-avatar-mini">👶</div><div class="member-info"><div class="member-name">${m.name}</div><div class="member-sub">${m.username?'@'+m.username:''}</div></div></div>`).join('')}</div>`;
-    }
-
-    if (!d.parents?.length && !d.spouses?.length && !d.children?.length && !d.friends?.length) {
-      html += `<div style="text-align:center;padding:20px;color:var(--text2)"><div style="font-size:48px">🏠</div><div style="font-size:13px;margin-top:8px">Pas encore de famille.<br>Utilise /marry, /adopt dans le bot.</div></div>`;
-    }
-
-    if (d.friends?.length) {
-      html += `<div style="margin-top:12px;font-size:11px;color:var(--text2);font-weight:800;text-transform:uppercase;letter-spacing:1px">Amis</div>`;
-      html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${d.friends.map(m=>`<div class="member-card" style="flex:1;min-width:120px;max-width:160px;margin:0"><div class="member-avatar-mini">🤝</div><div class="member-info"><div class="member-name">${m.name}</div><div class="member-sub">${m.username?'@'+m.username:''}</div></div></div>`).join('')}</div>`;
-    }
-
-    vis.innerHTML = html;
-  } catch(e) {
-    console.error('[tree]', e);
-    document.getElementById('tree-loading').innerHTML = `
-      <div style="text-align:center;padding:24px">
-        <div style="font-size:32px;margin-bottom:12px">❌</div>
-        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
-        <button onclick="_cachedFamily=null;loadTree()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
-      </div>`;
-  }
-}
-
-// ════════════════════════════════════════
+async // ════════════════════════════════════════
 //  HUMEUR
 // ════════════════════════════════════════
-async function loadMood() {
-  const loadEl = document.getElementById('mood-loading');
-  loadEl.innerHTML = 'Chargement…';
-  loadEl.style.display='block';
-  document.getElementById('mood-content').style.display='none';
-  if (!uid) { loadEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
-  try {
-    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`,{},20000).then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||'HTTP '+r.status);}));
-    if (u.error) throw new Error(u.error);
-    if (!_cachedUser) _cachedUser = u;
-    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`,{},20000).then(x=>x.ok?x.json():{}).catch(()=>({}));
-    if (!_cachedFamily) _cachedFamily = f;
-
-    document.getElementById('mood-loading').style.display='none';
-    document.getElementById('mood-content').style.display='block';
-
-    // Calcul humeur locale
-    const karma = u.karma || 0;
-    const coins  = u.fortune_totale || u.coins || 0;
-    const family = ((f.spouses||[]).length + (f.children||[]).length + (f.friends||[]).length);
-    const hasJob = !!(u.company);
-
-    let score = 0;
-    if (karma > 100) score += 2; else if (karma > 0) score += 1; else if (karma < -50) score -= 2; else if (karma < 0) score -= 1;
-    if (coins > 1_000_000) score += 2; else if (coins > 100_000) score += 1; else if (coins < 0) score -= 2;
-    if (family >= 3) score += 2; else if (family >= 1) score += 1;
-    if (hasJob) score += 1;
-
-    const moods = [
-      { min:-99, emoji:'😭', label:'Déprimé', desc:'Les temps sont durs. Garde courage !' },
-      { min:-3,  emoji:'😞', label:'Triste',  desc:'Quelques nuages au-dessus de ta tête...' },
-      { min:-1,  emoji:'😐', label:'Neutre',  desc:'Ni bien ni mal. La routine.' },
-      { min:1,   emoji:'🙂', label:'Bien',    desc:'Ça va plutôt bien pour toi !' },
-      { min:3,   emoji:'😊', label:'Heureux', desc:'La vie te sourit !' },
-      { min:5,   emoji:'🤩', label:'Euphorique', desc:'Tu es au sommet de ta forme !' },
-    ];
-    const mood = moods.slice().reverse().find(m => score >= m.min) || moods[0];
-
-    document.getElementById('mood-emoji').textContent = mood.emoji;
-    document.getElementById('mood-label').textContent = mood.label;
-    document.getElementById('mood-desc').textContent  = mood.desc;
-    document.getElementById('mood-karma').textContent   = karma > 0 ? '😇 Positif' : karma < 0 ? '😈 Négatif' : '😐 Neutre';
-    document.getElementById('mood-finance').textContent = coins > 1_000_000 ? '💎 Riche' : coins > 100_000 ? '💰 À l\'aise' : '💸 Serré';
-    document.getElementById('mood-family').textContent  = family >= 3 ? '❤️ Entouré' : family >= 1 ? '🤗 Un peu' : '😔 Seul';
-    document.getElementById('mood-job').textContent     = hasJob ? '💼 Employé' : '🏠 Sans emploi';
-  } catch(e) {
-    console.error('[mood]', e);
-    document.getElementById('mood-loading').innerHTML = `
-      <div style="text-align:center;padding:24px">
-        <div style="font-size:32px;margin-bottom:12px">❌</div>
-        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px">${e.message||'Erreur réseau'}</div>
-        <button onclick="_cachedUser=null;_cachedFamily=null;loadMood()" style="margin-top:8px;padding:10px 20px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:800;font-size:13px;cursor:pointer">🔄 Réessayer</button>
-      </div>`;
-  }
-}
-
-// ════════════════════════════════════════
+async // ════════════════════════════════════════
 //  JOURNAL
 // ════════════════════════════════════════
-async function loadJournal() {
-  dbg('loadJournal uid='+uid);
-  document.getElementById('journal-loading').style.display='block';
-  document.getElementById('journal-content').style.display='none';
-  if (!uid) { document.getElementById('journal-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
-  try {
-    const d = window._cachedJournal || await fetchT(`/api/webapp/journal?user_id=${uid}`).then(r=>r.ok?r.json():{entries:[]}).catch(()=>({entries:[]}));
-    document.getElementById('journal-loading').style.display='none';
-    document.getElementById('journal-content').style.display='block';
-    const list = d.entries || [];
-    if (!list.length) {
-      document.getElementById('journal-list').innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px">📰</div><div style="margin-top:12px;font-size:13px">Aucune entrée dans le journal.<br>Joue, commerce, interagis dans le bot !</div></div>`;
-      return;
-    }
-    document.getElementById('journal-list').innerHTML = list.map(e =>
-      `<div class="card" style="margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div style="font-size:22px">${e.emoji||'📌'}</div>
-          <div style="font-size:11px;color:var(--text2)">${e.date||''}</div>
-        </div>
-        <div style="font-weight:700;margin:6px 0 2px">${e.title||''}</div>
-        <div style="font-size:13px;color:var(--text2)">${e.body||''}</div>
-      </div>`
-    ).join('');
-  } catch(e) {
-    dbg('journal ERR: '+e.message);
-    document.getElementById('journal-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
-  }
-}
-
-// ════════════════════════════════════════
+async // ════════════════════════════════════════
 //  ÉVÉNEMENTS
 // ════════════════════════════════════════
-async function loadEvents() {
-  document.getElementById('events-loading').style.display='block';
-  document.getElementById('events-content').style.display='none';
-  if (!uid) { document.getElementById('events-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
-  try {
-    const d = window._cachedEvents || await fetchT(`/api/webapp/events?user_id=${uid}`).then(r=>r.ok?r.json():{events:[]}).catch(()=>({events:[]}));
-    document.getElementById('events-loading').style.display='none';
-    document.getElementById('events-content').style.display='block';
-    const list = d.events || [];
-    if (!list.length) {
-      document.getElementById('events-list').innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px">🗓️</div><div style="margin-top:12px;font-size:13px">Aucun événement pour l'instant.</div></div>`;
-      return;
-    }
-    document.getElementById('events-list').innerHTML = list.map(e =>
-      `<div class="card" style="border-left:4px solid ${e.color||'var(--accent)'};margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <div style="font-size:18px">${e.emoji||'📅'} <span style="font-weight:800">${e.title||''}</span></div>
-          <div style="font-size:11px;color:var(--text2)">${e.date||''}</div>
-        </div>
-        <div style="font-size:13px;color:var(--text2)">${e.desc||''}</div>
-      </div>`
-    ).join('');
-  } catch(e) {
-    console.error('[events]', e);
-    document.getElementById('events-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
-  }
-}
-
-// ════════════════════════════════════════
+async // ════════════════════════════════════════
 //  ANNONCES
 // ════════════════════════════════════════
-async function loadAnnonces() {
-  document.getElementById('annonces-loading').style.display='block';
-  document.getElementById('annonces-content').style.display='none';
-  if (!uid) { document.getElementById('annonces-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
-  try {
-    const d = window._cachedAnnonces || await fetchT(`/api/webapp/annonces?user_id=${uid}`).then(r=>r.ok?r.json():{annonces:[]}).catch(()=>({annonces:[]}));
-    document.getElementById('annonces-loading').style.display='none';
-    document.getElementById('annonces-content').style.display='block';
-    const list = d.annonces || [];
-    if (!list.length) {
-      document.getElementById('annonces-list').innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px">📢</div><div style="margin-top:12px;font-size:13px">Aucune annonce pour l'instant.</div></div>`;
-      return;
-    }
-    document.getElementById('annonces-list').innerHTML = list.map(a =>
-      `<div class="card" style="border-color:${a.important?'var(--accent)':'var(--border)'};margin-bottom:8px">
-        ${a.important?'<div style="font-size:10px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">📣 IMPORTANT</div>':''}
-        <div style="font-weight:700;margin-bottom:4px">${a.title||''}</div>
-        <div style="font-size:13px;color:var(--text2)">${a.body||''}</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:8px">${a.date||''}</div>
-      </div>`
-    ).join('');
-  } catch(e) {
-    console.error('[annonces]', e);
-    document.getElementById('annonces-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
-  }
-}
-
-// ════════════════════════════════════════
+async // ════════════════════════════════════════
 //  SUCCÈS
 // ════════════════════════════════════════
-async function loadSucces() {
-  document.getElementById('succes-loading').style.display='block';
-  document.getElementById('succes-content').style.display='none';
-  if (!uid) { document.getElementById('succes-loading').innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Connecte-toi via Telegram</div>'; return; }
-  try {
-    const u = _cachedUser || await fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`).then(r=>r.ok?r.json():{});
-    const f = _cachedFamily || await fetchT(`/api/webapp/family?user_id=${uid}`).then(r=>r.ok?r.json():{});
-    if (u.error) throw new Error(u.error);
-    if (!_cachedUser) _cachedUser = u;
-    if (!_cachedFamily) _cachedFamily = f;
-    document.getElementById('succes-loading').style.display='none';
-    document.getElementById('succes-content').style.display='block';
-
-    const karma = u.karma || 0;
-    const coins  = u.fortune_totale || u.coins || 0;
-    const family = ((f.spouses||[]).length + (f.children||[]).length);
-    const hasDiplome = u.diplomes && u.diplomes !== '—';
-
-    const ACHIEVEMENTS = [
-      { emoji:'💰', title:'Premier million',   desc:'Accumule 1 000 000 $ de fortune',     done: coins >= 1_000_000 },
-      { emoji:'💎', title:'Milliardaire',       desc:'Accumule 1 000 000 000 $ de fortune', done: coins >= 1_000_000_000 },
-      { emoji:'😇', title:'Bon karma',          desc:'Atteins +100 karma',                  done: karma >= 100 },
-      { emoji:'👨‍👩‍👧', title:'Chef de famille',  desc:'Avoir au moins 1 conjoint et 1 enfant',done: family >= 2 },
-      { emoji:'🎓', title:'Diplômé',            desc:'Obtenir au moins 1 diplôme',           done: hasDiplome },
-      { emoji:'🏦', title:'Épargnant',          desc:'Avoir un compte en banque actif',      done: (u.bank_total||0) > 0 },
-      { emoji:'🏢', title:'Employé',            desc:'Travailler dans une entreprise',       done: !!(u.company) },
-      { emoji:'📈', title:'Investisseur',       desc:'Avoir des investissements actifs',     done: (u.portfolio?.invested||0) > 0 },
-    ];
-
-    const unlocked = ACHIEVEMENTS.filter(a => a.done).length;
-    document.getElementById('succes-count').textContent = `${unlocked} / ${ACHIEVEMENTS.length}`;
-
-    document.getElementById('succes-list').innerHTML = ACHIEVEMENTS.map(a =>
-      `<div class="card" style="display:flex;align-items:center;gap:12px;opacity:${a.done?1:0.45};margin-bottom:6px">
-        <div style="font-size:32px">${a.emoji}</div>
-        <div style="flex:1">
-          <div style="font-weight:800;color:${a.done?'var(--accent)':'var(--text)'}">${a.title}</div>
-          <div style="font-size:12px;color:var(--text2)">${a.desc}</div>
-        </div>
-        <div style="font-size:20px">${a.done?'✅':'🔒'}</div>
-      </div>`
-    ).join('');
-  } catch(e) {
-    console.error('[succes]', e);
-    document.getElementById('succes-loading').innerHTML = `<div style="color:var(--accent2)">❌ ${e.message||'Erreur'}</div>`;
-  }
-}
-
-</script>
-
-<!-- ══ CONFIRM MODAL CUSTOM ═══════════════════════════════════════════════ -->
-<div id="confirm-modal-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0);backdrop-filter:blur(0px);transition:background .25s,backdrop-filter .25s;align-items:flex-end;justify-content:center;">
-  <div id="confirm-modal-sheet" style="width:100%;max-width:480px;background:linear-gradient(160deg,#1e1e35 0%,#16213e 100%);border:1px solid rgba(247,201,72,.18);border-radius:28px 28px 0 0;padding:28px 24px 40px;transform:translateY(100%);transition:transform .32s cubic-bezier(.4,0,.2,1);box-shadow:0 -8px 40px rgba(0,0,0,.6),0 -1px 0 rgba(247,201,72,.12);">
-    <div style="width:36px;height:4px;border-radius:4px;background:rgba(255,255,255,.15);margin:0 auto 24px;"></div>
-    <div id="confirm-modal-emoji" style="font-size:40px;text-align:center;margin-bottom:12px;line-height:1;">💸</div>
-    <div id="confirm-modal-title" style="font-family:'Bangers',cursive;font-size:26px;letter-spacing:1.5px;color:var(--accent);text-align:center;margin-bottom:8px;">Confirmer ?</div>
-    <div id="confirm-modal-body" style="font-size:13px;color:var(--text2);text-align:center;line-height:1.5;margin-bottom:28px;"></div>
-    <div style="display:flex;gap:12px;">
-      <button id="confirm-modal-cancel" onclick="_closeConfirmModal(false)" style="flex:1;padding:15px;border-radius:16px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-family:'Nunito',sans-serif;font-size:14px;font-weight:800;cursor:pointer;">Annuler</button>
-      <button id="confirm-modal-ok" onclick="_closeConfirmModal(true)" style="flex:2;padding:15px;border-radius:16px;border:none;background:var(--accent2);color:#fff;font-family:'Nunito',sans-serif;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:.5px;">Confirmer</button>
-    </div>
-  </div>
-</div>
-
-<script>
-let _confirmResolve = null;
-
-function showConfirmModal(title, body, okLabel, okColor) {
-  okLabel = okLabel || 'Confirmer';
-  okColor = okColor || 'var(--accent2)';
-  return new Promise(function(resolve) {
-    _confirmResolve = resolve;
-    var overlay = document.getElementById('confirm-modal-overlay');
-    var sheet   = document.getElementById('confirm-modal-sheet');
-    document.getElementById('confirm-modal-title').textContent = title;
-    document.getElementById('confirm-modal-body').textContent  = body || '';
-    var okBtn = document.getElementById('confirm-modal-ok');
-    okBtn.textContent    = okLabel;
-    okBtn.style.background = okColor;
-    var emojiMatch = okLabel.match(/^\p{Emoji}/u);
-    document.getElementById('confirm-modal-emoji').textContent = emojiMatch ? emojiMatch[0] : '❓';
-    overlay.style.display = 'flex';
-    requestAnimationFrame(function() {
-      overlay.style.background = 'rgba(0,0,0,.72)';
-      overlay.style.backdropFilter = 'blur(6px)';
-      sheet.style.transform = 'translateY(0)';
-    });
-  });
-}
-
-function _closeConfirmModal(result) {
-  var overlay = document.getElementById('confirm-modal-overlay');
-  var sheet   = document.getElementById('confirm-modal-sheet');
-  overlay.style.background = 'rgba(0,0,0,0)';
-  overlay.style.backdropFilter = 'blur(0px)';
-  sheet.style.transform = 'translateY(100%)';
-  setTimeout(function() { overlay.style.display = 'none'; }, 320);
-  if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
-}
-
-document.getElementById('confirm-modal-overlay').addEventListener('click', function(e) {
-  if (e.target === document.getElementById('confirm-modal-overlay')) _closeConfirmModal(false);
-});
-</script>
-
-</body>
-</html>
+async

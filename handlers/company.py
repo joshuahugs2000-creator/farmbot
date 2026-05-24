@@ -517,51 +517,47 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
 REVENUE_PER_CMD = 5_000   # 1 commande employé = 5 000 $ en trésorerie
 
 async def update_company_activity(user_id: int):
-    """Appelé par le middleware à chaque commande. Génère 1 000 $ de revenus pour la trésorerie."""
+    """Appelé par le middleware à chaque commande. Met à jour TOUTES les entreprises où l'employé est actif."""
     async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, user_id)
-        if not company or not emp:
+        # Récupérer TOUTES les entreprises actives où le user est membre
+        rows = (await session.execute(
+            select(CompanyEmployee, Company).join(
+                Company, Company.id == CompanyEmployee.company_id
+            ).where(
+                CompanyEmployee.user_id == user_id,
+                CompanyEmployee.left_at == None,
+                Company.is_active == True,
+            )
+        )).all()
+
+        if not rows:
             return
 
-        emp.command_count += 1
-        # Compteur d'activité depuis la dernière paie (pour /versersalaires)
-        if hasattr(emp, "activity_since_payroll"):
-            emp.activity_since_payroll = (emp.activity_since_payroll or 0) + 1
-
-        # Chaque commande génère 1 000 $ en trésorerie (revenus d'activité)
-        if not company.is_bot_company:
-            company.treasury = (company.treasury or 0) + REVENUE_PER_CMD
-
-        # Fix 11 : Promotion automatique stagiaire → employé après 50 commandes
-        if emp.role == "stagiaire" and emp.command_count >= 50:
-            from database.models import User as UserModel
-            db_user = await session.get(UserModel, user_id)
-            if db_user and db_user.diplome_bac:
-                emp.role = "employe"
-                try:
-                    await __import__("telegram").Bot.get_updates  # just to have a reference
-                except Exception:
-                    pass
-                # On ne peut pas envoyer de message ici sans context.bot — on log juste
-                import logging as _log
-                _log.getLogger(__name__).info(
-                    f"Stagiaire uid={user_id} promu automatiquement → employé (50 cmds)"
-                )
-
-        # Fix 6 : Plafond journalier de +250 000 $ de valeur par utilisateur/jour
-        # Evite le spam de commandes pour gonfler artificiellement la valeur
         today = datetime.utcnow().date()
-        daily_boost_key = f"_daily_boost_{user_id}_{today}"
-        current_boost = getattr(company, "_runtime_boost", {})
-        boost_today = current_boost.get(daily_boost_key, 0)
 
-        if boost_today < 250_000:
-            gain = min(50_000, 250_000 - boost_today)
-            company.value += gain
-            current_boost[daily_boost_key] = boost_today + gain
-            company._runtime_boost = current_boost
+        for emp, company in rows:
+            emp.command_count += 1
+            if hasattr(emp, "activity_since_payroll"):
+                emp.activity_since_payroll = (emp.activity_since_payroll or 0) + 1
 
-        company.last_active = datetime.utcnow()
+            # Revenus par commande
+            if not company.is_bot_company:
+                company.treasury = (company.treasury or 0) + REVENUE_PER_CMD
+                company.value = company.treasury
+
+            # Promotion automatique stagiaire → employé après 50 commandes
+            if emp.role == "stagiaire" and emp.command_count >= 50:
+                from database.models import User as UserModel
+                db_user = await session.get(UserModel, user_id)
+                if db_user and db_user.diplome_bac:
+                    emp.role = "employe"
+                    import logging as _log
+                    _log.getLogger(__name__).info(
+                        f"Stagiaire uid={user_id} promu automatiquement → employé (50 cmds)"
+                    )
+
+            company.last_active = datetime.utcnow()
+
         await session.commit()
 
 

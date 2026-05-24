@@ -1728,6 +1728,13 @@ async def webapp_diplomes(request: web.Request) -> web.Response:
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
 
+    DIPLOMES_INFO = [
+        {'key': 'bac',     'label': 'Baccalauréat', 'emoji': '📜', 'prérequis': None},
+        {'key': 'licence', 'label': 'Licence',       'emoji': '🎓', 'prérequis': 'bac'},
+        {'key': 'master',  'label': 'Master',         'emoji': '🏛️', 'prérequis': 'licence'},
+        {'key': 'mba',     'label': 'MBA',             'emoji': '💼', 'prérequis': 'master'},
+    ]
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
         if not user:
@@ -1737,32 +1744,27 @@ async def webapp_diplomes(request: web.Request) -> web.Response:
         if user.exam_cooldown:
             cooldown_left = max(0, int((user.exam_cooldown - datetime.utcnow()).total_seconds() / 60))
 
-    DIPLOMES_INFO = [
-        {'key': 'bac',     'label': 'Baccalauréat', 'emoji': '📜', 'prérequis': None},
-        {'key': 'licence', 'label': 'Licence',       'emoji': '🎓', 'prérequis': 'bac'},
-        {'key': 'master',  'label': 'Master',         'emoji': '🏛️', 'prérequis': 'licence'},
-        {'key': 'mba',     'label': 'MBA',             'emoji': '💼', 'prérequis': 'master'},
-    ]
+        diplomes = []
+        for d in DIPLOMES_INFO:
+            key      = d['key']
+            field    = f'diplome_{key}'
+            obtained = bool(getattr(user, field, False))
+            diplomes.append({
+                'key':       key,
+                'label':     d['label'],
+                'emoji':     d['emoji'],
+                'obtained':  obtained,
+                'prérequis': d['prérequis'],
+            })
 
-    diplomes = []
-    for d in DIPLOMES_INFO:
-        key     = d['key']
-        field   = f'diplome_{key}'
-        obtained = getattr(user, field, False) or False
-        diplomes.append({
-            'key':       key,
-            'label':     d['label'],
-            'emoji':     d['emoji'],
-            'obtained':  obtained,
-            'prérequis': d['prérequis'],
-        })
+        payload = {
+            'diplomes':      diplomes,
+            'domain':        user.diplome_domain or '',
+            'cooldown_left': cooldown_left,
+            'coins':         user.coins or 0,
+        }
 
-    return web.json_response({
-        'diplomes':      diplomes,
-        'domain':        user.diplome_domain or '',
-        'cooldown_left': cooldown_left,
-        'coins':         user.coins or 0,
-    })
+    return web.json_response(payload)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ENTREPRISE — système complet

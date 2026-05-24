@@ -1681,7 +1681,7 @@ async def webapp_diplomes(request: web.Request) -> web.Response:
 # ══════════════════════════════════════════════════════════════════════════════
 #  ENTREPRISE — système complet
 # ══════════════════════════════════════════════════════════════════════════════
-from database.models import TaxRecord, BureauContrat
+from database.models import TaxRecord, BureauContrat, CompanyApplication, CompanyAutoContract, CompanyShareOffer
 
 async def webapp_company_data(request: web.Request) -> web.Response:
     """GET /api/webapp/company — données complètes entreprise"""
@@ -1825,6 +1825,83 @@ async def webapp_company_data(request: web.Request) -> web.Response:
         except Exception:
             pass
 
+        # Candidatures (PDG only)
+        candidatures = []
+        if emp.role == 'pdg':
+            try:
+                apps = (await session.execute(
+                    select(CompanyApplication).where(
+                        CompanyApplication.company_id == company.id,
+                        CompanyApplication.status == 'pending',
+                    ).order_by(CompanyApplication.created_at.desc())
+                )).scalars().all()
+                UserModel3 = __import__('database.models', fromlist=['User']).User
+                for a in apps:
+                    au = await session.get(UserModel3, a.user_id)
+                    candidatures.append({
+                        'id':       a.id,
+                        'user_id':  a.user_id,
+                        'name':     (au.first_name or au.username or '—') if au else '—',
+                        'username': au.username if au else '',
+                        'date':     a.created_at.strftime('%d/%m à %H:%M') if a.created_at else '—',
+                    })
+            except Exception:
+                pass
+
+        # Contrats automatiques (IA)
+        auto_contrats = []
+        try:
+            ac_rows = (await session.execute(
+                select(CompanyAutoContract).where(
+                    CompanyAutoContract.company_id == company.id,
+                    CompanyAutoContract.status.in_(['active', 'pending', 'negotiating']),
+                ).order_by(CompanyAutoContract.created_at.desc())
+            )).scalars().all()
+            for ac in ac_rows:
+                cmds_done_ac = max(0, int(total_cmds) - (ac.cmds_at_start or 0))
+                obj_ac = ac.objective_cmds or 1
+                pct_ac = min(100, int(cmds_done_ac / obj_ac * 100))
+                deadline_left = (ac.deadline_at - now).days if ac.deadline_at else 0
+                auto_contrats.append({
+                    'id':          ac.id,
+                    'client':      ac.client_name,
+                    'desc':        ac.description,
+                    'objective':   ac.objective_cmds,
+                    'cmds_done':   cmds_done_ac,
+                    'pct':         pct_ac,
+                    'reward':      _fmt(ac.negotiated_reward or ac.reward),
+                    'reward_raw':  ac.negotiated_reward or ac.reward,
+                    'status':      ac.status,
+                    'deadline_at': ac.deadline_at.strftime('%d/%m à %H:%M') if ac.deadline_at else '—',
+                    'days_left':   max(0, deadline_left),
+                })
+        except Exception:
+            pass
+
+        # Offres de parts en attente
+        share_offers = []
+        try:
+            so_rows = (await session.execute(
+                select(CompanyShareOffer).where(
+                    CompanyShareOffer.company_id == company.id,
+                    CompanyShareOffer.status == 'pending',
+                ).order_by(CompanyShareOffer.created_at.desc())
+            )).scalars().all()
+            UserModel4 = __import__('database.models', fromlist=['User']).User
+            for so in so_rows:
+                bu = await session.get(UserModel4, so.buyer_id)
+                share_offers.append({
+                    'id':          so.id,
+                    'buyer_name':  (bu.first_name or bu.username or '—') if bu else '—',
+                    'buyer_username': bu.username if bu else '',
+                    'quantity':    so.quantity,
+                    'price_each':  _fmt(so.price_each),
+                    'total_price': _fmt(so.total_price),
+                    'expires_at':  so.expires_at.strftime('%d/%m à %H:%M') if so.expires_at else '—',
+                })
+        except Exception:
+            pass
+
         # Niveau
         LEVELS = {1:('⭐','Startup'),2:('⭐⭐','PME'),3:('⭐⭐⭐','ETI'),4:('⭐⭐⭐⭐','Grande Entreprise'),5:('⭐⭐⭐⭐⭐','Multinationale')}
         lvl_emoji, lvl_name = LEVELS.get(company.level or 1, ('⭐','Startup'))
@@ -1857,6 +1934,10 @@ async def webapp_company_data(request: web.Request) -> web.Response:
                 'nb_contrats':   len(contrats_data),
                 'taxes':         tax_data,
                 'logs':          logs,
+                'candidatures':  candidatures,
+                'nb_candidatures': len(candidatures),
+                'auto_contrats': auto_contrats,
+                'share_offers':  share_offers,
                 'total_cmds':    int(total_cmds),
                 'owner_id':      company.owner_id,
                 'weekly_revenue': _fmt(company.weekly_revenue or 0),

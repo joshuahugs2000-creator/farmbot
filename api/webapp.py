@@ -370,13 +370,15 @@ async def webapp_market_action(request: web.Request) -> web.Response:
     asset_id = body.get('asset_id', '')
     qty = int(body.get('quantity', 1))
 
-    if asset_id not in ASSETS:
-        return web.json_response({'error': 'Asset inconnu'}, status=400)
-    if qty < 1:
-        return web.json_response({'error': 'Quantité invalide'}, status=400)
+    # Pour la vente par inv_id, pas besoin d'asset_id
+    if action != 'sell' or not body.get('inv_id'):
+        if asset_id not in ASSETS:
+            return web.json_response({'error': 'Asset inconnu'}, status=400)
+        if qty < 1:
+            return web.json_response({'error': 'Quantité invalide'}, status=400)
 
-    a = ASSETS[asset_id]
-    price = _current_price(asset_id)
+    a = ASSETS.get(asset_id, {})
+    price = _current_price(asset_id) if asset_id else 0
 
     async with AsyncSessionLocal() as session:
         user_result = await session.execute(select(User).where(User.user_id == uid))

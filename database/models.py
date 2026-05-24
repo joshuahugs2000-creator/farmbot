@@ -416,13 +416,15 @@ class StateCaisse(Base):
 class BureauContrat(Base):
     """Contrat proposé par le Bureau des Contrats."""
     __tablename__ = "bureau_contrats"
-    id           = Column(Integer, primary_key=True, autoincrement=True)
-    company_id   = Column(Integer, ForeignKey("companies.id"), nullable=False)
-    title        = Column(String(200), nullable=False)
-    description  = Column(String(600), nullable=False)
-    reward       = Column(BigInteger, nullable=False)
-    duration_days= Column(Integer, nullable=False)              # 3 à 30 jours
-    starts_at    = Column(DateTime, nullable=True)
-    ends_at      = Column(DateTime, nullable=True)
-    status       = Column(String(20), default="pending")        # pending / active / completed / failed
-    created_at   = Column(DateTime, default=datetime.utcnow)
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    company_id     = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    title          = Column(String(200), nullable=False)
+    description    = Column(String(600), nullable=False)
+    reward         = Column(BigInteger, nullable=False)
+    duration_days  = Column(Integer, nullable=False)
+    objective_cmds = Column(Integer, default=0)                 # nb de commandes d'équipe à atteindre
+    cmds_at_start  = Column(BigInteger, default=0)              # snapshot commandes au moment de l'acceptation
+    starts_at      = Column(DateTime, nullable=True)
+    ends_at        = Column(DateTime, nullable=True)
+    status         = Column(String(20), default="pending")      # pending / active / completed / failed
+    created_at     = Column(DateTime, default=datetime.utcnow)

@@ -4692,7 +4692,7 @@ async function _loadSalle() {
     const d = await r.json();
     // Debug: show raw JSON if unexpected
     if (d.error) {
-      el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:12px"><b>API Error:</b> ' + d.error + '</div>';
+      el.innerHTML = '<div style="padding:12px;color:#ff6b6b;font-size:11px;word-break:break-all"><b>API Error:</b> ' + d.error + '<br><pre style="font-size:9px;margin-top:8px;white-space:pre-wrap;color:#ffa07a">' + (d.trace||'') + '</pre></div>';
       return;
     }
     _salleAuctionData = d.auction;

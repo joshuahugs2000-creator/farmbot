@@ -1691,7 +1691,7 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ).where(
                 CompanyEmployee.user_id == user.id,
                 CompanyEmployee.left_at == None,
-                Company.is_active == True,
+                # Pas de filtre is_active : permet de quitter même une entreprise dissoute
             )
         )).all()
 

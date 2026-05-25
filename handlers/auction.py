@@ -709,3 +709,107 @@ async def buyitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         pass
+
+
+# ─── LA SALLE VIP ─────────────────────────────────────────────────────────────
+
+SALLE_ITEMS = [
+    # (item_id, nom, emoji, rareté, valeur_min, valeur_max, mise_départ, desc)
+    ("couronne_roi_soleil",  "Couronne du Roi Soleil",      "👑", "mythique",  5_000_000,   50_000_000,  1_000_000, "Forgée pour un monarque oublié, elle irradie encore."),
+    ("epee_legendaire",      "Épée des Légendes",           "⚔️","mythique",  8_000_000,   80_000_000,  2_000_000, "Une lame qui n'a jamais connu la défaite."),
+    ("cristal_obscur",       "Cristal des Ombres",          "🔮", "mythique",  6_000_000,   60_000_000,  1_500_000, "Renferme une dimension entière en son cœur."),
+    ("grimoire_interdit",    "Grimoire Interdit",           "📕", "mythique",  4_000_000,   40_000_000,  800_000,   "Chaque page est un secret que le monde a voulu effacer."),
+    ("trone_ancien",         "Trône des Anciens",           "🪑", "mythique",  10_000_000,  100_000_000, 3_000_000, "Celui qui s'y assoit voit tout ce qui fut."),
+    ("masque_mort",          "Masque de la Mort",           "💀", "mythique",  7_000_000,   70_000_000,  1_800_000, "Porté lors des rituels les plus sombres."),
+    ("dragon_empaille",      "Dragon Empaillé Authentique", "🐉", "mythique",  9_000_000,   90_000_000,  2_500_000, "Dernier spécimen connu de son espèce."),
+    ("etoile_noire",         "Étoile Noire",                "⭐", "divin",     50_000_000,  500_000_000, 10_000_000, "Fragment de la première étoile morte de l'univers."),
+    ("artefact_divin",       "Artefact des Dieux",          "✨", "divin",     80_000_000,  800_000_000, 15_000_000, "Sa seule existence défie les lois de la physique."),
+    ("oeil_cosmos",          "Œil du Cosmos",               "👁️","divin",     100_000_000, 1_000_000_000,20_000_000,"Regarde dans cet œil et l'univers te regarde en retour."),
+    ("clef_eternite",        "Clef de l'Éternité",          "🗝️","divin",     60_000_000,  600_000_000, 12_000_000, "Ouvre une porte vers un lieu où le temps n'existe pas."),
+    ("couronne_cosmos",      "Couronne du Cosmos",          "💫", "divin",     120_000_000, 1_200_000_000,25_000_000,"Portée par l'être qui a créé les étoiles."),
+]
+
+
+async def init_salle_tables():
+    """Crée les tables pour La Salle VIP si elles n'existent pas."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("""
+            CREATE TABLE IF NOT EXISTS salle_auctions (
+                id           SERIAL PRIMARY KEY,
+                item_id      VARCHAR(50)  NOT NULL,
+                item_name    VARCHAR(100) NOT NULL,
+                item_emoji   VARCHAR(10)  NOT NULL,
+                rarity       VARCHAR(20)  NOT NULL,
+                true_value   BIGINT       NOT NULL,
+                start_price  BIGINT       NOT NULL,
+                current_bid  BIGINT       NOT NULL,
+                leader_id    BIGINT,
+                leader_name  VARCHAR(255),
+                custom_desc  TEXT,
+                status       VARCHAR(20)  DEFAULT 'active',
+                started_at   TIMESTAMP    DEFAULT NOW(),
+                ends_at      TIMESTAMP    NOT NULL
+            )
+        """))
+        await session.execute(text("""
+            CREATE TABLE IF NOT EXISTS salle_vip_access (
+                user_id    BIGINT PRIMARY KEY,
+                expires_at TIMESTAMP NOT NULL,
+                paid_at    TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        await session.commit()
+    logger.info("Tables La Salle VIP initialisées.")
+
+
+async def _launch_salle_auction(context=None):
+    """Lance une nouvelle enchère dans La Salle (1 objet / heure)."""
+    import random as _r
+    async with AsyncSessionLocal() as session:
+        # Clôturer les enchères expirées
+        await session.execute(text("""
+            UPDATE salle_auctions
+            SET status = 'closed'
+            WHERE status = 'active' AND ends_at <= NOW()
+        """))
+        await session.commit()
+
+        # Vérifier qu'aucune enchère active n'est en cours
+        existing = await session.execute(text(
+            "SELECT id FROM salle_auctions WHERE status = 'active'"
+        ))
+        if existing.fetchone():
+            return  # Encore active, on attend
+
+        # Choisir un objet (priorité divin 20%, mythique 80%)
+        pool = SALLE_ITEMS
+        weights = [20 if it[3] == "divin" else 80 for it in pool]
+        item = _r.choices(pool, weights=weights, k=1)[0]
+        item_id, item_name, item_emoji, rarity, val_min, val_max, start_price, desc = item
+        true_value = _r.randint(val_min, val_max)
+        ends_at = datetime.utcnow() + timedelta(hours=1)
+
+        await session.execute(text("""
+            INSERT INTO salle_auctions
+                (item_id, item_name, item_emoji, rarity, true_value,
+                 start_price, current_bid, custom_desc, ends_at)
+            VALUES (:iid, :iname, :iemoji, :rarity, :tv, :sp, :sp, :desc, :ends)
+        """), {
+            "iid": item_id, "iname": item_name, "iemoji": item_emoji,
+            "rarity": rarity, "tv": true_value, "sp": start_price,
+            "desc": desc, "ends": ends_at
+        })
+        await session.commit()
+
+    logger.info(f"La Salle — nouvel objet : {item_name} ({rarity})")
+
+
+def setup_salle_jobs(app):
+    """Programme le job toutes les heures pour La Salle VIP."""
+    app.job_queue.run_repeating(
+        _launch_salle_auction,
+        interval=timedelta(hours=1),
+        first=timedelta(seconds=30),
+        name="salle_vip_hourly",
+    )
+    logger.info("Job La Salle VIP programmé (toutes les heures).")§

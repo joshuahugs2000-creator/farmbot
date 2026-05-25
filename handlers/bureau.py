@@ -407,6 +407,97 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="HTML")
 
 
+# ─── COMMANDE : /claimcontratbc ──────────────────────────────────────────────
+async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /claimcontratbc — Réclame immédiatement la récompense d'un contrat Bureau
+    si l'objectif est atteint, sans attendre la deadline.
+    """
+    user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(
+                Company.owner_id == user.id,
+                Company.is_active == True,
+            )
+        )).scalar_one_or_none()
+
+        if not company:
+            await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
+            return
+
+        active_contracts = (await session.execute(
+            select(BureauContrat).where(
+                BureauContrat.company_id == company.id,
+                BureauContrat.status == "active",
+            )
+        )).scalars().all()
+
+        if not active_contracts:
+            await update.message.reply_text(
+                "📭 Aucun contrat Bureau actif en cours.\n"
+                "Soumets un dossier avec <code>/soumettredossier</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        total_cmds_now = await _get_employee_total_cmds(session, company.id)
+        now = datetime.utcnow()
+        claimed_any = False
+        messages = []
+
+        for contract in active_contracts:
+            cmds_done = max(0, total_cmds_now - (contract.cmds_at_start or 0))
+            obj = contract.objective_cmds or 1
+
+            if cmds_done >= obj:
+                # Objectif atteint → crédit immédiat
+                contract.status = "completed"
+                company.treasury += contract.reward
+                company.value = company.treasury
+
+                await _add_log(session, company.id, "contrat_bureau",
+                               f"Contrat '{contract.title}' réclamé manuellement — +{_fmt(contract.reward)} $",
+                               amount=contract.reward)
+
+                time_saved = ""
+                if contract.ends_at and now < contract.ends_at:
+                    diff = contract.ends_at - now
+                    h = int(diff.total_seconds() // 3600)
+                    m = int((diff.total_seconds() % 3600) // 60)
+                    time_saved = f"⚡ Réclamé <b>{h}h{m:02d}</b> avant la deadline !\n\n"
+
+                messages.append(
+                    f"🎉 <b>{contract.title}</b>\n"
+                    f"✅ {cmds_done:,} / {obj:,} commandes\n"
+                    f"{time_saved}"
+                    f"💰 <b>+{_fmt(contract.reward)} $</b> crédités en trésorerie"
+                )
+                claimed_any = True
+            else:
+                pct = min(100, int(cmds_done / obj * 100))
+                bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+                remaining = obj - cmds_done
+                messages.append(
+                    f"⏳ <b>{contract.title}</b>\n"
+                    f"[{bar}] {cmds_done:,}/{obj:,} cmds ({pct}%)\n"
+                    f"Il manque encore <b>{remaining:,} commandes</b>"
+                )
+
+        await session.commit()
+
+        header = "📋 <b>BUREAU DES CONTRATS — Réclamation</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        if claimed_any:
+            footer = f"\n\n🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>"
+        else:
+            footer = "\n\n💡 Aucun contrat n'est encore complété."
+
+        await update.message.reply_text(
+            header + "\n\n".join(messages) + footer,
+            parse_mode="HTML"
+        )
+
+
 # ─── JOB : vérifier les contrats terminés ────────────────────────────────────
 async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
     """Vérifie chaque heure si les contrats bureau sont complétés ou expirés."""

@@ -78,6 +78,10 @@ HELP_TEXT_1 = """
 /classement — Classement global des entreprises
 /classement secteur — Classement par secteur
 /mescontratsauto — Voir les contrats automatiques IA de ton entreprise
+/claimcontrat — Réclamer immédiatement la récompense du contrat auto si l'objectif est atteint
+/soumettredossier — Soumettre un dossier au Bureau des Contrats
+/mescontratsbc — Suivre tes contrats Bureau
+/claimcontratbc — Réclamer immédiatement la récompense d'un contrat Bureau si l'objectif est atteint
 /proposercontrat nom — Proposer un contrat à une autre entreprise
 /acceptercontrat id — Accepter un contrat
 /refusercontrat id — Refuser un contrat

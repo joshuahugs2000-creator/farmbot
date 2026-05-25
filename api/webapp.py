@@ -2570,6 +2570,13 @@ SALLE_ACCESS_PRICE = 1_000_000
 
 async def webapp_salle_status(request: web.Request) -> web.Response:
     """GET /api/webapp/salle/status?user_id=xxx — accès + enchère active"""
+    import traceback as _tb2
+    try:
+        return await _webapp_salle_status_inner(request)
+    except Exception as _e2:
+        return web.json_response({'error': str(_e2), 'trace': _tb2.format_exc()[-1000:]}, status=500)
+
+async def _webapp_salle_status_inner(request: web.Request) -> web.Response:
     uid = int(request.rel_url.query.get('user_id', 0))
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
@@ -2588,28 +2595,35 @@ async def webapp_salle_status(request: web.Request) -> web.Response:
         seconds_left = int((acc_row[0] - now).total_seconds()) if has_access else 0
 
         # Enchère active
-        auc = await session.execute(text(
-            "SELECT * FROM salle_auctions WHERE status = 'active' ORDER BY id DESC LIMIT 1"
-        ))
+        auc = await session.execute(text("""
+            SELECT id, item_id, item_name, item_emoji, rarity,
+                   start_price, current_bid, leader_id, leader_name,
+                   custom_desc, ends_at
+            FROM salle_auctions WHERE status = 'active' ORDER BY id DESC LIMIT 1
+        """))
         auction = auc.fetchone()
 
         auction_data = None
         if auction:
-            time_left_s = max(0, int((auction.ends_at - now).total_seconds()))
+            from datetime import datetime as _dtparse
+            ends_at_val = auction[10]
+            if isinstance(ends_at_val, str):
+                ends_at_val = _dtparse.fromisoformat(ends_at_val)
+            time_left_s = max(0, int((ends_at_val - now).total_seconds()))
             auction_data = {
-                'id':          auction.id,
-                'item_id':     auction.item_id,
-                'item_name':   auction.item_name,
-                'item_emoji':  auction.item_emoji,
-                'rarity':      auction.rarity,
-                'start_price': auction.start_price,
-                'current_bid': auction.current_bid,
-                'leader_id':   auction.leader_id,
-                'leader_name': auction.leader_name,
-                'ends_at':     str(auction.ends_at),
+                'id':          auction[0],
+                'item_id':     auction[1],
+                'item_name':   auction[2],
+                'item_emoji':  auction[3],
+                'rarity':      auction[4],
+                'start_price': auction[5],
+                'current_bid': auction[6],
+                'leader_id':   auction[7],
+                'leader_name': auction[8],
+                'custom_desc': auction[9],
+                'ends_at':     str(ends_at_val),
                 'time_left_s': time_left_s,
-                'is_leading':  auction.leader_id == uid,
-                'custom_desc': auction.custom_desc,
+                'is_leading':  auction[7] == uid,
             }
 
         # Wallet
@@ -2704,18 +2718,23 @@ async def webapp_salle_bid(request: web.Request) -> web.Response:
             return web.json_response({'ok': False, 'error': '🔒 Accès à La Salle expiré'})
 
         # Enchère
-        auc_r = await session.execute(text(
-            "SELECT * FROM salle_auctions WHERE id = :aid AND status = 'active'"
-        ), {"aid": auction_id})
+        auc_r = await session.execute(text("""
+            SELECT id, current_bid, leader_id, ends_at, status
+            FROM salle_auctions WHERE id = :aid AND status = 'active'
+        """), {"aid": auction_id})
         auction = auc_r.fetchone()
         if not auction:
             return web.json_response({'ok': False, 'error': 'Enchère introuvable ou terminée'})
-        if auction.ends_at <= now:
+        auc_id, auc_current_bid, auc_leader_id, auc_ends_at, auc_status = auction
+        from datetime import datetime as _dtparse2
+        if isinstance(auc_ends_at, str):
+            auc_ends_at = _dtparse2.fromisoformat(auc_ends_at)
+        if auc_ends_at <= now:
             return web.json_response({'ok': False, 'error': '⏰ Enchère terminée !'})
-        if auction.leader_id == uid:
+        if auc_leader_id == uid:
             return web.json_response({'ok': False, 'error': '👑 Tu mènes déjà cette enchère !'})
 
-        min_bid = max(auction.current_bid + 1, int(auction.current_bid * 1.05))
+        min_bid = max(auc_current_bid + 1, int(auc_current_bid * 1.05))
         if amount < min_bid:
             return web.json_response({'ok': False, 'error': f'Minimum : {_fmt(min_bid)} $ (+5%)'})
 
@@ -2729,10 +2748,10 @@ async def webapp_salle_bid(request: web.Request) -> web.Response:
         leader_name = user_row[1] or str(uid)
 
         # Rembourser ancien leader
-        if auction.leader_id:
+        if auc_leader_id:
             await session.execute(text(
                 "UPDATE users SET coins = coins + :amt WHERE user_id = :lid"
-            ), {"amt": auction.current_bid, "lid": auction.leader_id})
+            ), {"amt": auc_current_bid, "lid": auc_leader_id})
 
         await session.execute(text(
             "UPDATE users SET coins = coins - :amt WHERE user_id = :uid"

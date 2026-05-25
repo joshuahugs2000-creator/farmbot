@@ -606,6 +606,83 @@ async def mescontratsauto_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
+async def claimcontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /claimcontrat — Permet au PDG de réclamer immédiatement la récompense
+    si l'objectif du contrat actif est déjà atteint, sans attendre la deadline.
+    """
+    user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(
+                Company.owner_id == user.id,
+                Company.is_active == True,
+            )
+        )).scalar_one_or_none()
+
+        if not company:
+            await update.message.reply_text("❌ Tu n'es pas PDG d'une entreprise active.")
+            return
+
+        contract = (await session.execute(
+            select(CompanyAutoContract).where(
+                CompanyAutoContract.company_id == company.id,
+                CompanyAutoContract.status == "active",
+            )
+        )).scalar_one_or_none()
+
+        if not contract:
+            await update.message.reply_text(
+                "📭 Aucun contrat actif en cours.\n"
+                "Utilise /mescontratsauto pour voir l'état de tes contrats."
+            )
+            return
+
+        total_cmds_now = await _get_employee_total_cmds(session, contract.company_id)
+        cmds_done = max(0, total_cmds_now - (contract.cmds_at_start or 0))
+        reward = contract.negotiated_reward or contract.reward
+
+        if cmds_done < contract.objective_cmds:
+            pct = min(100, int(cmds_done / contract.objective_cmds * 100))
+            bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+            remaining = contract.objective_cmds - cmds_done
+            await update.message.reply_text(
+                f"⏳ <b>Objectif pas encore atteint !</b>\n\n"
+                f"🏢 <b>{contract.client_name}</b>\n"
+                f"📌 {contract.description[:80]}…\n\n"
+                f"[{bar}] {cmds_done:,} / {contract.objective_cmds:,} cmds ({pct}%)\n"
+                f"Il manque encore <b>{remaining:,} commandes</b> pour réclamer la récompense.",
+                parse_mode="HTML",
+            )
+            return
+
+        # Objectif atteint → on crédite immédiatement
+        contract.status = "completed"
+        company.treasury += reward
+        rep_gain = random.choice([0.05, 0.05, 0.075, 0.075, 0.10])
+        company.reputation = min(5.0, (company.reputation or 3.0) + rep_gain)
+        await session.commit()
+
+        # Calcul du temps gagné
+        now = datetime.utcnow()
+        time_saved = ""
+        if contract.deadline_at and now < contract.deadline_at:
+            diff = contract.deadline_at - now
+            hours_saved = int(diff.total_seconds() // 3600)
+            mins_saved  = int((diff.total_seconds() % 3600) // 60)
+            time_saved = f"⚡ Récompense réclamée <b>{hours_saved}h{mins_saved:02d}</b> avant la deadline !\n\n"
+
+        await update.message.reply_text(
+            f"🎉 <b>Contrat accompli — Récompense réclamée !</b>\n\n"
+            f"🏢 <b>{contract.client_name}</b> — {contract.description[:80]}…\n\n"
+            f"✅ Objectif atteint : <b>{cmds_done:,} / {contract.objective_cmds:,} commandes</b>\n"
+            f"{time_saved}"
+            f"💰 Récompense créditée : <b>+{_fmt(reward)} $</b> en trésorerie\n"
+            f"⭐ Réputation : <b>+{rep_gain}</b> → {company.reputation:.2f}/5",
+            parse_mode="HTML",
+        )
+
+
 async def init_contract_tables():
     """Crée les tables si elles n'existent pas."""
     from sqlalchemy import text

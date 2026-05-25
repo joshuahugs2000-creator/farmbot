@@ -91,6 +91,7 @@ from handlers.auction import (
     bid, expertise, expertise_callback, auction_callback,
     myitems, sellitem, shopitems, buyitem,
     init_auction_tables, setup_auction_jobs,
+    init_salle_tables, setup_salle_jobs,
 )
 from handlers.wealth_drain import (
     cambrioler,
@@ -381,6 +382,7 @@ async def on_startup(application: Application):
     await init_drain_tables()
     await _ensure_cambriolage_cd_table()
     await init_auction_tables()
+    await init_salle_tables()
     await init_company_tables()
     await init_sector_tables()
     await init_finance_tables()
@@ -737,6 +739,7 @@ async def main():
         name="loan_reminders",
     )
     setup_auction_jobs(app)
+    setup_salle_jobs(app)
     setup_journal_jobs(app)
     app.add_handler(CommandHandler("testjournal", testjournal_cmd))
 

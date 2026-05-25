@@ -19,12 +19,12 @@ def _compute_tax(treasury: int) -> int:
     """Calcule l'impôt journalier selon la trésorerie."""
     if treasury <= 0:
         return 0
-    if treasury < 1_000_000_000:          # < 1B  → 0.5%
-        return int(treasury * 0.005)
-    elif treasury < 10_000_000_000:       # < 10B → 1%
-        return int(treasury * 0.01)
-    else:                                  # 10B+  → 1.5%
-        return int(treasury * 0.015)
+    if treasury < 1_000_000_000:          # < 1B  → 0.05%
+        return int(treasury * 0.0005)
+    elif treasury < 10_000_000_000:       # < 10B → 0.1%
+        return int(treasury * 0.001)
+    else:                                  # 10B+  → 0.15%
+        return int(treasury * 0.0015)
 
 
 # ─── JOB QUOTIDIEN ────────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
             )).scalar_one_or_none()
 
             if pdg_emp:
-                taux = "0.5%" if company.treasury < 1_000_000_000 else ("1%" if company.treasury < 10_000_000_000 else "1.5%")
+                taux = "0.05%" if company.treasury < 1_000_000_000 else ("0.1%" if company.treasury < 10_000_000_000 else "0.15%")
                 gel_note = "\n⚠️ <b>Ta trésorerie est actuellement gelée.</b> Paie tes impôts pour la débloquer." if company.treasury_frozen else ""
                 try:
                     await context.bot.send_message(

@@ -812,4 +812,4 @@ def setup_salle_jobs(app):
         first=timedelta(seconds=30),
         name="salle_vip_hourly",
     )
-    logger.info("Job La Salle VIP programmé (toutes les heures).")§
+    logger.info("Job La Salle VIP programme (toutes les heures).")

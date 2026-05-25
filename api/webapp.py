@@ -2576,10 +2576,42 @@ async def webapp_salle_status(request: web.Request) -> web.Response:
     except Exception as _e2:
         return web.json_response({'error': str(_e2), 'trace': _tb2.format_exc()[-1000:]}, status=500)
 
+async def _ensure_salle_tables():
+    """Crée les tables Salle si elles n'existent pas (idempotent)."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("""
+            CREATE TABLE IF NOT EXISTS salle_auctions (
+                id           SERIAL PRIMARY KEY,
+                item_id      VARCHAR(50)  NOT NULL,
+                item_name    VARCHAR(100) NOT NULL,
+                item_emoji   VARCHAR(10)  NOT NULL,
+                rarity       VARCHAR(20)  NOT NULL,
+                true_value   BIGINT       NOT NULL,
+                start_price  BIGINT       NOT NULL,
+                current_bid  BIGINT       NOT NULL,
+                leader_id    BIGINT,
+                leader_name  VARCHAR(255),
+                custom_desc  TEXT,
+                status       VARCHAR(20)  DEFAULT 'active',
+                started_at   TIMESTAMP    DEFAULT NOW(),
+                ends_at      TIMESTAMP    NOT NULL
+            )
+        """))
+        await session.execute(text("""
+            CREATE TABLE IF NOT EXISTS salle_vip_access (
+                user_id    BIGINT PRIMARY KEY,
+                expires_at TIMESTAMP NOT NULL,
+                paid_at    TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        await session.commit()
+
 async def _webapp_salle_status_inner(request: web.Request) -> web.Response:
     uid = int(request.rel_url.query.get('user_id', 0))
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
+
+    await _ensure_salle_tables()
 
     from datetime import datetime as _dt2
     now = _dt2.utcnow()
@@ -2654,6 +2686,8 @@ async def webapp_salle_pay(request: web.Request) -> web.Response:
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
 
+    await _ensure_salle_tables()
+
     from datetime import datetime as _dt3, timedelta as _td
     now = _dt3.utcnow()
 
@@ -2704,6 +2738,8 @@ async def webapp_salle_bid(request: web.Request) -> web.Response:
 
     if not _is_allowed(uid):
         return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+
+    await _ensure_salle_tables()
 
     from datetime import datetime as _dt4
     now = _dt4.utcnow()

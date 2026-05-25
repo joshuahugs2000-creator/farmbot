@@ -4683,7 +4683,18 @@ async function _loadSalle() {
   if (_salleTimerInterval) { clearInterval(_salleTimerInterval); _salleTimerInterval = null; }
   try {
     const r = await fetchT('/api/webapp/salle/status?user_id='+uid, {}, 12000);
+    // Debug: show raw response if not ok
+    if (!r.ok) {
+      const txt = await r.text();
+      el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:11px;word-break:break-all"><b>HTTP ' + r.status + '</b><br>' + txt.substring(0,500) + '</div>';
+      return;
+    }
     const d = await r.json();
+    // Debug: show raw JSON if unexpected
+    if (d.error) {
+      el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:12px"><b>API Error:</b> ' + d.error + '</div>';
+      return;
+    }
     _salleAuctionData = d.auction;
     if (!d.has_access) {
       el.innerHTML = '<div style="text-align:center;padding:16px 0 24px"><div style="font-size:52px;margin-bottom:10px">🏛️</div><div style="font-size:20px;font-weight:900;color:#e9d5ff;margin-bottom:6px">LA SALLE</div><div style="font-size:13px;color:#a78bfa;margin-bottom:20px;line-height:1.6">Espace VIP réservé aux fortunés.<br>Des objets <b style="color:#e9d5ff">extraordinaires</b> arrivent<br>chaque heure sur l\'autel.</div><div style="background:linear-gradient(145deg,#1a1130,#0d0a1a);border-radius:18px;padding:20px;margin-bottom:20px;border:1px solid #7c3aed"><div style="font-size:13px;color:#a78bfa;margin-bottom:4px">Accès 24h</div><div style="font-size:28px;font-weight:900;color:#f7c948">'+fmt(d.access_price)+' $</div><div style="font-size:11px;color:#6d28d9;margin-top:4px">Ton solde : '+fmt(d.wallet)+' $</div></div><button onclick="_paySalleAccess()" style="width:100%;padding:16px;border-radius:16px;border:none;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-size:15px;font-weight:900;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.5)">🔑 Payer l\'accès — '+fmt(d.access_price)+' $</button><div id="salle-history-section" style="margin-top:24px"></div></div>';
@@ -4702,7 +4713,7 @@ async function _loadSalle() {
         if (t) t.textContent = '⏱ '+_timeLeft(auc.ends_at);
       }, 1000);
     }
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+  } catch(e) { console.error("_loadSalle error:", e); el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:12px;word-break:break-all"><b>Erreur:</b> ' + e.message + '</div>'; }
 }
 
 function _buildSalleAuctionHTML(auc) {

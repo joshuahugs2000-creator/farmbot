@@ -4479,17 +4479,135 @@ async function _gardenHarvest(gardenId) {
     .auction-val.gold { color:#f7c948; }
     .auction-leader { font-size:12px; color:var(--text2); margin-bottom:12px; }
     .auction-timer  { font-size:12px; font-weight:700; color:#e17055; }
-    /* ── Autel La Salle ─────────────────────────────────── */
-    .salle-altar-wrap { position:relative; width:160px; height:160px; margin:0 auto 20px; display:flex; align-items:center; justify-content:center; }
-    .salle-altar-glow { position:absolute; inset:-20px; border-radius:50%; background:radial-gradient(circle, var(--glow,#8b5cf6)44 0%, transparent 70%); opacity:.35; animation:salle-pulse 2s ease-in-out infinite; }
-    .salle-altar-ring { position:absolute; inset:0; border-radius:50%; border:2px solid var(--glow,#8b5cf6); opacity:.6; animation:salle-spin 8s linear infinite; }
-    .salle-altar-item { font-size:72px; line-height:1; animation:salle-float 3s ease-in-out infinite; position:relative; z-index:2; filter:drop-shadow(0 0 16px var(--glow,#8b5cf6)); }
-    .salle-altar-particles { position:absolute; inset:0; }
-    .salle-particle { position:absolute; width:4px; height:4px; border-radius:50%; background:var(--glow,#8b5cf6); top:50%; left:50%; animation:salle-orbit calc(3s + var(--i)*0.4s) linear infinite; transform-origin:0 0; opacity:.7; }
+    /* ── LA SALLE — Direction esthétique Dark Auction House ── */
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=DM+Mono:wght@400;500&display=swap');
+
+    .salle-root { position:relative; overflow:hidden; }
+    .salle-bg-orb { position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:0; }
+    .salle-bg-orb-1 { width:300px;height:300px; top:-80px;right:-60px; background:radial-gradient(circle,rgba(139,92,246,.18),transparent 70%); }
+    .salle-bg-orb-2 { width:220px;height:220px; bottom:100px;left:-50px; background:radial-gradient(circle,rgba(201,168,76,.12),transparent 70%); }
+
+    /* Gate VIP */
+    .salle-gate { position:relative;z-index:1;padding:8px 0 24px;text-align:center; }
+    .salle-gate-title { font-family:'Cinzel',serif;font-size:32px;font-weight:900;letter-spacing:4px;
+      background:linear-gradient(135deg,#c9a84c,#f0d080,#c9a84c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+      background-clip:text;text-shadow:none;margin-bottom:4px; }
+    .salle-gate-sub { font-family:'DM Mono',monospace;font-size:10px;letter-spacing:3px;color:#6b5b9a;text-transform:uppercase;margin-bottom:28px; }
+    .salle-gate-card { background:linear-gradient(145deg,rgba(26,17,48,.95),rgba(13,10,26,.98));
+      border:1px solid rgba(139,92,246,.4);border-radius:24px;padding:28px 24px;
+      box-shadow:0 0 60px rgba(139,92,246,.12),inset 0 1px 0 rgba(201,168,76,.15);
+      position:relative;overflow:hidden; }
+    .salle-gate-card::before { content:'';position:absolute;top:0;left:0;right:0;height:1px;
+      background:linear-gradient(90deg,transparent,#c9a84c44,#c9a84c,#c9a84c44,transparent); }
+    .salle-price-label { font-family:'DM Mono',monospace;font-size:10px;letter-spacing:2px;color:#6b5b9a;text-transform:uppercase;margin-bottom:8px; }
+    .salle-price-val { font-family:'Cinzel',serif;font-size:36px;font-weight:900;color:#c9a84c;margin-bottom:6px; }
+    .salle-wallet-info { font-family:'DM Mono',monospace;font-size:11px;color:#5a4a7a;margin-bottom:24px; }
+    .salle-pay-btn { width:100%;padding:16px;border-radius:16px;border:1px solid rgba(139,92,246,.5);
+      background:linear-gradient(135deg,#4c1d95,#6d28d9,#4c1d95);color:#e9d5ff;
+      font-family:'Cinzel',serif;font-size:14px;font-weight:700;letter-spacing:1px;cursor:pointer;
+      box-shadow:0 8px 32px rgba(109,40,217,.4);transition:all .2s;position:relative;overflow:hidden; }
+    .salle-pay-btn::after { content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(201,168,76,.1),transparent);opacity:0;transition:.2s; }
+    .salle-pay-btn:hover::after { opacity:1; }
+    .salle-pay-btn:active { transform:scale(.97); }
+
+    /* VIP Badge */
+    .salle-vip-badge { display:inline-flex;align-items:center;gap:8px;
+      background:linear-gradient(135deg,rgba(201,168,76,.15),rgba(201,168,76,.05));
+      border:1px solid rgba(201,168,76,.4);border-radius:40px;
+      padding:8px 16px;font-size:11px;font-family:'DM Mono',monospace;
+      color:#c9a84c;letter-spacing:1px;margin-bottom:20px;
+      box-shadow:0 0 20px rgba(201,168,76,.1); }
+    .salle-vip-dot { width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 8px #4ade80;animation:salle-blink 2s ease-in-out infinite; }
+
+    /* Bento Layout — Item Stage */
+    .salle-bento { display:grid;grid-template-columns:1fr;gap:12px;position:relative;z-index:1; }
+    .salle-stage { background:linear-gradient(145deg,rgba(26,17,48,.9),rgba(13,10,26,.95));
+      border-radius:24px;padding:28px 20px;text-align:center;
+      border:1px solid rgba(139,92,246,.35);
+      box-shadow:0 0 80px rgba(139,92,246,.08),inset 0 1px 0 rgba(201,168,76,.1);
+      position:relative;overflow:hidden; }
+    .salle-stage::before { content:'';position:absolute;top:0;left:20%;right:20%;height:1px;
+      background:linear-gradient(90deg,transparent,rgba(201,168,76,.6),transparent); }
+
+    /* Altar */
+    .salle-altar-wrap { position:relative;width:140px;height:140px;margin:0 auto 20px;display:flex;align-items:center;justify-content:center; }
+    .salle-altar-glow { position:absolute;inset:-30px;border-radius:50%;
+      background:radial-gradient(circle,var(--glow,#8b5cf6) 0%,transparent 65%);
+      opacity:.4;animation:salle-pulse 2.5s ease-in-out infinite; }
+    .salle-altar-ring { position:absolute;inset:-4px;border-radius:50%;
+      border:1px solid var(--glow,#8b5cf6);opacity:.5;animation:salle-spin 10s linear infinite; }
+    .salle-altar-ring2 { position:absolute;inset:-12px;border-radius:50%;
+      border:1px dashed var(--glow,#8b5cf6);opacity:.2;animation:salle-spin 18s linear infinite reverse; }
+    .salle-altar-item { font-size:72px;line-height:1;animation:salle-float 3.5s ease-in-out infinite;
+      position:relative;z-index:2;filter:drop-shadow(0 0 20px var(--glow,#8b5cf6)); }
+    .salle-altar-particles { position:absolute;inset:0; }
+    .salle-particle { position:absolute;width:3px;height:3px;border-radius:50%;
+      background:var(--glow,#8b5cf6);top:50%;left:50%;
+      animation:salle-orbit calc(4s + var(--i)*0.5s) linear infinite;
+      transform-origin:0 0;opacity:.6; }
+    .salle-altar-base { width:60px;height:3px;margin:0 auto;
+      background:linear-gradient(90deg,transparent,var(--glow,#8b5cf6),transparent);
+      border-radius:2px;opacity:.4; }
+
+    /* Item name + rarity */
+    .salle-item-name { font-family:'Cinzel',serif;font-size:18px;font-weight:700;color:#e9d5ff;margin-bottom:8px;line-height:1.3; }
+    .salle-rarity-badge { display:inline-flex;align-items:center;gap:4px;
+      border-radius:20px;padding:4px 14px;font-size:10px;font-weight:700;
+      font-family:'DM Mono',monospace;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px; }
+    .salle-rarity-mythique { background:rgba(139,92,246,.2);border:1px solid #8b5cf6;color:#c4b5fd; }
+    .salle-rarity-divin { background:rgba(239,68,68,.15);border:1px solid #ef4444;color:#fca5a5; }
+    .salle-item-desc { font-size:12px;color:#6b5b9a;line-height:1.6;font-style:italic;max-width:280px;margin:0 auto 20px; }
+
+    /* Stats Bento Grid */
+    .salle-stats-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;text-align:left; }
+    .salle-stat-cell { background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+      border-radius:14px;padding:12px;position:relative;overflow:hidden; }
+    .salle-stat-cell::before { content:'';position:absolute;top:0;left:0;right:0;height:1px;
+      background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent); }
+    .salle-stat-label { font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1.5px;
+      color:#4a3a6a;text-transform:uppercase;margin-bottom:6px; }
+    .salle-stat-value { font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:#e9d5ff; }
+    .salle-stat-value.gold { color:#c9a84c; }
+    .salle-stat-value.green { color:#4ade80; }
+    .salle-stat-value.red { color:#ef4444; }
+
+    /* Countdown */
+    .salle-countdown-wrap { display:flex;align-items:center;justify-content:space-between;
+      background:rgba(0,0,0,.3);border-radius:12px;padding:10px 14px;margin-bottom:16px;
+      border:1px solid rgba(255,255,255,.04); }
+    .salle-countdown { font-family:'DM Mono',monospace;font-size:15px;font-weight:500;color:#8b5cf6; }
+    .salle-rotation-hint { font-family:'DM Mono',monospace;font-size:9px;color:#3a2a5a;letter-spacing:1px; }
+
+    /* Bid Button */
+    .salle-bid-btn { width:100%;padding:17px;border-radius:18px;border:none;
+      font-family:'Cinzel',serif;font-size:14px;font-weight:700;letter-spacing:1px;cursor:pointer;
+      transition:all .2s;position:relative;overflow:hidden; }
+    .salle-bid-btn.active { background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#e9d5ff;
+      box-shadow:0 8px 32px rgba(124,58,237,.45); }
+    .salle-bid-btn.active:hover { box-shadow:0 12px 40px rgba(124,58,237,.6);transform:translateY(-1px); }
+    .salle-bid-btn.active:active { transform:translateY(1px);box-shadow:0 4px 16px rgba(124,58,237,.3); }
+    .salle-bid-btn.leading { background:rgba(26,40,26,.8);border:1px solid #4ade80;color:#4ade80;cursor:default; }
+    .salle-bid-btn.leading:hover { transform:none;box-shadow:none; }
+
+    /* History */
+    .salle-history { background:rgba(13,10,26,.8);border:1px solid rgba(139,92,246,.15);border-radius:18px;padding:18px;margin-top:16px; }
+    .salle-history-title { font-family:'Cinzel',serif;font-size:12px;letter-spacing:2px;color:#4a3a6a;text-transform:uppercase;margin-bottom:14px; }
+    .salle-hist-row { display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04); }
+    .salle-hist-row:last-child { border-bottom:none; }
+    .salle-hist-emoji { font-size:20px;width:28px;text-align:center; }
+    .salle-hist-name { font-size:12px;font-weight:700;color:#a990cc;flex:1; }
+    .salle-hist-bid { font-family:'DM Mono',monospace;font-size:11px;color:#c9a84c; }
+    .salle-hist-winner { font-family:'DM Mono',monospace;font-size:9px;color:#4a3a6a; }
+
+    /* No-access empty state */
+    .salle-empty-stage { padding:32px 0 8px;text-align:center; }
+    .salle-empty-icon { font-size:16px;letter-spacing:6px;color:#3a2a5a;margin-bottom:20px;display:block; }
+
     @keyframes salle-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
     @keyframes salle-spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-    @keyframes salle-pulse { 0%,100%{opacity:.25} 50%{opacity:.5} }
-    @keyframes salle-orbit { from{transform:rotate(calc(var(--i)*45deg)) translateX(65px)} to{transform:rotate(calc(var(--i)*45deg + 360deg)) translateX(65px)} }
+    @keyframes salle-pulse { 0%,100%{opacity:.3} 50%{opacity:.55} }
+    @keyframes salle-orbit { from{transform:rotate(calc(var(--i)*45deg)) translateX(58px)} to{transform:rotate(calc(var(--i)*45deg + 360deg)) translateX(58px)} }
+    @keyframes salle-blink { 0%,100%{opacity:1} 50%{opacity:.4} }
     .bid-btn {
       width:100%; padding:13px; border-radius:12px; border:none;
       background:linear-gradient(135deg,#f7c948,#e67e22); color:#000;
@@ -4683,47 +4801,138 @@ async function _loadSalle() {
   if (_salleTimerInterval) { clearInterval(_salleTimerInterval); _salleTimerInterval = null; }
   try {
     const r = await fetchT('/api/webapp/salle/status?user_id='+uid, {}, 12000);
-    // Debug: show raw response if not ok
     if (!r.ok) {
       const txt = await r.text();
       el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:11px;word-break:break-all"><b>HTTP ' + r.status + '</b><br>' + txt.substring(0,500) + '</div>';
       return;
     }
     const d = await r.json();
-    // Debug: show raw JSON if unexpected
     if (d.error) {
       el.innerHTML = '<div style="padding:12px;color:#ff6b6b;font-size:11px;word-break:break-all"><b>API Error:</b> ' + d.error + '<br><pre style="font-size:9px;margin-top:8px;white-space:pre-wrap;color:#ffa07a">' + (d.trace||'') + '</pre></div>';
       return;
     }
     _salleAuctionData = d.auction;
     if (!d.has_access) {
-      el.innerHTML = '<div style="text-align:center;padding:16px 0 24px"><div style="font-size:52px;margin-bottom:10px">🏛️</div><div style="font-size:20px;font-weight:900;color:#e9d5ff;margin-bottom:6px">LA SALLE</div><div style="font-size:13px;color:#a78bfa;margin-bottom:20px;line-height:1.6">Espace VIP réservé aux fortunés.<br>Des objets <b style="color:#e9d5ff">extraordinaires</b> arrivent<br>chaque heure sur l\'autel.</div><div style="background:linear-gradient(145deg,#1a1130,#0d0a1a);border-radius:18px;padding:20px;margin-bottom:20px;border:1px solid #7c3aed"><div style="font-size:13px;color:#a78bfa;margin-bottom:4px">Accès 24h</div><div style="font-size:28px;font-weight:900;color:#f7c948">'+fmt(d.access_price)+' $</div><div style="font-size:11px;color:#6d28d9;margin-top:4px">Ton solde : '+fmt(d.wallet)+' $</div></div><button onclick="_paySalleAccess()" style="width:100%;padding:16px;border-radius:16px;border:none;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-size:15px;font-weight:900;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.5)">🔑 Payer l\'accès — '+fmt(d.access_price)+' $</button><div id="salle-history-section" style="margin-top:24px"></div></div>';
-      _loadSalleHistory(); return;
+      el.innerHTML = _buildSalleGate(d);
+      _loadSalleHistory();
+      return;
     }
     const secsLeft = d.seconds_left || 0;
     const sh = Math.floor(secsLeft/3600), sm = Math.floor((secsLeft%3600)/60);
-    const accessStr = sh>0 ? sh+'h'+sm+'min' : sm+'min';
+    const accessStr = sh>0 ? sh+'h '+sm+'min' : sm+'min';
     const auc = d.auction;
-    const aucHTML = auc ? _buildSalleAuctionHTML(auc) : '<div style="text-align:center;padding:40px 0;color:#a78bfa"><div style="font-size:40px;margin-bottom:12px">⏳</div><div style="font-size:14px;font-weight:700">Prochain objet bientôt…</div></div>';
-    el.innerHTML = '<div style="text-align:center;margin-bottom:14px"><div style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,rgba(124,58,237,.2),rgba(79,70,229,.1));border:1px solid #7c3aed;border-radius:30px;padding:7px 14px;font-size:12px;color:#a78bfa"><span style="color:#4ade80;font-size:16px">●</span> Accès VIP valide — encore <b style="color:#e9d5ff">'+accessStr+'</b></div></div>'+aucHTML+'<div id="salle-history-section" style="margin-top:20px"></div>';
+    el.innerHTML =
+      '<div class="salle-root">' +
+        '<div class="salle-bg-orb salle-bg-orb-1"></div>' +
+        '<div class="salle-bg-orb salle-bg-orb-2"></div>' +
+        '<div style="text-align:center;margin-bottom:16px">' +
+          '<div class="salle-vip-badge"><div class="salle-vip-dot"></div> Accès VIP · encore <b style="color:#e9d5ff">' + accessStr + '</b></div>' +
+        '</div>' +
+        '<div class="salle-bento">' +
+          (auc ? _buildSalleAuctionHTML(auc) : _buildSalleEmpty()) +
+        '</div>' +
+        '<div id="salle-history-section"></div>' +
+      '</div>';
     _loadSalleHistory();
     if (auc) {
       _salleTimerInterval = setInterval(function() {
         const t = document.getElementById('salle-timer');
-        if (t) t.textContent = '⏱ '+_timeLeft(auc.ends_at);
+        if (t) t.textContent = '⏱ ' + _timeLeft(auc.ends_at);
       }, 1000);
     }
-  } catch(e) { console.error("_loadSalle error:", e); el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:12px;word-break:break-all"><b>Erreur:</b> ' + e.message + '</div>'; }
+  } catch(e) {
+    console.error('_loadSalle error:', e);
+    el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:12px;word-break:break-all"><b>Erreur:</b> ' + e.message + '</div>';
+  }
+}
+
+function _buildSalleGate(d) {
+  const canAfford = d.wallet >= d.access_price;
+  return '<div class="salle-root">' +
+    '<div class="salle-bg-orb salle-bg-orb-1"></div>' +
+    '<div class="salle-bg-orb salle-bg-orb-2"></div>' +
+    '<div class="salle-gate">' +
+      '<div class="salle-gate-title">LA SALLE</div>' +
+      '<div class="salle-gate-sub">Ventes aux enchères privées</div>' +
+      '<div class="salle-gate-card">' +
+        '<div class="salle-empty-stage">' +
+          '<span class="salle-empty-icon">— ✦ —</span>' +
+          '<div style="font-size:12px;color:#6b5b9a;line-height:1.8;margin-bottom:28px">' +
+            'Objets <span style="color:#c9a84c">Mythiques</span> & <span style="color:#ef4444">Divins</span>.<br>' +
+            'Une pièce exclusive change de mains chaque heure.' +
+          '</div>' +
+        '</div>' +
+        '<div class="salle-price-label">Accès 24 heures</div>' +
+        '<div class="salle-price-val">' + fmt(d.access_price) + ' <span style="font-size:18px">$</span></div>' +
+        '<div class="salle-wallet-info">Solde disponible · ' + fmt(d.wallet) + ' $</div>' +
+        '<button class="salle-pay-btn" onclick="_paySalleAccess()" ' + (canAfford ? '' : 'disabled style="opacity:.4;cursor:not-allowed"') + '>🔑 Obtenir l\'acc\u00e8s VIP</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="salle-history-section" style="margin-top:4px"></div>' +
+  '</div>';
+}
+
+function _buildSalleEmpty() {
+  return '<div class="salle-stage">' +
+    '<div style="padding:40px 0;text-align:center">' +
+      '<div style="font-size:40px;margin-bottom:14px;opacity:.4">⏳</div>' +
+      '<div class="salle-item-name" style="opacity:.5">Prochain objet bientôt…</div>' +
+      '<div class="salle-item-desc">L\'autel est en cours de préparation.</div>' +
+    '</div>' +
+  '</div>';
 }
 
 function _buildSalleAuctionHTML(auc) {
   _auctionCache[auc.id] = {name: auc.item_name, emoji: auc.item_emoji, rarity: auc.rarity};
   const isLeader = auc.is_leading;
   const rarLow = (auc.rarity||'').toLowerCase();
-  const glowCol = rarLow === 'divin' ? '#ef4444' : '#8b5cf6';
-  const rarBadge = rarLow === 'divin' ? '🔴 DIVIN' : '🟠 MYTHIQUE';
-  const name = (auc.item_name||'').replace(/'/g,"\'").replace(/"/g,'\"');
-  return '<div style="position:relative;margin:0 auto 4px;max-width:420px"><div class="salle-altar-wrap"><div class="salle-altar-glow" style="--glow:'+glowCol+'"></div><div class="salle-altar-ring"></div><div class="salle-altar-item">'+(auc.item_emoji||'💎')+'</div><div class="salle-altar-particles">'+[...Array(8)].map(function(_,i){return '<div class="salle-particle" style="--i:'+i+'"></div>';}).join('')+'</div></div><div style="text-align:center;margin-bottom:16px"><div style="font-size:20px;font-weight:900;color:#e9d5ff;margin-bottom:4px">'+auc.item_name+'</div><span style="display:inline-block;background:linear-gradient(135deg,'+glowCol+'33,'+glowCol+'11);border:1px solid '+glowCol+';border-radius:20px;padding:3px 12px;font-size:11px;font-weight:900;color:'+glowCol+'">'+rarBadge+'</span></div><div style="background:linear-gradient(145deg,#1a1130,#110d22);border-radius:16px;padding:16px;margin-bottom:14px;border:1px solid #3d2070"><div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #2d1a55"><span style="font-size:12px;color:#a78bfa">Mise de départ</span><span style="font-size:13px;font-weight:700;color:#e9d5ff">'+fmt(auc.start_price)+' $</span></div><div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #2d1a55"><span style="font-size:12px;color:#a78bfa">Enchère actuelle</span><span style="font-size:13px;font-weight:900;color:#f7c948">⚡ '+fmt(auc.current_bid)+' $</span></div><div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #2d1a55"><span style="font-size:12px;color:#a78bfa">Meneur</span><span style="font-size:12px;font-weight:700;color:'+(isLeader?'#4ade80':'#e9d5ff')+'">'+(isLeader?'👑 Toi':auc.leader_name||'Personne')+'</span></div><div style="display:flex;justify-content:space-between;padding:7px 0"><span style="font-size:12px;color:#a78bfa">Valeur réelle</span><span style="font-size:12px;color:#6d28d9;font-style:italic">❓ Cachée</span></div></div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div id="salle-timer" style="font-size:14px;font-weight:700;color:#a78bfa">⏱ '+_timeLeft(auc.ends_at)+'</div><div style="font-size:11px;color:#6d28d9">Rotation toutes les heures</div></div><button onclick="openBidModal('+auc.id+','+auc.current_bid+',true)" '+(isLeader?'disabled':'')+' style="width:100%;padding:16px;border-radius:16px;border:none;background:'+(isLeader?'#2d1a55':'linear-gradient(135deg,#7c3aed,#4f46e5)')+';color:'+(isLeader?'#6d28d9':'#fff')+';font-size:15px;font-weight:900;cursor:'+(isLeader?'default':'pointer')+';box-shadow:'+(isLeader?'none':'0 4px 20px rgba(124,58,237,.5)')+'">'+(isLeader?'✅ Tu mènes cette enchère':'⚡ Placer une enchère')+'</button></div>';
+  const isDivin = rarLow === 'divin';
+  const glowCol = isDivin ? '#ef4444' : '#8b5cf6';
+  const rarClass = isDivin ? 'salle-rarity-divin' : 'salle-rarity-mythique';
+  const rarLabel = isDivin ? '✦ DIVIN' : '◈ MYTHIQUE';
+  const leaderDisplay = isLeader ? '<span style="color:#4ade80">👑 Tu mènes</span>' : (auc.leader_name || 'Personne');
+  const minBid = Math.max((auc.current_bid||0) + 1, Math.floor((auc.current_bid||0) * 1.05));
+  return '<div class="salle-stage" style="--glow:' + glowCol + '">' +
+    '<div class="salle-altar-wrap">' +
+      '<div class="salle-altar-glow" style="--glow:' + glowCol + '"></div>' +
+      '<div class="salle-altar-ring"></div>' +
+      '<div class="salle-altar-ring2"></div>' +
+      '<div class="salle-altar-item">' + (auc.item_emoji||'💎') + '</div>' +
+      '<div class="salle-altar-particles">' +
+        [0,1,2,3,4,5,6,7].map(function(i){ return '<div class="salle-particle" style="--i:'+i+';--glow:'+glowCol+'"></div>'; }).join('') +
+      '</div>' +
+    '</div>' +
+    '<div class="salle-altar-base"></div>' +
+    '<div style="margin:14px 0 4px"><div class="salle-item-name">' + auc.item_name + '</div></div>' +
+    '<div style="margin-bottom:12px"><span class="salle-rarity-badge ' + rarClass + '">' + rarLabel + '</span></div>' +
+    (auc.custom_desc ? '<div class="salle-item-desc">' + auc.custom_desc + '</div>' : '') +
+    '<div class="salle-stats-grid">' +
+      '<div class="salle-stat-cell">' +
+        '<div class="salle-stat-label">Mise départ</div>' +
+        '<div class="salle-stat-value" style="font-size:11px">' + fmt(auc.start_price) + ' $</div>' +
+      '</div>' +
+      '<div class="salle-stat-cell">' +
+        '<div class="salle-stat-label">Enchère actuelle</div>' +
+        '<div class="salle-stat-value gold">' + fmt(auc.current_bid) + ' $</div>' +
+      '</div>' +
+      '<div class="salle-stat-cell">' +
+        '<div class="salle-stat-label">Meneur</div>' +
+        '<div class="salle-stat-value" style="font-size:11px">' + leaderDisplay + '</div>' +
+      '</div>' +
+      '<div class="salle-stat-cell">' +
+        '<div class="salle-stat-label">Valeur réelle</div>' +
+        '<div class="salle-stat-value" style="color:#3a2a5a;font-size:11px">— Cachée —</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="salle-countdown-wrap">' +
+      '<div class="salle-countdown" id="salle-timer">⏱ ' + _timeLeft(auc.ends_at) + '</div>' +
+      '<div class="salle-rotation-hint">ROTATION TOUTES LES HEURES</div>' +
+    '</div>' +
+    '<button class="salle-bid-btn ' + (isLeader ? 'leading' : 'active') + '" ' +
+      (isLeader ? 'disabled' : 'onclick="openBidModal(' + auc.id + ',' + auc.current_bid + ',true)"') + '>' +
+      (isLeader ? '✅ Tu mènes cette enchère' : '⚡ Placer une enchère · min ' + fmt(minBid) + ' $') +
+    '</button>' +
+  '</div>';
 }
 
 async function _loadSalleHistory() {
@@ -4734,7 +4943,24 @@ async function _loadSalleHistory() {
     const d = await r.json();
     const hist = d.history || [];
     if (!hist.length) return;
-    el.innerHTML = '<div style="font-size:13px;font-weight:900;color:#a78bfa;margin-bottom:10px">📜 Dernières clôtures</div>'+hist.map(function(h){return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #2d1a55"><span style="font-size:22px">'+h.emoji+'</span><div style="flex:1"><div style="font-size:12px;font-weight:700;color:#e9d5ff">'+h.name+'</div><div style="font-size:11px;color:#6d28d9">'+h.closed_at+'</div></div><div style="text-align:right"><div style="font-size:12px;font-weight:700;color:#f7c948">'+fmt(h.final_bid)+' $</div><div style="font-size:10px;color:#a78bfa">'+h.winner+'</div></div></div>';}).join('');
+    el.innerHTML = '<div class="salle-history">' +
+      '<div class="salle-history-title">Dernières clôtures</div>' +
+      hist.map(function(h) {
+        const isDivin = (h.rarity||'').toLowerCase() === 'divin';
+        const col = isDivin ? '#ef4444' : '#8b5cf6';
+        return '<div class="salle-hist-row">' +
+          '<div class="salle-hist-emoji" style="filter:drop-shadow(0 0 6px ' + col + ')">' + h.emoji + '</div>' +
+          '<div style="flex:1">' +
+            '<div class="salle-hist-name">' + h.name + '</div>' +
+            '<div class="salle-hist-winner">' + h.winner + '</div>' +
+          '</div>' +
+          '<div style="text-align:right">' +
+            '<div class="salle-hist-bid">' + fmt(h.final_bid) + ' $</div>' +
+            '<div style="font-family:monospace;font-size:9px;color:#3a2a5a">' + (h.closed_at||'').slice(0,16) + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
   } catch(e) {}
 }
 
@@ -4746,6 +4972,7 @@ async function _paySalleAccess() {
     else showToast(d.error || 'Erreur');
   } catch(e) { showToast('Erreur réseau'); }
 }
+
 
 // ── INVENTAIRE ────────────────────────────────────────────────────────────────
 async function _loadAuctionInventory() {

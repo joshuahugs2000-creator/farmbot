@@ -514,7 +514,7 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
 
 # ─── JOB : BONUS ACTIVITÉ BOT (compte les commandes des employés) ────────────
 
-REVENUE_PER_CMD = 5_000   # 1 commande employé = 5 000 $ en trésorerie
+REVENUE_PER_CMD = 10_000  # 1 commande employé = 10 000 $ en trésorerie
 
 async def update_company_activity(user_id: int):
     """Appelé par le middleware à chaque commande. Met à jour TOUTES les entreprises où l'employé est actif."""

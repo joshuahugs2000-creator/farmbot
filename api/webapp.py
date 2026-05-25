@@ -820,6 +820,11 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/api/webapp/auctions/live',      webapp_auctions_live)
     app.router.add_get('/api/webapp/auctions/inventory', webapp_auctions_inventory)
     app.router.add_post('/api/webapp/auctions/bid',      webapp_auctions_bid)
+    # ── La Salle VIP ────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/salle/status',  webapp_salle_status)
+    app.router.add_post('/api/webapp/salle/pay',    webapp_salle_pay)
+    app.router.add_post('/api/webapp/salle/bid',    webapp_salle_bid)
+    app.router.add_get('/api/webapp/salle/history', webapp_salle_history)
     app.router.add_get('/api/webapp/company',              webapp_company_data)
     app.router.add_post('/api/webapp/company/depot',       webapp_company_depot)
     app.router.add_post('/api/webapp/company/retrait',     webapp_company_retrait)
@@ -1060,7 +1065,7 @@ async def webapp_auctions_live(request: web.Request) -> web.Response:
                     'item_name':   row[2],
                     'item_emoji':  row[3],
                     'rarity':      row[4],
-                    'true_value':  row[5],
+                    # true_value intentionnellement absent — valeur cachée pendant l'enchère
                     'start_price': row[6],
                     'current_bid': row[7],
                     'leader_id':   row[8],
@@ -2555,3 +2560,216 @@ async def webapp_company_refuser(request: web.Request) -> web.Response:
 
         name = candidate.first_name if candidate else str(target_id)
         return web.json_response({'ok': True, 'msg': f'❌ Candidature de {name} refusée.'})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  🏛️ LA SALLE — Routes API
+# ══════════════════════════════════════════════════════════════════════════════
+
+SALLE_ACCESS_PRICE = 1_000_000
+
+async def webapp_salle_status(request: web.Request) -> web.Response:
+    """GET /api/webapp/salle/status?user_id=xxx — accès + enchère active"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _dt2
+    now = _dt2.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        # Accès VIP
+        acc = await session.execute(text(
+            "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+        ), {"uid": uid})
+        acc_row = acc.fetchone()
+        has_access = bool(acc_row and acc_row[0] > now)
+        expires_at = str(acc_row[0])[:16] if has_access else None
+        seconds_left = int((acc_row[0] - now).total_seconds()) if has_access else 0
+
+        # Enchère active
+        auc = await session.execute(text(
+            "SELECT * FROM salle_auctions WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+        ))
+        auction = auc.fetchone()
+
+        auction_data = None
+        if auction:
+            time_left_s = max(0, int((auction.ends_at - now).total_seconds()))
+            auction_data = {
+                'id':          auction.id,
+                'item_id':     auction.item_id,
+                'item_name':   auction.item_name,
+                'item_emoji':  auction.item_emoji,
+                'rarity':      auction.rarity,
+                'start_price': auction.start_price,
+                'current_bid': auction.current_bid,
+                'leader_id':   auction.leader_id,
+                'leader_name': auction.leader_name,
+                'ends_at':     str(auction.ends_at),
+                'time_left_s': time_left_s,
+                'is_leading':  auction.leader_id == uid,
+                'custom_desc': auction.custom_desc,
+            }
+
+        # Wallet
+        wallet_r = await session.execute(text(
+            "SELECT coins FROM users WHERE user_id = :uid"
+        ), {"uid": uid})
+        wallet_row = wallet_r.fetchone()
+        wallet = int(wallet_row[0]) if wallet_row else 0
+
+    return web.json_response({
+        'has_access':    has_access,
+        'expires_at':    expires_at,
+        'seconds_left':  seconds_left,
+        'access_price':  SALLE_ACCESS_PRICE,
+        'auction':       auction_data,
+        'wallet':        wallet,
+    })
+
+
+async def webapp_salle_pay(request: web.Request) -> web.Response:
+    """POST /api/webapp/salle/pay — acheter l'accès 24h"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _dt3, timedelta as _td
+    now = _dt3.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        wallet_r = await session.execute(text(
+            "SELECT coins FROM users WHERE user_id = :uid"
+        ), {"uid": uid})
+        wallet_row = wallet_r.fetchone()
+        if not wallet_row or wallet_row[0] < SALLE_ACCESS_PRICE:
+            return web.json_response({'ok': False, 'error': f'Fonds insuffisants (besoin de {_fmt(SALLE_ACCESS_PRICE)} $)'})
+
+        await session.execute(text(
+            "UPDATE users SET coins = coins - :amt WHERE user_id = :uid"
+        ), {"amt": SALLE_ACCESS_PRICE, "uid": uid})
+
+        # Renouveler ou créer
+        existing = await session.execute(text(
+            "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+        ), {"uid": uid})
+        ex = existing.fetchone()
+        base = ex[0] if (ex and ex[0] > now) else now
+        new_exp = base + _td(hours=24)
+
+        await session.execute(text("""
+            INSERT INTO salle_vip_access (user_id, expires_at)
+            VALUES (:uid, :exp)
+            ON CONFLICT (user_id) DO UPDATE SET expires_at = :exp, paid_at = NOW()
+        """), {"uid": uid, "exp": new_exp})
+        await session.commit()
+
+    return web.json_response({
+        'ok': True,
+        'expires_at': str(new_exp)[:16],
+        'msg': f"🏛️ Accès à La Salle accordé jusqu'au {new_exp.strftime('%d/%m à %H:%M')} !"
+    })
+
+
+async def webapp_salle_bid(request: web.Request) -> web.Response:
+    """POST /api/webapp/salle/bid — enchérir dans La Salle"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    auction_id = int(body.get('auction_id', 0))
+    amount     = int(body.get('amount', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _dt4
+    now = _dt4.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        # Vérifier accès VIP
+        acc = await session.execute(text(
+            "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+        ), {"uid": uid})
+        acc_row = acc.fetchone()
+        if not acc_row or acc_row[0] <= now:
+            return web.json_response({'ok': False, 'error': '🔒 Accès à La Salle expiré'})
+
+        # Enchère
+        auc_r = await session.execute(text(
+            "SELECT * FROM salle_auctions WHERE id = :aid AND status = 'active'"
+        ), {"aid": auction_id})
+        auction = auc_r.fetchone()
+        if not auction:
+            return web.json_response({'ok': False, 'error': 'Enchère introuvable ou terminée'})
+        if auction.ends_at <= now:
+            return web.json_response({'ok': False, 'error': '⏰ Enchère terminée !'})
+        if auction.leader_id == uid:
+            return web.json_response({'ok': False, 'error': '👑 Tu mènes déjà cette enchère !'})
+
+        min_bid = max(auction.current_bid + 1, int(auction.current_bid * 1.05))
+        if amount < min_bid:
+            return web.json_response({'ok': False, 'error': f'Minimum : {_fmt(min_bid)} $ (+5%)'})
+
+        # Fonds
+        wallet_r = await session.execute(text(
+            "SELECT coins, username FROM users WHERE user_id = :uid"
+        ), {"uid": uid})
+        user_row = wallet_r.fetchone()
+        if not user_row or user_row[0] < amount:
+            return web.json_response({'ok': False, 'error': 'Fonds insuffisants'})
+        leader_name = user_row[1] or str(uid)
+
+        # Rembourser ancien leader
+        if auction.leader_id:
+            await session.execute(text(
+                "UPDATE users SET coins = coins + :amt WHERE user_id = :lid"
+            ), {"amt": auction.current_bid, "lid": auction.leader_id})
+
+        await session.execute(text(
+            "UPDATE users SET coins = coins - :amt WHERE user_id = :uid"
+        ), {"amt": amount, "uid": uid})
+        await session.execute(text("""
+            UPDATE salle_auctions
+            SET current_bid = :bid, leader_id = :uid, leader_name = :name
+            WHERE id = :aid
+        """), {"bid": amount, "uid": uid, "name": leader_name, "aid": auction_id})
+        await session.commit()
+
+    return web.json_response({'ok': True, 'new_bid': amount})
+
+
+async def webapp_salle_history(request: web.Request) -> web.Response:
+    """GET /api/webapp/salle/history?user_id=xxx — dernières enchères Salle fermées"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        rows = await session.execute(text("""
+            SELECT item_emoji, item_name, rarity, current_bid, leader_name, ends_at
+            FROM salle_auctions
+            WHERE status = 'closed'
+            ORDER BY ends_at DESC
+            LIMIT 10
+        """))
+        history = []
+        for r in rows.fetchall():
+            history.append({
+                'emoji':       r[0],
+                'name':        r[1],
+                'rarity':      r[2],
+                'final_bid':   r[3],
+                'winner':      r[4] or 'Personne',
+                'closed_at':   str(r[5])[:16],
+            })
+
+    return web.json_response({'history': history})

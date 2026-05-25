@@ -101,7 +101,7 @@ from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.diplome import diplome_cmd, diplome_callback
 from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse_cmd
-from handlers.bureau import soumettredossier_cmd, choisircontrat_cmd, mescontratsbc_cmd, bureau_check_job
+from handlers.bureau import soumettredossier_cmd, choisircontrat_cmd, mescontratsbc_cmd, claimcontratbc_cmd, bureau_check_job
 from handlers.company import (
     init_company_tables, update_company_activity,
     listeboites_cmd, listeboites_callback,
@@ -135,7 +135,7 @@ from handlers.company_finance import (
 from handlers.company_contracts import (
     init_contract_tables,
     job_dispatch_contracts, job_check_contracts,
-    contract_callback, mescontratsauto_cmd,
+    contract_callback, mescontratsauto_cmd, claimcontrat_cmd,
 )
 from handlers.journal import init_journal_table, setup_journal_jobs, testjournal_cmd
 from database.db import AsyncSessionLocal, log_action, init_logs_table, upsert_group, mark_group_inactive, init_groups_table
@@ -676,6 +676,7 @@ async def main():
     app.add_handler(CommandHandler("payeremploye",   _prison_checked(payeremploye_cmd)))
     app.add_handler(CommandHandler("negociercontrat",_prison_checked(negociercontrat_cmd)))
     app.add_handler(CommandHandler("mescontratsauto", _prison_checked(mescontratsauto_cmd)))
+    app.add_handler(CommandHandler("claimcontrat",   _prison_checked(claimcontrat_cmd)))
     app.add_handler(CallbackQueryHandler(contract_callback, pattern=r"^cnt_(accept|negoc|refuse):\d+$"))
     app.add_handler(CommandHandler("cederentreprise",_prison_checked(cederentreprise_cmd)))
     app.add_handler(CommandHandler("skipattente",    _prison_checked(skipattente_cmd)))
@@ -705,6 +706,7 @@ async def main():
     app.add_handler(CommandHandler("soumettredossier", _prison_checked(soumettredossier_cmd)))
     app.add_handler(CommandHandler("choisircontrat",   _prison_checked(choisircontrat_cmd)))
     app.add_handler(CommandHandler("mescontratsbc",    _prison_checked(mescontratsbc_cmd)))
+    app.add_handler(CommandHandler("claimcontratbc",   _prison_checked(claimcontratbc_cmd)))
 
     # ── Enchères ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bid",       _prison_checked(bid)))

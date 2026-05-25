@@ -1081,29 +1081,53 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <div class="page" id="page-encheres">
     <div class="page-title">🔨 Enchères</div>
 
-    <!-- Tabs: En cours / Mon inventaire -->
-    <div style="display:flex;gap:8px;margin-bottom:16px">
+    <!-- Tabs: En cours / La Salle / Mon inventaire -->
+    <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;scrollbar-width:none">
       <button class="enc-tab-btn active" onclick="encTab('live',this)">🔴 En cours</button>
-      <button class="enc-tab-btn" onclick="encTab('inventory',this)">🎒 Mon inventaire</button>
+      <button class="enc-tab-btn" onclick="encTab('salle',this)">🏛️ La Salle</button>
+      <button class="enc-tab-btn" onclick="encTab('inventory',this)">🎒 Inventaire</button>
     </div>
 
+    <!-- TAB: En cours -->
     <div id="enc-live">
       <div id="enc-live-list"><div class="plus-loader">⏳ Chargement…</div></div>
     </div>
+
+    <!-- TAB: La Salle -->
+    <div id="enc-salle" style="display:none">
+      <div id="enc-salle-content"><div class="plus-loader">⏳ Chargement…</div></div>
+    </div>
+
+    <!-- TAB: Inventaire -->
     <div id="enc-inventory" style="display:none">
       <div id="enc-inv-list"><div class="plus-loader">⏳ Chargement…</div></div>
     </div>
 
-    <!-- Modal mise -->
-    <div id="enc-bid-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center">
+    <!-- Modal mise publique -->
+    <div id="enc-bid-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.75);align-items:center;justify-content:center">
       <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">
-        <div id="enc-bid-title" style="font-size:16px;font-weight:900;margin-bottom:6px"></div>
-        <div id="enc-bid-current" style="font-size:13px;color:var(--text2);margin-bottom:16px"></div>
+        <div id="enc-bid-title" style="font-size:16px;font-weight:900;margin-bottom:4px"></div>
+        <div id="enc-bid-current" style="font-size:12px;color:var(--text2);margin-bottom:14px"></div>
         <input id="enc-bid-input" type="number" placeholder="Votre mise ($)"
           style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;box-sizing:border-box;margin-bottom:12px"/>
         <div style="display:flex;gap:10px">
-          <button onclick="submitBid()" style="flex:1;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-weight:900;font-size:14px;cursor:pointer">⚡ Enchérir</button>
+          <button onclick="submitBid(false)" style="flex:1;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-weight:900;font-size:14px;cursor:pointer">⚡ Enchérir</button>
           <button onclick="closeBidModal()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-weight:700;font-size:14px;cursor:pointer">Annuler</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal mise Salle VIP -->
+    <div id="salle-bid-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.82);align-items:center;justify-content:center">
+      <div style="background:linear-gradient(145deg,#1a1130,#110d22);border-radius:22px;padding:26px;width:88%;max-width:370px;border:1px solid #8b5cf6;box-shadow:0 0 40px rgba(139,92,246,.4)">
+        <div style="text-align:center;margin-bottom:6px;font-size:22px">🏛️</div>
+        <div id="salle-bid-title" style="font-size:16px;font-weight:900;text-align:center;color:#e9d5ff;margin-bottom:4px"></div>
+        <div id="salle-bid-current" style="font-size:12px;color:#a78bfa;text-align:center;margin-bottom:16px"></div>
+        <input id="salle-bid-input" type="number" placeholder="Votre mise ($)"
+          style="width:100%;padding:13px;border-radius:13px;border:1px solid #7c3aed;background:#0d0a1a;color:#e9d5ff;font-size:15px;font-weight:700;box-sizing:border-box;margin-bottom:12px;text-align:center"/>
+        <div style="display:flex;gap:10px">
+          <button onclick="submitBid(true)" style="flex:1;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-weight:900;font-size:14px;cursor:pointer">⚡ Enchérir</button>
+          <button onclick="closeSalleBidModal()" style="flex:1;padding:13px;border-radius:12px;border:none;background:#1e1630;color:#a78bfa;font-weight:700;font-size:14px;cursor:pointer">Annuler</button>
         </div>
       </div>
     </div>
@@ -4445,6 +4469,9 @@ async function _gardenHarvest(gardenId) {
     .rarity-rare       { background:#0984e3; color:#fff; }
     .rarity-epique     { background:#6c5ce7; color:#fff; }
     .rarity-legendaire { background:#f7c948; color:#000; }
+    .rarity-mythique   { background:linear-gradient(135deg,#f97316,#ea580c); color:#fff; }
+    .rarity-divin      { background:linear-gradient(135deg,#ef4444,#b91c1c); color:#fff; box-shadow:0 0 8px rgba(239,68,68,.5); }
+    .auction-timer-badge { font-size:11px; font-weight:800; color:#e17055; background:rgba(225,112,85,.12); border-radius:20px; padding:3px 9px; white-space:nowrap; }
     .auction-body { padding:14px 16px; }
     .auction-row  { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:13px; }
     .auction-label { color:var(--text2); }
@@ -4452,6 +4479,17 @@ async function _gardenHarvest(gardenId) {
     .auction-val.gold { color:#f7c948; }
     .auction-leader { font-size:12px; color:var(--text2); margin-bottom:12px; }
     .auction-timer  { font-size:12px; font-weight:700; color:#e17055; }
+    /* ── Autel La Salle ─────────────────────────────────── */
+    .salle-altar-wrap { position:relative; width:160px; height:160px; margin:0 auto 20px; display:flex; align-items:center; justify-content:center; }
+    .salle-altar-glow { position:absolute; inset:-20px; border-radius:50%; background:radial-gradient(circle, var(--glow,#8b5cf6)44 0%, transparent 70%); opacity:.35; animation:salle-pulse 2s ease-in-out infinite; }
+    .salle-altar-ring { position:absolute; inset:0; border-radius:50%; border:2px solid var(--glow,#8b5cf6); opacity:.6; animation:salle-spin 8s linear infinite; }
+    .salle-altar-item { font-size:72px; line-height:1; animation:salle-float 3s ease-in-out infinite; position:relative; z-index:2; filter:drop-shadow(0 0 16px var(--glow,#8b5cf6)); }
+    .salle-altar-particles { position:absolute; inset:0; }
+    .salle-particle { position:absolute; width:4px; height:4px; border-radius:50%; background:var(--glow,#8b5cf6); top:50%; left:50%; animation:salle-orbit calc(3s + var(--i)*0.4s) linear infinite; transform-origin:0 0; opacity:.7; }
+    @keyframes salle-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+    @keyframes salle-spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    @keyframes salle-pulse { 0%,100%{opacity:.25} 50%{opacity:.5} }
+    @keyframes salle-orbit { from{transform:rotate(calc(var(--i)*45deg)) translateX(65px)} to{transform:rotate(calc(var(--i)*45deg + 360deg)) translateX(65px)} }
     .bid-btn {
       width:100%; padding:13px; border-radius:12px; border:none;
       background:linear-gradient(135deg,#f7c948,#e67e22); color:#000;
@@ -4561,154 +4599,206 @@ async function loadAnnonces() {
 }
 
 // ════════════════════════════════════════
-//  ENCHÈRES
+//  ENCHÈRES — En cours + La Salle VIP
 // ════════════════════════════════════════
 let _encCurTab = 'live';
 let _encBidAuctionId = null;
+let _encBidIsSalle = false;
+let _salleTimerInterval = null;
+let _salleAuctionData = null;
+let _liveTimerInterval = null;
+let _auctionCache = {}; // id -> {name, emoji, rarity}
 
 function encTab(tab, btn) {
   _encCurTab = tab;
   document.querySelectorAll('.enc-tab-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   document.getElementById('enc-live').style.display      = tab === 'live'      ? '' : 'none';
+  document.getElementById('enc-salle').style.display     = tab === 'salle'     ? '' : 'none';
   document.getElementById('enc-inventory').style.display = tab === 'inventory' ? '' : 'none';
   if (tab === 'live')      _loadAuctionLive();
+  if (tab === 'salle')     _loadSalle();
   if (tab === 'inventory') _loadAuctionInventory();
 }
 
 function _rarityClass(r) {
-  const m = { commun:'rarity-commun', rare:'rarity-rare', epique:'rarity-epique', legendaire:'rarity-legendaire' };
+  const m = { camelote:'rarity-commun', commun:'rarity-commun', rare:'rarity-rare', epique:'rarity-epique', legendaire:'rarity-legendaire', mythique:'rarity-mythique', divin:'rarity-divin' };
   return m[(r||'').toLowerCase()] || 'rarity-commun';
 }
 function _rarityLabel(r) {
-  const m = { commun:'⚪ Commun', rare:'🔵 Rare', epique:'🟣 Épique', legendaire:'🟡 Légendaire' };
-  return m[(r||'').toLowerCase()] || r;
+  const lc = (r||'').toLowerCase();
+  const m = { camelote:'⚪ Camelote', commun:'🟢 Commun', rare:'🔵 Rare', epique:'🟣 Épique', legendaire:'🟡 Légendaire', mythique:'🟠 Mythique', divin:'🔴 Divin' };
+  return m[lc] || r;
 }
 function _timeLeft(endsAt) {
   if (!endsAt) return '—';
-  const diff = new Date(endsAt) - Date.now();
+  const str = endsAt.replace(' ','T');
+  const d = str.endsWith('Z') ? new Date(str) : new Date(str+'Z');
+  const diff = d - Date.now();
   if (diff <= 0) return 'Terminé';
-  const m = Math.floor(diff / 60000);
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
   const s = Math.floor((diff % 60000) / 1000);
-  return m > 0 ? `${m}min ${s}s` : `${s}s`;
+  if (h > 0) return h+"h "+m+"min";
+  return m > 0 ? m+"min "+s+"s" : s+"s";
 }
 
+// ── EN COURS ──────────────────────────────────────────────────────────────────
 async function _loadAuctionLive() {
   const el = document.getElementById('enc-live-list');
   if (!el) return;
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  if (_liveTimerInterval) { clearInterval(_liveTimerInterval); _liveTimerInterval = null; }
   try {
-    const r = await fetchT(`/api/webapp/auctions/live?user_id=${uid}`, {}, 12000);
+    const r = await fetchT('/api/webapp/auctions/live?user_id='+uid, {}, 12000);
     const d = await r.json();
     const auctions = d.auctions || [];
+    // Remplir le cache pour openBidModal
+    auctions.forEach(function(a) { _auctionCache[a.id] = {name: a.item_name, emoji: a.item_emoji, rarity: a.rarity}; });
     if (!auctions.length) {
-      el.innerHTML = '<div class="plus-loader">Aucune enchère en cours.</div>'; return;
+      el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🔨</div><div style="font-size:15px;font-weight:700">Aucune enchère en cours</div><div style="font-size:12px;margin-top:6px">Les enchères se lancent automatiquement</div></div>';
+      return;
     }
-    el.innerHTML = auctions.map((a, i) => {
+    el.innerHTML = auctions.map(function(a, i) {
       const isLeader = a.leader_id == uid;
-      return `
-      <div class="auction-card" style="animation-delay:${i*0.07}s">
-        <div class="auction-header">
-          <div class="auction-emoji">${a.item_emoji || '📦'}</div>
-          <div>
-            <div class="auction-name">${a.item_name}</div>
-            <span class="auction-rarity ${_rarityClass(a.rarity)}">${_rarityLabel(a.rarity)}</span>
-          </div>
-        </div>
-        <div class="auction-body">
-          <div class="auction-row">
-            <span class="auction-label">Valeur réelle</span>
-            <span class="auction-val">${fmt(a.true_value)}</span>
-          </div>
-          <div class="auction-row">
-            <span class="auction-label">Mise actuelle</span>
-            <span class="auction-val gold">⚡ ${fmt(a.current_bid)}</span>
-          </div>
-          <div class="auction-leader">${isLeader ? '👑 <b>Tu mènes !</b>' : (a.leader_name ? `🏃 Meneur : <b>${a.leader_name}</b>` : 'Aucune mise encore')}</div>
-          <div class="auction-row">
-            <span class="auction-timer" id="enc-timer-${a.id}">⏱ ${_timeLeft(a.ends_at)}</span>
-          </div>
-          <button class="bid-btn" onclick="openBidModal(${a.id},'${a.item_name.replace(/'/g,"\\'")}',${a.current_bid})"${isLeader?' disabled':''}>
-            ${isLeader ? '✅ Tu mènes' : '⚡ Enchérir'}
-          </button>
-        </div>
-      </div>`;
+      const rarLow = (a.rarity||'').toLowerCase();
+      const borderCol = rarLow==='legendaire'||rarLow==='légendaire' ? '#f7c948' : rarLow==='epique'||rarLow==='épique' ? '#8b5cf6' : rarLow==='rare' ? '#3b82f6' : 'var(--border)';
+      const name = (a.item_name||'').replace(/'/g,"\'").replace(/"/g,'\"');
+      return '<div class="auction-card" style="animation-delay:'+i*0.08+'s;border-color:'+borderCol+'"><div class="auction-header"><div class="auction-emoji">'+(a.item_emoji||'📦')+'</div><div style="flex:1"><div class="auction-name">'+a.item_name+'</div><span class="auction-rarity '+_rarityClass(a.rarity)+'">'+_rarityLabel(a.rarity)+'</span></div><div class="auction-timer-badge" id="enc-timer-'+a.id+'">⏱ '+_timeLeft(a.ends_at)+'</div></div><div class="auction-body"><div class="auction-row"><span class="auction-label">💰 Mise de départ</span><span class="auction-val">'+fmt(a.start_price)+'</span></div><div class="auction-row"><span class="auction-label">📈 Enchère actuelle</span><span class="auction-val gold">⚡ '+fmt(a.current_bid)+'</span></div><div class="auction-row"><span class="auction-label">❓ Valeur réelle</span><span class="auction-val" style="color:var(--text2);font-style:italic">cachée</span></div><div class="auction-leader">'+(isLeader ? '👑 <b>Tu mènes !</b>' : (a.leader_name ? '🏃 Meneur : <b>'+a.leader_name+'</b>' : '💤 Aucune mise encore'))+'</div><button class="bid-btn" onclick="openBidModal('+a.id+','+a.current_bid+',false)"'+(isLeader?' disabled':'')+'>'+(isLeader?'✅ Tu mènes':'⚡ Enchérir')+'</button></div></div>';
     }).join('');
-    // Update timers every second
-    setInterval(() => {
-      auctions.forEach(a => {
-        const t = document.getElementById(`enc-timer-${a.id}`);
-        if (t) t.textContent = `⏱ ${_timeLeft(a.ends_at)}`;
+    _liveTimerInterval = setInterval(function() {
+      auctions.forEach(function(a) {
+        const t = document.getElementById('enc-timer-'+a.id);
+        if (t) t.textContent = '⏱ '+_timeLeft(a.ends_at);
       });
     }, 1000);
-  } catch(e) {
-    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
-  }
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
 }
 
+// ── LA SALLE VIP ───────────────────────────────────────────────────────────────
+async function _loadSalle() {
+  const el = document.getElementById('enc-salle-content');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  if (_salleTimerInterval) { clearInterval(_salleTimerInterval); _salleTimerInterval = null; }
+  try {
+    const r = await fetchT('/api/webapp/salle/status?user_id='+uid, {}, 12000);
+    const d = await r.json();
+    _salleAuctionData = d.auction;
+    if (!d.has_access) {
+      el.innerHTML = '<div style="text-align:center;padding:16px 0 24px"><div style="font-size:52px;margin-bottom:10px">🏛️</div><div style="font-size:20px;font-weight:900;color:#e9d5ff;margin-bottom:6px">LA SALLE</div><div style="font-size:13px;color:#a78bfa;margin-bottom:20px;line-height:1.6">Espace VIP réservé aux fortunés.<br>Des objets <b style="color:#e9d5ff">extraordinaires</b> arrivent<br>chaque heure sur l\'autel.</div><div style="background:linear-gradient(145deg,#1a1130,#0d0a1a);border-radius:18px;padding:20px;margin-bottom:20px;border:1px solid #7c3aed"><div style="font-size:13px;color:#a78bfa;margin-bottom:4px">Accès 24h</div><div style="font-size:28px;font-weight:900;color:#f7c948">'+fmt(d.access_price)+' $</div><div style="font-size:11px;color:#6d28d9;margin-top:4px">Ton solde : '+fmt(d.wallet)+' $</div></div><button onclick="_paySalleAccess()" style="width:100%;padding:16px;border-radius:16px;border:none;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-size:15px;font-weight:900;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.5)">🔑 Payer l\'accès — '+fmt(d.access_price)+' $</button><div id="salle-history-section" style="margin-top:24px"></div></div>';
+      _loadSalleHistory(); return;
+    }
+    const secsLeft = d.seconds_left || 0;
+    const sh = Math.floor(secsLeft/3600), sm = Math.floor((secsLeft%3600)/60);
+    const accessStr = sh>0 ? sh+'h'+sm+'min' : sm+'min';
+    const auc = d.auction;
+    const aucHTML = auc ? _buildSalleAuctionHTML(auc) : '<div style="text-align:center;padding:40px 0;color:#a78bfa"><div style="font-size:40px;margin-bottom:12px">⏳</div><div style="font-size:14px;font-weight:700">Prochain objet bientôt…</div></div>';
+    el.innerHTML = '<div style="text-align:center;margin-bottom:14px"><div style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,rgba(124,58,237,.2),rgba(79,70,229,.1));border:1px solid #7c3aed;border-radius:30px;padding:7px 14px;font-size:12px;color:#a78bfa"><span style="color:#4ade80;font-size:16px">●</span> Accès VIP valide — encore <b style="color:#e9d5ff">'+accessStr+'</b></div></div>'+aucHTML+'<div id="salle-history-section" style="margin-top:20px"></div>';
+    _loadSalleHistory();
+    if (auc) {
+      _salleTimerInterval = setInterval(function() {
+        const t = document.getElementById('salle-timer');
+        if (t) t.textContent = '⏱ '+_timeLeft(auc.ends_at);
+      }, 1000);
+    }
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+
+function _buildSalleAuctionHTML(auc) {
+  _auctionCache[auc.id] = {name: auc.item_name, emoji: auc.item_emoji, rarity: auc.rarity};
+  const isLeader = auc.is_leading;
+  const rarLow = (auc.rarity||'').toLowerCase();
+  const glowCol = rarLow === 'divin' ? '#ef4444' : '#8b5cf6';
+  const rarBadge = rarLow === 'divin' ? '🔴 DIVIN' : '🟠 MYTHIQUE';
+  const name = (auc.item_name||'').replace(/'/g,"\'").replace(/"/g,'\"');
+  return '<div style="position:relative;margin:0 auto 4px;max-width:420px"><div class="salle-altar-wrap"><div class="salle-altar-glow" style="--glow:'+glowCol+'"></div><div class="salle-altar-ring"></div><div class="salle-altar-item">'+(auc.item_emoji||'💎')+'</div><div class="salle-altar-particles">'+[...Array(8)].map(function(_,i){return '<div class="salle-particle" style="--i:'+i+'"></div>';}).join('')+'</div></div><div style="text-align:center;margin-bottom:16px"><div style="font-size:20px;font-weight:900;color:#e9d5ff;margin-bottom:4px">'+auc.item_name+'</div><span style="display:inline-block;background:linear-gradient(135deg,'+glowCol+'33,'+glowCol+'11);border:1px solid '+glowCol+';border-radius:20px;padding:3px 12px;font-size:11px;font-weight:900;color:'+glowCol+'">'+rarBadge+'</span></div><div style="background:linear-gradient(145deg,#1a1130,#110d22);border-radius:16px;padding:16px;margin-bottom:14px;border:1px solid #3d2070"><div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #2d1a55"><span style="font-size:12px;color:#a78bfa">Mise de départ</span><span style="font-size:13px;font-weight:700;color:#e9d5ff">'+fmt(auc.start_price)+' $</span></div><div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #2d1a55"><span style="font-size:12px;color:#a78bfa">Enchère actuelle</span><span style="font-size:13px;font-weight:900;color:#f7c948">⚡ '+fmt(auc.current_bid)+' $</span></div><div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #2d1a55"><span style="font-size:12px;color:#a78bfa">Meneur</span><span style="font-size:12px;font-weight:700;color:'+(isLeader?'#4ade80':'#e9d5ff')+'">'+(isLeader?'👑 Toi':auc.leader_name||'Personne')+'</span></div><div style="display:flex;justify-content:space-between;padding:7px 0"><span style="font-size:12px;color:#a78bfa">Valeur réelle</span><span style="font-size:12px;color:#6d28d9;font-style:italic">❓ Cachée</span></div></div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div id="salle-timer" style="font-size:14px;font-weight:700;color:#a78bfa">⏱ '+_timeLeft(auc.ends_at)+'</div><div style="font-size:11px;color:#6d28d9">Rotation toutes les heures</div></div><button onclick="openBidModal('+auc.id+','+auc.current_bid+',true)" '+(isLeader?'disabled':'')+' style="width:100%;padding:16px;border-radius:16px;border:none;background:'+(isLeader?'#2d1a55':'linear-gradient(135deg,#7c3aed,#4f46e5)')+';color:'+(isLeader?'#6d28d9':'#fff')+';font-size:15px;font-weight:900;cursor:'+(isLeader?'default':'pointer')+';box-shadow:'+(isLeader?'none':'0 4px 20px rgba(124,58,237,.5)')+'">'+(isLeader?'✅ Tu mènes cette enchère':'⚡ Placer une enchère')+'</button></div>';
+}
+
+async function _loadSalleHistory() {
+  const el = document.getElementById('salle-history-section');
+  if (!el) return;
+  try {
+    const r = await fetchT('/api/webapp/salle/history?user_id='+uid, {}, 8000);
+    const d = await r.json();
+    const hist = d.history || [];
+    if (!hist.length) return;
+    el.innerHTML = '<div style="font-size:13px;font-weight:900;color:#a78bfa;margin-bottom:10px">📜 Dernières clôtures</div>'+hist.map(function(h){return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #2d1a55"><span style="font-size:22px">'+h.emoji+'</span><div style="flex:1"><div style="font-size:12px;font-weight:700;color:#e9d5ff">'+h.name+'</div><div style="font-size:11px;color:#6d28d9">'+h.closed_at+'</div></div><div style="text-align:right"><div style="font-size:12px;font-weight:700;color:#f7c948">'+fmt(h.final_bid)+' $</div><div style="font-size:10px;color:#a78bfa">'+h.winner+'</div></div></div>';}).join('');
+  } catch(e) {}
+}
+
+async function _paySalleAccess() {
+  try {
+    const r = await fetch('/api/webapp/salle/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid }) });
+    const d = await r.json();
+    if (d.ok) { showToast('🏛️ Accès à La Salle accordé !'); _loadSalle(); }
+    else showToast(d.error || 'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+// ── INVENTAIRE ────────────────────────────────────────────────────────────────
 async function _loadAuctionInventory() {
   const el = document.getElementById('enc-inv-list');
   if (!el) return;
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT(`/api/webapp/auctions/inventory?user_id=${uid}`, {}, 12000);
+    const r = await fetchT('/api/webapp/auctions/inventory?user_id='+uid, {}, 12000);
     const d = await r.json();
     const items = d.items || [];
     if (!items.length) {
-      el.innerHTML = '<div class="plus-loader">Ton inventaire est vide.</div>'; return;
+      el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🎒</div><div style="font-size:15px;font-weight:700">Inventaire vide</div><div style="font-size:12px;margin-top:6px">Remporte des enchères pour collecter des objets</div></div>';
+      return;
     }
-    el.innerHTML = items.map((it, i) => `
-      <div class="inv-card" style="animation-delay:${i*0.05}s">
-        <div class="inv-emoji">${it.item_emoji || '📦'}</div>
-        <div>
-          <div class="inv-name">${it.item_name}</div>
-          <div class="inv-val">💰 ${fmt(it.true_value)}</div>
-          <div class="inv-date">📅 ${(it.acquired_at||'').slice(0,10)}</div>
-        </div>
-        <span class="auction-rarity ${_rarityClass(it.rarity)}" style="margin-left:auto">${_rarityLabel(it.rarity)}</span>
-      </div>
-    `).join('');
-  } catch(e) {
-    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
-  }
+    el.innerHTML = items.map(function(it, i) {
+      const rarLow = (it.rarity||'').toLowerCase();
+      const isVip = rarLow === 'mythique' || rarLow === 'divin';
+      return '<div class="inv-card" style="animation-delay:'+i*0.05+'s;'+(isVip?'border:1px solid #7c3aed;background:linear-gradient(145deg,#1a1130,var(--card))':'')+'"><div class="inv-emoji" style="'+(isVip?'filter:drop-shadow(0 0 8px #8b5cf6)':'')+'">'+it.item_emoji+'</div><div style="flex:1"><div class="inv-name">'+it.item_name+'</div><div class="inv-val">💰 '+fmt(it.true_value)+' $</div><div class="inv-date">📅 '+(it.acquired_at||'').slice(0,10)+'</div></div><span class="auction-rarity '+_rarityClass(it.rarity)+'">'+_rarityLabel(it.rarity)+'</span></div>';
+    }).join('');
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
 }
 
 async function loadEncheres() {
   _encCurTab = 'live';
-  document.querySelectorAll('.enc-tab-btn').forEach((b,i) => b.classList.toggle('active', i===0));
+  document.querySelectorAll('.enc-tab-btn').forEach(function(b,i){ b.classList.toggle('active', i===0); });
   document.getElementById('enc-live').style.display = '';
+  document.getElementById('enc-salle').style.display = 'none';
   document.getElementById('enc-inventory').style.display = 'none';
   _loadAuctionLive();
 }
 
-function openBidModal(auctionId, name, currentBid) {
+// ── MODALS ────────────────────────────────────────────────────────────────────
+function openBidModal(auctionId, currentBid, isSalle) {
   _encBidAuctionId = auctionId;
-  document.getElementById('enc-bid-title').textContent = `🔨 ${name}`;
-  document.getElementById('enc-bid-current').textContent = `Mise actuelle : ${fmt(currentBid)}`;
-  document.getElementById('enc-bid-input').value = '';
-  const modal = document.getElementById('enc-bid-modal');
-  modal.style.display = 'flex';
+  _encBidIsSalle = isSalle;
+  const minBid = Math.max(currentBid + 1, Math.floor(currentBid * 1.05));
+  // Récupérer le nom depuis le cache
+  const name = (_auctionCache[auctionId] || {name: '🔨 Objet'}).name;
+  if (isSalle) {
+    document.getElementById('salle-bid-title').textContent = name;
+    document.getElementById('salle-bid-current').textContent = 'Mise actuelle : '+fmt(currentBid)+' $ — min : '+fmt(minBid)+' $';
+    document.getElementById('salle-bid-input').value = minBid;
+    document.getElementById('salle-bid-modal').style.display = 'flex';
+  } else {
+    document.getElementById('enc-bid-title').textContent = '🔨 '+name;
+    document.getElementById('enc-bid-current').textContent = 'Mise actuelle : '+fmt(currentBid)+' $ — min : '+fmt(minBid)+' $';
+    document.getElementById('enc-bid-input').value = minBid;
+    document.getElementById('enc-bid-modal').style.display = 'flex';
+  }
 }
-function closeBidModal() {
-  document.getElementById('enc-bid-modal').style.display = 'none';
-  _encBidAuctionId = null;
-}
-async function submitBid() {
-  const amount = parseInt(document.getElementById('enc-bid-input').value);
+function closeBidModal() { document.getElementById('enc-bid-modal').style.display = 'none'; _encBidAuctionId = null; }
+function closeSalleBidModal() { document.getElementById('salle-bid-modal').style.display = 'none'; _encBidAuctionId = null; }
+async function submitBid(isSalle) {
+  const inputId = isSalle ? 'salle-bid-input' : 'enc-bid-input';
+  const amount = parseInt(document.getElementById(inputId).value);
   if (!amount || amount <= 0) { showToast('Montant invalide'); return; }
   try {
-    const r = await fetch('/api/webapp/auctions/bid', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, auction_id: _encBidAuctionId, amount })
-    });
+    const endpoint = isSalle ? '/api/webapp/salle/bid' : '/api/webapp/auctions/bid';
+    const r = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, auction_id: _encBidAuctionId, amount }) });
     const d = await r.json();
     if (d.ok) {
-      showToast(`⚡ Mise de ${fmt(amount)} placée !`);
-      closeBidModal();
-      _loadAuctionLive();
-    } else {
-      showToast(d.error || 'Erreur');
-    }
+      showToast('⚡ Mise de '+fmt(amount)+' $ placée !');
+      if (isSalle) { closeSalleBidModal(); _loadSalle(); } else { closeBidModal(); _loadAuctionLive(); }
+    } else { showToast(d.error || 'Erreur'); }
   } catch(e) { showToast('Erreur réseau'); }
 }
 

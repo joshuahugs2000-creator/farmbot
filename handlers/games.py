@@ -1162,7 +1162,7 @@ async def mines_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"❌ Solde insuffisant ! Tu as <b>{_fmt(bal)} {CURRENCY}</b>", parse_mode=ParseMode.HTML
             )
         await session.execute(
-            sa.text("UPDATE users SET coins = coins - :a WHERE user_id = :uid"),
+            sa.text("UPDATE users SET coins = GREATEST(0, coins::bigint - :a::bigint) WHERE user_id = :uid AND coins >= :a"),
             {"a": mise, "uid": user.id},
         )
         await session.commit()

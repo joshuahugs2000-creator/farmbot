@@ -4301,7 +4301,7 @@ async def skipattente_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"old_date": datetime.utcnow() - timedelta(days=4), "eid": last_left_row.id},
         )
         await session.execute(
-            text("UPDATE users SET coins = coins - :cost WHERE user_id = :uid"),
+            text("UPDATE users SET coins = GREATEST(0, coins::bigint - :cost::bigint) WHERE user_id = :uid AND coins >= :cost"),
             {"cost": SKIP_COMPANY_COST, "uid": user.id},
         )
         await session.commit()

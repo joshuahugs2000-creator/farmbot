@@ -382,7 +382,7 @@ async def bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Débiter le nouveau leader
         await session.execute(text(
-            "UPDATE users SET coins = coins - :amt WHERE user_id = :uid"
+            "UPDATE users SET coins = GREATEST(0, coins::bigint - :amt::bigint) WHERE user_id = :uid AND coins >= :amt"
         ), {"amt": amount, "uid": user.id})
 
         # Mettre à jour l'enchère
@@ -682,7 +682,7 @@ async def buyitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Transaction
         await session.execute(text(
-            "UPDATE users SET coins = coins - :amt WHERE user_id = :uid"
+            "UPDATE users SET coins = GREATEST(0, coins::bigint - :amt::bigint) WHERE user_id = :uid AND coins >= :amt"
         ), {"amt": item.sale_price, "uid": user.id})
         await session.execute(text(
             "UPDATE users SET coins = coins + :amt WHERE user_id = :uid"

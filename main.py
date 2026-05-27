@@ -406,7 +406,20 @@ async def on_startup(application: Application):
 
 
 async def error_handler(update: object, context):
-    logger.error("Exception dans un handler :", exc_info=context.error)
+    from telegram.error import RetryAfter, TimedOut
+    import httpx
+
+    err = context.error
+
+    # Flood control ou timeout réseau — on log en warning sans spammer l'utilisateur
+    if isinstance(err, RetryAfter):
+        logger.warning(f"Flood control Telegram : retry in {err.retry_after}s — ignoré")
+        return
+    if isinstance(err, (TimedOut, httpx.ReadTimeout, httpx.ConnectTimeout)):
+        logger.warning(f"Timeout réseau ({type(err).__name__}) — ignoré")
+        return
+
+    logger.error("Exception dans un handler :", exc_info=err)
     if isinstance(update, Update) and update.message:
         try:
             await update.message.reply_text(

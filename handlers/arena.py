@@ -47,7 +47,7 @@ async def _add_coins(session, user_id: int, amount: int):
 
 async def _deduct_coins(session, user_id: int, amount: int):
     await session.execute(
-        sa.text("UPDATE users SET coins = GREATEST(0, coins::bigint - :a::bigint) WHERE user_id = :uid AND coins >= :a"),
+        sa.text("UPDATE users SET coins = GREATEST(0, CAST(coins AS BIGINT) - CAST(:a AS BIGINT)) WHERE user_id = :uid AND coins >= :a"),
         {"a": amount, "uid": user_id},
     )
     await session.commit()

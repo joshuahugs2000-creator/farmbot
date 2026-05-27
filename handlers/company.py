@@ -24,6 +24,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
 from database.db import AsyncSessionLocal, get_user
+from utils.helpers import ensure_user
 from database.models import (
     User, Company, CompanyEmployee, CompanyShare,
     CompanyApplication, CompanyInvite, CompanyLog, CompanyShareOffer,
@@ -960,6 +961,7 @@ def _get_role_for_bot_company(db_user, sector: str) -> str:
 
 async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    await ensure_user(user)
     if not context.args:
         await update.message.reply_text("❌ Usage : <code>/postuler [nom de l'entreprise]</code>", parse_mode="HTML")
         return
@@ -1507,6 +1509,7 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     /rejoindre [nom entreprise] [mon_salaire] → contre-propose un salaire
     """
     user = update.effective_user
+    await ensure_user(user)
     if not context.args:
         await update.message.reply_text("❌ Usage : <code>/rejoindre [nom entreprise]</code>", parse_mode="HTML")
         return

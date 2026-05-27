@@ -19,7 +19,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update as sa_update
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
@@ -541,10 +541,18 @@ async def update_company_activity(user_id: int):
             if hasattr(emp, "activity_since_payroll"):
                 emp.activity_since_payroll = (emp.activity_since_payroll or 0) + 1
 
-            # Revenus par commande
+            # Revenus par commande — UPDATE atomique pour éviter la race condition
             if not company.is_bot_company:
-                company.treasury = (company.treasury or 0) + REVENUE_PER_CMD
-                company.value = company.treasury
+                await session.execute(
+                    sa_update(Company)
+                    .where(Company.id == company.id)
+                    .values(
+                        treasury=Company.treasury + REVENUE_PER_CMD,
+                        value=Company.treasury + REVENUE_PER_CMD,
+                    )
+                )
+                # Synchroniser l'objet en mémoire pour éviter qu'un commit ultérieur écrase la DB
+                await session.refresh(company)
 
             # Promotion automatique stagiaire → employé après 50 commandes
             if emp.role == "stagiaire" and emp.command_count >= 50:

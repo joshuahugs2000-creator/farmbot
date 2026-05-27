@@ -4305,15 +4305,22 @@ async def skipattente_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"cost": SKIP_COMPANY_COST, "uid": user.id},
         )
         await session.commit()
+        jours_restants = 3 - days_passed  # calculé ici avant la fermeture du bloc
 
-    jours_restants = 3 - days_passed
-    await update.message.reply_text(
-        f"⚡ <b>Cooldown ignoré !</b>\n\n"
-        f"💸 <b>{_fmt(SKIP_COMPANY_COST)} 💰</b> déduits.\n"
-        f"(Il te restait <b>{jours_restants} jour(s)</b>)\n\n"
-        f"Tu peux maintenant postuler dans une entreprise avec <code>/postuler [nom]</code>.",
-        parse_mode="HTML",
-    )
+    try:
+        await update.message.reply_text(
+            f"⚡ <b>Cooldown ignoré !</b>\n\n"
+            f"💸 <b>{_fmt(SKIP_COMPANY_COST)} 💰</b> déduits.\n"
+            f"(Il te restait <b>{jours_restants} jour(s)</b>)\n\n"
+            f"Tu peux maintenant postuler dans une entreprise avec <code>/postuler [nom]</code>.",
+            parse_mode="HTML",
+        )
+    except Exception:
+        # Transaction déjà commitée — fallback court si Telegram rate-limite
+        try:
+            await update.message.reply_text("⚡ Cooldown ignoré ! 💸 Coins déduits.")
+        except Exception:
+            pass
 
 
 # ─── /annoncerecrutement — Annonce PDG broadcast dans tous les groupes ─────────

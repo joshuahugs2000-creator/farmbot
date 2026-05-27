@@ -499,7 +499,7 @@ async def _skip_cooldown(query, uid: int, level: str):
 
         # Déduire les coins et effacer le cooldown
         await session.execute(
-            text("UPDATE users SET coins = GREATEST(0, coins::bigint - :cost::bigint), exam_cooldown = NULL WHERE user_id = :uid AND coins >= :cost"),
+            text("UPDATE users SET coins = GREATEST(0, CAST(coins AS BIGINT) - CAST(:cost AS BIGINT)), exam_cooldown = NULL WHERE user_id = :uid AND coins >= :cost"),
             {"cost": skip_cost, "uid": uid},
         )
         await session.commit()

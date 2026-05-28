@@ -2417,9 +2417,9 @@ async def vendreparts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )).scalar_one_or_none()
         if share_row:
             share_row.quantity = max(0, share_row.quantity - qty)
-
-        # Mettre à jour owner_shares (toujours synchroniser avec CompanyShare)
-        company.owner_shares = max(0, company.owner_shares - qty) if emp and emp.role == "pdg" else company.owner_shares
+            # Sync owner_shares depuis la table (source de vérité)
+            if emp and emp.role == "pdg":
+                company.owner_shares = share_row.quantity
 
         await _add_log(session, company.id, "vente_parts",
                        f"{user.first_name} a vendu {qty} parts au marché à {_fmt(price_each)}/part",
@@ -2650,9 +2650,7 @@ async def accepteroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pdg_user = await get_user(session, user.id)
         pdg_user.coins += total
 
-        # Mise à jour des parts (l'argent va au compte perso du PDG, pas à la trésorerie)
-        company.owner_shares -= qty
-
+        # Mise à jour de la CompanyShare de l'acheteur
         buyer_share = (await session.execute(
             select(CompanyShare).where(
                 CompanyShare.company_id == company.id,
@@ -2664,7 +2662,7 @@ async def accepteroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             session.add(CompanyShare(company_id=company.id, owner_id=offer.buyer_id, quantity=qty))
 
-        # Mise à jour owner_shares PDG
+        # Mise à jour de la CompanyShare du PDG + sync owner_shares (une seule fois)
         pdg_share = (await session.execute(
             select(CompanyShare).where(
                 CompanyShare.company_id == company.id,
@@ -2673,7 +2671,9 @@ async def accepteroffre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )).scalar_one_or_none()
         if pdg_share:
             pdg_share.quantity = max(0, pdg_share.quantity - qty)
-        company.owner_shares = max(0, company.owner_shares - qty)
+            company.owner_shares = pdg_share.quantity
+        else:
+            company.owner_shares = 0
 
         await session.flush()
 

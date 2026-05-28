@@ -1,5 +1,5 @@
 """
-🏛️ Agence Fiscale — impôts journaliers sur les entreprises
+🏛️ Agence Fiscale — impôts tous les 2 jours sur les entreprises
 """
 from datetime import datetime, timedelta
 
@@ -16,7 +16,7 @@ ADMIN_IDS = {5338202791}   # à compléter selon tes admins
 
 # ─── TAUX D'IMPOSITION ────────────────────────────────────────────────────────
 def _compute_tax(treasury: int) -> int:
-    """Calcule l'impôt journalier selon la trésorerie."""
+    """Calcule l'impôt tous les 2 jours selon la trésorerie."""
     if treasury <= 0:
         return 0
     if treasury < 1_000_000_000:          # < 1B  → 0.05%
@@ -27,9 +27,9 @@ def _compute_tax(treasury: int) -> int:
         return int(treasury * 0.0015)
 
 
-# ─── JOB QUOTIDIEN ────────────────────────────────────────────────────────────
+# ─── JOB TOUS LES 2 JOURS ─────────────────────────────────────────────────────
 async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
-    """Génère les factures fiscales et notifie les PDG."""
+    """Génère les factures fiscales tous les 2 jours et notifie les PDG."""
     async with AsyncSessionLocal() as session:
         # Toutes les entreprises actives avec tréso > 50M
         companies = (await session.execute(
@@ -45,12 +45,12 @@ async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
             if tax <= 0:
                 continue
 
-            # Créer la facture
+            # Créer la facture avec délai de 48h
             record = TaxRecord(
                 company_id=company.id,
                 amount_due=tax,
                 amount_paid=0,
-                due_at=datetime.utcnow() + timedelta(hours=24),
+                due_at=datetime.utcnow() + timedelta(hours=48),
                 status="pending",
             )
             session.add(record)
@@ -72,12 +72,12 @@ async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_message(
                         chat_id=pdg_emp.user_id,
                         text=(
-                            f"🏛️ <b>AGENCE FISCALE — Avis d'imposition</b>\n\n"
+                            f"🏛️ <b>AGENCE FISCALE — Nouvelle facture</b>\n\n"
                             f"🏢 Entreprise : <b>{company.name}</b>\n"
                             f"💰 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n"
                             f"📊 Taux appliqué : <b>{taux}</b>\n"
                             f"🧾 Montant dû : <b>{_fmt(tax)} $</b>\n\n"
-                            f"⏳ Tu as <b>24h</b> pour payer.\n"
+                            f"⏳ Tu as <b>48h</b> pour payer.\n"
                             f"💳 Commande : <code>/payerimpots {tax}</code>\n"
                             f"📋 Facture n°{record.id}{gel_note}"
                         ),
@@ -111,7 +111,7 @@ async def payerimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         # Trouver l'entreprise dont l'user est PDG
-        row = (await session.execute(
+        company = (await session.execute(
             select(Company).where(
                 Company.owner_id == user.id,
                 Company.is_active == True,
@@ -119,17 +119,15 @@ async def payerimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )).scalar_one_or_none()
 
-        if not row:
+        if not company:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
             return
 
-        company = row
-
-        # Factures en attente (pending / partial)
+        # Factures à payer : pending, partial ET overdue (pour solder les anciennes)
         pending = (await session.execute(
             select(TaxRecord).where(
                 TaxRecord.company_id == company.id,
-                TaxRecord.status.in_(["pending", "partial"]),
+                TaxRecord.status.in_(["pending", "partial", "overdue"]),
             ).order_by(TaxRecord.created_at.asc())
         )).scalars().all()
 
@@ -156,12 +154,14 @@ async def payerimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Distribuer le paiement sur les factures (du plus ancien au plus récent)
         reste = amount
         db_user.coins -= amount
-        total_restant_du = sum(r.amount_due - r.amount_paid for r in pending)
 
         for record in pending:
             if reste <= 0:
                 break
             du = record.amount_due - record.amount_paid
+            if du <= 0:
+                record.status = "paid"
+                continue
             paye = min(reste, du)
             record.amount_paid += paye
             reste -= paye
@@ -182,40 +182,54 @@ async def payerimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session.add(caisse)
         caisse.total += amount
 
-        # Mettre à jour la dette fiscale
-        company.tax_debt = max(0, company.tax_debt - amount)
+        # Recalculer la dette fiscale réelle depuis les factures overdue restantes
+        remaining_overdue = (await session.execute(
+            select(func.sum(TaxRecord.amount_due - TaxRecord.amount_paid)).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == "overdue",
+            )
+        )).scalar() or 0
+        company.tax_debt = max(0, remaining_overdue)
 
         # Vérifier si on peut dégeler la trésorerie
-        # Condition : avoir payé au moins 50% du total impayé cumulé
         if company.treasury_frozen:
-            total_restant = sum(
-                r.amount_due - r.amount_paid
-                for r in pending
-                if r.status in ("pending", "partial")
-            )
-            if total_restant <= company.tax_debt * 0.5 or company.tax_debt <= 0:
+            if company.tax_debt <= 0:
                 company.treasury_frozen = False
                 gel_msg = "\n🔓 <b>Ta trésorerie a été dégelée !</b>"
             else:
-                gel_msg = f"\n⚠️ Trésorerie encore gelée. Il reste <b>{_fmt(company.tax_debt)} $</b> d'impôts cumulés. Paie 50% pour dégeler."
+                # Dégel si on a payé au moins 50% de la dette
+                total_overdue_original = (await session.execute(
+                    select(func.sum(TaxRecord.amount_due)).where(
+                        TaxRecord.company_id == company.id,
+                        TaxRecord.status == "overdue",
+                    )
+                )).scalar() or 0
+                if total_overdue_original > 0 and remaining_overdue <= total_overdue_original * 0.5:
+                    company.treasury_frozen = False
+                    gel_msg = "\n🔓 <b>Ta trésorerie a été dégelée !</b>"
+                else:
+                    gel_msg = f"\n⚠️ Trésorerie encore gelée. Il reste <b>{_fmt(company.tax_debt)} $</b> à payer. Paie 50% pour dégeler."
         else:
             gel_msg = ""
 
-        # Compter les impayés pour avertir
+        # Compter les vrais impayés restants (overdue avec du restant)
         overdue_count = (await session.execute(
             select(func.count()).where(
                 TaxRecord.company_id == company.id,
                 TaxRecord.status == "overdue",
+                TaxRecord.amount_paid < TaxRecord.amount_due,
             )
-        )).scalar()
+        )).scalar() or 0
 
         await _add_log(session, company.id, "impots", f"Paiement fiscal de {_fmt(amount)} $", amount=amount)
         await session.commit()
 
+        retard_line = f"\n🧾 Factures en retard : <b>{overdue_count}/3</b>" if overdue_count > 0 else "\n✅ Aucune facture en retard"
+
         await update.message.reply_text(
             f"🏛️ <b>Agence Fiscale — Paiement enregistré</b>\n\n"
-            f"✅ <b>{_fmt(amount)} $</b> payés pour <b>{company.name}</b>\n"
-            f"🧾 Impôts en retard : <b>{overdue_count}</b>/3{gel_msg}",
+            f"✅ <b>{_fmt(amount)} $</b> payés pour <b>{company.name}</b>"
+            f"{retard_line}{gel_msg}",
             parse_mode="HTML"
         )
 
@@ -239,7 +253,10 @@ async def caisse_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )).scalar() or 0
 
         overdue_count = (await session.execute(
-            select(func.count()).where(TaxRecord.status == "overdue")
+            select(func.count()).where(
+                TaxRecord.status == "overdue",
+                TaxRecord.amount_paid < TaxRecord.amount_due,
+            )
         )).scalar() or 0
 
         frozen_count = (await session.execute(
@@ -275,44 +292,52 @@ async def tax_overdue_job(context: ContextTypes.DEFAULT_TYPE):
 
         for record in expired:
             record.status = "overdue"
-            # Ajouter le restant à la dette
             company = await session.get(Company, record.company_id)
-            if company:
-                company.tax_debt += (record.amount_due - record.amount_paid)
+            if not company:
+                continue
 
-                # Compter les impayés
-                overdue_count = (await session.execute(
-                    select(func.count()).where(
-                        TaxRecord.company_id == company.id,
-                        TaxRecord.status == "overdue",
+            # Recalculer la dette depuis les overdue réels
+            remaining_overdue = (await session.execute(
+                select(func.sum(TaxRecord.amount_due - TaxRecord.amount_paid)).where(
+                    TaxRecord.company_id == company.id,
+                    TaxRecord.status == "overdue",
+                )
+            )).scalar() or 0
+            company.tax_debt = max(0, remaining_overdue)
+
+            # Compter les vrais impayés (avec du restant)
+            overdue_count = (await session.execute(
+                select(func.count()).where(
+                    TaxRecord.company_id == company.id,
+                    TaxRecord.status == "overdue",
+                    TaxRecord.amount_paid < TaxRecord.amount_due,
+                )
+            )).scalar()
+
+            if overdue_count >= 3 and not company.treasury_frozen:
+                company.treasury_frozen = True
+                pdg_emp = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.role == "pdg",
+                        CompanyEmployee.left_at == None,
                     )
-                )).scalar()
-
-                if overdue_count >= 3 and not company.treasury_frozen:
-                    company.treasury_frozen = True
-                    # Notifier le PDG
-                    pdg_emp = (await session.execute(
-                        select(CompanyEmployee).where(
-                            CompanyEmployee.company_id == company.id,
-                            CompanyEmployee.role == "pdg",
-                            CompanyEmployee.left_at == None,
+                )).scalar_one_or_none()
+                if pdg_emp:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=pdg_emp.user_id,
+                            text=(
+                                f"🔒 <b>AGENCE FISCALE — Gel de trésorerie</b>\n\n"
+                                f"🏢 <b>{company.name}</b> a accumulé <b>3 factures impayées</b>.\n"
+                                f"Ta trésorerie est désormais <b>gelée</b>.\n\n"
+                                f"💳 Pour dégeler : paye au moins <b>50%</b> du total dû "
+                                f"(<b>{_fmt(company.tax_debt // 2)} $</b>)\n"
+                                f"avec <code>/payerimpots [montant]</code>"
+                            ),
+                            parse_mode="HTML"
                         )
-                    )).scalar_one_or_none()
-                    if pdg_emp:
-                        try:
-                            await context.bot.send_message(
-                                chat_id=pdg_emp.user_id,
-                                text=(
-                                    f"🔒 <b>AGENCE FISCALE — Gel de trésorerie</b>\n\n"
-                                    f"🏢 <b>{company.name}</b> a accumulé <b>3 impôts impayés</b>.\n"
-                                    f"Ta trésorerie est désormais <b>gelée</b>.\n\n"
-                                    f"💳 Pour dégeler : paye au moins <b>50%</b> du total dû "
-                                    f"(<b>{_fmt(company.tax_debt // 2)} $</b>)\n"
-                                    f"avec <code>/payerimpots [montant]</code>"
-                                ),
-                                parse_mode="HTML"
-                            )
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
 
         await session.commit()

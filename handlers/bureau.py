@@ -167,70 +167,83 @@ def _generate_contracts_fallback(company: Company, employees: int) -> list[dict]
     return contracts
 
 
-async def _generate_contracts(company: Company, employees: int) -> list[dict]:
-    """Génère 3 propositions de contrats via Gemini, avec fallback sur les templates."""
+async def _generate_one_contract(company: Company, employees: int, level_index: int) -> dict:
+    """Génère UN contrat via Gemini (même approche que company_contracts.py).
+    level_index : 0=standard, 1=intermédiaire, 2=ambitieux
+    """
     params = _get_contract_params(company.treasury)
     sector = company.sector or DEFAULT_SECTOR
+    p = params[level_index]
 
-    # Bonus employés sur la récompense
-    def _apply_bonus(reward: int) -> int:
-        if employees >= 10:
-            reward = int(reward * 1.2)
-        elif employees >= 5:
-            reward = int(reward * 1.1)
-        return reward
+    # Bonus employés
+    reward = max(1_000_000, int(company.treasury * p["rate"]))
+    if employees >= 10:
+        reward = int(reward * 1.2)
+    elif employees >= 5:
+        reward = int(reward * 1.1)
 
-    # Niveaux des 3 contrats : facile / moyen / ambitieux
-    LEVEL_LABELS = ["standard", "intermédiaire", "ambitieux et prestigieux"]
+    level_label = ["standard", "intermédiaire", "ambitieux et prestigieux"][level_index]
+
+    # Templates fallback
+    templates_sector = CONTRATS_TEMPLATES.get(sector, CONTRATS_TEMPLATES[DEFAULT_SECTOR])
+    fb_title, fb_desc = random.choice(templates_sector)
+    fb_client = random.choice(CLIENTS)
 
     prompt = (
         f"Tu es un générateur de contrats professionnels pour un jeu économique en français.\n"
         f"Secteur de l'entreprise : {sector}\n"
-        f"Génère exactement 3 contrats fictifs et réalistes de niveaux croissants "
-        f"({', '.join(LEVEL_LABELS)}).\n"
-        f"Récompenses approximatives : "
-        f"{_fmt(max(1_000_000, int(company.treasury * params[0]['rate'])))} $, "
-        f"{_fmt(max(1_000_000, int(company.treasury * params[1]['rate'])))} $, "
-        f"{_fmt(max(1_000_000, int(company.treasury * params[2]['rate'])))} $.\n"
-        f"Objectifs de commandes d'équipe : "
-        f"{params[0]['cmds']}, {params[1]['cmds']}, {params[2]['cmds']}.\n\n"
-        f"Réponds UNIQUEMENT en JSON valide (sans markdown) avec un tableau de 3 objets :\n"
-        f'[{{"client":"...","mission":"...","detail":"..."}}, ...]\n'
-        f"- client : nom d'entreprise fictif et crédible (court)\n"
+        f"Génère UN contrat fictif et réaliste de niveau {level_label} avec ces contraintes :\n"
+        f"- Objectif : {p['cmds']} commandes d'équipe en {p['days']} jours\n"
+        f"- Récompense : {_fmt(reward)} $\n"
+        + (f"- CONTRAT AMBITIEUX : rends la mission particulièrement prestigieuse et exigeante.\n" if level_index == 2 else "")
+        + f"\nRéponds UNIQUEMENT en JSON valide (sans markdown) avec ces champs :\n"
+        f"{{\"client\": \"...\", \"mission\": \"...\", \"detail\": \"...\"}}\n"
+        f"- client : nom du client fictif (court, réaliste)\n"
         f"- mission : titre court de la mission (max 60 chars)\n"
-        f"- detail : description immersive de la mission (max 200 chars)"
+        f"- detail : description courte et immersive (max 200 chars)"
     )
 
     raw = await _call_gemini_bureau(prompt)
 
-    contracts = []
-    if raw:
-        try:
-            clean = raw.strip()
-            if clean.startswith("```"):
-                clean = clean.split("```")[1]
-                if clean.startswith("json"):
-                    clean = clean[4:]
-            data = json.loads(clean.strip())
-            if isinstance(data, list) and len(data) == 3:
-                for i, item in enumerate(data):
-                    p = params[i]
-                    reward = _apply_bonus(max(1_000_000, int(company.treasury * p["rate"])))
-                    contracts.append({
-                        "title": item.get("mission", "Mission sans titre"),
-                        "description": f"{item.get('detail', '')} Client : <b>{item.get('client', 'Client inconnu')}</b>.",
-                        "reward": reward,
-                        "duration_days": p["days"],
-                        "objective_cmds": p["cmds"],
-                    })
-        except Exception:
-            pass
+    # Fallback immédiat si Gemini ne répond pas
+    if not raw:
+        return {
+            "title": fb_title,
+            "description": f"{fb_desc} Client : <b>{fb_client}</b>.",
+            "reward": reward,
+            "duration_days": p["days"],
+            "objective_cmds": p["cmds"],
+        }
 
-    # Fallback si Gemini a échoué ou JSON invalide
-    if len(contracts) != 3:
-        contracts = _generate_contracts_fallback(company, employees)
+    try:
+        raw_clean = raw.strip().strip("```json").strip("```").strip()
+        data = json.loads(raw_clean)
+        return {
+            "title": data.get("mission", fb_title),
+            "description": f"{data.get('detail', fb_desc)} Client : <b>{data.get('client', fb_client)}</b>.",
+            "reward": reward,
+            "duration_days": p["days"],
+            "objective_cmds": p["cmds"],
+        }
+    except Exception:
+        return {
+            "title": fb_title,
+            "description": f"{fb_desc} Client : <b>{fb_client}</b>.",
+            "reward": reward,
+            "duration_days": p["days"],
+            "objective_cmds": p["cmds"],
+        }
 
-    return contracts
+
+async def _generate_contracts(company: Company, employees: int) -> list[dict]:
+    """Génère 3 propositions de contrats via Gemini (une par une, comme company_contracts.py)."""
+    import asyncio
+    contracts = await asyncio.gather(
+        _generate_one_contract(company, employees, 0),
+        _generate_one_contract(company, employees, 1),
+        _generate_one_contract(company, employees, 2),
+    )
+    return list(contracts)
 
 
 # ─── COMMANDE : /soumettredossier ─────────────────────────────────────────────

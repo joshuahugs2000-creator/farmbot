@@ -44,6 +44,7 @@ HELP_TEXT_1 = """
 /work — Travailler (3K–30K, cooldown 8h)
 /pay @joueur montant — Envoyer des $
 /richlist — Top 10 des plus riches
+/topactifs — Top 10 des joueurs les plus actifs (7j)
 
 <b>🎓 Diplômes</b>
 /diplome — Passer un diplôme (Bac, Licence, Master, MBA)

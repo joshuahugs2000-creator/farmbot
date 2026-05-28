@@ -594,3 +594,53 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎲 Essais restants aujourd'hui : <b>{tries_after}/{DES_MAX_TRIES}</b>",
                 parse_mode=ParseMode.HTML
             )
+
+
+# ─── /topactifs ───────────────────────────────────────────────────────────────
+
+async def topactifs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Top 10 des joueurs les plus actifs sur les 7 derniers jours."""
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(text(
+            """SELECT u.first_name, u.username, COUNT(al.id) as cmd_count
+               FROM activity_logs al
+               JOIN users u ON u.user_id = al.user_id
+               WHERE al.created_at > NOW() - INTERVAL '7 days'
+               GROUP BY u.user_id, u.first_name, u.username
+               ORDER BY cmd_count DESC LIMIT 10"""
+        ))).fetchall()
+
+    if not rows:
+        return await update.message.reply_text("😶 Aucune activité enregistrée sur les 7 derniers jours.")
+
+    PODIUM = ["🥇", "🥈", "🥉"]
+    SEP  = "⚡━━━━━━━━━━━━━━━━━━━━⚡"
+    SEP2 = "━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    lines = [
+        SEP,
+        "    🎮 <b>JOUEURS LES PLUS ACTIFS</b> 🎮",
+        "         <i>7 derniers jours</i>",
+        SEP,
+        "",
+    ]
+
+    for i, r in enumerate(rows):
+        tag = f"@{r.username}" if r.username else r.first_name
+        count = r.cmd_count
+        if i < 3:
+            bar_len = max(1, int(count / max(rows[0].cmd_count, 1) * 10))
+            bar = "█" * bar_len + "░" * (10 - bar_len)
+            lines.append(f"{PODIUM[i]} <b>{tag}</b>")
+            lines.append(f"   ┗━▶ <b>{count}</b> cmds  <code>[{bar}]</code>")
+            lines.append("")
+        else:
+            if i == 3:
+                lines.append(SEP2)
+            num = f"{i+1:2d}"
+            lines.append(f" {num} ◈ {tag} ········ {count} cmds")
+
+    lines.append(SEP2)
+    lines.append("📅 <i>Période : 7 derniers jours</i>")
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

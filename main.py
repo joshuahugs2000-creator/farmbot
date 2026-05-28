@@ -29,7 +29,7 @@ from handlers.profile  import me, setpic, customize, color_callback, titles, kar
 from handlers.events   import check_anniversaries
 from handlers.events_random import setup_random_events, open_chest_cmd
 from handlers.economy  import (
-    acc, daily, work, pay, richlist, topactifs,
+    acc, daily, work, pay, richlist,
     blackjack, roulette, slots,
 )
 from handlers.games import (
@@ -69,7 +69,7 @@ from handlers.admin    import (
     wipeinventory, resetbanque, kickboite, deletecompany,
     forcepdg, purgeprison, freeze, unfreeze,
     inflation, checkuser, setreputation, addvalue,
-    wipeloans, broadcastdm, topactifs as topactifs_admin,
+    wipeloans, broadcastdm, topactifs,
     mutecompany, unmutecompany,
     adminboites, adminboite, statsusers,
     adminparts, admintransfert,
@@ -510,7 +510,6 @@ async def main():
     app.add_handler(CommandHandler("work",       _prison_checked(work)))
     app.add_handler(CommandHandler("pay",        _prison_checked(pay)))
     app.add_handler(CommandHandler("richlist",   _prison_checked(richlist)))
-    app.add_handler(CommandHandler("topactifs",  _prison_checked(topactifs)))
     app.add_handler(CommandHandler("blackjack",  _prison_checked(blackjack)))
     app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
     app.add_handler(CommandHandler("slots",      _prison_checked(slots)))
@@ -645,6 +644,7 @@ async def main():
     app.add_handler(CommandHandler("addvalue",       addvalue))
     app.add_handler(CommandHandler("wipeloans",      wipeloans))
     app.add_handler(CommandHandler("broadcastdm",    broadcastdm))
+    app.add_handler(CommandHandler("topactifs",      topactifs))
     app.add_handler(CommandHandler("mutecompany",    mutecompany))
     app.add_handler(CommandHandler("unmutecompany",  unmutecompany))
     app.add_handler(CommandHandler("adminboites",    adminboites))
@@ -838,10 +838,11 @@ async def main():
         name="check_auto_contracts",
     )
 
-    # ── Agence Fiscale — factures 8h chaque matin ─────────────────────────────
-    app.job_queue.run_daily(
+    # ── Agence Fiscale — factures tous les 2 jours à 8h ───────────────────────
+    app.job_queue.run_repeating(
         tax_daily_job,
-        time=dt_time(hour=8, minute=0, tzinfo=tz_paris),
+        interval=timedelta(hours=48),
+        first=dt_time(hour=8, minute=0, tzinfo=tz_paris),
         name="tax_daily",
     )
     # Vérification impayés toutes les heures

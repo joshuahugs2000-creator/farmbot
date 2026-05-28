@@ -6,7 +6,10 @@ Même mécanique que les contrats automatiques :
   - Job horaire vérifie → verse la récompense si objectif atteint
   - Si délai dépassé sans objectif atteint → contrat échoué
 """
+import os
+import json
 import random
+import aiohttp
 from datetime import datetime, timedelta
 
 from sqlalchemy import select, func
@@ -16,6 +19,32 @@ from telegram.ext import ContextTypes
 from database import AsyncSessionLocal
 from database.models import Company, BureauContrat, CompanyEmployee
 from handlers.company import _fmt, _add_log
+
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+
+async def _call_gemini_bureau(prompt: str) -> str | None:
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        return None
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 600, "temperature": 1.1, "topP": 0.95},
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{GEMINI_API_URL}?key={api_key}",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=25),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                result = await resp.json()
+                return result["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception:
+        return None
 
 
 # Objectifs de commandes et récompenses selon la trésorerie
@@ -107,8 +136,8 @@ async def _get_employee_total_cmds(session, company_id: int) -> int:
     return result.scalar() or 0
 
 
-def _generate_contracts(company: Company, employees: int) -> list[dict]:
-    """Génère 3 propositions de contrats avec objectifs en commandes."""
+def _generate_contracts_fallback(company: Company, employees: int) -> list[dict]:
+    """Fallback : génère 3 contrats via templates statiques."""
     sector = company.sector if company.sector in CONTRATS_TEMPLATES else DEFAULT_SECTOR
     templates = CONTRATS_TEMPLATES[sector]
     selected = random.sample(templates, min(3, len(templates)))
@@ -122,7 +151,6 @@ def _generate_contracts(company: Company, employees: int) -> list[dict]:
         reward = int(company.treasury * p["rate"])
         reward = max(reward, 1_000_000)
 
-        # Bonus employés
         if employees >= 5:
             reward = int(reward * 1.1)
         if employees >= 10:
@@ -135,6 +163,72 @@ def _generate_contracts(company: Company, employees: int) -> list[dict]:
             "duration_days": p["days"],
             "objective_cmds": p["cmds"],
         })
+
+    return contracts
+
+
+async def _generate_contracts(company: Company, employees: int) -> list[dict]:
+    """Génère 3 propositions de contrats via Gemini, avec fallback sur les templates."""
+    params = _get_contract_params(company.treasury)
+    sector = company.sector or DEFAULT_SECTOR
+
+    # Bonus employés sur la récompense
+    def _apply_bonus(reward: int) -> int:
+        if employees >= 10:
+            reward = int(reward * 1.2)
+        elif employees >= 5:
+            reward = int(reward * 1.1)
+        return reward
+
+    # Niveaux des 3 contrats : facile / moyen / ambitieux
+    LEVEL_LABELS = ["standard", "intermédiaire", "ambitieux et prestigieux"]
+
+    prompt = (
+        f"Tu es un générateur de contrats professionnels pour un jeu économique en français.\n"
+        f"Secteur de l'entreprise : {sector}\n"
+        f"Génère exactement 3 contrats fictifs et réalistes de niveaux croissants "
+        f"({', '.join(LEVEL_LABELS)}).\n"
+        f"Récompenses approximatives : "
+        f"{_fmt(max(1_000_000, int(company.treasury * params[0]['rate'])))} $, "
+        f"{_fmt(max(1_000_000, int(company.treasury * params[1]['rate'])))} $, "
+        f"{_fmt(max(1_000_000, int(company.treasury * params[2]['rate'])))} $.\n"
+        f"Objectifs de commandes d'équipe : "
+        f"{params[0]['cmds']}, {params[1]['cmds']}, {params[2]['cmds']}.\n\n"
+        f"Réponds UNIQUEMENT en JSON valide (sans markdown) avec un tableau de 3 objets :\n"
+        f'[{{"client":"...","mission":"...","detail":"..."}}, ...]\n'
+        f"- client : nom d'entreprise fictif et crédible (court)\n"
+        f"- mission : titre court de la mission (max 60 chars)\n"
+        f"- detail : description immersive de la mission (max 200 chars)"
+    )
+
+    raw = await _call_gemini_bureau(prompt)
+
+    contracts = []
+    if raw:
+        try:
+            clean = raw.strip()
+            if clean.startswith("```"):
+                clean = clean.split("```")[1]
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            data = json.loads(clean.strip())
+            if isinstance(data, list) and len(data) == 3:
+                for i, item in enumerate(data):
+                    p = params[i]
+                    reward = _apply_bonus(max(1_000_000, int(company.treasury * p["rate"])))
+                    contracts.append({
+                        "title": item.get("mission", "Mission sans titre"),
+                        "description": f"{item.get('detail', '')} Client : <b>{item.get('client', 'Client inconnu')}</b>.",
+                        "reward": reward,
+                        "duration_days": p["days"],
+                        "objective_cmds": p["cmds"],
+                    })
+        except Exception:
+            pass
+
+    # Fallback si Gemini a échoué ou JSON invalide
+    if len(contracts) != 3:
+        contracts = _generate_contracts_fallback(company, employees)
 
     return contracts
 
@@ -189,7 +283,7 @@ async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
         )).scalar() or 0
 
         # Générer 3 contrats
-        proposals = _generate_contracts(company, employees)
+        proposals = await _generate_contracts(company, employees)
 
         # Supprimer anciennes propositions en attente
         old_pending = (await session.execute(

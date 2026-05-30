@@ -172,17 +172,11 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result == "ok" and amount >= 10_000:
             await adjust_karma(session, sender.user_id, +1)
             karma_msg = "\n⭐ +1 karma (don généreux) !"
-
-    if result == "insufficient":
-        await update.message.reply_text(f"Solde insuffisant ! Il te faut {_fmt(amount)} {CURRENCY}.")
-    elif result == "not_found":
-        await update.message.reply_text("Utilisateur introuvable.")
-    else:
-        group_id = update.effective_chat.id if update.effective_chat.type != "private" else None
-        async with AsyncSessionLocal() as _ls:
-            # Log côté envoyeur
+        # Log dans la même session pour économiser une connexion DB
+        if result == "ok":
+            group_id = update.effective_chat.id if update.effective_chat.type != "private" else None
             await log_action(
-                _ls,
+                session,
                 user_id  = sender.user_id,
                 username = sender.username,
                 command  = "pay",
@@ -191,9 +185,8 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 result   = "ok",
                 group_id = group_id,
             )
-            # Log côté destinataire
             await log_action(
-                _ls,
+                session,
                 user_id  = target.user_id,
                 username = target.username,
                 command  = "pay_reçu",
@@ -202,6 +195,12 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 result   = "ok",
                 group_id = group_id,
             )
+
+    if result == "insufficient":
+        await update.message.reply_text(f"Solde insuffisant ! Il te faut {_fmt(amount)} {CURRENCY}.")
+    elif result == "not_found":
+        await update.message.reply_text("Utilisateur introuvable.")
+    else:
         await update.message.reply_text(
             f"💸 {mention(sender)} a envoyé {_fmt(amount)} {CURRENCY} à {mention(target)} !{karma_msg}",
             parse_mode=ParseMode.HTML,

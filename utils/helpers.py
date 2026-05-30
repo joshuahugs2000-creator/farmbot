@@ -40,7 +40,7 @@ async def ensure_user(tg_user) -> User:
             if attempt < 2 and any(k in err for k in (
                 "connection", "closed", "timeout", "reset", "broken", "ssl", "eof"
             )):
-                await asyncio.sleep(1.0 * (attempt + 1))
+                await asyncio.sleep(0.3 * (attempt + 1))
                 last_err = e
                 continue
             raise

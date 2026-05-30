@@ -517,8 +517,18 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
 
 REVENUE_PER_CMD = 10_000  # 1 commande employé = 10 000 $ en trésorerie
 
+# Throttle : on ne met à jour qu'une fois par 60s par user pour éviter de saturer le pool DB
+_company_activity_last: dict[int, float] = {}
+
 async def update_company_activity(user_id: int):
-    """Appelé par le middleware à chaque commande. Met à jour TOUTES les entreprises où l'employé est actif."""
+    """Appelé par le middleware à chaque commande. Throttlé à 1 fois/60s par user."""
+    import time as _time
+    now = _time.monotonic()
+    last = _company_activity_last.get(user_id, 0)
+    if now - last < 60:
+        return  # trop tôt, on skip
+    _company_activity_last[user_id] = now
+
     async with AsyncSessionLocal() as session:
         # Récupérer TOUTES les entreprises actives où le user est membre
         rows = (await session.execute(

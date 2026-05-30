@@ -198,6 +198,9 @@ async def init_db():
         "ALTER TABLE company_auto_contracts ADD COLUMN IF NOT EXISTS notif_message_id BIGINT DEFAULT NULL",
         # ── Colonnes bureau_contrats ──────────────────────────────────────────
         "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS description VARCHAR(600) DEFAULT ''",
+        "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS cmds_at_start BIGINT DEFAULT 0",
+        "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS starts_at TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS ends_at TIMESTAMP DEFAULT NULL",
         # ── Table prêts entreprise ────────────────────────────────────────────
         """CREATE TABLE IF NOT EXISTS company_loans (
             id              SERIAL PRIMARY KEY,

@@ -152,7 +152,7 @@ async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/adminboite nom — Fiche détaillée : employés, salaires, logs\n\n"
         "<b>📈 Utilisation du bot</b>\n"
         "/statsusers — Actifs par période, nouveaux inscrits, top commandes\n\n"
-        "<b>🎓 Diplômes & Examens</b>\n"
+        "<b>🎓 Diplômes &amp; Examens</b>\n"
         "/admindiplome @user bac|licence|master|mba [domaine] [retirer] — Accorder ou retirer un diplôme\n"
         "/examinfo @user — Voir niveau, cooldown, ancienneté, domaine, solde\n"
         "/examreset @user — Supprimer le cooldown (peut repasser immédiatement)\n"
@@ -3087,7 +3087,7 @@ async def adminboite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📈 Revenu journalier estimé : <code>{_fmt(daily_total)}</code>",
         f"État : {'🟢 Active' if comp.is_active else '🔴 Inactive'}  |  {'🤖 Bot' if comp.is_bot_company else '👤 Joueur'}",
         "",
-        "👥 <b>EMPLOYÉS & SALAIRES</b>",
+        "👥 <b>EMPLOYÉS &amp; SALAIRES</b>",
     ]
 
     total_salaires = 0
@@ -3441,7 +3441,7 @@ async def auditboite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 <b>Résumé des mouvements</b>",
         f"  💰 Dépôts   : <b>{nb_depot} opérations</b> → <code>{_fmt(total_depot)} $</code>",
         f"  💸 Retraits : <b>{nb_retrait} opérations</b> → <code>{_fmt(total_retrait)} $</code>",
-        f"  🔁 Cycles suspects (<2min) : <b>{cycles_suspects}</b>",
+        f"  🔁 Cycles suspects (&lt;2min) : <b>{cycles_suspects}</b>",
         f"",
         f"📈 <b>Impact sur la valeur</b>",
         f"  Valeur actuelle   : <code>{_fmt(valeur_actuelle)} $</code>",

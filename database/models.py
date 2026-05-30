@@ -411,6 +411,7 @@ class StateCaisse(Base):
     __tablename__ = "state_caisse"
     id           = Column(Integer, primary_key=True, autoincrement=True)
     total        = Column(BigInteger, default=0)
+    last_tax_at  = Column(DateTime, nullable=True, default=None)  # dernière émission fiscale
 
 
 class BureauContrat(Base):

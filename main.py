@@ -101,6 +101,7 @@ from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.diplome import diplome_cmd, diplome_callback
 from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse_cmd, mesimpots_cmd
+from handlers.competition import startcompet_cmd, compet_cmd, stopcompet_cmd, compet_autoclose_job
 from handlers.bureau import soumettredossier_cmd, choisircontrat_cmd, mescontratsbc_cmd, claimcontratbc_cmd, bureau_check_job
 from handlers.company import (
     init_company_tables, update_company_activity,
@@ -715,6 +716,9 @@ async def main():
     # ── Agence Fiscale ────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("payerimpots",     _prison_checked(payerimpots_cmd)))
     app.add_handler(CommandHandler("mesimpots",        _prison_checked(mesimpots_cmd)))
+    app.add_handler(CommandHandler("startcompet",      startcompet_cmd))   # admin only (géré dans le handler)
+    app.add_handler(CommandHandler("compet",           _prison_checked(compet_cmd)))
+    app.add_handler(CommandHandler("stopcompet",       stopcompet_cmd))    # admin only (géré dans le handler)
     app.add_handler(CommandHandler("caisse",          caisse_cmd))
 
     # ── Bureau des Contrats ───────────────────────────────────────────────────
@@ -848,6 +852,12 @@ async def main():
         name="tax_daily",
     )
     # Vérification impayés toutes les heures
+    app.job_queue.run_repeating(
+        compet_autoclose_job,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=10),
+        name="compet_autoclose",
+    )
     app.job_queue.run_repeating(
         tax_overdue_job,
         interval=timedelta(hours=1),

@@ -2065,15 +2065,19 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Limite : max 30% de la valeur par retrait
 
-        # ── Cooldown 24h anti-exploit ────────────────────────────────────────
-        # Sans délai, le PDG vide la trésorerie en 5 transactions (30%×30%×...)
-        # avant que les actionnaires ne puissent réagir.
-        if company.last_retrait_pdg and (datetime.utcnow() - company.last_retrait_pdg) < timedelta(hours=24):
-            remaining = timedelta(hours=24) - (datetime.utcnow() - company.last_retrait_pdg)
-            h, m = divmod(int(remaining.total_seconds() / 60), 60)
+        # ── Limite 2 retraits par jour calendaire (sans restriction horaire) ──
+        today = datetime.utcnow().date()
+        retraits_today = (await session.execute(
+            select(func.count()).select_from(CompanyLog).where(
+                CompanyLog.company_id == company.id,
+                CompanyLog.action == "retrait",
+                func.date(CompanyLog.created_at) == today,
+            )
+        )).scalar() or 0
+        if retraits_today >= 3:
             await update.message.reply_text(
-                f"❌ Un seul retrait par <b>24h</b> est autorisé.\n"
-                f"⏳ Prochain retrait dans <b>{h}h {m}min</b>.",
+                f"❌ Tu as déjà effectué <b>3 retraits aujourd'hui</b>.\n"
+                f"⏳ Reviens demain pour retirer à nouveau.",
                 parse_mode="HTML"
             )
             return

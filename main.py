@@ -51,7 +51,7 @@ from handlers.admin    import (
     ban, unban, resetuser,
     adminadd, adminremove, adminlist, userlist, broadcast,
     liberer, prisonlist, emprisonner,
-    is_admin, load_admins_from_db, pause, resume,
+    is_admin, pause, resume,
     giveportfolio, takeportfolio, marketlist,
     useractivity,
     enquete,
@@ -464,7 +464,8 @@ async def main():
     app.add_error_handler(error_handler)
 
     # ── Middleware de logging automatique ─────────────────────────────────────
-    app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
+    # activity_logging_middleware désactivé — génère trop d'egress Supabase
+    # app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
     app.add_handler(TypeHandler(Update, group_tracking_middleware),   group=-2)
     app.add_handler(TypeHandler(Update, ban_middleware),              group=-3)
     from telegram.ext import ChatMemberHandler

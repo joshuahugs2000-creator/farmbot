@@ -162,6 +162,18 @@ async def init_db():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS weekly_revenue BIGINT DEFAULT 0",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS extra_slots INTEGER DEFAULT 0",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_muted BOOLEAN DEFAULT FALSE",
+        # ── Colonnes finance/contrôle ajoutées récemment ─────────────────────
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_annonce TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_rename TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_retrait_pdg TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS treasury_frozen BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS tax_debt BIGINT DEFAULT 0",
+        # ── Colonnes CompanyAutoContract ajoutées récemment ──────────────────
+        "ALTER TABLE company_auto_contracts ADD COLUMN IF NOT EXISTS negotiated_reward BIGINT DEFAULT NULL",
+        "ALTER TABLE company_auto_contracts ADD COLUMN IF NOT EXISTS negotiation_round INTEGER DEFAULT 0",
+        "ALTER TABLE company_auto_contracts ADD COLUMN IF NOT EXISTS notif_message_id BIGINT DEFAULT NULL",
+        # ── Colonnes bureau_contrats ──────────────────────────────────────────
+        "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS description VARCHAR(600) DEFAULT ''",
         # ── Table prêts entreprise ────────────────────────────────────────────
         """CREATE TABLE IF NOT EXISTS company_loans (
             id              SERIAL PRIMARY KEY,

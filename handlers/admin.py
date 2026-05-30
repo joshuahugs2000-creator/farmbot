@@ -28,7 +28,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import select, text
 
-from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users, get_logs_for_user, get_suspicious_users, get_all_groups
+from database.db import AsyncSessionLocal, get_user, add_coins, set_coins, get_all_users, get_logs_for_user, get_suspicious_users, get_all_groups, init_admins_table, load_admin_ids, save_admin_id, remove_admin_id
 from database.models import User, BankAccount, Loan, Investment, GroupSettings
 from utils.helpers import ensure_user, parse_target, mention
 from config import CURRENCY
@@ -36,9 +36,20 @@ from config import CURRENCY
 logger = logging.getLogger(__name__)
 
 # ─── IDs des admins ───────────────────────────────────────────────────────────
-ADMIN_IDS: set[int] = {
+# IDs hardcodés (toujours admins, même si la DB est vide)
+_HARDCODED_ADMIN_IDS: set[int] = {
     6227863810,
 }
+# Set en mémoire chargé depuis la DB au démarrage + mis à jour dynamiquement
+ADMIN_IDS: set[int] = set(_HARDCODED_ADMIN_IDS)
+
+
+async def load_admins_from_db() -> None:
+    """À appeler au démarrage pour charger les admins persistés en DB."""
+    await init_admins_table()
+    db_ids = await load_admin_ids()
+    ADMIN_IDS.update(_HARDCODED_ADMIN_IDS)
+    ADMIN_IDS.update(db_ids)
 
 # ─── État global du bot ───────────────────────────────────────────────────────
 BOT_PAUSED: bool = False
@@ -531,9 +542,10 @@ async def adminadd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Usage : /adminadd @user")
 
     ADMIN_IDS.add(target_tg.id)
+    await save_admin_id(target_tg.id)
     await update.message.reply_text(
         f"✅ {target_tg.first_name} (<code>{target_tg.id}</code>) ajouté aux admins.\n"
-        f"⚠️ Temporaire jusqu'au redémarrage du bot. Ajoute l'ID dans le code pour le rendre permanent.",
+        f"✔️ Persisté en base — survivra aux redémarrages.",
         parse_mode=ParseMode.HTML,
     )
 
@@ -550,7 +562,8 @@ async def adminremove(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Tu ne peux pas te retirer toi-même.")
 
     ADMIN_IDS.discard(target_tg.id)
-    await update.message.reply_text(f"✅ {target_tg.first_name} retiré des admins.")
+    await remove_admin_id(target_tg.id)
+    await update.message.reply_text(f"✅ {target_tg.first_name} retiré des admins (persisté en base).")
 
 
 async def adminlist(update: Update, context: ContextTypes.DEFAULT_TYPE):

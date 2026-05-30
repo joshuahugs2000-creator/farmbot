@@ -191,10 +191,21 @@ async def payerimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )).scalar() or 0
         company.tax_debt = max(0, remaining_overdue)
 
+        # Compter les overdue non entièrement payées
+        overdue_unpaid_count = (await session.execute(
+            select(func.count()).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == "overdue",
+                TaxRecord.amount_paid < TaxRecord.amount_due,
+            )
+        )).scalar() or 0
+
         # Vérifier si on peut dégeler la trésorerie
         if company.treasury_frozen:
-            if company.tax_debt <= 0:
+            if overdue_unpaid_count == 0 or company.tax_debt <= 0:
+                # Plus aucun overdue impayé → dégel total
                 company.treasury_frozen = False
+                company.tax_debt = 0
                 gel_msg = "\n🔓 <b>Ta trésorerie a été dégelée !</b>"
             else:
                 # Dégel si on a payé au moins 50% de la dette

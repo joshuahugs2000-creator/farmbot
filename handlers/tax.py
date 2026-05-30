@@ -1,6 +1,7 @@
 """
 🏛️ Agence Fiscale — impôts tous les 2 jours sur les entreprises
 """
+import asyncio
 from datetime import datetime, timedelta
 
 from sqlalchemy import select, func
@@ -98,6 +99,7 @@ async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
                         ),
                         parse_mode="HTML"
                     )
+                    await asyncio.sleep(0.05)  # Anti-flood
                 except Exception:
                     pass
 

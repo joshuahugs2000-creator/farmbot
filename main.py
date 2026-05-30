@@ -51,7 +51,7 @@ from handlers.admin    import (
     ban, unban, resetuser,
     adminadd, adminremove, adminlist, userlist, broadcast,
     liberer, prisonlist, emprisonner,
-    is_admin, pause, resume,
+    is_admin, load_admins_from_db, pause, resume,
     giveportfolio, takeportfolio, marketlist,
     useractivity,
     enquete,
@@ -369,9 +369,9 @@ async def activity_logging_middleware(update: Update, context) -> None:
             )
     except Exception as e:
         logger.debug(f"Erreur log_action: {e}")
-    # Mettre à jour l'activité entreprise
+    # Mettre à jour l'activité entreprise en arrière-plan (non bloquant)
     try:
-        await update_company_activity(user.id)
+        asyncio.create_task(update_company_activity(user.id))
     except Exception as e:
         logger.debug(f"Erreur update_company_activity: {e}")
 
@@ -389,6 +389,7 @@ async def on_startup(application: Application):
     await init_sector_tables()
     await init_finance_tables()
     await init_contract_tables()
+    await load_admins_from_db()  # ← charge les admins persistés en DB
 
     # Migration : colonnes genre et mariage
     from database.db import engine
@@ -398,6 +399,8 @@ async def on_startup(application: Application):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS marriage_type VARCHAR(10) DEFAULT 'monogame'",
             "ALTER TABLE pending_requests ADD COLUMN IF NOT EXISTS extra VARCHAR(50)",
+            # Index pour accélérer la recherche par @username (parse_target)
+            "CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username))",
         ]:
             try:
                 await _conn.execute(_text(_sql))
@@ -415,7 +418,8 @@ async def error_handler(update: object, context):
 
     # Flood control ou timeout réseau — on log en warning sans spammer l'utilisateur
     if isinstance(err, RetryAfter):
-        logger.warning(f"Flood control Telegram : retry in {err.retry_after}s — ignoré")
+        wait = min(err.retry_after, 30)  # cap à 30s max, Telegram envoie parfois des valeurs aberrantes
+        logger.warning(f"Flood control Telegram : retry in {err.retry_after}s — ignoré (cap {wait}s)")
         return
     if isinstance(err, (TimedOut, httpx.ReadTimeout, httpx.ConnectTimeout)):
         logger.warning(f"Timeout réseau ({type(err).__name__}) — ignoré")

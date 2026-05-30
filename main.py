@@ -100,7 +100,7 @@ from handlers.wealth_drain import (
 from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.diplome import diplome_cmd, diplome_callback
-from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse_cmd
+from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse_cmd, mesimpots_cmd
 from handlers.bureau import soumettredossier_cmd, choisircontrat_cmd, mescontratsbc_cmd, claimcontratbc_cmd, bureau_check_job
 from handlers.company import (
     init_company_tables, update_company_activity,
@@ -714,6 +714,7 @@ async def main():
 
     # ── Agence Fiscale ────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("payerimpots",     _prison_checked(payerimpots_cmd)))
+    app.add_handler(CommandHandler("mesimpots",        _prison_checked(mesimpots_cmd)))
     app.add_handler(CommandHandler("caisse",          caisse_cmd))
 
     # ── Bureau des Contrats ───────────────────────────────────────────────────

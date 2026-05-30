@@ -45,6 +45,16 @@ async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
             if tax <= 0:
                 continue
 
+            # Anti-doublon : ne pas émettre si une facture a déjà été créée dans les 47h
+            recent = (await session.execute(
+                select(TaxRecord).where(
+                    TaxRecord.company_id == company.id,
+                    TaxRecord.created_at >= datetime.utcnow() - timedelta(hours=47),
+                ).limit(1)
+            )).scalar_one_or_none()
+            if recent:
+                continue
+
             # Créer la facture avec délai de 48h
             record = TaxRecord(
                 company_id=company.id,

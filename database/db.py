@@ -12,13 +12,37 @@ from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TIT
 from datetime import datetime, timedelta
 from typing import Optional, List
 
+import asyncio
+import logging
+_db_logger = logging.getLogger("db_retry")
+
+async def _db_retry(coro_fn, *args, retries=3, delay=1.0, **kwargs):
+    """Réessaie automatiquement en cas d'erreur de connexion DB."""
+    for attempt in range(retries):
+        try:
+            return await coro_fn(*args, **kwargs)
+        except Exception as e:
+            err = str(e).lower()
+            if attempt < retries - 1 and any(k in err for k in (
+                "connection", "closed", "timeout", "reset", "broken", "ssl", "eof"
+            )):
+                _db_logger.warning(f"DB retry {attempt+1}/{retries}: {e}")
+                await asyncio.sleep(delay * (attempt + 1))
+                continue
+            raise
+
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,      # teste la connexion avant utilisation (évite les "stale connections" Railway)
-    pool_recycle=300,        # recycle les connexions après 5 min
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,       # teste la connexion avant utilisation
+    pool_recycle=120,         # recycle toutes les 2 min (Supabase coupe après ~5 min d'inactivité)
+    pool_timeout=30,
+    connect_args={
+        "server_settings": {"application_name": "farmbot"},
+        "command_timeout": 10,
+    },
 )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

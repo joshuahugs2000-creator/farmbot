@@ -563,6 +563,10 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 company.treasury += contract.reward
                 company.value = company.treasury
 
+                # Gain de réputation
+                rep_gain = random.choice([0.05, 0.05, 0.075, 0.075, 0.10])
+                company.reputation = min(5.0, (company.reputation or 3.0) + rep_gain)
+
                 await _add_log(session, company.id, "contrat_bureau",
                                f"Contrat '{contract.title}' réclamé manuellement — +{_fmt(contract.reward)} $",
                                amount=contract.reward)
@@ -578,7 +582,8 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"🎉 <b>{contract.title}</b>\n"
                     f"✅ {cmds_done:,} / {obj:,} commandes\n"
                     f"{time_saved}"
-                    f"💰 <b>+{_fmt(contract.reward)} $</b> crédités en trésorerie"
+                    f"💰 <b>+{_fmt(contract.reward)} $</b> crédités en trésorerie\n"
+                    f"⭐ Réputation : <b>+{rep_gain}</b> → {company.reputation:.2f}/5"
                 )
                 claimed_any = True
             else:
@@ -631,6 +636,10 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                 company.treasury += contract.reward
                 company.value = company.treasury
 
+                # Gain de réputation
+                rep_gain = random.choice([0.05, 0.05, 0.075, 0.075, 0.10])
+                company.reputation = min(5.0, (company.reputation or 3.0) + rep_gain)
+
                 await _add_log(session, company.id, "contrat_bureau",
                                f"Contrat '{contract.title}' terminé — +{_fmt(contract.reward)} $",
                                amount=contract.reward)
@@ -652,7 +661,8 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                                 f"🏢 <b>{company.name}</b>\n"
                                 f"📄 <b>{contract.title}</b>\n"
                                 f"✅ Objectif atteint : <b>{cmds_done:,} / {obj:,} commandes</b>\n"
-                                f"💰 <b>+{_fmt(contract.reward)} $</b> versés en trésorerie !\n\n"
+                                f"💰 <b>+{_fmt(contract.reward)} $</b> versés en trésorerie !\n"
+                                f"⭐ Réputation : <b>+{rep_gain}</b> → {company.reputation:.2f}/5\n\n"
                                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n\n"
                                 f"Tu peux soumettre un nouveau dossier : <code>/soumettredossier</code>"
                             ),

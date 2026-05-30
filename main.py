@@ -839,10 +839,11 @@ async def main():
         name="check_auto_contracts",
     )
 
-    # ── Agence Fiscale — factures 8h chaque matin ─────────────────────────────
-    app.job_queue.run_daily(
+    # ── Agence Fiscale — factures tous les 2 jours ────────────────────────────
+    app.job_queue.run_repeating(
         tax_daily_job,
-        time=dt_time(hour=8, minute=0, tzinfo=tz_paris),
+        interval=timedelta(hours=48),
+        first=timedelta(minutes=5),
         name="tax_daily",
     )
     # Vérification impayés toutes les heures

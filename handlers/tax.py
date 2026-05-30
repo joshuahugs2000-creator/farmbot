@@ -29,8 +29,23 @@ def _compute_tax(treasury: int) -> int:
 
 # ─── JOB TOUS LES 2 JOURS ─────────────────────────────────────────────────────
 async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
-    """Génère les factures fiscales tous les 2 jours et notifie les PDG."""
+    """Génère les factures fiscales tous les 2 jours — garde en DB pour éviter les doublons au redémarrage."""
     async with AsyncSessionLocal() as session:
+        # ── Vérification garde globale en DB ────────────────────────────────
+        caisse = (await session.execute(select(StateCaisse))).scalar_one_or_none()
+        if not caisse:
+            caisse = StateCaisse(total=0, last_tax_at=None)
+            session.add(caisse)
+            await session.flush()
+
+        now = datetime.utcnow()
+        if caisse.last_tax_at and (now - caisse.last_tax_at) < timedelta(hours=47):
+            return  # Moins de 47h depuis la dernière émission → on skip
+
+        # Marquer l'émission AVANT de créer les factures
+        caisse.last_tax_at = now
+        await session.flush()
+
         # Toutes les entreprises actives avec tréso > 50M
         companies = (await session.execute(
             select(Company).where(
@@ -43,16 +58,6 @@ async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
         for company in companies:
             tax = _compute_tax(company.treasury)
             if tax <= 0:
-                continue
-
-            # Anti-doublon : ne pas émettre si une facture a déjà été créée dans les 47h
-            recent = (await session.execute(
-                select(TaxRecord).where(
-                    TaxRecord.company_id == company.id,
-                    TaxRecord.created_at >= datetime.utcnow() - timedelta(hours=47),
-                ).limit(1)
-            )).scalar_one_or_none()
-            if recent:
                 continue
 
             # Créer la facture avec délai de 48h

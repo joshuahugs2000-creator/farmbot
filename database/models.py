@@ -29,7 +29,8 @@ class User(Base):
     user_id       = Column(BigInteger, primary_key=True)
     username      = Column(String(255), nullable=True)
     first_name    = Column(String(255), nullable=False)
-    photo_file_id = Column(String(512), nullable=True)
+    photo_file_id   = Column(String(512), nullable=True)
+    photo_file_type = Column(String(10), nullable=True, default='photo')  # 'photo' ou 'sticker'
     profile_color = Column(String(20), default="blue")
     coins         = Column(BigInteger, default=10_000)
     karma         = Column(Integer, default=0)

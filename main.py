@@ -209,6 +209,9 @@ async def ban_middleware(update: Update, context) -> None:
         pass
 
 
+_prison_cache: dict[int, float] = {}  # user_id → timestamp de libération (0 = libre)
+_PRISON_CACHE_TTL = 30  # re-vérifie en DB max toutes les 30s
+
 async def prison_middleware(update: Update, context) -> bool:
     if not update.message or not update.message.text:
         return False
@@ -223,6 +226,15 @@ async def prison_middleware(update: Update, context) -> bool:
         return False
     if await is_admin(user.id):
         return False
+
+    import time as _time
+    now_mono = _time.monotonic()
+
+    # Si on a un résultat récent en cache, on l'utilise sans toucher la DB
+    cached = _prison_cache.get(user.id)
+    if cached is not None and now_mono - cached < _PRISON_CACHE_TTL:
+        return False  # était libre au dernier check récent
+
     try:
         async with AsyncSessionLocal() as session:
             from datetime import datetime
@@ -232,6 +244,7 @@ async def prison_middleware(update: Update, context) -> bool:
             )
             prison_row = prison_row_res.fetchone()
             if not prison_row:
+                _prison_cache[user.id] = now_mono  # libre → cache
                 return False
             now = datetime.utcnow()
             if now >= prison_row.released_at:
@@ -240,6 +253,7 @@ async def prison_middleware(update: Update, context) -> bool:
                     {"uid": user.id}
                 )
                 await session.commit()
+                _prison_cache[user.id] = now_mono  # libéré → cache
                 return False
             minutes_left = max(0, int((prison_row.released_at - now).total_seconds() / 60))
             h = minutes_left // 60

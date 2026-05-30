@@ -352,3 +352,86 @@ async def tax_overdue_job(context: ContextTypes.DEFAULT_TYPE):
                         pass
 
         await session.commit()
+
+
+# ─── COMMANDE : /mesimpots ────────────────────────────────────────────────────
+async def mesimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Affiche le statut fiscal de l'entreprise du PDG."""
+    user = update.effective_user
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(
+                Company.owner_id == user.id,
+                Company.is_active == True,
+                Company.is_bot_company == False,
+            )
+        )).scalar_one_or_none()
+
+        if not company:
+            await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
+            return
+
+        # Factures en attente
+        pending = (await session.execute(
+            select(TaxRecord).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status.in_(["pending", "partial", "overdue"]),
+            ).order_by(TaxRecord.created_at.asc())
+        )).scalars().all()
+
+        # Total déjà payé (historique)
+        total_paid = (await session.execute(
+            select(func.sum(TaxRecord.amount_paid)).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == "paid",
+            )
+        )).scalar() or 0
+
+        gel = "🔒 <b>GELÉE</b>" if company.treasury_frozen else "✅ Libre"
+        dette = company.tax_debt or 0
+
+        lines = [
+            f"🏛️ <b>AGENCE FISCALE — {company.name}</b>",
+            f"━━━━━━━━━━━━━━━━━━━━━━",
+            f"💰 Trésorerie : <b>{_fmt(company.treasury)} $</b>",
+            f"🔐 État : {gel}",
+            f"📊 Dette fiscale : <b>{_fmt(dette)} $</b>",
+            f"✅ Total payé (historique) : <b>{_fmt(total_paid)} $</b>",
+            "",
+        ]
+
+        if not pending:
+            lines.append("✅ <b>Aucune facture en attente.</b> Tu es à jour !")
+        else:
+            lines.append(f"📋 <b>{len(pending)} facture(s) en attente :</b>")
+            for r in pending:
+                reste = r.amount_due - r.amount_paid
+                status_label = {
+                    "pending": "⏳ En attente",
+                    "partial": "🔸 Partiellement payée",
+                    "overdue": "🔴 En retard",
+                }.get(r.status, r.status)
+                due_str = ""
+                if r.due_at:
+                    now = datetime.utcnow()
+                    if r.due_at > now:
+                        diff = r.due_at - now
+                        h = int(diff.total_seconds() // 3600)
+                        m = int((diff.total_seconds() % 3600) // 60)
+                        due_str = f" · ⏰ Expire dans {h}h{m:02d}"
+                    else:
+                        due_str = " · ⏰ <b>Expirée</b>"
+                lines.append(
+                    f"  • Facture #{r.id} — {status_label}{due_str}\n"
+                    f"    Dû : <b>{_fmt(reste)} $</b>  "
+                    f"(<code>/payerimpots {reste}</code>)"
+                )
+
+        if pending:
+            total_du = sum(r.amount_due - r.amount_paid for r in pending)
+            lines.append(f"\n💸 <b>Total à payer : {_fmt(total_du)} $</b>")
+            if company.treasury_frozen:
+                lines.append(f"💡 Paie <b>50%</b> minimum ({_fmt(total_du // 2)} $) pour dégeler.")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")

@@ -647,13 +647,13 @@ def _build_portfolio_page(investments: list, page: int, first_name: str, coins: 
         lines.append(
             f"{a.get('emoji', '📊')} <b>#{inv.id} {a.get('name', inv.asset_id)}</b> x{inv.quantity}\n"
             f"  └ Acheté : {_fmt(inv.buy_price)} {CURRENCY} | Actuel : ~{_fmt(cur)} {CURRENCY}\n"
-            f"  └ P&L : {p_e} {p_str} {CURRENCY}   — /sell {inv.id}\n"
+            f"  └ P&amp;L : {p_e} {p_str} {CURRENCY}   — /sell {inv.id}\n"
         )
 
     lines.append(f"━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append(f"💼 Total investi : {_fmt(total_invested)} {CURRENCY}")
     lines.append(f"📊 Valeur actuelle : ~{_fmt(total_current)} {CURRENCY}")
-    lines.append(f"{pnl_e} P&L total : <b>{pnl_str} {CURRENCY}</b>")
+    lines.append(f"{pnl_e} P&amp;L total : <b>{pnl_str} {CURRENCY}</b>")
     lines.append(f"👛 Portefeuille : {_fmt(coins)} {CURRENCY}")
 
     # Clavier de navigation

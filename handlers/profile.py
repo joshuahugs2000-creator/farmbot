@@ -140,23 +140,22 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "\n".join(lines)
     if u and u.photo_file_id:
         file_type = getattr(u, 'photo_file_type', 'photo') or 'photo'
-        try:
-            if file_type == "sticker":
-                await update.message.reply_sticker(u.photo_file_id)
-                await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-            else:
-                await update.message.reply_photo(u.photo_file_id, caption=text, parse_mode=ParseMode.HTML)
-        except Exception:
-            # file_id invalide → fallback texte + reset photo
+        if file_type == "sticker":
+            # Sticker → on envoie juste le texte sans photo
             await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-            async with AsyncSessionLocal() as _s:
-                await _s.execute(
-                    __import__('sqlalchemy').text(
-                        "UPDATE users SET photo_file_id = NULL WHERE user_id = :uid"
-                    ),
-                    {"uid": user.user_id}
-                )
-                await _s.commit()
+        else:
+            try:
+                await update.message.reply_photo(u.photo_file_id, caption=text, parse_mode=ParseMode.HTML)
+            except Exception:
+                await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+                async with AsyncSessionLocal() as _s:
+                    await _s.execute(
+                        __import__('sqlalchemy').text(
+                            "UPDATE users SET photo_file_id = NULL WHERE user_id = :uid"
+                        ),
+                        {"uid": user.user_id}
+                    )
+                    await _s.commit()
     else:
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 

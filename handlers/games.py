@@ -1126,7 +1126,7 @@ async def mines_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args or len(args) < 2:
         return await update.message.reply_text(
             "💣 <b>Mines</b>\n\n"
-            "Usage : <code>/mines <mines> <mise></code>\n"
+            "Usage : <code>/mines &lt;mines&gt; &lt;mise&gt;</code>\n"
             "• <b>mines</b> : nombre de mines (1–24)\n"
             "• <b>mise</b> : montant à miser\n\n"
             "Ex : <code>/mines 3 5000</code> — 3 mines, mise 5 000\n\n"
@@ -1139,7 +1139,7 @@ async def mines_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nb_mines = int(args[0])
         mise = int(args[1])
     except ValueError:
-        return await update.message.reply_text("❌ Usage : <code>/mines <mines> <mise></code>", parse_mode=ParseMode.HTML)
+        return await update.message.reply_text("❌ Usage : <code>/mines &lt;mines&gt; &lt;mise&gt;</code>", parse_mode=ParseMode.HTML)
 
     if nb_mines < 1 or nb_mines > 24:
         return await update.message.reply_text("❌ Nombre de mines : entre <b>1</b> et <b>24</b>", parse_mode=ParseMode.HTML)

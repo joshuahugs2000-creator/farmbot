@@ -34,8 +34,8 @@ async def _db_retry(coro_fn, *args, retries=3, delay=1.0, **kwargs):
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=5,
-    max_overflow=10,
+    pool_size=20,             # était 5 — augmenté pour supporter la charge simultanée
+    max_overflow=30,          # était 10 — total max 50 connexions
     pool_pre_ping=True,       # teste la connexion avant utilisation
     pool_recycle=120,         # recycle toutes les 2 min (Supabase coupe après ~5 min d'inactivité)
     pool_timeout=30,
@@ -1220,3 +1220,42 @@ async def get_all_groups(active_only: bool = True) -> list:
     except Exception:
         await init_groups_table()
         return []
+
+
+# ─── Table admins persistante ─────────────────────────────────────────────────
+
+async def init_admins_table() -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_admins (
+                user_id BIGINT PRIMARY KEY,
+                added_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+
+
+async def load_admin_ids() -> set:
+    """Charge tous les IDs admins depuis la DB."""
+    try:
+        async with engine.begin() as conn:
+            r = await conn.execute(text("SELECT user_id FROM bot_admins"))
+            return {row[0] for row in r.fetchall()}
+    except Exception:
+        await init_admins_table()
+        return set()
+
+
+async def save_admin_id(user_id: int) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO bot_admins (user_id) VALUES (:uid) ON CONFLICT DO NOTHING"),
+            {"uid": user_id}
+        )
+
+
+async def remove_admin_id(user_id: int) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM bot_admins WHERE user_id = :uid"),
+            {"uid": user_id}
+        )

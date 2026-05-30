@@ -34,14 +34,16 @@ async def _db_retry(coro_fn, *args, retries=3, delay=1.0, **kwargs):
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=20,             # était 5 — augmenté pour supporter la charge simultanée
-    max_overflow=30,          # était 10 — total max 50 connexions
-    pool_pre_ping=True,       # teste la connexion avant utilisation
-    pool_recycle=120,         # recycle toutes les 2 min (Supabase coupe après ~5 min d'inactivité)
+    pool_size=8,
+    max_overflow=4,
+    pool_pre_ping=True,
+    pool_recycle=120,
     pool_timeout=30,
     connect_args={
         "server_settings": {"application_name": "farmbot"},
         "command_timeout": 10,
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
     },
 )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

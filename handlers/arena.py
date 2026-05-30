@@ -865,8 +865,8 @@ async def lancer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(
             "🎲 <b>Duel de Dés</b>\n\n"
             "Usage :\n"
-            "• <code>/lancer <mise></code> — défier le bot\n"
-            "• <code>/lancer @joueur <mise></code> — défier un joueur\n\n"
+            "• <code>/lancer &lt;mise&gt;</code> — défier le bot\n"
+            "• <code>/lancer @joueur &lt;mise&gt;</code> — défier un joueur\n\n"
             "Ex : <code>/lancer 10000</code> ou <code>/lancer @Ahmed 5000</code>",
             parse_mode=ParseMode.HTML,
         )

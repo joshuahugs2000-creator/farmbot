@@ -104,7 +104,7 @@ from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse
 from handlers.competition import startcompet_cmd, compet_cmd, stopcompet_cmd, compet_autoclose_job
 from handlers.bureau import soumettredossier_cmd, choisircontrat_cmd, mescontratsbc_cmd, claimcontratbc_cmd, bureau_check_job
 from handlers.company import (
-    init_company_tables, update_company_activity,
+    init_company_tables, update_company_activity, increment_contract_progress,
     listeboites_cmd, listeboites_callback,
     versersalaires_cmd, presences_cmd, offresparts_cmd, infoboite_cmd, creerboite_cmd,
     postuler_cmd, candidatures_cmd, accepter_cmd, refuser_cmd,
@@ -419,6 +419,11 @@ async def activity_logging_middleware(update: Update, context) -> None:
         asyncio.create_task(update_company_activity(user.id))
     except Exception as e:
         logger.debug(f"Erreur update_company_activity: {e}")
+    # Incrémenter la progression des contrats bureau (sans throttle, SQL atomique)
+    try:
+        asyncio.create_task(increment_contract_progress(user.id))
+    except Exception as e:
+        logger.debug(f"Erreur increment_contract_progress: {e}")
 
 async def on_startup(application: Application):
     await init_db()
@@ -927,10 +932,28 @@ async def main():
     async def health(request):
         return web.Response(text="OK", status=200)
 
+    # Déduplication des updates Telegram — évite de traiter le même message 30 fois
+    _seen_updates: dict[int, float] = {}
+    _SEEN_TTL = 120  # garder les IDs 2 minutes
+
     async def telegram_webhook(request):
+        import time as _t
         data = await request.json()
+        update_id = data.get("update_id")
+        now = _t.monotonic()
+
+        # Nettoyage périodique du cache
+        expired = [k for k, v in _seen_updates.items() if now - v > _SEEN_TTL]
+        for k in expired:
+            del _seen_updates[k]
+
+        # Ignorer les doublons
+        if update_id and update_id in _seen_updates:
+            return web.Response(text="OK")
+        if update_id:
+            _seen_updates[update_id] = now
+
         update = Update.de_json(data, app.bot)
-        # Répondre immédiatement à Telegram (évite les retries si le traitement est lent)
         asyncio.ensure_future(app.process_update(update))
         return web.Response(text="OK")
 

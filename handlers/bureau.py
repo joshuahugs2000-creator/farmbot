@@ -12,7 +12,7 @@ import random
 import aiohttp
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from telegram import Update
 from telegram.ext import ContextTypes
 

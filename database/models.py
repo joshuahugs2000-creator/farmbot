@@ -55,6 +55,9 @@ class User(Base):
     # ─── AVATAR ───────────────────────────────────────────────────────────────
     avatar_data     = Column(Text, nullable=True)          # JSON stocké côté serveur
 
+    # ─── ACTIVITÉ GLOBALE ─────────────────────────────────────────────────────
+    total_commands  = Column(BigInteger, default=0)        # compteur cumulatif, jamais réinitialisé
+
 
 class GroupSettings(Base):
     __tablename__ = "group_settings"

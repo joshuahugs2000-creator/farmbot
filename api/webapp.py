@@ -10,14 +10,16 @@ from config import BOT_TOKEN, CURRENCY
 from handlers.invest import ASSETS, CATEGORIES, _current_price, _risk_emoji
 
 # ── Accès restreint ──────────────────────────────────────────────────────────
-WEBAPP_WHITELIST = {
+WEBAPP_ADMIN_IDS = {
     6227863810,   # Admin 1
-    # Ajoute d'autres IDs ici
 }
 
-
 def _is_allowed(user_id: int) -> bool:
-    return user_id in WEBAPP_WHITELIST
+    """Ouvert à tous les joueurs enregistrés — la DB vérifie l existence du user."""
+    return user_id > 0
+
+def _is_admin(user_id: int) -> bool:
+    return user_id in WEBAPP_ADMIN_IDS
 
 
 def _verify_init_data(init_data: str) -> bool:
@@ -836,6 +838,10 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/gains/daily', webapp_gains_daily)
     app.router.add_post('/api/webapp/gains/work',  webapp_gains_work)
     app.router.add_get('/api/webapp/diplomes',     webapp_diplomes)
+
+    # ── Nouvelles routes webapp (isolées du bot) ──────────────────────────────
+    from api.webapp_actions import setup_actions_routes
+    setup_actions_routes(app)
 
 
 

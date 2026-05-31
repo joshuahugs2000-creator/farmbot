@@ -497,6 +497,12 @@ def _prison_checked(handler_func):
                 return
         if await prison_middleware(update, context):
             return
+        # Incrémenter progression contrats à chaque commande
+        if update.effective_user:
+            try:
+                asyncio.create_task(increment_contract_progress(update.effective_user.id))
+            except Exception:
+                pass
         return await handler_func(update, context)
     wrapper.__name__ = handler_func.__name__
     return wrapper

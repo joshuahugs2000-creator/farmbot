@@ -520,115 +520,114 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     /claimcontratbc — Réclame immédiatement la récompense d'un contrat Bureau
     si l'objectif est atteint, sans attendre la deadline.
+    Tout en SQL pur pour éviter les deadlocks ORM.
     """
     user = update.effective_user
     try:
-        async with AsyncSessionLocal() as session:
-            company = (await session.execute(
-                select(Company).where(
-                    Company.owner_id == user.id,
-                    Company.is_active == True,
-                )
-            )).scalar_one_or_none()
+        now = datetime.utcnow()
+        messages = []
+        claimed_any = False
+        treasury_now = 0
 
-            if not company:
+        # ── Phase 1 : lecture seule ───────────────────────────────────────────
+        async with AsyncSessionLocal() as s:
+            row = (await s.execute(
+                text("SELECT id, treasury FROM companies WHERE owner_id=:uid AND is_active=TRUE LIMIT 1"),
+                {"uid": user.id}
+            )).fetchone()
+            if not row:
                 await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
                 return
+            company_id = int(row[0])
+            treasury_now = int(row[1] or 0)
 
-            active_contracts = (await session.execute(
-                select(BureauContrat).where(
-                    BureauContrat.company_id == company.id,
-                    BureauContrat.status == "active",
-                )
-            )).scalars().all()
+            contracts_rows = (await s.execute(
+                text("SELECT id, title, cmds_done, objective_cmds, reward, ends_at "
+                     "FROM bureau_contrats WHERE company_id=:cid AND status='active'"),
+                {"cid": company_id}
+            )).fetchall()
 
-            if not active_contracts:
-                await update.message.reply_text(
-                    "📭 Aucun contrat Bureau actif en cours.\n"
-                    "Soumets un dossier avec <code>/soumettredossier</code>",
-                    parse_mode="HTML"
-                )
-                return
+        if not contracts_rows:
+            await update.message.reply_text(
+                "📭 Aucun contrat Bureau actif en cours.\n"
+                "Soumets un dossier avec <code>/soumettredossier</code>",
+                parse_mode="HTML"
+            )
+            return
 
-            now = datetime.utcnow()
-            claimed_any = False
-            messages = []
-
-            # Collecter les infos AVANT tout changement
-            to_claim = []
-            for contract in active_contracts:
-                cmds_done = int(contract.cmds_done or 0)
-                obj = int(contract.objective_cmds or 1)
-                reward = int(contract.reward or 0)
-                if cmds_done >= obj:
-                    to_claim.append((contract, cmds_done, obj, reward))
-                else:
-                    pct = min(100, int(cmds_done / obj * 100))
-                    bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
-                    remaining = obj - cmds_done
-                    messages.append(
-                        f"⏳ <b>{contract.title}</b>\n"
-                        f"[{bar}] {cmds_done:,}/{obj:,} cmds ({pct}%)\n"
-                        f"Il manque encore <b>{remaining:,} commandes</b>"
-                    )
-
-            total_reward = 0
-            for contract, cmds_done, obj, reward in to_claim:
-                # Marquer complété
-                await session.execute(
-                    text("UPDATE bureau_contrats SET status='completed' WHERE id=:cid"),
-                    {"cid": contract.id}
-                )
-                total_reward += reward
-
+        # ── Phase 2 : calcul hors DB ──────────────────────────────────────────
+        to_claim = []   # (id, title, cmds_done, obj, reward)
+        for r in contracts_rows:
+            cid, title, cmds_done, obj, reward, ends_at = r
+            cmds_done = int(cmds_done or 0)
+            obj       = int(obj or 1)
+            reward    = int(reward or 0)
+            if cmds_done >= obj:
                 time_saved = ""
-                if contract.ends_at and now < contract.ends_at:
-                    diff = contract.ends_at - now
+                if ends_at and now < ends_at:
+                    diff = ends_at - now
                     h = int(diff.total_seconds() // 3600)
                     m = int((diff.total_seconds() % 3600) // 60)
                     time_saved = f"⚡ Réclamé <b>{h}h{m:02d}</b> avant la deadline !\n\n"
-
                 messages.append(
-                    f"🎉 <b>{contract.title}</b>\n"
+                    f"🎉 <b>{title}</b>\n"
                     f"✅ {cmds_done:,} / {obj:,} commandes\n"
                     f"{time_saved}"
                     f"💰 <b>+{_fmt(reward)} $</b> crédités en trésorerie"
                 )
+                to_claim.append((cid, title, cmds_done, obj, reward))
                 claimed_any = True
-
-            if total_reward > 0:
-                await session.execute(
-                    text("UPDATE companies SET treasury = COALESCE(treasury,0) + :r WHERE id = :cid"),
-                    {"r": total_reward, "cid": company.id}
+            else:
+                pct = min(100, int(cmds_done / obj * 100))
+                bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+                messages.append(
+                    f"⏳ <b>{title}</b>\n"
+                    f"[{bar}] {cmds_done:,}/{obj:,} cmds ({pct}%)\n"
+                    f"Il manque encore <b>{obj - cmds_done:,} commandes</b>"
                 )
 
-            await session.commit()
+        # ── Phase 3 : écriture atomique ───────────────────────────────────────
+        if to_claim:
+            total_reward = sum(r[4] for r in to_claim)
+            ids_csv = ",".join(str(r[0]) for r in to_claim)
+            async with AsyncSessionLocal() as s:
+                await s.execute(
+                    text(f"UPDATE bureau_contrats SET status='completed' WHERE id IN ({ids_csv})")
+                )
+                await s.execute(
+                    text("UPDATE companies SET treasury = COALESCE(treasury,0) + :r WHERE id=:cid"),
+                    {"r": total_reward, "cid": company_id}
+                )
+                await s.commit()
+                row2 = (await s.execute(
+                    text("SELECT treasury FROM companies WHERE id=:cid"),
+                    {"cid": company_id}
+                )).fetchone()
+                treasury_now = int(row2[0] or 0) if row2 else treasury_now + total_reward
 
-            # Lire la trésorerie finale via SQL direct (pas de refresh ORM)
-            row = (await session.execute(
-                text("SELECT treasury FROM companies WHERE id=:cid"),
-                {"cid": company.id}
-            )).fetchone()
-            treasury_now = row[0] if row else 0
+            # ── Phase 4 : logs (best-effort) ──────────────────────────────────
+            try:
+                async with AsyncSessionLocal() as s:
+                    for cid, title, _, __, reward in to_claim:
+                        await s.execute(
+                            text("INSERT INTO company_logs "
+                                 "(company_id, event_type, description, amount, created_at) "
+                                 "VALUES (:cid, 'contrat_bureau', :desc, :amt, NOW())"),
+                            {"cid": company_id,
+                             "desc": f"Contrat BC '{title[:80]}' réclamé — +{_fmt(reward)} $",
+                             "amt": reward}
+                        )
+                    await s.commit()
+            except Exception:
+                pass
 
-            # Logs après commit dans une nouvelle transaction
-            for contract, cmds_done, obj, reward in to_claim:
-                await _add_log(session, company.id, "contrat_bureau",
-                               f"Contrat '{contract.title[:80]}' réclamé — +{_fmt(reward)} $",
-                               amount=reward)
-            if to_claim:
-                await session.commit()
-
-            header = "📋 <b>BUREAU DES CONTRATS — Réclamation</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            if claimed_any:
-                footer = f"\n\n🏦 Trésorerie : <b>{_fmt(treasury_now)} $</b>"
-            else:
-                footer = "\n\n💡 Aucun contrat n'est encore complété."
-
-            await update.message.reply_text(
-                header + "\n\n".join(messages) + footer,
-                parse_mode="HTML"
-            )
+        header = "📋 <b>BUREAU DES CONTRATS — Réclamation</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        footer = (f"\n\n🏦 Trésorerie : <b>{_fmt(treasury_now)} $</b>"
+                  if claimed_any else "\n\n💡 Aucun contrat n'est encore complété.")
+        await update.message.reply_text(
+            header + "\n\n".join(messages) + footer,
+            parse_mode="HTML"
+        )
 
     except Exception as e:
         import logging as _log

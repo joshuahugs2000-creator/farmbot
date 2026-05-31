@@ -2042,7 +2042,7 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         from sqlalchemy import text as _text
         await session.execute(
-            _text("UPDATE users SET coins = coins - :amt WHERE id = :uid"),
+            _text("UPDATE users SET coins = coins - :amt WHERE user_id = :uid"),
             {"amt": amount, "uid": user.id}
         )
         new_treasury = company.treasury + amount
@@ -2174,7 +2174,7 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"t": new_treasury, "cid": company.id}
         )
         await session.execute(
-            _text("UPDATE users SET coins = coins + :amt WHERE id = :uid"),
+            _text("UPDATE users SET coins = coins + :amt WHERE user_id = :uid"),
             {"amt": amount, "uid": user.id}
         )
         await _add_log(session, company.id, "retrait",

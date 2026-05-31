@@ -35,11 +35,11 @@ async def _db_retry(coro_fn, *args, retries=3, delay=1.0, **kwargs):
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=5,
+    max_overflow=5,
     pool_pre_ping=True,
-    pool_recycle=300,
-    pool_timeout=20,
+    pool_recycle=60,
+    pool_timeout=10,
     connect_args={
         "server_settings": {"application_name": "farmbot"},
         "command_timeout": 15,

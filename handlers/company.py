@@ -3227,6 +3227,7 @@ async def job_daily_report(context) -> None:
                 )
             except Exception:
                 pass
+            await asyncio.sleep(0.5)  # anti-flood
 
 # ─── COMMANDE : /mesparts ─────────────────────────────────────────────────────
 

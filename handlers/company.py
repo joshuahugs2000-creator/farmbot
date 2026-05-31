@@ -2013,54 +2013,46 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Montant invalide.")
         return
 
-    async with AsyncSessionLocal() as session:
-        db_user = await get_user(session, user.id)
-
-        # Chercher l'entreprise où l'user est PDG ou Directeur (en priorité la sienne propre)
-        r = await session.execute(
-            select(CompanyEmployee, Company).join(
-                Company, Company.id == CompanyEmployee.company_id
-            ).where(
-                CompanyEmployee.user_id == user.id,
-                CompanyEmployee.left_at == None,
-                Company.is_active == True,
-                CompanyEmployee.role.in_(DIRECTION_ROLES),
-            ).order_by(
-                # PDG d'abord, puis directeur
-                CompanyEmployee.role.desc()
-            )
-        )
-        row = r.first()
-        if not row:
-            await update.message.reply_text("❌ Réservé au PDG et Directeur.")
-            return
-        company, emp = row[1], row[0]
-
-        if db_user.coins < amount:
-            await update.message.reply_text(f"❌ Tu n'as pas assez. Ton solde : {_fmt(db_user.coins)} $")
-            return
-
-        company_id = company.id
-        company_name = company.name
-        current_treasury = company.treasury
-
-    # Session séparée pour les écritures SQL pures — incrément atomique
     from sqlalchemy import text as _text
     async with AsyncSessionLocal() as session:
+        # Vérifications
+        row = await session.execute(
+            _text("""
+                SELECT ce.role, c.id, c.name, c.treasury, u.coins
+                FROM company_employees ce
+                JOIN companies c ON c.id = ce.company_id
+                JOIN users u ON u.user_id = :uid
+                WHERE ce.user_id = :uid AND ce.left_at IS NULL
+                  AND c.is_active = TRUE AND ce.role IN ('pdg','directeur')
+                ORDER BY ce.role DESC LIMIT 1
+            """),
+            {"uid": user.id}
+        )
+        res = row.first()
+        if not res:
+            await update.message.reply_text("❌ Réservé au PDG et Directeur.")
+            return
+
+        role, company_id, company_name, treasury, coins = res
+
+        if coins < amount:
+            await update.message.reply_text(f"❌ Tu n'as pas assez. Ton solde : {_fmt(coins)} $")
+            return
+
+        # Écriture dans la même session
         await session.execute(
             _text("UPDATE users SET coins = coins - :amt WHERE user_id = :uid"),
             {"amt": amount, "uid": user.id}
         )
         await session.execute(
-            _text("UPDATE companies SET treasury = treasury + :amt WHERE id = :cid"),
+            _text("UPDATE companies SET treasury = COALESCE(treasury,0) + :amt WHERE id = :cid"),
             {"amt": amount, "cid": company_id}
         )
-        # Lire la nouvelle valeur pour l'affichage
-        row = await session.execute(
+        row2 = await session.execute(
             _text("SELECT treasury FROM companies WHERE id = :cid"),
             {"cid": company_id}
         )
-        new_treasury = row.scalar() or (current_treasury + amount)
+        new_treasury = int(row2.scalar() or (treasury + amount))
         await _add_log(session, company_id, "depot",
                        f"Dépôt de {user.first_name}", amount=amount)
         await session.commit()
@@ -2072,8 +2064,6 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
-
-# ─── COMMANDE : /retraitboite [montant] ──────────────────────────────────────
 
 async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user

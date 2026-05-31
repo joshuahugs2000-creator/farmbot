@@ -414,16 +414,6 @@ async def activity_logging_middleware(update: Update, context) -> None:
             )
     except Exception as e:
         logger.debug(f"Erreur log_action: {e}")
-    # Mettre à jour l'activité entreprise en arrière-plan (non bloquant)
-    try:
-        asyncio.create_task(update_company_activity(user.id))
-    except Exception as e:
-        logger.debug(f"Erreur update_company_activity: {e}")
-    # Incrémenter la progression des contrats bureau (sans throttle, SQL atomique)
-    try:
-        asyncio.create_task(increment_contract_progress(user.id))
-    except Exception as e:
-        logger.debug(f"Erreur increment_contract_progress: {e}")
 
 async def on_startup(application: Application):
     await init_db()
@@ -524,8 +514,7 @@ async def main():
     app.add_error_handler(error_handler)
 
     # ── Middleware de logging automatique ─────────────────────────────────────
-    # activity_logging_middleware désactivé — génère trop d'egress Supabase
-    # app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
+    app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
     app.add_handler(TypeHandler(Update, group_tracking_middleware),   group=-2)
     app.add_handler(TypeHandler(Update, ban_middleware),              group=-3)
     from telegram.ext import ChatMemberHandler

@@ -1037,6 +1037,7 @@ async def job_daily_ranking_broadcast(context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             logger.debug(f"Impossible d'envoyer le classement au groupe {group.group_id}: {e}")
+        await asyncio.sleep(1.5)  # délai anti-flood Telegram (max ~20 msg/30s)
 
     logger.info(f"Classement quotidien broadcasted dans {len(groups)} groupe(s).")
 

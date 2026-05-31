@@ -19,7 +19,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select, func, update as sa_update
+from sqlalchemy import select, func, update as sa_update, text as sa_text
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
@@ -593,6 +593,37 @@ async def update_company_activity(user_id: int):
             pass
 
         await session.commit()
+
+
+# ─── INCREMENT CONTRATS : appelé à chaque commande, sans throttle ────────────
+
+async def increment_contract_progress(user_id: int):
+    """Incrémente cmds_done des contrats actifs de l'entreprise de l'employé.
+    Léger : 1 SELECT + 1 UPDATE atomique. Pas de throttle."""
+    try:
+        async with AsyncSessionLocal() as session:
+            # Trouver les entreprises actives où le user est employé
+            rows = (await session.execute(
+                select(CompanyEmployee.company_id).where(
+                    CompanyEmployee.user_id == user_id,
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalars().all()
+            if not rows:
+                return
+            # UPDATE atomique en SQL pur — pas de race condition
+            for company_id in rows:
+                await session.execute(
+                    sa_text("""
+                        UPDATE bureau_contrats 
+                        SET cmds_done = COALESCE(cmds_done, 0) + 1
+                        WHERE company_id = :cid AND status = 'active'
+                    """),
+                    {"cid": company_id}
+                )
+            await session.commit()
+    except Exception:
+        pass  # Ne jamais bloquer une commande
 
 
 # ─── COMMANDE : /listeboites ──────────────────────────────────────────────────

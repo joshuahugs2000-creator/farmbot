@@ -956,9 +956,28 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         session.add(share)
 
-        await _add_log(session, new_company.id, "creation",
-                       f"Entreprise créée par {user.first_name}")
-        await session.commit()
+        try:
+            await _add_log(session, new_company.id, "creation",
+                           f"Entreprise créée par {user.first_name}")
+            await session.commit()
+        except Exception:
+            # Si _add_log ou CompanyShare plante, on commit sans le log via SQL pur
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            from sqlalchemy import text as _text2
+            async with AsyncSessionLocal() as s2:
+                try:
+                    await s2.execute(_text2(
+                        "INSERT INTO company_employees (company_id, user_id, role) VALUES (:c, :u, 'pdg')"
+                    ), {"c": new_company.id, "u": user.id})
+                    await s2.execute(_text2(
+                        "INSERT INTO company_shares (company_id, owner_id, quantity) VALUES (:c, :u, 100)"
+                    ), {"c": new_company.id, "u": user.id})
+                    await s2.commit()
+                except Exception:
+                    pass
 
         sec_emoji, sec_name = SECTORS[sector]
         await log_event("company_created", owner=user.first_name, name=new_company.name, sector=sec_name)

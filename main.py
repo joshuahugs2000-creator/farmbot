@@ -508,6 +508,7 @@ def _prison_checked(handler_func):
         if update.effective_user:
             try:
                 asyncio.create_task(increment_contract_progress(update.effective_user.id))
+                asyncio.create_task(update_company_activity(update.effective_user.id))
             except Exception:
                 pass
         return await handler_func(update, context)

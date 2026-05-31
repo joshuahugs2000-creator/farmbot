@@ -554,40 +554,14 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             claimed_any = False
             messages = []
 
+            # Collecter les infos AVANT tout changement
+            to_claim = []
             for contract in active_contracts:
                 cmds_done = int(contract.cmds_done or 0)
                 obj = int(contract.objective_cmds or 1)
                 reward = int(contract.reward or 0)
-
                 if cmds_done >= obj:
-                    # Objectif atteint → crédit immédiat via SQL atomique
-                    contract.status = "completed"
-
-                    await session.execute(
-                        text("UPDATE companies SET treasury = COALESCE(treasury, 0) + :r WHERE id = :cid"),
-                        {"r": reward, "cid": company.id}
-                    )
-                    # Rafraîchir l'objet company pour afficher la bonne trésorerie
-                    await session.refresh(company)
-
-                    await _add_log(session, company.id, "contrat_bureau",
-                                   f"Contrat '{contract.title}' réclamé manuellement — +{_fmt(reward)} $",
-                                   amount=reward)
-
-                    time_saved = ""
-                    if contract.ends_at and now < contract.ends_at:
-                        diff = contract.ends_at - now
-                        h = int(diff.total_seconds() // 3600)
-                        m = int((diff.total_seconds() % 3600) // 60)
-                        time_saved = f"⚡ Réclamé <b>{h}h{m:02d}</b> avant la deadline !\n\n"
-
-                    messages.append(
-                        f"🎉 <b>{contract.title}</b>\n"
-                        f"✅ {cmds_done:,} / {obj:,} commandes\n"
-                        f"{time_saved}"
-                        f"💰 <b>+{_fmt(reward)} $</b> crédités en trésorerie"
-                    )
-                    claimed_any = True
+                    to_claim.append((contract, cmds_done, obj, reward))
                 else:
                     pct = min(100, int(cmds_done / obj * 100))
                     bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
@@ -598,13 +572,56 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         f"Il manque encore <b>{remaining:,} commandes</b>"
                     )
 
+            total_reward = 0
+            for contract, cmds_done, obj, reward in to_claim:
+                # Marquer complété
+                await session.execute(
+                    text("UPDATE bureau_contrats SET status='completed' WHERE id=:cid"),
+                    {"cid": contract.id}
+                )
+                total_reward += reward
+
+                time_saved = ""
+                if contract.ends_at and now < contract.ends_at:
+                    diff = contract.ends_at - now
+                    h = int(diff.total_seconds() // 3600)
+                    m = int((diff.total_seconds() % 3600) // 60)
+                    time_saved = f"⚡ Réclamé <b>{h}h{m:02d}</b> avant la deadline !\n\n"
+
+                messages.append(
+                    f"🎉 <b>{contract.title}</b>\n"
+                    f"✅ {cmds_done:,} / {obj:,} commandes\n"
+                    f"{time_saved}"
+                    f"💰 <b>+{_fmt(reward)} $</b> crédités en trésorerie"
+                )
+                claimed_any = True
+
+            if total_reward > 0:
+                await session.execute(
+                    text("UPDATE companies SET treasury = COALESCE(treasury,0) + :r WHERE id = :cid"),
+                    {"r": total_reward, "cid": company.id}
+                )
+
             await session.commit()
-            # Relire la trésorerie après commit
-            await session.refresh(company)
+
+            # Lire la trésorerie finale via SQL direct (pas de refresh ORM)
+            row = (await session.execute(
+                text("SELECT treasury FROM companies WHERE id=:cid"),
+                {"cid": company.id}
+            )).fetchone()
+            treasury_now = row[0] if row else 0
+
+            # Logs après commit dans une nouvelle transaction
+            for contract, cmds_done, obj, reward in to_claim:
+                await _add_log(session, company.id, "contrat_bureau",
+                               f"Contrat '{contract.title[:80]}' réclamé — +{_fmt(reward)} $",
+                               amount=reward)
+            if to_claim:
+                await session.commit()
 
             header = "📋 <b>BUREAU DES CONTRATS — Réclamation</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
             if claimed_any:
-                footer = f"\n\n🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>"
+                footer = f"\n\n🏦 Trésorerie : <b>{_fmt(treasury_now)} $</b>"
             else:
                 footer = "\n\n💡 Aucun contrat n'est encore complété."
 

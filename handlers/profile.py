@@ -71,16 +71,29 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         diplome_str = "<i>Aucun — /diplome pour s'inscrire</i>"
 
-    # ── Poste entreprise ──────────────────────────────────────────────────────
+    # ── Postes entreprise (toutes les entreprises) ───────────────────────────
     company_line = ""
     try:
-        from handlers.company import _get_user_company, ROLE_EMOJI as _ROLE_EMOJI, SECTORS as _SECTORS
+        from handlers.company import ROLE_EMOJI as _ROLE_EMOJI, SECTORS as _SECTORS
+        from database.models import CompanyEmployee, Company
+        from sqlalchemy import select as _select
         async with AsyncSessionLocal() as _cs:
-            _company, _emp = await _get_user_company(_cs, update.effective_user.id)
-            if _company and _emp:
-                _re = _ROLE_EMOJI.get(_emp.role, "👤")
-                _se, _ = _SECTORS.get(_company.sector, ("🏢", ""))
-                company_line = f"\n\n  🏢 <b>ENTREPRISE</b>\n  ╰┈➤  {_re} <b>{_emp.role.capitalize()}</b> chez <b>{_company.name}</b> {_se}"
+            rows = (await _cs.execute(
+                _select(CompanyEmployee, Company).join(
+                    Company, Company.id == CompanyEmployee.company_id
+                ).where(
+                    CompanyEmployee.user_id == update.effective_user.id,
+                    CompanyEmployee.left_at == None,
+                    Company.is_active == True,
+                )
+            )).all()
+            if rows:
+                postes = []
+                for _emp, _company in rows:
+                    _re = _ROLE_EMOJI.get(_emp.role, "👤")
+                    _se, _ = _SECTORS.get(_company.sector, ("🏢", ""))
+                    postes.append(f"  ╰┈➤  {_re} <b>{_emp.role.capitalize()}</b> chez <b>{_company.name}</b> {_se}")
+                company_line = "\n\n  🏢 <b>ENTREPRISE(S)</b>\n" + "\n".join(postes)
     except Exception:
         pass
 

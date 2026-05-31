@@ -364,96 +364,107 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Numéro invalide.")
         return
 
+    # ── Phase 1 : lecture seule ───────────────────────────────────────────────
     async with AsyncSessionLocal() as session:
-        company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-            )
-        )).scalar_one_or_none()
-
-        if not company:
+        comp_row = (await session.execute(
+            text("SELECT id, name FROM companies WHERE owner_id=:uid AND is_active=TRUE LIMIT 1"),
+            {"uid": user.id}
+        )).fetchone()
+        if not comp_row:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
             return
+        company_id = int(comp_row[0])
+        company_name = comp_row[1]
 
-        contract = await session.get(BureauContrat, contract_id)
-        if not contract or contract.company_id != company.id or contract.status != "pending":
+        contract_row = (await session.execute(
+            text("SELECT id, company_id, status, title, objective_cmds, reward, duration_days "
+                 "FROM bureau_contrats WHERE id=:cid LIMIT 1"),
+            {"cid": contract_id}
+        )).fetchone()
+        if not contract_row or int(contract_row[1]) != company_id or contract_row[2] != "pending":
             await update.message.reply_text("❌ Contrat introuvable ou déjà expiré.")
             return
 
-        active_count = (await session.execute(
-            select(func.count()).where(
-                BureauContrat.company_id == company.id,
-                BureauContrat.status == "active",
-            )
-        )).scalar() or 0
+        c_title = contract_row[3]
+        c_obj   = int(contract_row[4] or 0)
+        c_reward = int(contract_row[5] or 0)
+        c_days  = int(contract_row[6] or 7)
 
+        active_count = (await session.execute(
+            text("SELECT COUNT(*) FROM bureau_contrats WHERE company_id=:cid AND status='active'"),
+            {"cid": company_id}
+        )).scalar() or 0
         if active_count >= 2:
             await update.message.reply_text("❌ Tu as déjà 2 contrats actifs.")
             return
 
-        # Activer le contrat — snapshot commandes actuelles
-        now = datetime.utcnow()
-        contract.status = "active"
-        contract.starts_at = now
-        contract.ends_at = now + timedelta(days=contract.duration_days)
-        contract.cmds_at_start = await _get_employee_total_cmds(session, company.id)
+        cmds_at_start = (await session.execute(
+            select(func.sum(CompanyEmployee.command_count)).where(
+                CompanyEmployee.company_id == company_id
+            )
+        )).scalar() or 0
 
-        # Supprimer autres propositions en attente (SQL pur)
+        emp_rows = (await session.execute(
+            text("SELECT user_id FROM company_employees "
+                 "WHERE company_id=:cid AND left_at IS NULL AND role!='pdg'"),
+            {"cid": company_id}
+        )).fetchall()
+
+    # ── Phase 2 : écriture atomique ───────────────────────────────────────────
+    now = datetime.utcnow()
+    ends_at = now + timedelta(days=c_days)
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("UPDATE bureau_contrats SET status='active', starts_at=:now, ends_at=:end, "
+                 "cmds_at_start=:cs WHERE id=:cid"),
+            {"now": now, "end": ends_at, "cs": cmds_at_start, "cid": contract_id}
+        )
         await session.execute(
             text("DELETE FROM bureau_contrats WHERE company_id=:cid AND status='pending' AND id!=:keep"),
-            {"cid": company.id, "keep": contract_id}
+            {"cid": company_id, "keep": contract_id}
         )
-
-        # Log en SQL pur (séquence company_logs aussi cassée)
         try:
             await session.execute(
                 text("INSERT INTO company_logs (company_id, event_type, description, created_at) "
                      "VALUES (:cid, 'contrat_bureau', :desc, NOW())"),
-                {"cid": company.id,
-                 "desc": f"Contrat '{contract.title[:80]}' accepté — objectif {contract.objective_cmds:,} cmds · {_fmt(contract.reward)} $ à l'échéance"}
+                {"cid": company_id,
+                 "desc": f"Contrat '{c_title[:80]}' accepté — objectif {c_obj:,} cmds · {_fmt(c_reward)} $ à l'échéance"}
+            )
+        except Exception:
+            pass
+        await session.commit()
+
+    deadline_str = ends_at.strftime("%d/%m à %H:%M UTC")
+
+    # ── Phase 3 : notifications employés ─────────────────────────────────────
+    for emp_row in emp_rows:
+        try:
+            await context.bot.send_message(
+                chat_id=emp_row[0],
+                text=(
+                    f"📋 <b>Nouveau contrat Bureau pour {company_name} !</b>\n\n"
+                    f"📌 <b>Mission :</b> {c_title}\n\n"
+                    f"🎯 Objectif équipe : <b>{c_obj:,} commandes</b>\n"
+                    f"⏰ Deadline : <b>{deadline_str}</b>\n"
+                    f"💰 Récompense : <b>{_fmt(c_reward)} $</b>\n\n"
+                    f"💪 Soyez actifs sur le bot pour atteindre l'objectif !"
+                ),
+                parse_mode="HTML",
             )
         except Exception:
             pass
 
-        await session.commit()
-
-        # Notifier tous les employés
-        emps = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
-                CompanyEmployee.role != "pdg",
-            )
-        )).scalars().all()
-
-        deadline_str = contract.ends_at.strftime("%d/%m à %H:%M UTC")
-        for emp in emps:
-            try:
-                await context.bot.send_message(
-                    chat_id=emp.user_id,
-                    text=(
-                        f"📋 <b>Nouveau contrat Bureau pour {company.name} !</b>\n\n"
-                        f"📌 <b>Mission :</b> {contract.title}\n\n"
-                        f"🎯 Objectif équipe : <b>{contract.objective_cmds:,} commandes</b>\n"
-                        f"⏰ Deadline : <b>{deadline_str}</b>\n"
-                        f"💰 Récompense : <b>{_fmt(contract.reward)} $</b>\n\n"
-                        f"💪 Soyez actifs sur le bot pour atteindre l'objectif !"
-                    ),
-                    parse_mode="HTML",
-                )
-            except Exception:
-                pass
-
-        await update.message.reply_text(
-            f"✅ <b>Contrat accepté !</b>\n\n"
-            f"📋 <b>{contract.title}</b>\n"
-            f"🎯 Objectif : <b>{contract.objective_cmds:,} commandes d'équipe</b>\n"
-            f"⏰ Deadline : <b>{deadline_str}</b>\n"
-            f"💵 Récompense : <b>{_fmt(contract.reward)} $</b>\n\n"
-            f"Toute l'équipe a été notifiée. Suivez la progression avec <code>/mescontratsbc</code>",
-            parse_mode="HTML"
-        )
+    # ── Réponse au PDG ────────────────────────────────────────────────────────
+    await update.message.reply_text(
+        f"✅ <b>Contrat accepté !</b>\n\n"
+        f"📋 <b>{c_title}</b>\n"
+        f"🎯 Objectif : <b>{c_obj:,} commandes d'équipe</b>\n"
+        f"⏰ Deadline : <b>{deadline_str}</b>\n"
+        f"💵 Récompense : <b>{_fmt(c_reward)} $</b>\n\n"
+        f"Toute l'équipe a été notifiée. Suivez la progression avec <code>/mescontratsbc</code>",
+        parse_mode="HTML"
+    )
+    return
 
 
 # ─── COMMANDE : /mescontratsbc ────────────────────────────────────────────────

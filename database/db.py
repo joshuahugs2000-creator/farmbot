@@ -31,6 +31,7 @@ async def _db_retry(coro_fn, *args, retries=3, delay=1.0, **kwargs):
                 continue
             raise
 
+# PgBouncer transaction mode : statement_cache_size=0 via execution_options
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
@@ -45,8 +46,14 @@ engine = create_async_engine(
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
     },
+    execution_options={"compiled_cache": None},
 )
-AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    bind=engine,
+)
 
 
 def _asyncpg_dsn() -> str:

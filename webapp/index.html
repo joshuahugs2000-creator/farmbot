@@ -1059,6 +1059,154 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
     </div><!-- /#game-view -->\n  </div>
 
+  <!-- ══ PAGE PAY ══ -->
+  <div class="page" id="page-pay">
+    <div class="page-title">💸 Transfert</div>
+    <div class="card">
+      <div class="card-title">ENVOYER DES FONDS</div>
+      <input id="pay-search-input" type="text" placeholder="🔍 Rechercher un joueur…"
+        oninput="paySearchPlayer(this.value)"
+        style="width:100%;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;margin-bottom:10px"/>
+      <div id="pay-search-results"></div>
+      <div id="pay-form" style="display:none">
+        <div id="pay-target-info" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--card2);border-radius:12px;border:1px solid var(--border);margin-bottom:12px"></div>
+        <input id="pay-amount" type="number" placeholder="Montant ($)" min="1"
+          style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;margin-bottom:10px"/>
+        <input id="pay-note" type="text" placeholder="Note (optionnelle)" maxlength="60"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;margin-bottom:12px"/>
+        <button onclick="submitPay()" class="save-btn" style="font-size:16px">💸 Confirmer le virement</button>
+        <button onclick="cancelPay()" style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:none;color:var(--text2);font-weight:700;margin-top:8px;cursor:pointer">Annuler</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PAGE ENTREPRISES ══ -->
+  <div class="page" id="page-entreprises">
+    <div class="page-title">🏢 Entreprises</div>
+    <input id="co-search-input" type="text" placeholder="🔍 Rechercher une entreprise…"
+      oninput="searchCompanies(this.value)"
+      style="width:100%;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:14px;font-weight:700;margin-bottom:12px"/>
+    <div id="co-list"><div class="plus-loader">⏳ Chargement…</div></div>
+    <!-- Modale détail entreprise + postuler -->
+    <div id="co-detail-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.8);align-items:flex-end;justify-content:center;overflow-y:auto">
+      <div style="background:var(--card);border-radius:22px 22px 0 0;padding:24px;width:100%;max-width:480px;border-top:2px solid var(--border);max-height:85vh;overflow-y:auto">
+        <div id="co-detail-content"></div>
+        <button onclick="closeCOModal()" style="width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;margin-top:10px;cursor:pointer">✖ Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PAGE INVITATIONS ══ -->
+  <div class="page" id="page-invitations">
+    <div class="page-title">📬 Invitations</div>
+    <div id="inv-list"><div class="plus-loader">⏳ Chargement…</div></div>
+    <!-- Modal contre-proposition -->
+    <div id="inv-counter-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.8);align-items:center;justify-content:center">
+      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">
+        <div style="font-size:16px;font-weight:900;margin-bottom:12px">💬 Contre-proposer un salaire</div>
+        <div id="inv-counter-info" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
+        <input id="inv-counter-salary" type="number" placeholder="Nouveau salaire proposé ($)"
+          style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;margin-bottom:12px"/>
+        <div style="display:flex;gap:10px">
+          <button onclick="submitCounterOffer()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:900;cursor:pointer">Envoyer</button>
+          <button onclick="closeCounterModal()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;cursor:pointer">Annuler</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PAGE PRÉSENCES ══ -->
+  <div class="page" id="page-presences">
+    <div class="page-title">📊 Présences</div>
+    <div id="presences-content"><div class="plus-loader">⏳ Chargement…</div></div>
+  </div>
+
+  <!-- ══ PAGE PARTS ══ -->
+  <div class="page" id="page-parts">
+    <div class="page-title">📜 Mes Parts</div>
+    <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;scrollbar-width:none">
+      <button class="parts-tab-btn active" onclick="partsTab('mes',this)">📜 Mes parts</button>
+      <button class="parts-tab-btn" onclick="partsTab('offres',this)">📥 Offres reçues</button>
+      <button class="parts-tab-btn" onclick="partsTab('vendre',this)">📤 Vendre</button>
+      <button class="parts-tab-btn" onclick="partsTab('acheter',this)">🛒 Acheter</button>
+    </div>
+    <div id="parts-mes"><div class="plus-loader">⏳ Chargement…</div></div>
+    <div id="parts-offres" style="display:none"><div class="plus-loader">⏳ Chargement…</div></div>
+    <div id="parts-vendre" style="display:none">
+      <div class="card">
+        <div class="card-title">VENDRE DES PARTS</div>
+        <input id="parts-sell-company" type="text" placeholder="Nom de l'entreprise"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:10px"/>
+        <input id="parts-sell-qty" type="number" placeholder="Quantité de parts" min="1"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:10px"/>
+        <input id="parts-sell-price" type="number" placeholder="Prix par part ($)" min="1"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:12px"/>
+        <input id="parts-sell-target" type="text" placeholder="Acheteur cible (optionnel)"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:12px"/>
+        <button onclick="submitVendreParts()" class="save-btn" style="font-size:15px">📤 Mettre en vente</button>
+      </div>
+    </div>
+    <div id="parts-acheter" style="display:none">
+      <div class="card">
+        <div class="card-title">ACHETER DES PARTS</div>
+        <input id="parts-buy-company" type="text" placeholder="Nom de l'entreprise"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:10px"/>
+        <input id="parts-buy-qty" type="number" placeholder="Quantité à acheter" min="1"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:10px"/>
+        <input id="parts-buy-price" type="number" placeholder="Prix max par part ($)" min="1"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:12px"/>
+        <button onclick="submitAcheterParts()" class="save-btn" style="font-size:15px">🛒 Soumettre l'offre</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PAGE CONTRATS ══ -->
+  <div class="page" id="page-contrats">
+    <div class="page-title">📋 Contrats</div>
+    <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;scrollbar-width:none">
+      <button class="contrat-tab-btn active" onclick="contratsTab('bc',this)">🤝 Boîtes à commissions</button>
+      <button class="contrat-tab-btn" onclick="contratsTab('auto',this)">🤖 Auto-transactions</button>
+    </div>
+    <div id="contrats-bc"><div class="plus-loader">⏳ Chargement…</div></div>
+    <div id="contrats-auto" style="display:none"><div class="plus-loader">⏳ Chargement…</div></div>
+  </div>
+
+  <!-- ══ PAGE RECRUTER (PDG) ══ -->
+  <div class="page" id="page-recruter">
+    <div class="page-title">👥 Recruter</div>
+    <div class="card">
+      <div class="card-title">INVITER UN JOUEUR</div>
+      <input id="rec-search-input" type="text" placeholder="🔍 Rechercher un joueur…"
+        oninput="recSearchPlayer(this.value)"
+        style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;margin-bottom:10px"/>
+      <div id="rec-search-results" style="margin-bottom:10px"></div>
+      <div id="rec-form" style="display:none">
+        <div id="rec-target-info" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--card2);border-radius:12px;border:1px solid var(--border);margin-bottom:12px"></div>
+        <input id="rec-salary" type="number" placeholder="Salaire proposé ($)" min="0"
+          style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;margin-bottom:10px"/>
+        <select id="rec-poste" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;margin-bottom:12px">
+          <option value="employe">👷 Employé</option>
+          <option value="manager">📋 Manager</option>
+          <option value="directeur">🎩 Directeur</option>
+        </select>
+        <button onclick="submitRecruter()" class="save-btn" style="font-size:15px">📨 Envoyer l'invitation</button>
+        <button onclick="cancelRec()" style="width:100%;padding:11px;border-radius:12px;border:none;background:none;color:var(--text2);font-weight:700;margin-top:8px;cursor:pointer">Annuler</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="card-title">GÉRER L'ÉQUIPE</div>
+      <div id="team-manage-list"><div class="plus-loader">⏳ Chargement…</div></div>
+    </div>
+    <!-- Modal licencier/nommer -->
+    <div id="team-action-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.8);align-items:center;justify-content:center">
+      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">
+        <div id="team-action-name" style="font-size:16px;font-weight:900;margin-bottom:16px;text-align:center"></div>
+        <div style="display:flex;flex-direction:column;gap:8px" id="team-action-btns"></div>
+        <button onclick="closeTeamModal()" style="width:100%;padding:11px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;margin-top:10px;cursor:pointer">✖ Fermer</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ PAGE JOURNAL ══ -->
   <div class="page" id="page-journal">
     <div class="page-title">📖 Journal</div>
@@ -2030,9 +2178,9 @@ function saveAvatar() {
 // ════════════════════════════════════════
 const MAIN_TABS = {
   moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'},{l:'💰 Gains',p:'gains',fn:'loadGains'},{l:'🎓 Diplômes',p:'diplomes',fn:'loadDiplomes'}], def:'profile' },
-  eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company',fn:'loadCompany'}], def:'bank' },
+  eco:    { subs:[{l:'🏦 Banque',p:'bank',fn:'loadBank'},{l:'📈 Marché',p:'market',fn:'loadMarket'},{l:'🏢 Entreprise',p:'company',fn:'loadCompany'},{l:'📜 Parts',p:'parts',fn:'loadParts'},{l:'📋 Contrats',p:'contrats',fn:'loadContrats'},{l:'💸 Virer',p:'pay',fn:'initPay'}], def:'bank' },
   jeux:   { subs:[], def:'games' },
-  social: { subs:[{l:'👨‍👩‍👧 Famille',p:'famille',fn:'loadFamille'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'}], def:'famille' },
+  social: { subs:[{l:'👨‍👩‍👧 Famille',p:'famille',fn:'loadFamille'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'},{l:'🏢 Entreprises',p:'entreprises',fn:'loadEntreprises'},{l:'📬 Invitations',p:'invitations',fn:'loadInvitations'},{l:'📊 Présences',p:'presences',fn:'loadPresences'},{l:'👥 Recruter',p:'recruter',fn:'loadRecruter'}], def:'famille' },
   plus:   { subs:[{l:'📖 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'},{l:'🔨 Enchères',p:'encheres',fn:'loadEncheres'}], def:'journal' },
 };
 let _curMain = 'moi';
@@ -4994,6 +5142,491 @@ async function _loadAuctionInventory() {
     }).join('');
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
 }
+
+// ══════════════════════════════════════════════════
+//  💸 PAY — Transfert entre joueurs
+// ══════════════════════════════════════════════════
+let _payTargetUid = null;
+function initPay() { _payTargetUid = null; document.getElementById('pay-form').style.display='none'; document.getElementById('pay-search-results').innerHTML=''; document.getElementById('pay-search-input').value=''; }
+async function paySearchPlayer(q) {
+  if (q.length < 2) { document.getElementById('pay-search-results').innerHTML=''; return; }
+  try {
+    const r = await fetchT('/api/webapp/actions/players/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 5000);
+    const d = await r.json();
+    const players = d.players || [];
+    document.getElementById('pay-search-results').innerHTML = players.length
+      ? players.map(p => `<div onclick="selectPayTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:12px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px"><span style="font-size:22px">${p.avatar_emoji||'👤'}</span><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${p.level||1} · ${p.job||'Sans emploi'}</div></div></div>`).join('')
+      : '<div style="text-align:center;color:var(--text2);padding:16px;font-size:13px">Aucun résultat</div>';
+  } catch(e) {}
+}
+function selectPayTarget(id, name, level) {
+  _payTargetUid = id;
+  document.getElementById('pay-search-results').innerHTML='';
+  document.getElementById('pay-search-input').value='';
+  document.getElementById('pay-target-info').innerHTML = `<span style="font-size:28px">👤</span><div><div style="font-weight:900;font-size:15px">${name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${level}</div></div>`;
+  document.getElementById('pay-form').style.display='block';
+}
+function cancelPay() { _payTargetUid = null; document.getElementById('pay-form').style.display='none'; }
+async function submitPay() {
+  const amount = parseInt(document.getElementById('pay-amount').value);
+  const note = document.getElementById('pay-note').value.trim();
+  if (!_payTargetUid || !amount || amount <= 0) { showToast('Montant ou destinataire invalide'); return; }
+  try {
+    const r = await fetchT('/api/webapp/actions/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _payTargetUid, amount, note }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('💸 Virement effectué !'); cancelPay(); document.getElementById('pay-amount').value=''; document.getElementById('pay-note').value=''; }
+    else showToast(d.error || 'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+// ══════════════════════════════════════════════════
+//  🏢 ENTREPRISES — Liste + postuler
+// ══════════════════════════════════════════════════
+let _coSearchTimer = null;
+async function loadEntreprises() {
+  const el = document.getElementById('co-list');
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/companies/list?user_id='+uid, {}, 10000);
+    const d = await r.json();
+    renderCoList(d.companies || []);
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+function searchCompanies(q) {
+  clearTimeout(_coSearchTimer);
+  _coSearchTimer = setTimeout(async () => {
+    if (!q.trim()) { loadEntreprises(); return; }
+    try {
+      const r = await fetchT('/api/webapp/actions/companies/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 8000);
+      const d = await r.json();
+      renderCoList(d.companies || []);
+    } catch(e) {}
+  }, 350);
+}
+function renderCoList(companies) {
+  const el = document.getElementById('co-list');
+  if (!companies.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">🏢 Aucune entreprise trouvée</div>'; return; }
+  el.innerHTML = companies.map(co => {
+    const stars = Math.round((co.reputation||0)*2)/2;
+    const starsHtml = Array.from({length:5},(_,i)=>i+1<=stars?'⭐':'☆').join('');
+    return `<div onclick="openCOModal(${co.id})" class="card" style="cursor:pointer;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="font-size:36px">${co.emoji||'🏢'}</div>
+        <div style="flex:1">
+          <div style="font-weight:900;font-size:15px">${co.name}</div>
+          <div style="font-size:11px;color:var(--text2)">${co.sector||'Secteur inconnu'} · Niv. ${co.level||1}</div>
+          <div style="font-size:12px;color:var(--accent);margin-top:2px">${starsHtml} ${co.reputation||0}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:12px;font-weight:800;color:var(--success)">${co.employee_count||0}/${co.max_employees||10} emp.</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${co.is_hiring?'✅ Recrute':'—'}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+let _coModalId = null;
+async function openCOModal(coId) {
+  _coModalId = coId;
+  const modal = document.getElementById('co-detail-modal');
+  modal.style.display = 'flex';
+  document.getElementById('co-detail-content').innerHTML = '<div class="plus-loader" style="padding:40px">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/companies/search?user_id='+uid+'&id='+coId, {}, 8000);
+    const d = await r.json();
+    const co = (d.companies||[])[0];
+    if (!co) { document.getElementById('co-detail-content').innerHTML='<div style="color:var(--text2)">Entreprise introuvable</div>'; return; }
+    document.getElementById('co-detail-content').innerHTML = `
+      <div style="text-align:center;padding:16px 0">
+        <div style="font-size:56px">${co.emoji||'🏢'}</div>
+        <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--accent);letter-spacing:2px;margin-top:8px">${co.name}</div>
+        <div style="font-size:12px;color:var(--text2)">${co.sector||''} · Niveau ${co.level||1}</div>
+        ${co.description?`<div style="margin-top:10px;font-size:13px;color:var(--text2);line-height:1.5">${co.description}</div>`:''}
+      </div>
+      <div class="card" style="margin-bottom:10px">
+        <div class="stat-row"><span class="stat-label">💰 Capital</span><span class="stat-value gold">${fmt(co.capital)}</span></div>
+        <div class="stat-row"><span class="stat-label">👷 Employés</span><span class="stat-value">${co.employee_count||0}/${co.max_employees||10}</span></div>
+        <div class="stat-row"><span class="stat-label">💵 Salaire moyen</span><span class="stat-value">${fmt(co.avg_salary||0)}</span></div>
+        <div class="stat-row"><span class="stat-label">⭐ Réputation</span><span class="stat-value">${co.reputation||0}/5</span></div>
+      </div>
+      ${co.is_hiring ? `
+      <div style="background:rgba(85,239,196,.08);border:1px solid var(--success);border-radius:14px;padding:14px;margin-bottom:10px">
+        <div style="font-weight:800;color:var(--success);margin-bottom:10px">✅ Cette entreprise recrute !</div>
+        <input id="postuler-salary" type="number" placeholder="Salaire demandé ($)" min="0"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;margin-bottom:8px"/>
+        <input id="postuler-message" type="text" placeholder="Message de candidature (optionnel)" maxlength="120"
+          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;margin-bottom:8px"/>
+        <button onclick="submitPostuler(${co.id})" style="width:100%;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--accent),#e6b800);color:#000;font-weight:900;font-size:14px;cursor:pointer">📨 Postuler</button>
+      </div>` : '<div style="text-align:center;padding:12px;color:var(--text2);font-size:13px">🔒 Recrutement fermé actuellement</div>'}`;
+  } catch(e) { document.getElementById('co-detail-content').innerHTML='<div style="color:var(--accent2)">Erreur de chargement</div>'; }
+}
+function closeCOModal() { document.getElementById('co-detail-modal').style.display='none'; _coModalId=null; }
+async function submitPostuler(coId) {
+  const salary = parseInt(document.getElementById('postuler-salary').value)||0;
+  const message = document.getElementById('postuler-message').value.trim();
+  try {
+    const r = await fetchT('/api/webapp/actions/postuler', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_id: coId, salary_request: salary, message }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('📨 Candidature envoyée !'); closeCOModal(); }
+    else showToast(d.error || 'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+// ══════════════════════════════════════════════════
+//  📬 INVITATIONS
+// ══════════════════════════════════════════════════
+let _counterInvId = null;
+async function loadInvitations() {
+  const el = document.getElementById('inv-list');
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/invitations?user_id='+uid, {}, 10000);
+    const d = await r.json();
+    const invs = d.invitations || [];
+    if (!invs.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">📬</div><div style="font-size:15px;font-weight:700">Aucune invitation</div></div>'; return; }
+    el.innerHTML = invs.map(inv => `
+      <div class="card" style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span style="font-size:32px">${inv.company_emoji||'🏢'}</span>
+          <div>
+            <div style="font-weight:900;font-size:15px">${inv.company_name||'Entreprise'}</div>
+            <div style="font-size:11px;color:var(--text2)">Poste : <b style="color:var(--accent4)">${inv.poste||'Employé'}</b> · Salaire : <b style="color:var(--accent)">${fmt(inv.salary||0)}</b></div>
+            ${inv.message?`<div style="font-size:12px;color:var(--text2);margin-top:4px;font-style:italic">"${inv.message}"</div>`:''}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="acceptInvitation(${inv.id})" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--success);color:#000;font-weight:900;font-size:13px;cursor:pointer">✅ Accepter</button>
+          <button onclick="openCounterModal(${inv.id},${inv.salary||0})" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--accent4);background:none;color:var(--accent4);font-weight:800;font-size:13px;cursor:pointer">💬 Contre</button>
+          <button onclick="refuseInvitation(${inv.id})" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--card2);color:var(--accent2);font-weight:800;font-size:13px;cursor:pointer">❌ Refuser</button>
+        </div>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+async function acceptInvitation(invId) {
+  try {
+    const r = await fetchT('/api/webapp/actions/invitations/accepter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('✅ Invitation acceptée !'); loadInvitations(); }
+    else showToast(d.error || 'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+async function refuseInvitation(invId) {
+  try {
+    const r = await fetchT('/api/webapp/actions/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('❌ Invitation refusée.'); loadInvitations(); }
+    else showToast(d.error || 'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+function openCounterModal(invId, currentSalary) {
+  _counterInvId = invId;
+  document.getElementById('inv-counter-info').textContent = 'Salaire proposé : ' + fmt(currentSalary);
+  document.getElementById('inv-counter-salary').value = '';
+  document.getElementById('inv-counter-modal').style.display = 'flex';
+}
+function closeCounterModal() { document.getElementById('inv-counter-modal').style.display='none'; _counterInvId=null; }
+async function submitCounterOffer() {
+  const salary = parseInt(document.getElementById('inv-counter-salary').value);
+  if (!salary || salary <= 0 || !_counterInvId) { showToast('Montant invalide'); return; }
+  try {
+    const r = await fetchT('/api/webapp/actions/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: _counterInvId, counter_salary: salary }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('💬 Contre-proposition envoyée !'); closeCounterModal(); loadInvitations(); }
+    else showToast(d.error || 'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+// ══════════════════════════════════════════════════
+//  📊 PRÉSENCES
+// ══════════════════════════════════════════════════
+async function loadPresences() {
+  const el = document.getElementById('presences-content');
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/presences?user_id='+uid, {}, 10000);
+    const d = await r.json();
+    if (!d.ok) { el.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2)">${d.error||'Pas accès aux présences'}</div>`; return; }
+    const members = d.members || [];
+    if (!members.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun membre à afficher</div>'; return; }
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">TABLEAU DES PRÉSENCES — ${d.company_name||''}</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Période : ${d.period_label||'Ce mois'}</div>
+        ${members.map(m => `
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${m.avatar_emoji||'👤'}</div>
+            <div style="flex:1">
+              <div style="font-weight:800;font-size:13px">${m.name}</div>
+              <div style="font-size:11px;color:var(--text2)">${m.poste||'Employé'}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-weight:900;font-size:14px;color:var(--accent)">${m.days_active||0}j actifs</div>
+              <div style="font-size:11px;color:var(--text2)">${m.cmds_done||0} cmds</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+
+// ══════════════════════════════════════════════════
+//  📜 PARTS
+// ══════════════════════════════════════════════════
+function partsTab(tab, btn) {
+  document.querySelectorAll('.parts-tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  ['mes','offres','vendre','acheter'].forEach(t => document.getElementById('parts-'+t).style.display = t===tab ? '' : 'none');
+  if (tab === 'mes') loadPartsMes();
+  else if (tab === 'offres') loadPartsOffres();
+}
+async function loadParts() { partsTab('mes', document.querySelector('.parts-tab-btn')); }
+async function loadPartsMes() {
+  const el = document.getElementById('parts-mes');
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/parts?user_id='+uid, {}, 10000);
+    const d = await r.json();
+    const parts = d.parts || [];
+    if (!parts.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">📜</div><div>Aucune part détenue</div></div>'; return; }
+    el.innerHTML = parts.map(p => `
+      <div class="card" style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:32px">${p.company_emoji||'🏢'}</span>
+          <div style="flex:1">
+            <div style="font-weight:900;font-size:15px">${p.company_name}</div>
+            <div style="font-size:12px;color:var(--text2)">Parts détenues : <b style="color:var(--accent)">${p.quantity}</b></div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:13px;font-weight:800;color:var(--success)">${fmt(p.value_per_part)} / part</div>
+            <div style="font-size:11px;color:var(--text2)">Total : ${fmt((p.quantity||0)*(p.value_per_part||0))}</div>
+          </div>
+        </div>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+async function loadPartsOffres() {
+  const el = document.getElementById('parts-offres');
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/parts?user_id='+uid, {}, 10000);
+    const d = await r.json();
+    const offres = d.pending_offers || [];
+    if (!offres.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucune offre en attente</div>'; return; }
+    el.innerHTML = offres.map(o => `
+      <div class="card" style="margin-bottom:8px">
+        <div style="font-weight:800;margin-bottom:6px">${o.company_name}</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:10px">${o.quantity} parts à ${fmt(o.price_per_part)}/part de <b>${o.seller_name||'?'}</b></div>
+        <div style="display:flex;gap:8px">
+          <button onclick="acceptPartsOffer(${o.id})" style="flex:1;padding:9px;border-radius:10px;border:none;background:var(--success);color:#000;font-weight:900;font-size:13px;cursor:pointer">✅ Accepter</button>
+          <button onclick="refusePartsOffer(${o.id})" style="flex:1;padding:9px;border-radius:10px;border:none;background:var(--card2);color:var(--accent2);font-weight:800;font-size:13px;cursor:pointer">❌ Refuser</button>
+        </div>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+async function acceptPartsOffer(offerId) {
+  try {
+    const r = await fetchT('/api/webapp/actions/parts/accepteroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('✅ Offre acceptée !'); loadPartsOffres(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+async function refusePartsOffer(offerId) {
+  try {
+    const r = await fetchT('/api/webapp/actions/parts/refuseroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('❌ Offre refusée.'); loadPartsOffres(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+async function submitVendreParts() {
+  const company = document.getElementById('parts-sell-company').value.trim();
+  const qty = parseInt(document.getElementById('parts-sell-qty').value);
+  const price = parseInt(document.getElementById('parts-sell-price').value);
+  const target = document.getElementById('parts-sell-target').value.trim();
+  if (!company || !qty || !price) { showToast('Remplis tous les champs obligatoires'); return; }
+  try {
+    const r = await fetchT('/api/webapp/actions/parts/vendre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, price_per_part: price, target_name: target||null }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('📤 Parts mises en vente !'); document.getElementById('parts-sell-company').value=''; document.getElementById('parts-sell-qty').value=''; document.getElementById('parts-sell-price').value=''; document.getElementById('parts-sell-target').value=''; }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+async function submitAcheterParts() {
+  const company = document.getElementById('parts-buy-company').value.trim();
+  const qty = parseInt(document.getElementById('parts-buy-qty').value);
+  const price = parseInt(document.getElementById('parts-buy-price').value);
+  if (!company || !qty || !price) { showToast('Remplis tous les champs'); return; }
+  try {
+    const r = await fetchT('/api/webapp/actions/parts/acheter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, max_price_per_part: price }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('🛒 Offre d\'achat soumise !'); document.getElementById('parts-buy-company').value=''; document.getElementById('parts-buy-qty').value=''; document.getElementById('parts-buy-price').value=''; }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+// ══════════════════════════════════════════════════
+//  📋 CONTRATS
+// ══════════════════════════════════════════════════
+function contratsTab(tab, btn) {
+  document.querySelectorAll('.contrat-tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('contrats-bc').style.display = tab==='bc' ? '' : 'none';
+  document.getElementById('contrats-auto').style.display = tab==='auto' ? '' : 'none';
+  if (tab==='bc') loadContratsBc();
+  else loadContratsAuto();
+}
+async function loadContrats() { contratsTab('bc', document.querySelector('.contrat-tab-btn')); }
+async function loadContratsBc() {
+  const el = document.getElementById('contrats-bc');
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/contrats/bc?user_id='+uid, {}, 10000);
+    const d = await r.json();
+    const contrats = d.contrats || [];
+    if (!contrats.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun contrat BC actif</div>'; return; }
+    el.innerHTML = contrats.map(c => `
+      <div class="card" style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-weight:900;font-size:14px">${c.partner_name||'Partenaire'}</div>
+          <span class="badge" style="background:${c.status==='actif'?'var(--success)':'var(--accent2)'}">${c.status||'actif'}</span>
+        </div>
+        <div class="stat-row"><span class="stat-label">💰 Commission</span><span class="stat-value gold">${c.commission_rate||0}%</span></div>
+        <div class="stat-row"><span class="stat-label">📅 Expiration</span><span class="stat-value">${(c.expires_at||'').slice(0,10)||'—'}</span></div>
+        <div class="stat-row"><span class="stat-label">💵 Total perçu</span><span class="stat-value green">${fmt(c.total_earned||0)}</span></div>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+async function loadContratsAuto() {
+  const el = document.getElementById('contrats-auto');
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/contrats/auto?user_id='+uid, {}, 10000);
+    const d = await r.json();
+    const contrats = d.contrats || [];
+    if (!contrats.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun contrat auto actif</div>'; return; }
+    el.innerHTML = contrats.map(c => `
+      <div class="card" style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-weight:900;font-size:14px">${c.partner_name||'Partenaire'}</div>
+          <span class="badge">${c.type||'auto'}</span>
+        </div>
+        <div class="stat-row"><span class="stat-label">💰 Montant/cycle</span><span class="stat-value gold">${fmt(c.amount_per_cycle||0)}</span></div>
+        <div class="stat-row"><span class="stat-label">🔄 Fréquence</span><span class="stat-value">${c.frequency||'—'}</span></div>
+        <div class="stat-row"><span class="stat-label">📅 Prochain paiement</span><span class="stat-value">${(c.next_payment||'').slice(0,10)||'—'}</span></div>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+
+// ══════════════════════════════════════════════════
+//  👥 RECRUTER (PDG)
+// ══════════════════════════════════════════════════
+let _recTargetUid = null;
+async function loadRecruter() {
+  _recTargetUid = null;
+  document.getElementById('rec-form').style.display='none';
+  document.getElementById('rec-search-results').innerHTML='';
+  document.getElementById('rec-search-input').value='';
+  // Charger l'équipe actuelle
+  const el = document.getElementById('team-manage-list');
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/actions/presences?user_id='+uid, {}, 10000);
+    const d = await r.json();
+    if (!d.ok) { el.innerHTML = `<div style="font-size:13px;color:var(--text2);padding:10px">${d.error||'Accès PDG requis'}</div>`; return; }
+    const members = d.members || [];
+    if (!members.length) { el.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:10px">Aucun membre pour l\'instant</div>'; return; }
+    el.innerHTML = members.map(m => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:18px">${m.avatar_emoji||'👤'}</div>
+        <div style="flex:1"><div style="font-weight:800;font-size:13px">${m.name}</div><div style="font-size:11px;color:var(--text2)">${m.poste||'Employé'}</div></div>
+        <button onclick="openTeamModal(${m.user_id},'${(m.name||'').replace(/'/g,"\\'")}','${m.poste||'employe'}')" style="padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-weight:800;font-size:12px;cursor:pointer">⚙️</button>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur.</div>'; }
+}
+async function recSearchPlayer(q) {
+  if (q.length < 2) { document.getElementById('rec-search-results').innerHTML=''; return; }
+  try {
+    const r = await fetchT('/api/webapp/actions/players/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 5000);
+    const d = await r.json();
+    const players = d.players || [];
+    document.getElementById('rec-search-results').innerHTML = players.length
+      ? players.map(p => `<div onclick="selectRecTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:12px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px"><span style="font-size:22px">${p.avatar_emoji||'👤'}</span><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${p.level||1}</div></div></div>`).join('')
+      : '<div style="text-align:center;color:var(--text2);padding:12px;font-size:13px">Aucun résultat</div>';
+  } catch(e) {}
+}
+function selectRecTarget(id, name, level) {
+  _recTargetUid = id;
+  document.getElementById('rec-search-results').innerHTML='';
+  document.getElementById('rec-search-input').value='';
+  document.getElementById('rec-target-info').innerHTML = `<span style="font-size:28px">👤</span><div><div style="font-weight:900;font-size:15px">${name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${level}</div></div>`;
+  document.getElementById('rec-form').style.display='block';
+}
+function cancelRec() { _recTargetUid=null; document.getElementById('rec-form').style.display='none'; }
+async function submitRecruter() {
+  const salary = parseInt(document.getElementById('rec-salary').value)||0;
+  const poste = document.getElementById('rec-poste').value;
+  if (!_recTargetUid) { showToast('Sélectionne un joueur'); return; }
+  try {
+    const r = await fetchT('/api/webapp/actions/recruter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _recTargetUid, salary, poste }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('📨 Invitation envoyée !'); cancelRec(); loadRecruter(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+let _teamModalUid = null, _teamModalPoste = null;
+function openTeamModal(userId, name, poste) {
+  _teamModalUid = userId; _teamModalPoste = poste;
+  document.getElementById('team-action-name').textContent = '👤 ' + name;
+  const btns = [];
+  const postes = ['employe','manager','directeur'];
+  postes.filter(p => p !== poste).forEach(p => {
+    const labels = {employe:'👷 Rétrogader → Employé', manager:'📋 Nommer Manager', directeur:'🎩 Nommer Directeur'};
+    btns.push(`<button onclick="teamNommer('${p}')" style="padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-weight:800;cursor:pointer">${labels[p]}</button>`);
+  });
+  btns.push(`<button onclick="teamLicencier()" style="padding:11px;border-radius:12px;border:none;background:var(--accent2);color:#fff;font-weight:900;cursor:pointer">🚫 Licencier</button>`);
+  document.getElementById('team-action-btns').innerHTML = btns.join('');
+  document.getElementById('team-action-modal').style.display = 'flex';
+}
+function closeTeamModal() { document.getElementById('team-action-modal').style.display='none'; _teamModalUid=null; }
+async function teamNommer(newPoste) {
+  try {
+    const r = await fetchT('/api/webapp/actions/nommer', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid, new_poste: newPoste }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('✅ Poste mis à jour !'); closeTeamModal(); loadRecruter(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+async function teamLicencier() {
+  try {
+    const r = await fetchT('/api/webapp/actions/licencier', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast('🚫 Employé licencié.'); closeTeamModal(); loadRecruter(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+// ══════════════════════════════════════════════════
+//  STYLES NOUVEAUX ONGLETS
+// ══════════════════════════════════════════════════
+(function addNewStyles() {
+  const s = document.createElement('style');
+  s.textContent = `
+.parts-tab-btn,.contrat-tab-btn {
+  display:inline-flex;align-items:center;gap:4px;
+  padding:7px 14px;border-radius:12px;font-size:12px;
+  font-weight:800;border:1px solid var(--border);
+  background:var(--card);color:var(--text2);
+  cursor:pointer;white-space:nowrap;flex-shrink:0;
+  transition:all .2s;font-family:'Nunito',sans-serif;
+}
+.parts-tab-btn.active,.contrat-tab-btn.active {
+  background:linear-gradient(135deg,#f7c948,#e6b800);
+  color:#000;border-color:transparent;
+  box-shadow:0 2px 12px rgba(247,201,72,.35);
+}
+  `;
+  document.head.appendChild(s);
+})();
 
 async function loadEncheres() {
   _encCurTab = 'live';

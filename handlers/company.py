@@ -2052,7 +2052,7 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _text("SELECT treasury FROM companies WHERE id = :cid"),
             {"cid": company_id}
         )
-        new_treasury = int(row2.scalar() or (treasury + amount))
+        new_treasury = treasury + amount
         await _add_log(session, company_id, "depot",
                        f"Dépôt de {user.first_name}", amount=amount)
         await session.commit()

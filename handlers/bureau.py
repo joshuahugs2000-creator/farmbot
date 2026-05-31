@@ -299,31 +299,32 @@ async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
         # Générer 3 contrats
         proposals = await _generate_contracts(company, employees)
 
-        # Supprimer anciennes propositions en attente
-        old_pending = (await session.execute(
-            select(BureauContrat).where(
-                BureauContrat.company_id == company.id,
-                BureauContrat.status == "pending",
-            )
-        )).scalars().all()
-        for old in old_pending:
-            await session.delete(old)
-        await session.flush()
+        # Supprimer anciennes propositions en attente (SQL pur)
+        await session.execute(
+            text("DELETE FROM bureau_contrats WHERE company_id=:cid AND status='pending'"),
+            {"cid": company.id}
+        )
 
+        # Insérer les 3 nouveaux contrats en SQL pur (séquence Neon cassée via ORM)
         saved_ids = []
         for p in proposals:
-            record = BureauContrat(
-                company_id=company.id,
-                title=p["title"],
-                description=p["description"],
-                reward=p["reward"],
-                duration_days=p["duration_days"],
-                objective_cmds=p["objective_cmds"],
-                status="pending",
-            )
-            session.add(record)
-            await session.flush()
-            saved_ids.append(record.id)
+            row = (await session.execute(
+                text(
+                    "INSERT INTO bureau_contrats "
+                    "(company_id, title, description, reward, duration_days, objective_cmds, status, created_at) "
+                    "VALUES (:cid, :title, :desc, :reward, :days, :obj, 'pending', NOW()) "
+                    "RETURNING id"
+                ),
+                {
+                    "cid": company.id,
+                    "title": p["title"],
+                    "desc": p["description"],
+                    "reward": p["reward"],
+                    "days": p["duration_days"],
+                    "obj": p["objective_cmds"],
+                }
+            )).fetchone()
+            saved_ids.append(row[0])
 
         await session.commit()
 
@@ -398,19 +399,23 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         contract.ends_at = now + timedelta(days=contract.duration_days)
         contract.cmds_at_start = await _get_employee_total_cmds(session, company.id)
 
-        # Supprimer autres propositions en attente
-        other_pending = (await session.execute(
-            select(BureauContrat).where(
-                BureauContrat.company_id == company.id,
-                BureauContrat.status == "pending",
-                BureauContrat.id != contract_id,
-            )
-        )).scalars().all()
-        for old in other_pending:
-            await session.delete(old)
+        # Supprimer autres propositions en attente (SQL pur)
+        await session.execute(
+            text("DELETE FROM bureau_contrats WHERE company_id=:cid AND status='pending' AND id!=:keep"),
+            {"cid": company.id, "keep": contract_id}
+        )
 
-        await _add_log(session, company.id, "contrat_bureau",
-                       f"Contrat '{contract.title}' accepté — objectif {contract.objective_cmds:,} cmds · {_fmt(contract.reward)} $ à l'échéance")
+        # Log en SQL pur (séquence company_logs aussi cassée)
+        try:
+            await session.execute(
+                text("INSERT INTO company_logs (company_id, event_type, description, created_at) "
+                     "VALUES (:cid, 'contrat_bureau', :desc, NOW())"),
+                {"cid": company.id,
+                 "desc": f"Contrat '{contract.title[:80]}' accepté — objectif {contract.objective_cmds:,} cmds · {_fmt(contract.reward)} $ à l'échéance"}
+            )
+        except Exception:
+            pass
+
         await session.commit()
 
         # Notifier tous les employés

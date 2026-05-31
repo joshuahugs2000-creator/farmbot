@@ -564,7 +564,7 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     contract.status = "completed"
 
                     await session.execute(
-                        text("UPDATE companies SET treasury = COALESCE(treasury, 0) + :r, value = COALESCE(treasury, 0) + :r WHERE id = :cid"),
+                        text("UPDATE companies SET treasury = COALESCE(treasury, 0) + :r WHERE id = :cid"),
                         {"r": reward, "cid": company.id}
                     )
                     # Rafraîchir l'objet company pour afficher la bonne trésorerie

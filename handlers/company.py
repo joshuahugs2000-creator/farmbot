@@ -577,6 +577,21 @@ async def update_company_activity(user_id: int):
 
             company.last_active = datetime.utcnow()
 
+        # ── Incrémenter la progression des contrats bureau actifs ──────────
+        # cmds_done est cumulatif et ne se réinitialise jamais (contrairement à command_count)
+        try:
+            from database.models import BureauContrat
+            active_contracts = (await session.execute(
+                select(BureauContrat).where(
+                    BureauContrat.company_id == company.id,
+                    BureauContrat.status == "active",
+                )
+            )).scalars().all()
+            for bc in active_contracts:
+                bc.cmds_done = (bc.cmds_done or 0) + 1
+        except Exception:
+            pass
+
         await session.commit()
 
 

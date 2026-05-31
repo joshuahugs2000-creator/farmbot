@@ -31,19 +31,8 @@ async def _db_retry(coro_fn, *args, retries=3, delay=1.0, **kwargs):
                 continue
             raise
 
-# ── PgBouncer transaction mode ───────────────────────────────────────────────
-# Seule façon fiable de désactiver les prepared statements avec asyncpg+SQLAlchemy :
-# passer prepared_threshold via l'URL (ignoré dans connect_args par SQLAlchemy)
-def _build_db_url() -> str:
-    """Ajoute ?prepared_threshold=0 à l'URL pour désactiver les prepared statements."""
-    url = DATABASE_URL
-    sep = "&" if "?" in url else "?"
-    if "prepared_threshold" not in url:
-        url = f"{url}{sep}prepared_threshold=0"
-    return url
-
 engine = create_async_engine(
-    _build_db_url(),
+    DATABASE_URL,
     echo=False,
     pool_size=8,
     max_overflow=4,
@@ -57,11 +46,7 @@ engine = create_async_engine(
         "prepared_statement_cache_size": 0,
     },
 )
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 def _asyncpg_dsn() -> str:

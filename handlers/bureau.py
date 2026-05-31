@@ -617,8 +617,8 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         import logging as _log
         _log.getLogger(__name__).error(f"claimcontratbc error: {e}", exc_info=True)
         await update.message.reply_text(
-            f"❌ Erreur lors de la réclamation : <code>{str(e)[:200]}</code>",
-            parse_mode="HTML"
+            f"❌ Erreur lors de la réclamation : {str(e)[:200]}",
+            parse_mode=None
         )
 
 

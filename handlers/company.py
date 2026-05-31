@@ -246,13 +246,17 @@ async def _get_user_company(session, user_id: int) -> Optional[tuple[Company, Co
 
 
 async def _add_log(session, company_id: int, event_type: str, description: str, amount: int = None):
-    log = CompanyLog(
-        company_id=company_id,
-        event_type=event_type,
-        description=description,
-        amount=amount,
-    )
-    session.add(log)
+    try:
+        from sqlalchemy import text as _text
+        await session.execute(
+            _text(
+                "INSERT INTO company_logs (company_id, event_type, description, amount, created_at) "
+                "VALUES (:cid, :etype, :desc, :amt, NOW())"
+            ),
+            {"cid": company_id, "etype": event_type, "desc": description[:500], "amt": amount},
+        )
+    except Exception:
+        pass
 
 
 async def _get_shares(session, company_id: int, user_id: int) -> int:

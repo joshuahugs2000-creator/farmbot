@@ -126,11 +126,12 @@ CLIENTS = [
 
 
 async def _get_employee_total_cmds(session, company_id: int) -> int:
-    """Somme des command_count de tous les employés actifs."""
+    """Somme des command_count de TOUS les employés (actifs + anciens).
+    On inclut les anciens pour éviter que les départs ne fassent régresser la barre de progression.
+    """
     result = await session.execute(
         select(func.sum(CompanyEmployee.command_count)).where(
             CompanyEmployee.company_id == company_id,
-            CompanyEmployee.left_at == None,
         )
     )
     return result.scalar() or 0
@@ -491,7 +492,7 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 # Progression commandes
                 total_now = await _get_employee_total_cmds(session, company.id)
-                done = max(0, total_now - (c.cmds_at_start or total_now))
+                done = int(c.cmds_done or 0) if (c.cmds_done or 0) > 0 else max(0, total_now - (c.cmds_at_start or total_now))
                 obj = c.objective_cmds or 1
                 pct = min(100, int(done / obj * 100))
                 bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
@@ -554,7 +555,7 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         messages = []
 
         for contract in active_contracts:
-            cmds_done = max(0, total_cmds_now - (contract.cmds_at_start or total_cmds_now))
+            cmds_done = int(contract.cmds_done or 0) if (contract.cmds_done or 0) > 0 else max(0, total_cmds_now - (contract.cmds_at_start or total_cmds_now))
             obj = contract.objective_cmds or 1
 
             if cmds_done >= obj:
@@ -622,7 +623,7 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             total_now = await _get_employee_total_cmds(session, contract.company_id)
-            cmds_done = max(0, total_now - (contract.cmds_at_start or total_now))
+            cmds_done = int(contract.cmds_done or 0) if (contract.cmds_done or 0) > 0 else max(0, total_now - (contract.cmds_at_start or total_now))
             obj = contract.objective_cmds or 1
 
             # Contrat réussi — objectif atteint

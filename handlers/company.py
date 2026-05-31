@@ -2044,18 +2044,23 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         company_name = company.name
         current_treasury = company.treasury
 
-    # Session séparée pour les écritures SQL pures
+    # Session séparée pour les écritures SQL pures — incrément atomique
     from sqlalchemy import text as _text
     async with AsyncSessionLocal() as session:
-        new_treasury = current_treasury + amount
         await session.execute(
             _text("UPDATE users SET coins = coins - :amt WHERE user_id = :uid"),
             {"amt": amount, "uid": user.id}
         )
         await session.execute(
-            _text("UPDATE companies SET treasury = :t, value = :t WHERE id = :cid"),
-            {"t": new_treasury, "cid": company_id}
+            _text("UPDATE companies SET treasury = treasury + :amt, value = treasury + :amt WHERE id = :cid"),
+            {"amt": amount, "cid": company_id}
         )
+        # Lire la nouvelle valeur pour l'affichage
+        row = await session.execute(
+            _text("SELECT treasury FROM companies WHERE id = :cid"),
+            {"cid": company_id}
+        )
+        new_treasury = row.scalar() or (current_treasury + amount)
         await _add_log(session, company_id, "depot",
                        f"Dépôt de {user.first_name}", amount=amount)
         await session.commit()
@@ -2182,22 +2187,29 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_treasury = company.treasury
         user_coins = db_user.coins
 
-    # Session séparée pour les écritures SQL pures
+    # Session séparée pour les écritures SQL pures — décrément atomique
+    from sqlalchemy import text as _text
     async with AsyncSessionLocal() as session:
-        new_treasury = current_treasury - amount
         await session.execute(
-            _text("UPDATE companies SET treasury = :t, value = :t, last_retrait_pdg = NOW() WHERE id = :cid"),
-            {"t": new_treasury, "cid": company_id}
+            _text("UPDATE companies SET treasury = treasury - :amt, value = treasury - :amt, last_retrait_pdg = NOW() WHERE id = :cid"),
+            {"amt": amount, "cid": company_id}
         )
         await session.execute(
             _text("UPDATE users SET coins = coins + :amt WHERE user_id = :uid"),
             {"amt": amount, "uid": user.id}
         )
+        # Lire la nouvelle trésorerie pour l'affichage
+        row = await session.execute(
+            _text("SELECT treasury, (SELECT coins FROM users WHERE user_id = :uid) FROM companies WHERE id = :cid"),
+            {"uid": user.id, "cid": company_id}
+        )
+        res = row.first()
+        new_treasury = res[0] if res else (current_treasury - amount)
+        new_coins = res[1] if res else (user_coins + amount)
         await _add_log(session, company_id, "retrait",
                        f"Retrait PDG ({user.first_name})", amount=amount)
         await session.commit()
 
-        new_coins = user_coins + amount
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> retiré de <b>{company_name}</b>.\n"
             f"🏦 Trésorerie restante : {_fmt(new_treasury)} $\n"

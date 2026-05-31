@@ -426,6 +426,7 @@ class BureauContrat(Base):
     duration_days  = Column(Integer, nullable=False)
     objective_cmds = Column(Integer, default=0)                 # nb de commandes d'équipe à atteindre
     cmds_at_start  = Column(BigInteger, default=0)              # snapshot commandes au moment de l'acceptation
+    cmds_done      = Column(BigInteger, default=0)              # progression cumulée (fiable, jamais réinitialisée)
     starts_at      = Column(DateTime, nullable=True)
     ends_at        = Column(DateTime, nullable=True)
     status         = Column(String(20), default="pending")      # pending / active / completed / failed

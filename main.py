@@ -29,7 +29,7 @@ from handlers.profile  import me, setpic, customize, color_callback, titles, kar
 from handlers.events   import check_anniversaries
 from handlers.events_random import setup_random_events, open_chest_cmd
 from handlers.economy  import (
-    acc, daily, work, pay, richlist, topactifs,
+    acc, daily, work, pay, richlist,
     blackjack, roulette, slots,
 )
 from handlers.games import (
@@ -69,7 +69,7 @@ from handlers.admin    import (
     wipeinventory, resetbanque, kickboite, deletecompany,
     forcepdg, purgeprison, freeze, unfreeze,
     inflation, checkuser, setreputation, addvalue,
-    wipeloans, broadcastdm, topactifs as topactifs_admin,
+    wipeloans, broadcastdm,
     mutecompany, unmutecompany,
     adminboites, adminboite, statsusers,
     adminparts, admintransfert,
@@ -167,7 +167,6 @@ PRISON_EXEMPT_COMMANDS = {
     "adminlist", "userlist", "broadcast", "liberer", "prisonlist", "emprisonner",
     "pause", "resume", "enquete", "richlista",
     "fin", "donate",
-    "topactifs",
 }
 
 # Commandes accessibles même en étant banni (commandes admin uniquement)
@@ -627,7 +626,6 @@ async def main():
     app.add_handler(CommandHandler("work",       _prison_checked(work)))
     app.add_handler(CommandHandler("pay",        _prison_checked(pay)))
     app.add_handler(CommandHandler("richlist",   _prison_checked(richlist)))
-    app.add_handler(CommandHandler("topactifs",  topactifs))
     app.add_handler(CommandHandler("blackjack",  _prison_checked(blackjack)))
     app.add_handler(CommandHandler("roulette",   _prison_checked(roulette)))
     app.add_handler(CommandHandler("slots",      _prison_checked(slots)))

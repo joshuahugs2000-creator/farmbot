@@ -180,28 +180,45 @@ BAN_EXEMPT_COMMANDS = {
 }
 
 
+import time as _time_ban
+_ban_cache: dict[int, tuple] = {}  # user_id → (timestamp, is_banned)
+_BAN_CACHE_TTL = 120  # 2 minutes
+
 async def ban_middleware(update: Update, context) -> None:
     """Bloque toutes les interactions des utilisateurs bannis."""
     user = update.effective_user
     if not user:
         return
-    try:
-        async with AsyncSessionLocal() as _s:
-            from database.db import get_user as _gu
-            _u = await _gu(_s, user.id)
-            if not _u or not _u.is_banned:
-                return
-        # L'utilisateur est banni — vérifier s'il est admin
+    now_mono = _time_ban.monotonic()
+    cached = _ban_cache.get(user.id)
+    if cached is not None and now_mono - cached[0] < _BAN_CACHE_TTL:
+        if not cached[1]:
+            return
         if await is_admin(user.id):
             return
-        # Laisser passer les commandes admin
         if update.message and update.message.text:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
-        # Ignorer silencieusement — aucune réponse, aucun tag
         if update.callback_query:
-            await update.callback_query.answer()  # acquitter sans message visible
+            await update.callback_query.answer()
+        raise ApplicationHandlerStop()
+    try:
+        async with AsyncSessionLocal() as _s:
+            from database.db import get_user as _gu
+            _u = await _gu(_s, user.id)
+            is_banned = bool(_u and _u.is_banned)
+            _ban_cache[user.id] = (now_mono, is_banned)
+            if not is_banned:
+                return
+        if await is_admin(user.id):
+            return
+        if update.message and update.message.text:
+            cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
+            if cmd in BAN_EXEMPT_COMMANDS:
+                return
+        if update.callback_query:
+            await update.callback_query.answer()
         raise ApplicationHandlerStop()
     except ApplicationHandlerStop:
         raise
@@ -209,8 +226,10 @@ async def ban_middleware(update: Update, context) -> None:
         pass
 
 
-_prison_cache: dict[int, float] = {}  # user_id → timestamp de libération (0 = libre)
-_PRISON_CACHE_TTL = 30  # re-vérifie en DB max toutes les 30s
+import time as _time
+# Cache prison : user_id → (timestamp_check, is_imprisoned, released_at, bail_amount, minutes_left)
+_prison_cache: dict[int, tuple] = {}
+_PRISON_CACHE_TTL = 60  # re-vérifie en DB max toutes les 60s
 
 async def prison_middleware(update: Update, context) -> bool:
     if not update.message or not update.message.text:
@@ -227,14 +246,25 @@ async def prison_middleware(update: Update, context) -> bool:
     if await is_admin(user.id):
         return False
 
-    import time as _time
     now_mono = _time.monotonic()
 
-    # Si on a un résultat récent en cache, on l'utilise sans toucher la DB
+    # Cache valide → on répond sans DB
     cached = _prison_cache.get(user.id)
-    if cached is not None and now_mono - cached < _PRISON_CACHE_TTL:
-        return False  # était libre au dernier check récent
+    if cached is not None and now_mono - cached[0] < _PRISON_CACHE_TTL:
+        is_imprisoned, bail_amount, duration_str = cached[1], cached[2], cached[3]
+        if not is_imprisoned:
+            return False
+        await update.message.reply_text(
+            f"🔒 <b>Tu es en prison !</b>\n\n"
+            f"La commande <code>/{command}</code> n'est pas disponible.\n"
+            f"⏳ Libération dans : <b>{duration_str}</b>\n"
+            f"💸 Caution : <b>{_fmt(bail_amount)} 💰</b>\n\n"
+            f"Demande à quelqu'un de payer ta caution avec <code>/bail @toi</code>",
+            parse_mode="HTML"
+        )
+        return True
 
+    # Cache expiré ou absent → on tape la DB UNE fois
     try:
         async with AsyncSessionLocal() as session:
             from datetime import datetime
@@ -244,7 +274,7 @@ async def prison_middleware(update: Update, context) -> bool:
             )
             prison_row = prison_row_res.fetchone()
             if not prison_row:
-                _prison_cache[user.id] = now_mono  # libre → cache
+                _prison_cache[user.id] = (now_mono, False, 0, "")
                 return False
             now = datetime.utcnow()
             if now >= prison_row.released_at:
@@ -253,12 +283,13 @@ async def prison_middleware(update: Update, context) -> bool:
                     {"uid": user.id}
                 )
                 await session.commit()
-                _prison_cache[user.id] = now_mono  # libéré → cache
+                _prison_cache[user.id] = (now_mono, False, 0, "")
                 return False
             minutes_left = max(0, int((prison_row.released_at - now).total_seconds() / 60))
             h = minutes_left // 60
             m = minutes_left % 60
             duration_str = f"{h}h{m:02d}m" if h > 0 else f"{m} minute(s)"
+            _prison_cache[user.id] = (now_mono, True, prison_row.bail_amount, duration_str)
             await update.message.reply_text(
                 f"🔒 <b>Tu es en prison !</b>\n\n"
                 f"La commande <code>/{command}</code> n'est pas disponible.\n"

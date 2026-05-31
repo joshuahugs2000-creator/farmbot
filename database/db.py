@@ -203,6 +203,7 @@ async def init_db():
         "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS cmds_at_start BIGINT DEFAULT 0",
         "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS starts_at TIMESTAMP DEFAULT NULL",
         "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS ends_at TIMESTAMP DEFAULT NULL",
+        "ALTER TABLE bureau_contrats ADD COLUMN IF NOT EXISTS cmds_done BIGINT DEFAULT 0",
         # ── Table prêts entreprise ────────────────────────────────────────────
         """CREATE TABLE IF NOT EXISTS company_loans (
             id              SERIAL PRIMARY KEY,

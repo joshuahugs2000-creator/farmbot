@@ -890,10 +890,10 @@ async def main():
         name="company_dividends_weekly",
     )
 
-    # ── Job classement quotidien 18h (snapshot + broadcast) ──────────────────────
+    # ── Job classement quotidien 18h30 (décalé pour éviter collision avec daily_report) ──
     app.job_queue.run_daily(
         job_daily_ranking_broadcast,
-        time=dt_time(hour=18, minute=0, tzinfo=tz_paris),
+        time=dt_time(hour=18, minute=30, tzinfo=tz_paris),
         name="daily_ranking_broadcast",
     )
 

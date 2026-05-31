@@ -385,7 +385,8 @@ _log_queue: list = []
 _log_flush_running = False
 
 async def _flush_log_queue():
-    """Vide la queue de logs en batch toutes les 10 secondes."""    global _log_flush_running
+    """Vide la queue de logs en batch toutes les 10 secondes."""
+    global _log_flush_running
     _log_flush_running = True
     while True:
         await _asyncio.sleep(10)
@@ -401,7 +402,8 @@ async def _flush_log_queue():
             logger.debug(f"Erreur flush_log_queue: {e}")
 
 async def activity_logging_middleware(update: Update, context) -> None:
-    """Logue automatiquement chaque commande — non bloquant via queue mémoire."""    if not update.message or not update.message.text:
+    """Logue automatiquement chaque commande — non bloquant via queue mémoire."""
+    if not update.message or not update.message.text:
         return
     user = update.effective_user
     if not user:

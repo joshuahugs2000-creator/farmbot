@@ -521,15 +521,7 @@ REVENUE_PER_CMD = 10_000  # 1 commande employé = 10 000 $ en trésorerie
 _company_activity_last: dict[int, float] = {}
 
 async def update_company_activity(user_id: int):
-    """Appelé par _prison_checked à chaque commande. Throttlé à 1 fois/60s par user.
-    Met à jour command_count uniquement — léger, pas de revenus par commande."""
-    import time as _time
-    now = _time.monotonic()
-    last = _company_activity_last.get(user_id, 0)
-    if now - last < 60:
-        return  # trop tôt, on skip
-    _company_activity_last[user_id] = now
-
+    """Appelé par _prison_checked à chaque commande. Sans throttle — chaque commande compte."""
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             select(CompanyEmployee, Company).join(

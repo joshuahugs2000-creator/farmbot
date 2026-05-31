@@ -521,7 +521,8 @@ REVENUE_PER_CMD = 10_000  # 1 commande employé = 10 000 $ en trésorerie
 _company_activity_last: dict[int, float] = {}
 
 async def update_company_activity(user_id: int):
-    """Appelé par le middleware à chaque commande. Throttlé à 1 fois/60s par user."""
+    """Appelé par _prison_checked à chaque commande. Throttlé à 1 fois/60s par user.
+    Met à jour command_count uniquement — léger, pas de revenus par commande."""
     import time as _time
     now = _time.monotonic()
     last = _company_activity_last.get(user_id, 0)
@@ -530,7 +531,6 @@ async def update_company_activity(user_id: int):
     _company_activity_last[user_id] = now
 
     async with AsyncSessionLocal() as session:
-        # Récupérer TOUTES les entreprises actives où le user est membre
         rows = (await session.execute(
             select(CompanyEmployee, Company).join(
                 Company, Company.id == CompanyEmployee.company_id
@@ -544,25 +544,10 @@ async def update_company_activity(user_id: int):
         if not rows:
             return
 
-        today = datetime.utcnow().date()
-
         for emp, company in rows:
             emp.command_count += 1
             if hasattr(emp, "activity_since_payroll"):
                 emp.activity_since_payroll = (emp.activity_since_payroll or 0) + 1
-
-            # Revenus par commande — UPDATE atomique pour éviter la race condition
-            if not company.is_bot_company:
-                await session.execute(
-                    sa_update(Company)
-                    .where(Company.id == company.id)
-                    .values(
-                        treasury=Company.treasury + REVENUE_PER_CMD,
-                        value=Company.treasury + REVENUE_PER_CMD,
-                    )
-                )
-                # Synchroniser l'objet en mémoire pour éviter qu'un commit ultérieur écrase la DB
-                await session.refresh(company)
 
             # Promotion automatique stagiaire → employé après 50 commandes
             if emp.role == "stagiaire" and emp.command_count >= 50:
@@ -570,10 +555,6 @@ async def update_company_activity(user_id: int):
                 db_user = await session.get(UserModel, user_id)
                 if db_user and db_user.diplome_bac:
                     emp.role = "employe"
-                    import logging as _log
-                    _log.getLogger(__name__).info(
-                        f"Stagiaire uid={user_id} promu automatiquement → employé (50 cmds)"
-                    )
 
             company.last_active = datetime.utcnow()
 

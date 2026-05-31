@@ -2048,14 +2048,17 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _text("UPDATE companies SET treasury = COALESCE(treasury,0) + :amt WHERE id = :cid"),
             {"amt": amount, "cid": company_id}
         )
-        row2 = await session.execute(
-            _text("SELECT treasury FROM companies WHERE id = :cid"),
-            {"cid": company_id}
-        )
-        new_treasury = treasury + amount
         await _add_log(session, company_id, "depot",
                        f"Dépôt de {user.first_name}", amount=amount)
         await session.commit()
+
+        # Lire la vraie valeur après commit
+        async with AsyncSessionLocal() as session2:
+            row2 = await session2.execute(
+                _text("SELECT treasury FROM companies WHERE id = :cid"),
+                {"cid": company_id}
+            )
+            new_treasury = int(row2.scalar() or (treasury + amount))
 
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> déposé dans la trésorerie de <b>{company_name}</b>.\n"

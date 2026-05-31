@@ -2040,22 +2040,28 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Tu n'as pas assez. Ton solde : {_fmt(db_user.coins)} $")
             return
 
-        from sqlalchemy import text as _text
+        company_id = company.id
+        company_name = company.name
+        current_treasury = company.treasury
+
+    # Session séparée pour les écritures SQL pures
+    from sqlalchemy import text as _text
+    async with AsyncSessionLocal() as session:
+        new_treasury = current_treasury + amount
         await session.execute(
             _text("UPDATE users SET coins = coins - :amt WHERE user_id = :uid"),
             {"amt": amount, "uid": user.id}
         )
-        new_treasury = company.treasury + amount
         await session.execute(
             _text("UPDATE companies SET treasury = :t, value = :t WHERE id = :cid"),
-            {"t": new_treasury, "cid": company.id}
+            {"t": new_treasury, "cid": company_id}
         )
-        await _add_log(session, company.id, "depot",
+        await _add_log(session, company_id, "depot",
                        f"Dépôt de {user.first_name}", amount=amount)
         await session.commit()
 
         await update.message.reply_text(
-            f"✅ <b>{_fmt(amount)} $</b> déposé dans la trésorerie de <b>{company.name}</b>.\n"
+            f"✅ <b>{_fmt(amount)} $</b> déposé dans la trésorerie de <b>{company_name}</b>.\n"
             f"🏦 Trésorerie : {_fmt(new_treasury)} $\n"
             f"📈 Valeur de l'entreprise : {_fmt(new_treasury)} $",
             parse_mode="HTML"
@@ -2168,22 +2174,32 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         from sqlalchemy import text as _text
-        new_treasury = company.treasury - amount
+        company_id = company.id
+        company_name = company.name
+        current_treasury = company.treasury
+        user_coins = db_user.coins
+        company_name = company.name
+        current_treasury = company.treasury
+        user_coins = db_user.coins
+
+    # Session séparée pour les écritures SQL pures
+    async with AsyncSessionLocal() as session:
+        new_treasury = current_treasury - amount
         await session.execute(
             _text("UPDATE companies SET treasury = :t, value = :t, last_retrait_pdg = NOW() WHERE id = :cid"),
-            {"t": new_treasury, "cid": company.id}
+            {"t": new_treasury, "cid": company_id}
         )
         await session.execute(
             _text("UPDATE users SET coins = coins + :amt WHERE user_id = :uid"),
             {"amt": amount, "uid": user.id}
         )
-        await _add_log(session, company.id, "retrait",
+        await _add_log(session, company_id, "retrait",
                        f"Retrait PDG ({user.first_name})", amount=amount)
         await session.commit()
 
-        new_coins = db_user.coins + amount
+        new_coins = user_coins + amount
         await update.message.reply_text(
-            f"✅ <b>{_fmt(amount)} $</b> retiré de <b>{company.name}</b>.\n"
+            f"✅ <b>{_fmt(amount)} $</b> retiré de <b>{company_name}</b>.\n"
             f"🏦 Trésorerie restante : {_fmt(new_treasury)} $\n"
             f"💰 Ton solde : {_fmt(new_coins)} $",
             parse_mode="HTML"

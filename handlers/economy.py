@@ -598,19 +598,18 @@ async def des(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /topactifs ───────────────────────────────────────────────────────────────
 
 async def topactifs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Top 10 des joueurs les plus actifs sur les 7 derniers jours."""
+    """Top 10 des joueurs les plus actifs — basé sur le compteur cumulatif total_commands."""
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(text(
-            """SELECT u.first_name, u.username, COUNT(al.id) as cmd_count
-               FROM activity_logs al
-               JOIN users u ON u.user_id = al.user_id
-               WHERE al.created_at > NOW() - INTERVAL '7 days'
-               GROUP BY u.user_id, u.first_name, u.username
-               ORDER BY cmd_count DESC LIMIT 10"""
+            """SELECT first_name, username, COALESCE(total_commands, 0) as cmd_count
+               FROM users
+               WHERE is_banned = FALSE
+               ORDER BY total_commands DESC NULLS LAST
+               LIMIT 10"""
         ))).fetchall()
 
     if not rows:
-        return await update.message.reply_text("😶 Aucune activité enregistrée sur les 7 derniers jours.")
+        return await update.message.reply_text("😶 Aucune activité enregistrée.")
 
     PODIUM = ["🥇", "🥈", "🥉"]
     SEP  = "⚡━━━━━━━━━━━━━━━━━━━━⚡"
@@ -640,6 +639,6 @@ async def topactifs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f" {num} ◈ {tag} ········ {count} cmds")
 
     lines.append(SEP2)
-    lines.append("📅 <i>Période : 7 derniers jours</i>")
+    lines.append("🏆 <i>Classement global — toutes périodes confondues</i>")
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

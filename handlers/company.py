@@ -621,6 +621,14 @@ async def increment_contract_progress(user_id: int):
                     """),
                     {"cid": company_id}
                 )
+                await session.execute(
+                    sa_text("""
+                        UPDATE company_auto_contracts 
+                        SET cmds_done = COALESCE(cmds_done, 0) + 1
+                        WHERE company_id = :cid AND status = 'active'
+                    """),
+                    {"cid": company_id}
+                )
             await session.commit()
     except Exception:
         pass  # Ne jamais bloquer une commande

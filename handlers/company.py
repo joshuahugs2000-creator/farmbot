@@ -639,7 +639,7 @@ def _build_listeboites_page(companies: list, page: int, total: int) -> tuple[str
 
         lines.append(
             f"{rank_icon} {sec_emoji} <b>{c.name}</b>{bot_tag}\n"
-            f"    {lvl_emoji} · 💰 {_fmt(c.value)} $ · ⭐ {c.reputation:.1f}/5"
+            f"    {lvl_emoji} · 💰 {_fmt(c.treasury)} $ · ⭐ {c.reputation:.1f}/5"
         )
 
     lines.append("─────────────────────────────")
@@ -680,7 +680,7 @@ def _build_listeboites_page(companies: list, page: int, total: int) -> tuple[str
 async def listeboites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         companies = (await session.execute(
-            select(Company).where(Company.is_active == True).order_by(Company.value.desc())
+            select(Company).where(Company.is_active == True).order_by(Company.treasury.desc())
         )).scalars().all()
 
         if not companies:
@@ -705,7 +705,7 @@ async def listeboites_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 select(Company).where(
                     Company.is_active == True,
                     Company.sector == sector,
-                ).order_by(Company.value.desc())
+                ).order_by(Company.treasury.desc())
             )).scalars().all()
 
             if not companies:
@@ -732,7 +732,7 @@ async def listeboites_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 rank_icon = rank_icons.get(i, f"<b>{i}.</b>")
                 lines.append(
                     f"{rank_icon} <b>{c.name}</b>{bot_tag}\n"
-                    f"    {lvl_emoji} · 💰 {_fmt(c.value)} $ · ⭐ {c.reputation:.1f}/5"
+                    f"    {lvl_emoji} · 💰 {_fmt(c.treasury)} $ · ⭐ {c.reputation:.1f}/5"
                 )
             lines.append("─────────────────────────────")
             lines.append("💡 <code>/infoboite [nom]</code> · <code>/postuler [nom]</code>")
@@ -757,7 +757,7 @@ async def listeboites_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         else:  # "lb:page"
             page = int(data.split(":")[1])
             companies = (await session.execute(
-                select(Company).where(Company.is_active == True).order_by(Company.value.desc())
+                select(Company).where(Company.is_active == True).order_by(Company.treasury.desc())
             )).scalars().all()
 
             text, markup = _build_listeboites_page(companies, page, len(companies))
@@ -4599,7 +4599,7 @@ async def annoncerecrutement_callback(update: Update, context: ContextTypes.DEFA
 
         # Rang de l'entreprise
         all_companies = (await session.execute(
-            select(Company).where(Company.is_active == True).order_by(Company.value.desc())
+            select(Company).where(Company.is_active == True).order_by(Company.treasury.desc())
         )).scalars().all()
         total = len(all_companies)
         rank = next((i + 1 for i, c in enumerate(all_companies) if c.id == company_id), total)

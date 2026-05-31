@@ -384,6 +384,31 @@ import asyncio as _asyncio
 _log_queue: list = []
 _log_flush_running = False
 
+# Queue pour total_commands — batch UPDATE toutes les 10s
+_cmd_count_queue: list = []
+
+async def _flush_cmd_count_queue():
+    """Vide la queue total_commands en batch UPDATE toutes les 10 secondes."""
+    while True:
+        await _asyncio.sleep(10)
+        if not _cmd_count_queue:
+            continue
+        batch = _cmd_count_queue[:]
+        _cmd_count_queue.clear()
+        # Compter les occurrences par user
+        from collections import Counter
+        counts = Counter(batch)
+        try:
+            async with AsyncSessionLocal() as session:
+                for uid_val, cnt in counts.items():
+                    await session.execute(
+                        text("UPDATE users SET total_commands = COALESCE(total_commands, 0) + :cnt WHERE user_id = :uid"),
+                        {"cnt": cnt, "uid": uid_val}
+                    )
+                await session.commit()
+        except Exception as e:
+            logger.debug(f"Erreur flush_cmd_count_queue: {e}")
+
 async def _flush_log_queue():
     """Vide la queue de logs en batch toutes les 10 secondes."""
     global _log_flush_running
@@ -430,6 +455,8 @@ async def activity_logging_middleware(update: Update, context) -> None:
         "amount":   amount,
         "group_id": group_id,
     })
+    # Incrémenter le compteur cumulatif total_commands (jamais réinitialisé)
+    _cmd_count_queue.append(user.id)
 
 async def on_startup(application: Application):
     await init_db()
@@ -453,6 +480,7 @@ async def on_startup(application: Application):
     async with engine.begin() as _conn:
         for _sql in [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_commands BIGINT DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS marriage_type VARCHAR(10) DEFAULT 'monogame'",
             "ALTER TABLE pending_requests ADD COLUMN IF NOT EXISTS extra VARCHAR(50)",
             # Index pour accélérer la recherche par @username (parse_target)
@@ -463,8 +491,27 @@ async def on_startup(application: Application):
             except Exception:
                 pass
 
+        # Backfill total_commands depuis activity_logs pour les users qui ont 0
+        # (se déclenche une seule fois au premier déploiement, ignoré ensuite)
+        try:
+            await _conn.execute(_text("""
+                UPDATE users u
+                SET total_commands = sub.cnt
+                FROM (
+                    SELECT user_id, COUNT(*) AS cnt
+                    FROM activity_logs
+                    GROUP BY user_id
+                ) sub
+                WHERE u.user_id = sub.user_id
+                AND (u.total_commands IS NULL OR u.total_commands = 0)
+            """))
+            logger.info("Backfill total_commands effectué depuis activity_logs.")
+        except Exception as e:
+            logger.warning(f"Backfill total_commands ignoré: {e}")
+
     logger.info("Base de données initialisée.")
     asyncio.create_task(_flush_log_queue())
+    asyncio.create_task(_flush_cmd_count_queue())
 
 
 async def error_handler(update: object, context):

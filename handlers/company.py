@@ -23,7 +23,7 @@ from sqlalchemy import select, func, update as sa_update, text as sa_text
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
-from database.db import AsyncSessionLocal, get_user
+from database.db import AsyncSessionLocal, get_user, engine
 from utils.helpers import ensure_user
 from database.models import (
     User, Company, CompanyEmployee, CompanyShare,
@@ -678,9 +678,11 @@ def _build_listeboites_page(companies: list, page: int, total: int) -> tuple[str
 
 
 async def listeboites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from sqlalchemy import text as _text
     async with AsyncSessionLocal() as session:
         companies = (await session.execute(
             select(Company).where(Company.is_active == True).order_by(Company.treasury.desc())
+            .execution_options(populate_existing=True)
         )).scalars().all()
 
         if not companies:
@@ -900,13 +902,13 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Vérifier nom unique (actives ET inactives pour éviter UniqueViolationError)
+        # Vérifier nom unique parmi les entreprises actives seulement
         exists_any = (await session.execute(
-            select(Company).where(Company.name.ilike(name))
+            select(Company).where(Company.name.ilike(name), Company.is_active == True)
         )).scalar_one_or_none()
         if exists_any:
             await update.message.reply_text(
-                f"❌ Une entreprise nommée <b>{name}</b> existe déjà (ou a existé).\n"
+                f"❌ Une entreprise nommée <b>{name}</b> existe déjà.\n"
                 f"Choisis un autre nom.",
                 parse_mode="HTML"
             )
@@ -2052,13 +2054,17 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                        f"Dépôt de {user.first_name}", amount=amount)
         await session.commit()
 
-        # Lire la vraie valeur après commit
-        async with AsyncSessionLocal() as session2:
-            row2 = await session2.execute(
-                _text("SELECT treasury FROM companies WHERE id = :cid"),
-                {"cid": company_id}
-            )
-            new_treasury = int(row2.scalar() or (treasury + amount))
+        # Lire la vraie valeur via connexion directe (hors pool/cache)
+        try:
+            async with engine.connect() as raw_conn:
+                row2 = await raw_conn.execute(
+                    _text("SELECT treasury FROM companies WHERE id = :cid"),
+                    {"cid": company_id}
+                )
+                val = row2.scalar()
+                new_treasury = int(val) if val is not None else (treasury + amount)
+        except Exception:
+            new_treasury = treasury + amount
 
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> déposé dans la trésorerie de <b>{company_name}</b>.\n"
@@ -4694,13 +4700,13 @@ async def renommerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-        # Vérifier que le nouveau nom n'existe pas déjà
+        # Vérifier que le nouveau nom n'existe pas déjà (actives seulement)
         name_conflict = (await session.execute(
-            select(Company).where(Company.name.ilike(new_name))
+            select(Company).where(Company.name.ilike(new_name), Company.is_active == True)
         )).scalar_one_or_none()
         if name_conflict:
             await update.message.reply_text(
-                f"❌ Une entreprise nommée <b>{new_name}</b> existe déjà (ou a existé).\n"
+                f"❌ Une entreprise nommée <b>{new_name}</b> existe déjà.\n"
                 f"Choisis un autre nom.",
                 parse_mode="HTML"
             )

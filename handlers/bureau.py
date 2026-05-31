@@ -522,86 +522,102 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     si l'objectif est atteint, sans attendre la deadline.
     """
     user = update.effective_user
-    async with AsyncSessionLocal() as session:
-        company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-            )
-        )).scalar_one_or_none()
+    try:
+        async with AsyncSessionLocal() as session:
+            company = (await session.execute(
+                select(Company).where(
+                    Company.owner_id == user.id,
+                    Company.is_active == True,
+                )
+            )).scalar_one_or_none()
 
-        if not company:
-            await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
-            return
+            if not company:
+                await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
+                return
 
-        active_contracts = (await session.execute(
-            select(BureauContrat).where(
-                BureauContrat.company_id == company.id,
-                BureauContrat.status == "active",
-            )
-        )).scalars().all()
+            active_contracts = (await session.execute(
+                select(BureauContrat).where(
+                    BureauContrat.company_id == company.id,
+                    BureauContrat.status == "active",
+                )
+            )).scalars().all()
 
-        if not active_contracts:
+            if not active_contracts:
+                await update.message.reply_text(
+                    "📭 Aucun contrat Bureau actif en cours.\n"
+                    "Soumets un dossier avec <code>/soumettredossier</code>",
+                    parse_mode="HTML"
+                )
+                return
+
+            now = datetime.utcnow()
+            claimed_any = False
+            messages = []
+
+            for contract in active_contracts:
+                cmds_done = int(contract.cmds_done or 0)
+                obj = int(contract.objective_cmds or 1)
+                reward = int(contract.reward or 0)
+
+                if cmds_done >= obj:
+                    # Objectif atteint → crédit immédiat via SQL atomique
+                    contract.status = "completed"
+
+                    await session.execute(
+                        text("UPDATE companies SET treasury = COALESCE(treasury, 0) + :r, value = COALESCE(treasury, 0) + :r WHERE id = :cid"),
+                        {"r": reward, "cid": company.id}
+                    )
+                    # Rafraîchir l'objet company pour afficher la bonne trésorerie
+                    await session.refresh(company)
+
+                    await _add_log(session, company.id, "contrat_bureau",
+                                   f"Contrat '{contract.title}' réclamé manuellement — +{_fmt(reward)} $",
+                                   amount=reward)
+
+                    time_saved = ""
+                    if contract.ends_at and now < contract.ends_at:
+                        diff = contract.ends_at - now
+                        h = int(diff.total_seconds() // 3600)
+                        m = int((diff.total_seconds() % 3600) // 60)
+                        time_saved = f"⚡ Réclamé <b>{h}h{m:02d}</b> avant la deadline !\n\n"
+
+                    messages.append(
+                        f"🎉 <b>{contract.title}</b>\n"
+                        f"✅ {cmds_done:,} / {obj:,} commandes\n"
+                        f"{time_saved}"
+                        f"💰 <b>+{_fmt(reward)} $</b> crédités en trésorerie"
+                    )
+                    claimed_any = True
+                else:
+                    pct = min(100, int(cmds_done / obj * 100))
+                    bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+                    remaining = obj - cmds_done
+                    messages.append(
+                        f"⏳ <b>{contract.title}</b>\n"
+                        f"[{bar}] {cmds_done:,}/{obj:,} cmds ({pct}%)\n"
+                        f"Il manque encore <b>{remaining:,} commandes</b>"
+                    )
+
+            await session.commit()
+            # Relire la trésorerie après commit
+            await session.refresh(company)
+
+            header = "📋 <b>BUREAU DES CONTRATS — Réclamation</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            if claimed_any:
+                footer = f"\n\n🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>"
+            else:
+                footer = "\n\n💡 Aucun contrat n'est encore complété."
+
             await update.message.reply_text(
-                "📭 Aucun contrat Bureau actif en cours.\n"
-                "Soumets un dossier avec <code>/soumettredossier</code>",
+                header + "\n\n".join(messages) + footer,
                 parse_mode="HTML"
             )
-            return
 
-        total_cmds_now = await _get_employee_total_cmds(session, company.id)
-        now = datetime.utcnow()
-        claimed_any = False
-        messages = []
-
-        for contract in active_contracts:
-            cmds_done = int(contract.cmds_done or 0)
-            obj = contract.objective_cmds or 1
-
-            if cmds_done >= obj:
-                # Objectif atteint → crédit immédiat
-                contract.status = "completed"
-                company.treasury += contract.reward
-                company.value = company.treasury
-
-                await _add_log(session, company.id, "contrat_bureau",
-                               f"Contrat '{contract.title}' réclamé manuellement — +{_fmt(contract.reward)} $",
-                               amount=contract.reward)
-
-                time_saved = ""
-                if contract.ends_at and now < contract.ends_at:
-                    diff = contract.ends_at - now
-                    h = int(diff.total_seconds() // 3600)
-                    m = int((diff.total_seconds() % 3600) // 60)
-                    time_saved = f"⚡ Réclamé <b>{h}h{m:02d}</b> avant la deadline !\n\n"
-
-                messages.append(
-                    f"🎉 <b>{contract.title}</b>\n"
-                    f"✅ {cmds_done:,} / {obj:,} commandes\n"
-                    f"{time_saved}"
-                    f"💰 <b>+{_fmt(contract.reward)} $</b> crédités en trésorerie"
-                )
-                claimed_any = True
-            else:
-                pct = min(100, int(cmds_done / obj * 100))
-                bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
-                remaining = obj - cmds_done
-                messages.append(
-                    f"⏳ <b>{contract.title}</b>\n"
-                    f"[{bar}] {cmds_done:,}/{obj:,} cmds ({pct}%)\n"
-                    f"Il manque encore <b>{remaining:,} commandes</b>"
-                )
-
-        await session.commit()
-
-        header = "📋 <b>BUREAU DES CONTRATS — Réclamation</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        if claimed_any:
-            footer = f"\n\n🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>"
-        else:
-            footer = "\n\n💡 Aucun contrat n'est encore complété."
-
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).error(f"claimcontratbc error: {e}", exc_info=True)
         await update.message.reply_text(
-            header + "\n\n".join(messages) + footer,
+            f"❌ Erreur lors de la réclamation : <code>{str(e)[:200]}</code>",
             parse_mode="HTML"
         )
 

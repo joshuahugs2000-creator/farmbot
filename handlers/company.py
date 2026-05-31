@@ -2040,19 +2040,24 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Tu n'as pas assez. Ton solde : {_fmt(db_user.coins)} $")
             return
 
-        db_user.coins -= amount
-        company.treasury += amount
-        company.value = company.treasury  # valeur = trésorerie
-
-        await _update_level(session, company)
+        from sqlalchemy import text as _text
+        await session.execute(
+            _text("UPDATE users SET coins = coins - :amt WHERE id = :uid"),
+            {"amt": amount, "uid": user.id}
+        )
+        new_treasury = company.treasury + amount
+        await session.execute(
+            _text("UPDATE companies SET treasury = :t, value = :t WHERE id = :cid"),
+            {"t": new_treasury, "cid": company.id}
+        )
         await _add_log(session, company.id, "depot",
                        f"Dépôt de {user.first_name}", amount=amount)
         await session.commit()
 
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> déposé dans la trésorerie de <b>{company.name}</b>.\n"
-            f"🏦 Trésorerie : {_fmt(company.treasury)} $\n"
-            f"📈 Valeur de l'entreprise : {_fmt(company.value)} $",
+            f"🏦 Trésorerie : {_fmt(new_treasury)} $\n"
+            f"📈 Valeur de l'entreprise : {_fmt(new_treasury)} $",
             parse_mode="HTML"
         )
 
@@ -2111,7 +2116,7 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         retraits_today = (await session.execute(
             select(func.count()).select_from(CompanyLog).where(
                 CompanyLog.company_id == company.id,
-                CompanyLog.action == "retrait",
+                CompanyLog.event_type == "retrait",
                 func.date(CompanyLog.created_at) == today,
             )
         )).scalar() or 0
@@ -2162,21 +2167,25 @@ async def retraitboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Retrait : la valeur suit la trésorerie directement
-        company.treasury -= amount
-        company.value = company.treasury
-        db_user.coins += amount
-        # Mettre à jour le timestamp du dernier retrait (cooldown 24h)
-        company.last_retrait_pdg = datetime.utcnow()
+        from sqlalchemy import text as _text
+        new_treasury = company.treasury - amount
+        await session.execute(
+            _text("UPDATE companies SET treasury = :t, value = :t, last_retrait_pdg = NOW() WHERE id = :cid"),
+            {"t": new_treasury, "cid": company.id}
+        )
+        await session.execute(
+            _text("UPDATE users SET coins = coins + :amt WHERE id = :uid"),
+            {"amt": amount, "uid": user.id}
+        )
         await _add_log(session, company.id, "retrait",
                        f"Retrait PDG ({user.first_name})", amount=amount)
         await session.commit()
 
+        new_coins = db_user.coins + amount
         await update.message.reply_text(
             f"✅ <b>{_fmt(amount)} $</b> retiré de <b>{company.name}</b>.\n"
-            f"🏦 Trésorerie restante : {_fmt(company.treasury)} $\n"
-            f"📉 Valeur de l'entreprise : {_fmt(company.value)} $ <i>(-{_fmt(perte_valeur)} $)</i>\n"
-            f"💰 Ton solde : {_fmt(db_user.coins)} $",
+            f"🏦 Trésorerie restante : {_fmt(new_treasury)} $\n"
+            f"💰 Ton solde : {_fmt(new_coins)} $",
             parse_mode="HTML"
         )
 

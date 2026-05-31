@@ -379,9 +379,29 @@ async def my_chat_member_handler(update: Update, context) -> None:
         logger.error(f"my_chat_member_handler error: {e}")
 
 
+# Queue en mémoire pour les logs — évite de bloquer la DB à chaque commande
+import asyncio as _asyncio
+_log_queue: list = []
+_log_flush_running = False
+
+async def _flush_log_queue():
+    """Vide la queue de logs en batch toutes les 10 secondes."""    global _log_flush_running
+    _log_flush_running = True
+    while True:
+        await _asyncio.sleep(10)
+        if not _log_queue:
+            continue
+        batch = _log_queue[:]
+        _log_queue.clear()
+        try:
+            async with AsyncSessionLocal() as session:
+                for entry in batch:
+                    await log_action(session, **entry)
+        except Exception as e:
+            logger.debug(f"Erreur flush_log_queue: {e}")
+
 async def activity_logging_middleware(update: Update, context) -> None:
-    """Logue automatiquement chaque commande utilisée."""
-    if not update.message or not update.message.text:
+    """Logue automatiquement chaque commande — non bloquant via queue mémoire."""    if not update.message or not update.message.text:
         return
     user = update.effective_user
     if not user:
@@ -393,7 +413,6 @@ async def activity_logging_middleware(update: Update, context) -> None:
     command = parts[0].lstrip("/").split("@")[0].lower()
     args    = " ".join(parts[1:]) if len(parts) > 1 else None
     group_id = update.effective_chat.id if update.effective_chat else None
-    # Extraire un montant si possible (premier arg numérique)
     amount = None
     for p in parts[1:]:
         try:
@@ -401,19 +420,14 @@ async def activity_logging_middleware(update: Update, context) -> None:
             break
         except ValueError:
             pass
-    try:
-        async with AsyncSessionLocal() as session:
-            await log_action(
-                session,
-                user_id  = user.id,
-                username = user.username or user.first_name,
-                command  = command,
-                args     = args,
-                amount   = amount,
-                group_id = group_id,
-            )
-    except Exception as e:
-        logger.debug(f"Erreur log_action: {e}")
+    _log_queue.append({
+        "user_id":  user.id,
+        "username": user.username or user.first_name,
+        "command":  command,
+        "args":     args,
+        "amount":   amount,
+        "group_id": group_id,
+    })
 
 async def on_startup(application: Application):
     await init_db()
@@ -448,6 +462,7 @@ async def on_startup(application: Application):
                 pass
 
     logger.info("Base de données initialisée.")
+    asyncio.create_task(_flush_log_queue())
 
 
 async def error_handler(update: object, context):

@@ -2052,7 +2052,7 @@ async def depotboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"amt": amount, "uid": user.id}
         )
         await session.execute(
-            _text("UPDATE companies SET treasury = treasury + :amt, value = treasury + :amt WHERE id = :cid"),
+            _text("UPDATE companies SET treasury = treasury + :amt WHERE id = :cid"),
             {"amt": amount, "cid": company_id}
         )
         # Lire la nouvelle valeur pour l'affichage

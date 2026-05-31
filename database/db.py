@@ -43,6 +43,7 @@ engine = create_async_engine(
     connect_args={
         "server_settings": {"application_name": "farmbot"},
         "command_timeout": 15,
+        "statement_cache_size": 0,
     },
 )
 AsyncSessionLocal = async_sessionmaker(

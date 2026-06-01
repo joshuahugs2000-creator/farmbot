@@ -3942,7 +3942,9 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         from sqlalchemy import text as _text
         total_paid = 0
-        for (e,) in eligible:
+        # Trier par user_id pour éviter les deadlocks (ordre déterministe entre sessions concurrentes)
+        eligible_sorted = sorted(eligible, key=lambda x: x[0].user_id)
+        for (e,) in eligible_sorted:
             amount = int(e.daily_salary * ratio)
             if amount <= 0:
                 continue

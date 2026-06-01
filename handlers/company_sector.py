@@ -380,15 +380,16 @@ async def proposercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
     target_name = " ".join(args)
 
     async with AsyncSessionLocal() as session:
-        # Trouver l'entreprise du proposant
+        # Trouver l'entreprise du proposant (cherche PDG/directeur en priorité pour éviter MultipleResultsFound)
         my_emp = (await session.execute(
             select(CompanyEmployee).where(
                 CompanyEmployee.user_id == user.id,
                 CompanyEmployee.left_at == None,
-            )
+                CompanyEmployee.role.in_(["pdg", "directeur"]),
+            ).order_by(CompanyEmployee.role.desc()).limit(1)
         )).scalar_one_or_none()
 
-        if not my_emp or my_emp.role not in ("pdg", "directeur"):
+        if not my_emp:
             await update.message.reply_text("❌ Seul le PDG ou Directeur peut proposer un contrat.")
             return
 

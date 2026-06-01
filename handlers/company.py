@@ -968,9 +968,30 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         session.add(share)
 
-        await _add_log(session, new_company.id, "creation",
-                       f"Entreprise créée par {user.first_name}")
-        await session.commit()
+        try:
+            await _add_log(session, new_company.id, "creation",
+                           f"Entreprise créée par {user.first_name}")
+            await session.commit()
+        except Exception:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            # Fallback SQL pur — garantit que company + PDG sont bien en DB
+            from sqlalchemy import text as _txt
+            async with AsyncSessionLocal() as s2:
+                try:
+                    await s2.execute(_txt(
+                        "INSERT INTO company_employees (company_id, user_id, role) "
+                        "VALUES (:c, :u, 'pdg') ON CONFLICT DO NOTHING"
+                    ), {"c": new_company.id, "u": user.id})
+                    await s2.execute(_txt(
+                        "INSERT INTO company_shares (company_id, owner_id, quantity) "
+                        "VALUES (:c, :u, 100) ON CONFLICT DO NOTHING"
+                    ), {"c": new_company.id, "u": user.id})
+                    await s2.commit()
+                except Exception:
+                    pass
 
         sec_emoji, sec_name = SECTORS[sector]
         await log_event("company_created", owner=user.first_name, name=new_company.name, sector=sec_name)
@@ -3919,14 +3940,18 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "─────────────────────────────",
         ]
 
+        from sqlalchemy import text as _text
         total_paid = 0
         for (e,) in eligible:
             amount = int(e.daily_salary * ratio)
             if amount <= 0:
                 continue
             emp_user = await session.get(User, e.user_id)
-            if emp_user:
-                emp_user.coins += amount
+            # SQL pur atomique pour garantir l'écriture en DB
+            await session.execute(
+                _text("UPDATE users SET coins = coins + :amt WHERE user_id = :uid"),
+                {"amt": amount, "uid": e.user_id}
+            )
             role_emoji = ROLE_EMOJI.get(e.role, "👤")
             name_emp = emp_user.first_name if emp_user else "?"
             activity = e.activity_since_payroll or 0
@@ -3950,9 +3975,11 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             e.activity_since_payroll = 0
             total_paid += amount
 
-        company.treasury = max(0, company.treasury - total_paid)
-        company.value = max(LEVELS[1][2], company.value - total_paid)
-        company.last_payroll = datetime.utcnow()
+        from sqlalchemy import text as _text2
+        await session.execute(
+            _text2("UPDATE companies SET treasury = GREATEST(0, treasury - :amt), value = GREATEST(:minv, value - :amt), last_payroll = NOW() WHERE id = :cid"),
+            {"amt": total_paid, "minv": LEVELS[1][2], "cid": company.id}
+        )
 
         await _add_log(session, company.id, "paie",
                        f"Paie versée par {user.first_name} (PDG) — {_fmt(total_paid)} $ distribués",

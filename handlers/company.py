@@ -523,51 +523,65 @@ REVENUE_PER_CMD = 10_000  # 1 commande employé = 10 000 $ en trésorerie
 
 # Throttle : on ne met à jour qu'une fois par 60s par user pour éviter de saturer le pool DB
 _company_activity_last: dict[int, float] = {}
+_ACTIVITY_THROTTLE = 30  # secondes entre deux mises à jour par user
 
 async def update_company_activity(user_id: int):
-    """Appelé par _prison_checked à chaque commande. Sans throttle — chaque commande compte."""
-    async with AsyncSessionLocal() as session:
-        rows = (await session.execute(
-            select(CompanyEmployee, Company).join(
-                Company, Company.id == CompanyEmployee.company_id
-            ).where(
-                CompanyEmployee.user_id == user_id,
-                CompanyEmployee.left_at == None,
-                Company.is_active == True,
-            )
-        )).all()
+    """Appelé à chaque commande — throttlé à 1 fois/30s par user pour ne pas épuiser le pool."""
+    import time
+    now = time.monotonic()
+    last = _company_activity_last.get(user_id, 0)
+    if now - last < _ACTIVITY_THROTTLE:
+        return
+    _company_activity_last[user_id] = now
 
-        if not rows:
-            return
+    try:
+        from sqlalchemy import text as _text
+        async with AsyncSessionLocal() as session:
+            # Incrémenter command_count et activity_since_payroll en SQL pur
+            await session.execute(_text("""
+                UPDATE company_employees
+                SET command_count = COALESCE(command_count, 0) + 1,
+                    activity_since_payroll = COALESCE(activity_since_payroll, 0) + 1
+                WHERE user_id = :uid AND left_at IS NULL
+                  AND company_id IN (SELECT id FROM companies WHERE is_active = TRUE)
+            """), {"uid": user_id})
 
-        for emp, company in rows:
-            emp.command_count += 1
-            if hasattr(emp, "activity_since_payroll"):
-                emp.activity_since_payroll = (emp.activity_since_payroll or 0) + 1
+            # Mettre à jour last_active des entreprises concernées
+            await session.execute(_text("""
+                UPDATE companies SET last_active = NOW()
+                WHERE id IN (
+                    SELECT company_id FROM company_employees
+                    WHERE user_id = :uid AND left_at IS NULL
+                ) AND is_active = TRUE
+            """), {"uid": user_id})
 
-            # Promotion automatique stagiaire → employé après 50 commandes
-            if emp.role == "stagiaire" and emp.command_count >= 50:
-                from database.models import User as UserModel
-                db_user = await session.get(UserModel, user_id)
-                if db_user and db_user.diplome_bac:
-                    emp.role = "employe"
+            # Promotion stagiaire → employé si 50 commandes et bac validé
+            await session.execute(_text("""
+                UPDATE company_employees ce
+                SET role = 'employe'
+                FROM users u
+                WHERE ce.user_id = :uid
+                  AND ce.role = 'stagiaire'
+                  AND ce.command_count >= 50
+                  AND u.user_id = ce.user_id
+                  AND u.diplome_bac = TRUE
+                  AND ce.left_at IS NULL
+            """), {"uid": user_id})
 
-            company.last_active = datetime.utcnow()
+            # Incrémenter cmds_done des contrats bureau actifs
+            await session.execute(_text("""
+                UPDATE bureau_contrats bc
+                SET cmds_done = COALESCE(cmds_done, 0) + 1
+                WHERE bc.status = 'active'
+                  AND bc.company_id IN (
+                      SELECT company_id FROM company_employees
+                      WHERE user_id = :uid AND left_at IS NULL
+                  )
+            """), {"uid": user_id})
 
-        # ── Incrémenter la progression des contrats bureau actifs ──────────
-        # cmds_done est cumulatif et ne se réinitialise jamais (contrairement à command_count)
-        try:
-            from database.models import BureauContrat
-            active_contracts = (await session.execute(
-                select(BureauContrat).where(
-                    BureauContrat.company_id == company.id,
-                    BureauContrat.status == "active",
-                )
-            )).scalars().all()
-            for bc in active_contracts:
-                bc.cmds_done = (bc.cmds_done or 0) + 1
-        except Exception:
-            pass
+            await session.commit()
+    except Exception:
+        pass  # Ne jamais bloquer une commande à cause de l'activité
 
         await session.commit()
 

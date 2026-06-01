@@ -4037,7 +4037,21 @@ async def negociercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
                 return
         else:
-            company, emp = await _get_user_company(session, user.id)
+            # Chercher d'abord une entreprise où l'user a une proposition en attente
+            pending_row = (await session.execute(
+                select(CompanyEmployee, Company).join(
+                    Company, Company.id == CompanyEmployee.company_id
+                ).where(
+                    CompanyEmployee.user_id == user.id,
+                    CompanyEmployee.left_at == None,
+                    Company.is_active == True,
+                    CompanyEmployee.contract_status.in_(["pending_employee", "pending_pdg"]),
+                )
+            )).first()
+            if pending_row:
+                emp, company = pending_row
+            else:
+                company, emp = await _get_user_company(session, user.id)
             if not company:
                 await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
                 return
@@ -4045,9 +4059,6 @@ async def negociercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         # ── CAS EMPLOYÉ : répondre à une proposition du PDG ───────────────
         if emp.role != "pdg":
             subcmd = args[0].lower()
-
-            # Forcer le rechargement depuis la DB pour avoir le vrai contract_status
-            await session.refresh(emp)
 
             if emp.contract_status != "pending_employee":
                 await update.message.reply_text(

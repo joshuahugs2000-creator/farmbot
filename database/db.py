@@ -35,14 +35,14 @@ async def _db_retry(coro_fn, *args, retries=3, delay=1.0, **kwargs):
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=3,
-    max_overflow=2,
+    pool_size=10,       # augmenté : évite les attentes de connexion
+    max_overflow=20,    # augmenté : pic de trafic absorbé
     pool_pre_ping=True,
-    pool_recycle=60,
-    pool_timeout=10,
+    pool_recycle=300,   # augmenté : moins de reconnexions inutiles
+    pool_timeout=30,    # augmenté : Railway a plus de latence que Render
     connect_args={
         "server_settings": {"application_name": "farmbot"},
-        "command_timeout": 15,
+        "command_timeout": 30,   # augmenté : requêtes lourdes sur Railway
         "statement_cache_size": 0,
     },
 )

@@ -457,6 +457,8 @@ async def activity_logging_middleware(update: Update, context) -> None:
     })
     # Incrémenter le compteur cumulatif total_commands (jamais réinitialisé)
     _cmd_count_queue.append(user.id)
+    # Incrémenter l'activité entreprise pour tous les groupes (pas juste _prison_checked)
+    asyncio.create_task(update_company_activity(user.id))
 
 async def on_startup(application: Application):
     await init_db()
@@ -552,11 +554,10 @@ def _prison_checked(handler_func):
                 return
         if await prison_middleware(update, context):
             return
-        # Incrémenter progression contrats + activité entreprise à chaque commande
+        # Incrémenter progression contrats à chaque commande
         if update.effective_user:
             try:
                 asyncio.create_task(increment_contract_progress(update.effective_user.id))
-                asyncio.create_task(update_company_activity(update.effective_user.id))
             except Exception:
                 pass
         return await handler_func(update, context)

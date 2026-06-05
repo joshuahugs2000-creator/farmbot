@@ -1,6 +1,7 @@
 python-telegram-bot[job-queue,webhooks]==21.5
-SQLAlchemy==2.0.31
+SQLAlchemy[asyncio]==2.0.31
 asyncpg==0.30.0
+greenlet==3.1.1
 alembic==1.13.2
 Pillow==10.4.0
 python-dotenv==1.0.1

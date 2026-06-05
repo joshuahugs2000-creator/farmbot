@@ -40,7 +40,7 @@ BANKS = {
         "emoji":         "🥉",
         "desc":          "Banque populaire, accessible à tous",
         "min_deposit":   1_000,
-        "max_deposit":   100_000_000_000,            # Plafond 100 milliards
+        "max_deposit":   2_000_000_000_000,          # Plafond 2000 milliards
         "interest_rate": 0.01,     # +1% toutes les 6h
         "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.08,
@@ -52,7 +52,7 @@ BANKS = {
         "emoji":         "🥈",
         "desc":          "Pour les épargnants sérieux",
         "min_deposit":   10_000,
-        "max_deposit":   100_000_000_000,            # Plafond 100 milliards
+        "max_deposit":   2_000_000_000_000,          # Plafond 2000 milliards
         "interest_rate": 0.015,    # +1.5% toutes les 6h
         "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.06,
@@ -64,7 +64,7 @@ BANKS = {
         "emoji":         "🥇",
         "desc":          "Banque des investisseurs fortunés",
         "min_deposit":   100_000,
-        "max_deposit":   100_000_000_000,            # Plafond 100 milliards
+        "max_deposit":   2_000_000_000_000,          # Plafond 2000 milliards
         "interest_rate": 0.02,     # +2% toutes les 6h
         "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.05,
@@ -76,7 +76,7 @@ BANKS = {
         "emoji":         "💠",
         "desc":          "Réservée aux élites financières",
         "min_deposit":   500_000,
-        "max_deposit":   100_000_000_000,            # Plafond 100 milliards
+        "max_deposit":   2_000_000_000_000,          # Plafond 2000 milliards
         "interest_rate": 0.025,    # +2.5% toutes les 6h
         "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.04,
@@ -88,7 +88,7 @@ BANKS = {
         "emoji":         "💎",
         "desc":          "La banque des milliardaires",
         "min_deposit":   2_000_000,
-        "max_deposit":   100_000_000_000,            # Plafond 100 milliards
+        "max_deposit":   2_000_000_000_000,          # Plafond 2000 milliards
         "interest_rate": 0.03,     # +3% toutes les 6h
         "max_loan":      5_000_000,                   # Prêt max 5M
         "loan_rate":     0.03,

@@ -531,41 +531,45 @@ _ACTIVITY_THROTTLE = 60  # secondes entre les opérations lourdes par user
 
 
 async def update_company_activity(user_id: int):
-    """Appelé à chaque commande — enfile dans la queue sans throttle."""
-    _activity_queue.append(user_id)
-
-    # Opérations lourdes (promotion, last_active) throttlées à 1/60s par user
+    """Appelé à chaque commande — UPDATE direct en DB, fiable sans queue mémoire."""
     import time
     now = time.monotonic()
     last = _company_activity_last.get(user_id, 0)
-    if now - last < _ACTIVITY_THROTTLE:
-        return
-    _company_activity_last[user_id] = now
+    throttle_heavy = now - last >= _ACTIVITY_THROTTLE
+    if throttle_heavy:
+        _company_activity_last[user_id] = now
 
     try:
         from sqlalchemy import text as _text
         async with AsyncSessionLocal() as session:
-            # Mettre à jour last_active des entreprises concernées
             await session.execute(_text("""
-                UPDATE companies SET last_active = NOW()
-                WHERE id IN (
-                    SELECT company_id FROM company_employees
-                    WHERE user_id = :uid AND left_at IS NULL
-                ) AND is_active = TRUE
+                UPDATE company_employees
+                SET command_count = COALESCE(command_count, 0) + 1,
+                    activity_since_payroll = COALESCE(activity_since_payroll, 0) + 1
+                WHERE user_id = :uid AND left_at IS NULL
+                  AND company_id IN (SELECT id FROM companies WHERE is_active = TRUE)
             """), {"uid": user_id})
 
-            # Promotion stagiaire → employé si 50 commandes et bac validé
-            await session.execute(_text("""
-                UPDATE company_employees ce
-                SET role = 'employe'
-                FROM users u
-                WHERE ce.user_id = :uid
-                  AND ce.role = 'stagiaire'
-                  AND ce.command_count >= 50
-                  AND u.user_id = ce.user_id
-                  AND u.diplome_bac = TRUE
-                  AND ce.left_at IS NULL
-            """), {"uid": user_id})
+            if throttle_heavy:
+                await session.execute(_text("""
+                    UPDATE companies SET last_active = NOW()
+                    WHERE id IN (
+                        SELECT company_id FROM company_employees
+                        WHERE user_id = :uid AND left_at IS NULL
+                    ) AND is_active = TRUE
+                """), {"uid": user_id})
+
+                await session.execute(_text("""
+                    UPDATE company_employees ce
+                    SET role = 'employe'
+                    FROM users u
+                    WHERE ce.user_id = :uid
+                      AND ce.role = 'stagiaire'
+                      AND ce.command_count >= 50
+                      AND u.user_id = ce.user_id
+                      AND u.diplome_bac = TRUE
+                      AND ce.left_at IS NULL
+                """), {"uid": user_id})
 
             await session.commit()
     except Exception:

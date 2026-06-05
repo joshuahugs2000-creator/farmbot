@@ -384,6 +384,7 @@ class CompanyAutoContract(Base):
     accepted_at      = Column(DateTime, nullable=True)
     deadline_at      = Column(DateTime, nullable=True)
     cmds_at_start    = Column(BigInteger, default=0)         # total commandes équipe au moment de l'acceptation
+    cmds_done        = Column(BigInteger, default=0)         # progression cumulée (incrémentée en temps réel)
     negotiated_reward= Column(BigInteger, nullable=True)     # montant après négociation (si accepté)
     negotiation_round= Column(Integer, default=0)            # nb de tours de négociation
     notif_message_id = Column(BigInteger, nullable=True)     # message_id de la notif PDG (pour éditer)

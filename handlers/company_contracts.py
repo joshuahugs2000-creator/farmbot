@@ -348,9 +348,8 @@ async def job_check_contracts(context: ContextTypes.DEFAULT_TYPE):
             if not company:
                 continue
 
-            # Commandes effectuées depuis l'acceptation
-            total_cmds_now = await _get_employee_total_cmds(session, contract.company_id)
-            cmds_done = max(0, total_cmds_now - (contract.cmds_at_start or 0))
+            # Commandes effectuées depuis l'acceptation (via cmds_done incrémenté en temps réel)
+            cmds_done = contract.cmds_done or 0
             reward = contract.negotiated_reward or contract.reward
 
             # Contrat réussi
@@ -592,8 +591,7 @@ async def mescontratsauto_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             label = STATUS_LABEL.get(c.status, c.status)
             progress = ""
             if c.status == "active":
-                total_now = await _get_employee_total_cmds(session, company.id)
-                done = max(0, total_now - (c.cmds_at_start or 0))
+                done = c.cmds_done or 0
                 pct = min(100, int(done / c.objective_cmds * 100))
                 bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
                 progress = f"\n   [{bar}] {done:,}/{c.objective_cmds:,} cmds ({pct}%)"
@@ -639,7 +637,7 @@ async def claimcontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         total_cmds_now = await _get_employee_total_cmds(session, contract.company_id)
-        cmds_done = max(0, total_cmds_now - (contract.cmds_at_start or 0))
+        cmds_done = contract.cmds_done or 0
         reward = contract.negotiated_reward or contract.reward
 
         if cmds_done < contract.objective_cmds:
@@ -702,10 +700,16 @@ async def init_contract_tables():
                 accepted_at TIMESTAMP,
                 deadline_at TIMESTAMP,
                 cmds_at_start BIGINT DEFAULT 0,
+                cmds_done BIGINT DEFAULT 0,
                 negotiated_reward BIGINT,
                 negotiation_round INTEGER DEFAULT 0,
                 notif_message_id BIGINT
             )
+        """))
+        # Migration : ajouter cmds_done si la table existait avant
+        await session.execute(text("""
+            ALTER TABLE company_auto_contracts
+            ADD COLUMN IF NOT EXISTS cmds_done BIGINT DEFAULT 0
         """))
         await session.execute(text("""
             CREATE TABLE IF NOT EXISTS company_settings (

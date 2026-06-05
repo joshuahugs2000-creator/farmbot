@@ -521,12 +521,20 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
 
 REVENUE_PER_CMD = 10_000  # 1 commande employé = 10 000 $ en trésorerie
 
-# Throttle : on ne met à jour qu'une fois par 60s par user pour éviter de saturer le pool DB
+# Queue en mémoire pour les incréments d'activité (jamais throttlée)
+# Chaque élément = user_id dont l'activité doit être comptée
+_activity_queue: list[int] = []
+
+# Throttle uniquement pour les opérations lourdes (promotion stagiaire, last_active)
 _company_activity_last: dict[int, float] = {}
-_ACTIVITY_THROTTLE = 30  # secondes entre deux mises à jour par user
+_ACTIVITY_THROTTLE = 60  # secondes entre les opérations lourdes par user
+
 
 async def update_company_activity(user_id: int):
-    """Appelé à chaque commande — throttlé à 1 fois/30s par user pour ne pas épuiser le pool."""
+    """Appelé à chaque commande — enfile dans la queue sans throttle."""
+    _activity_queue.append(user_id)
+
+    # Opérations lourdes (promotion, last_active) throttlées à 1/60s par user
     import time
     now = time.monotonic()
     last = _company_activity_last.get(user_id, 0)
@@ -537,15 +545,6 @@ async def update_company_activity(user_id: int):
     try:
         from sqlalchemy import text as _text
         async with AsyncSessionLocal() as session:
-            # Incrémenter command_count et activity_since_payroll en SQL pur
-            await session.execute(_text("""
-                UPDATE company_employees
-                SET command_count = COALESCE(command_count, 0) + 1,
-                    activity_since_payroll = COALESCE(activity_since_payroll, 0) + 1
-                WHERE user_id = :uid AND left_at IS NULL
-                  AND company_id IN (SELECT id FROM companies WHERE is_active = TRUE)
-            """), {"uid": user_id})
-
             # Mettre à jour last_active des entreprises concernées
             await session.execute(_text("""
                 UPDATE companies SET last_active = NOW()
@@ -568,22 +567,37 @@ async def update_company_activity(user_id: int):
                   AND ce.left_at IS NULL
             """), {"uid": user_id})
 
-            # Incrémenter cmds_done des contrats bureau actifs
-            await session.execute(_text("""
-                UPDATE bureau_contrats bc
-                SET cmds_done = COALESCE(cmds_done, 0) + 1
-                WHERE bc.status = 'active'
-                  AND bc.company_id IN (
-                      SELECT company_id FROM company_employees
-                      WHERE user_id = :uid AND left_at IS NULL
-                  )
-            """), {"uid": user_id})
-
             await session.commit()
     except Exception:
         pass  # Ne jamais bloquer une commande à cause de l'activité
 
-        await session.commit()
+
+async def flush_activity_queue():
+    """Vide la queue d'activité en batch UPDATE toutes les 10 secondes.
+    Met à jour command_count et activity_since_payroll de façon fiable."""
+    from collections import Counter
+    from sqlalchemy import text as _text
+    while True:
+        import asyncio as _asyncio
+        await _asyncio.sleep(10)
+        if not _activity_queue:
+            continue
+        batch = _activity_queue[:]
+        _activity_queue.clear()
+        counts = Counter(batch)
+        try:
+            async with AsyncSessionLocal() as session:
+                for uid_val, cnt in counts.items():
+                    await session.execute(_text("""
+                        UPDATE company_employees
+                        SET command_count = COALESCE(command_count, 0) + :cnt,
+                            activity_since_payroll = COALESCE(activity_since_payroll, 0) + :cnt
+                        WHERE user_id = :uid AND left_at IS NULL
+                          AND company_id IN (SELECT id FROM companies WHERE is_active = TRUE)
+                    """), {"cnt": cnt, "uid": uid_val})
+                await session.commit()
+        except Exception:
+            pass  # Ne jamais bloquer
 
 
 # ─── INCREMENT CONTRATS : appelé à chaque commande, sans throttle ────────────

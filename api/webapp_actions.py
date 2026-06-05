@@ -957,6 +957,7 @@ async def webapp_versersalaires(request: web.Request) -> web.Response:
 
         total_paid = 0
         paid_list  = []
+        from sqlalchemy import text as _text
         for e in eligible:
             amount = int(e.daily_salary * ratio)
             if amount <= 0:
@@ -964,8 +965,17 @@ async def webapp_versersalaires(request: web.Request) -> web.Response:
             emp_user = await session.get(User, e.user_id)
             if emp_user:
                 emp_user.coins += amount
-            activity = e.activity_since_payroll or 0
-            e.activity_since_payroll = 0
+            # Lire activity_since_payroll via SQL pur pour éviter la race condition avec flush_activity_queue
+            row = (await session.execute(
+                _text("SELECT activity_since_payroll FROM company_employees WHERE user_id = :uid AND company_id = :cid AND left_at IS NULL"),
+                {"uid": e.user_id, "cid": e.company_id}
+            )).fetchone()
+            activity = row[0] if row else 0
+            # Reset via SQL pur (pas ORM) pour ne pas écraser les incréments concurrent du flush
+            await session.execute(
+                _text("UPDATE company_employees SET activity_since_payroll = 0 WHERE user_id = :uid AND company_id = :cid AND left_at IS NULL"),
+                {"uid": e.user_id, "cid": e.company_id}
+            )
             total_paid += amount
             paid_list.append({
                 "name":     emp_user.first_name if emp_user else "—",

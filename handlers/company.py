@@ -1126,6 +1126,14 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Entreprise <b>{name}</b> introuvable.", parse_mode="HTML")
             return
 
+        # Bloquer le PDG qui tente de postuler dans sa propre entreprise
+        if own_company and target.id == own_company.id:
+            await update.message.reply_text(
+                f"❌ Tu es déjà PDG de <b>{own_company.name}</b> — impossible de postuler dans ta propre entreprise !",
+                parse_mode="HTML"
+            )
+            return
+
         # Déjà postulé ?
         existing_app = (await session.execute(
             select(CompanyApplication).where(
@@ -3808,6 +3816,38 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Seul le PDG peut gérer les salaires.")
             return
 
+        # ── FIXER SON PROPRE SALAIRE PDG ─────────────────────────────────
+        if subcmd == "monsalaire":
+            if len(args) < 2:
+                current = emp.daily_salary or 0
+                await update.message.reply_text(
+                    f"💼 <b>Salaire PDG — {company.name}</b>\n\n"
+                    f"Salaire actuel : <b>{_fmt(current)} $/jour</b>\n\n"
+                    f"💡 Usage : <code>/versersalaires monsalaire [montant]</code>\n"
+                    f"Le salaire se verse automatiquement lors du prochain <code>/versersalaires payer</code>.",
+                    parse_mode="HTML"
+                )
+                return
+            try:
+                new_salary = int(args[1].replace("_", "").replace(" ", ""))
+            except ValueError:
+                await update.message.reply_text("❌ Montant invalide.", parse_mode="HTML")
+                return
+            if new_salary < 0:
+                await update.message.reply_text("❌ Le salaire ne peut pas être négatif.", parse_mode="HTML")
+                return
+            old_salary = emp.daily_salary or 0
+            emp.daily_salary = new_salary
+            emp.contract_status = "signed"
+            await session.commit()
+            await update.message.reply_text(
+                f"✅ <b>Ton salaire PDG a été mis à jour :</b>\n"
+                f"   {_fmt(old_salary)} $ → <b>{_fmt(new_salary)} $/jour</b>\n\n"
+                f"Il sera versé lors du prochain <code>/versersalaires payer</code>.",
+                parse_mode="HTML"
+            )
+            return
+
         # ── MODIFIER LE SALAIRE D'UN EMPLOYÉ ─────────────────────────────
         if subcmd == "modifier":
             if len(args) < 3:
@@ -3865,7 +3905,7 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pass
             return
 
-        # Récupérer tous les employés actifs (hors PDG)
+        # Récupérer tous les employés actifs (hors PDG pour l'affichage séparé)
         emps = (await session.execute(
             select(CompanyEmployee).where(
                 CompanyEmployee.company_id == company.id,
@@ -3891,6 +3931,16 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>",
                 "─────────────────────────────",
             ]
+            # PDG en premier
+            pdg_salary = emp.daily_salary or 0
+            pdg_status = "✅" if emp.contract_status == "signed" and pdg_salary > 0 else "⏳"
+            lines.append(
+                f"👑 <b>{user.first_name}</b> [pdg]\n"
+                f"   {pdg_status} Salaire : <b>{_fmt(pdg_salary)} $/j</b>"
+                + (f" · <i>Définis avec /versersalaires monsalaire</i>" if pdg_salary == 0 else "")
+            )
+            total_daily += pdg_salary
+
             for e in emps:
                 emp_user = await session.get(User, e.user_id)
                 name_emp = emp_user.first_name if emp_user else "?"
@@ -3912,6 +3962,7 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "",
                 "📌 <b>Options :</b>",
                 "• <code>/versersalaires payer</code> — verser les salaires",
+                "• <code>/versersalaires monsalaire [montant]</code> — fixer ton salaire PDG",
                 "• <code>/versersalaires modifier @pseudo [montant]</code> — changer un salaire",
             ]
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
@@ -3930,8 +3981,11 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
                 return
 
-        # Filtrer les employés avec un contrat signé
+        # Filtrer les employés avec un contrat signé (PDG inclus s'il a un salaire)
         eligible = [(e,) for e in emps if (e.daily_salary or 0) > 0 and e.contract_status == "signed"]
+        # Ajouter le PDG s'il a un salaire défini
+        if (emp.daily_salary or 0) > 0 and emp.contract_status == "signed":
+            eligible.append((emp,))
 
         if not eligible:
             await update.message.reply_text(

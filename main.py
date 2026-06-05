@@ -1023,7 +1023,7 @@ async def main():
     setup_webapp_routes(webserver)
 
     await app.initialize()
-    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook", drop_pending_updates=True)
     await app.start()
 
     logger.info(f"Bot démarré sur port {PORT} — webhook + health check actifs.")

@@ -4025,7 +4025,12 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             role_emoji = ROLE_EMOJI.get(e.role, "👤")
             name_emp = emp_user.first_name if emp_user else "?"
-            activity = e.activity_since_payroll or 0
+            # Lire activity via SQL pur pour éviter la race condition avec flush_activity_queue
+            row = (await session.execute(
+                _text("SELECT activity_since_payroll FROM company_employees WHERE user_id = :uid AND company_id = :cid AND left_at IS NULL"),
+                {"uid": e.user_id, "cid": e.company_id}
+            )).fetchone()
+            activity = row[0] if row else 0
             result_lines.append(
                 f"{role_emoji} <b>{name_emp}</b> — +{_fmt(amount)} $ <i>({activity} cmds)</i>"
             )
@@ -4043,7 +4048,11 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
             except Exception:
                 pass
-            e.activity_since_payroll = 0
+            # Reset via SQL pur (pas ORM) pour ne pas écraser les incréments concurrent du flush
+            await session.execute(
+                _text("UPDATE company_employees SET activity_since_payroll = 0 WHERE user_id = :uid AND company_id = :cid AND left_at IS NULL"),
+                {"uid": e.user_id, "cid": e.company_id}
+            )
             total_paid += amount
 
         from sqlalchemy import text as _text2

@@ -3297,8 +3297,9 @@ async def job_daily_report(context) -> None:
                     text=rapport,
                     parse_mode="HTML"
                 )
-            except Exception:
-                pass
+                logger.info(f"[DAILY_REPORT] Rapport envoyé à PDG {company.owner_id} ({company.name})")
+            except Exception as e:
+                logger.warning(f"[DAILY_REPORT] Échec envoi PDG {company.owner_id} ({company.name}): {e}")
             await asyncio.sleep(0.5)  # anti-flood
 
 # ─── COMMANDE : /mesparts ─────────────────────────────────────────────────────

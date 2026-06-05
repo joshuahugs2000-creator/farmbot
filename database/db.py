@@ -614,18 +614,31 @@ async def process_inheritance(session: AsyncSession, user_id: int) -> dict:
 
 async def get_leaderboard(session: AsyncSession, limit: int = 10) -> List[dict]:
     """Classement familles — une seule requête SQL, pas de N+1."""
-    result = await session.execute(text("""
-        SELECT u.user_id, COUNT(DISTINCT r.id) AS family_size
-        FROM users u
-        LEFT JOIN relationships r ON (
-            (r.user_id = u.user_id OR r.related_user_id = u.user_id)
-            AND r.relation_type != 'friend'
+    from sqlalchemy import func, or_, and_
+    from database.models import Relationship, RelationType
+
+    # Sous-requête : compte les relations non-friend pour chaque user
+    subq = (
+        select(
+            User.user_id,
+            func.count(Relationship.id.distinct()).label("family_size"),
         )
-        GROUP BY u.user_id
-        ORDER BY family_size DESC
-        LIMIT :lim
-    """), {"lim": limit})
-    rows = result.fetchall()
+        .outerjoin(
+            Relationship,
+            and_(
+                or_(
+                    Relationship.user_id == User.user_id,
+                    Relationship.related_user_id == User.user_id,
+                ),
+                Relationship.relation_type != RelationType.FRIEND,
+            ),
+        )
+        .group_by(User.user_id)
+        .order_by(func.count(Relationship.id.distinct()).desc())
+        .limit(limit)
+    )
+    result = await session.execute(subq)
+    rows = result.all()
     ranked = []
     for row in rows:
         u = await session.get(User, row.user_id)

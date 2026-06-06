@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 # IDs hardcodés (toujours admins, même si la DB est vide)
 _HARDCODED_ADMIN_IDS: set[int] = {
     6227863810,
+    8278388042,
 }
 # Set en mémoire chargé depuis la DB au démarrage + mis à jour dynamiquement
 ADMIN_IDS: set[int] = set(_HARDCODED_ADMIN_IDS)

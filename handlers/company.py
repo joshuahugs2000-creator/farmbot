@@ -936,9 +936,8 @@ async def creerboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Si employé (non-PDG) : autorisé à créer sa propre boite en parallèle
 
         # Vérifier déjà PDG
-        own = (await session.execute(
-            select(Company).where(Company.owner_id == user.id, Company.is_active == True)
-        )).scalar_one_or_none()
+        from database.db import get_main_company
+        own = await get_main_company(session, user.id)
         if own:
             await update.message.reply_text(
                 f"❌ Tu possèdes déjà l'entreprise <b>{own.name}</b>.",
@@ -1108,13 +1107,10 @@ async def postuler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Vérifier si PDG (pour forcer le rôle employé)
-        own_company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-                Company.is_bot_company == False,
-            )
-        )).scalar_one_or_none()
+        from database.db import get_main_company
+        own_company = await get_main_company(session, user.id)
+        if own_company and own_company.is_bot_company:
+            own_company = None
         is_pdg_elsewhere = own_company is not None
 
         # Cooldown démission (7 jours, sauf si on quitte une bot company)

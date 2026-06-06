@@ -25,7 +25,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from sqlalchemy import text
 
-from database.db import AsyncSessionLocal, get_user, add_coins
+from database.db import AsyncSessionLocal, add_coins
 from utils.helpers import ensure_user
 from config import CURRENCY
 
@@ -343,56 +343,65 @@ async def bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     async with AsyncSessionLocal() as session:
-        # Enchère active dans ce groupe
-        res = await session.execute(text(
-            "SELECT * FROM auction_sessions WHERE group_id = :gid AND status = 'active'"
-        ), {"gid": chat.id})
-        auction = res.fetchone()
+        try:
+            # Enchère active dans ce groupe
+            res = await session.execute(text(
+                "SELECT * FROM auction_sessions WHERE group_id = :gid AND status = 'active'"
+            ), {"gid": chat.id})
+            auction = res.fetchone()
 
-        if not auction:
-            await update.message.reply_text("❌ Aucune enchère en cours dans ce groupe.")
-            return
+            if not auction:
+                await update.message.reply_text("❌ Aucune enchère en cours dans ce groupe.")
+                return
 
-        if auction.ends_at < datetime.utcnow():
-            await update.message.reply_text("⏰ L'enchère est terminée !")
-            return
+            if auction.ends_at < datetime.utcnow():
+                await update.message.reply_text("⏰ L'enchère est terminée !")
+                return
 
-        min_bid = max(auction.current_bid + 1, int(auction.current_bid * 1.05))
-        if amount < min_bid:
-            await update.message.reply_text(
-                f"❌ L'enchère minimale est de <b>{_fmt(min_bid)} {CURRENCY}</b> "
-                f"(+5% sur la mise actuelle).",
-                parse_mode=ParseMode.HTML
-            )
-            return
+            min_bid = max(auction.current_bid + 1, int(auction.current_bid * 1.05))
+            if amount < min_bid:
+                await update.message.reply_text(
+                    f"❌ L'enchère minimale est de <b>{_fmt(min_bid)} {CURRENCY}</b> "
+                    f"(+5% sur la mise actuelle).",
+                    parse_mode=ParseMode.HTML
+                )
+                return
 
-        # Vérifier le solde
-        db_user = await get_user(session, user.id)
-        if not db_user or db_user.coins < amount:
-            await update.message.reply_text("❌ Pas assez de $ !")
-            return
+            # Vérifier le solde via raw SQL (évite conflit ORM/raw dans même session)
+            coins_row = (await session.execute(
+                text("SELECT coins FROM users WHERE user_id = :uid"), {"uid": user.id}
+            )).fetchone()
+            if not coins_row or coins_row[0] < amount:
+                await update.message.reply_text("❌ Pas assez de $ !")
+                return
 
-        # Rembourser l'ancien leader
-        old_leader = auction.leader_id
-        old_bid = auction.current_bid
-        if old_leader and old_leader != user.id:
+            # Rembourser l'ancien leader
+            old_leader = auction.leader_id
+            old_bid = auction.current_bid
+            if old_leader and old_leader != user.id:
+                await session.execute(text(
+                    "UPDATE users SET coins = coins + :amt WHERE user_id = :uid"
+                ), {"amt": old_bid, "uid": old_leader})
+
+            # Débiter le nouveau leader
             await session.execute(text(
-                "UPDATE users SET coins = coins + :amt WHERE user_id = :uid"
-            ), {"amt": old_bid, "uid": old_leader})
+                "UPDATE users SET coins = GREATEST(0, coins::bigint - :amt::bigint) WHERE user_id = :uid AND coins >= :amt"
+            ), {"amt": amount, "uid": user.id})
 
-        # Débiter le nouveau leader
-        await session.execute(text(
-            "UPDATE users SET coins = GREATEST(0, coins::bigint - :amt::bigint) WHERE user_id = :uid AND coins >= :amt"
-        ), {"amt": amount, "uid": user.id})
+            # Mettre à jour l'enchère
+            name = user.first_name[:50]
+            await session.execute(text("""
+                UPDATE auction_sessions
+                SET current_bid = :bid, leader_id = :uid, leader_name = :name
+                WHERE id = :aid
+            """), {"bid": amount, "uid": user.id, "name": name, "aid": auction.id})
+            await session.commit()
 
-        # Mettre à jour l'enchère
-        name = user.first_name[:50]
-        await session.execute(text("""
-            UPDATE auction_sessions
-            SET current_bid = :bid, leader_id = :uid, leader_name = :name
-            WHERE id = :aid
-        """), {"bid": amount, "uid": user.id, "name": name, "aid": auction.id})
-        await session.commit()
+        except Exception as e:
+            logger.error(f"Erreur /bid user={user.id} amount={amount}: {e}", exc_info=True)
+            await session.rollback()
+            await update.message.reply_text("❌ Erreur interne lors de l'enchère. Réessaie.")
+            return
 
     time_left = max(0, int((auction.ends_at - datetime.utcnow()).total_seconds() / 60))
     await update.message.reply_text(
@@ -520,7 +529,7 @@ async def expertise_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.answer("Objet introuvable.", show_alert=True)
             return
 
-        await add_coins(query.from_user.id, item.true_value)
+        await add_coins(session, query.from_user.id, item.true_value)
         await session.execute(text(
             "DELETE FROM auction_inventory WHERE id = :iid"
         ), {"iid": item_id})

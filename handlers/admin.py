@@ -537,9 +537,31 @@ async def adminadd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return await _deny(update)
 
+    # Essayer parse_target (DB lookup)
     target_tg = await parse_target(update, context, allow_bot=True)
+
+    # Si pas trouvé en DB, essayer via l'API Telegram directement (user pas encore en DB)
+    if not target_tg and context.args:
+        username = context.args[0].lstrip("@")
+        try:
+            chat = await context.bot.get_chat(f"@{username}")
+            class _FakeTgUser:
+                def __init__(self, c):
+                    self.id         = c.id
+                    self.first_name = c.first_name or c.username or str(c.id)
+                    self.username   = c.username
+                    self.is_bot     = False
+            target_tg = _FakeTgUser(chat)
+        except Exception as e:
+            logger.warning(f"[adminadd] get_chat(@{username}) échoué : {e}")
+            return await update.message.reply_text(
+                f"❌ Utilisateur @{username} introuvable.\n"
+                f"Il doit avoir un compte Telegram public ou avoir déjà utilisé le bot.",
+                parse_mode=ParseMode.HTML,
+            )
+
     if not target_tg:
-        return await update.message.reply_text("Usage : /adminadd @user")
+        return await update.message.reply_text("Usage : /adminadd @user ou /adminadd [user_id]")
 
     ADMIN_IDS.add(target_tg.id)
     await save_admin_id(target_tg.id)

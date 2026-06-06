@@ -88,15 +88,15 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE, allow
                         self.first_name = u.first_name
                         self.username   = u.username
                         self.is_bot     = False
-                logger.info(f"[parse_target] ID brut → {uid}")
+                logger.debug(f"[parse_target] ID brut → {uid}")
                 return _FakeUserById(db_user)
-            logger.info(f"[parse_target] ID {uid} introuvable en DB")
+            logger.debug(f"[parse_target] ID {uid} introuvable en DB")
             return None
 
     # 1. Réponse à un message
     if msg.reply_to_message:
         tg_user = msg.reply_to_message.from_user
-        logger.info(f"[parse_target] reply → from_user={tg_user}")
+        logger.debug(f"[parse_target] reply → from_user={tg_user}")
         if tg_user is None:
             logger.warning("[parse_target] reply_to_message.from_user est None (admin anonyme ?)")
             return None
@@ -109,7 +109,7 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE, allow
     for entity in (msg.entities or []):
         # Mention avec objet user connu de Telegram
         if entity.type == "text_mention" and entity.user:
-            logger.info(f"[parse_target] text_mention → {entity.user.id}")
+            logger.debug(f"[parse_target] text_mention → {entity.user.id}")
             if await _check_bot(entity.user.id, getattr(entity.user, "is_bot", False), "text_mention"):
                 return None
             return entity.user
@@ -117,7 +117,7 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE, allow
         # @username classique → résolution via DB
         if entity.type == "mention":
             username = text[entity.offset: entity.offset + entity.length]
-            logger.info(f"[parse_target] mention → {username}")
+            logger.debug(f"[parse_target] mention → {username}")
             async with _db.AsyncSessionLocal() as session:
                 db_user = await get_user_by_username(session, username)
             if db_user:
@@ -130,12 +130,62 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE, allow
                         self.username   = u.username
                         self.is_bot     = False
                 return _FakeUser(db_user)
-            logger.info(f"[parse_target] {username} introuvable en DB")
+            logger.debug(f"[parse_target] {username} introuvable en DB")
             return None
 
-    logger.info("[parse_target] Aucune cible → None")
+    logger.debug("[parse_target] Aucune cible → None")
     return None
 
 def progress_bar(current: int, total: int, length: int = 10) -> str:
     filled = int(length * current / total) if total else 0
     return "█" * filled + "░" * (length - filled)
+
+
+async def safe_edit(message, text: str, **kwargs):
+    """
+    Édite un message avec retry automatique sur 429 Too Many Requests.
+    Évite les crashes silencieux dus au rate limit Telegram.
+    """
+    import asyncio
+    from telegram.error import RetryAfter, TelegramError
+    for attempt in range(4):
+        try:
+            await message.edit_text(text, **kwargs)
+            return
+        except RetryAfter as e:
+            wait = e.retry_after + 1
+            logger.warning(f"[safe_edit] 429 rate limit — attente {wait}s (tentative {attempt+1})")
+            await asyncio.sleep(wait)
+        except TelegramError as e:
+            if "message is not modified" in str(e).lower():
+                return  # pas une vraie erreur
+            if attempt < 3:
+                await asyncio.sleep(1.5 * (attempt + 1))
+            else:
+                logger.warning(f"[safe_edit] Échec final: {e}")
+                return
+
+
+async def safe_send(chat_or_message, text: str, **kwargs):
+    """
+    Envoie un message avec retry automatique sur 429 Too Many Requests.
+    """
+    import asyncio
+    from telegram.error import RetryAfter, TelegramError
+    for attempt in range(4):
+        try:
+            if hasattr(chat_or_message, "reply_text"):
+                await chat_or_message.reply_text(text, **kwargs)
+            else:
+                await chat_or_message.send_message(text, **kwargs)
+            return
+        except RetryAfter as e:
+            wait = e.retry_after + 1
+            logger.warning(f"[safe_send] 429 rate limit — attente {wait}s (tentative {attempt+1})")
+            await asyncio.sleep(wait)
+        except TelegramError as e:
+            if attempt < 3:
+                await asyncio.sleep(1.5 * (attempt + 1))
+            else:
+                logger.warning(f"[safe_send] Échec final: {e}")
+                return

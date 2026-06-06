@@ -122,6 +122,40 @@ async def _get_or_create_settings(session, company_id: int) -> CompanySettings:
     return settings
 
 
+async def _get_user_company(session, user_id: int):
+    """
+    Retourne (Company, role) pour un PDG ou un directeur de filiale.
+    role = 'pdg' ou 'directeur'
+    Retourne (None, None) si l'user n'a aucun droit de gestion.
+    """
+    # 1. PDG classique (owner_id)
+    company = (await session.execute(
+        select(Company).where(
+            Company.owner_id == user_id,
+            Company.is_active == True,
+        )
+    )).scalar_one_or_none()
+    if company:
+        return company, "pdg"
+
+    # 2. Directeur de filiale
+    row = (await session.execute(
+        select(CompanyEmployee, Company).join(
+            Company, Company.id == CompanyEmployee.company_id
+        ).where(
+            CompanyEmployee.user_id == user_id,
+            CompanyEmployee.role == "directeur",
+            CompanyEmployee.left_at == None,
+            Company.is_active == True,
+        )
+    )).first()
+    if row:
+        emp, company = row
+        return company, "directeur"
+
+    return None, None
+
+
 async def _get_employee_total_cmds(session, company_id: int) -> int:
     """Somme des command_count de tous les employés actifs."""
     result = await session.execute(
@@ -415,8 +449,26 @@ async def contract_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         company = await session.get(Company, contract.company_id)
-        if not company or company.owner_id != user.id:
-            await query.answer("❌ Seul le PDG peut répondre à ce contrat.", show_alert=True)
+        if not company:
+            await query.edit_message_text("❌ Entreprise introuvable.")
+            return
+
+        # Vérifier que c'est le PDG ou le directeur
+        is_owner = company.owner_id == user.id
+        is_director = False
+        if not is_owner:
+            dir_emp = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.user_id == user.id,
+                    CompanyEmployee.role == "directeur",
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar_one_or_none()
+            is_director = dir_emp is not None
+
+        if not is_owner and not is_director:
+            await query.answer("❌ Seul le PDG ou le directeur peut répondre à ce contrat.", show_alert=True)
             return
 
         if contract.status not in ("pending", "negotiating"):
@@ -552,18 +604,13 @@ async def contract_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── COMMANDE : /mescontrats_auto ─────────────────────────────────────────────
 
 async def mescontratsauto_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Affiche les contrats automatiques de l'entreprise du PDG."""
+    """Affiche les contrats automatiques de l'entreprise du PDG ou directeur."""
     user = update.effective_user
     async with AsyncSessionLocal() as session:
-        company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-            )
-        )).scalar_one_or_none()
+        company, role = await _get_user_company(session, user.id)
 
         if not company:
-            await update.message.reply_text("❌ Tu n'es pas PDG d'une entreprise active.")
+            await update.message.reply_text("❌ Tu n'es PDG ni directeur d'aucune entreprise active.")
             return
 
         contracts = (await session.execute(
@@ -606,20 +653,15 @@ async def mescontratsauto_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def claimcontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /claimcontrat — Permet au PDG de réclamer immédiatement la récompense
+    /claimcontrat — Permet au PDG ou directeur de réclamer immédiatement la récompense
     si l'objectif du contrat actif est déjà atteint, sans attendre la deadline.
     """
     user = update.effective_user
     async with AsyncSessionLocal() as session:
-        company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-            )
-        )).scalar_one_or_none()
+        company, role = await _get_user_company(session, user.id)
 
         if not company:
-            await update.message.reply_text("❌ Tu n'es pas PDG d'une entreprise active.")
+            await update.message.reply_text("❌ Tu n'es PDG ni directeur d'aucune entreprise active.")
             return
 
         contract = (await session.execute(

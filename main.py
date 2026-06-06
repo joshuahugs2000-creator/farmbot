@@ -101,6 +101,14 @@ from handlers.drames import drame, setdramesesuil
 from handlers.article import article_cmd
 from handlers.diplome import diplome_cmd, diplome_callback
 from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse_cmd, mesimpots_cmd
+from handlers.buildings import (
+    batiments_cmd, acheterbatiment_cmd, mesbatiments_cmd,
+    creerfiliale_cmd, mesfiliates_cmd, nommerdir_cmd,
+    job_building_maintenance, job_annex_revenue,
+)
+from handlers.nationality import (
+    nationalite_cmd, localisationboite_cmd, job_player_tax,
+)
 from handlers.competition import startcompet_cmd, compet_cmd, stopcompet_cmd, compet_autoclose_job
 from handlers.bureau import soumettredossier_cmd, choisircontrat_cmd, mescontratsbc_cmd, claimcontratbc_cmd, bureau_check_job
 from handlers.company import (

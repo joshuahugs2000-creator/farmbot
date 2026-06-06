@@ -30,28 +30,36 @@ logger = logging.getLogger(__name__)
 
 # ─── GEMINI ───────────────────────────────────────────────────────────────────
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 async def _call_gemini(prompt: str) -> str | None:
-    api_key = os.getenv("GEMINI_API_KEY", "")
+    """Appelle Groq (compatible OpenAI) pour valider les nationalités."""
+    api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key:
+        logger.warning("[NATIONALITE] GROQ_API_KEY manquante")
         return None
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 300,
+        "temperature": 0.3,
+    }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{GEMINI_API_URL}?key={api_key}",
+                GROQ_API_URL,
                 json=payload,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 timeout=aiohttp.ClientTimeout(total=25),
             ) as resp:
                 if resp.status != 200:
                     body = await resp.text()
-                    logger.warning(f"[NATIONALITE] Gemini HTTP {resp.status}: {body[:200]}")
+                    logger.warning(f"[NATIONALITE] Groq HTTP {resp.status}: {body[:200]}")
                     return None
                 data = await resp.json()
-                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        logger.warning(f"[NATIONALITE] Gemini error: {type(e).__name__}: {e}")
+        logger.warning(f"[NATIONALITE] Groq error: {type(e).__name__}: {e}")
         return None
 
 

@@ -343,32 +343,71 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── COMMANDE : /localisationboite [ville] ───────────────────────────────────
 
+async def _resolve_city_ai(raw: str, company_name: str) -> dict | None:
+    """
+    Demande à Groq de valider une ville libre.
+    Retourne dict avec : valid, flag, label, description
+    ou None si l'IA est indisponible.
+    """
+    prompt = f"""Tu es le système de localisation d'entreprises d'un jeu économique Telegram appelé Your family ❤️.
+
+L'entreprise "{company_name}" veut se localiser dans la ville : "{raw}"
+
+Réponds UNIQUEMENT en JSON valide (aucun texte avant/après), format :
+{{
+  "valid": true/false,
+  "flag": "🇹🇬",
+  "label": "Lomé",
+  "country": "Togo",
+  "description": "🌍 Hub économique d'Afrique de l'Ouest, carrefour du commerce régional."
+}}
+
+Règles :
+- Si c'est une ville réelle (même orthographe approximative), valid=true avec le bon drapeau du pays et le nom officiel.
+- description : une phrase courte et immersive sur l'avantage économique/stratégique de cette ville dans un jeu de business.
+- Si c'est totalement inventé, valid=false.
+- Réponds toujours en français."""
+
+    raw_response = await _call_gemini(prompt)
+    if not raw_response:
+        return None
+    try:
+        clean = re.sub(r"```json|```", "", raw_response).strip()
+        return json.loads(clean)
+    except Exception:
+        logger.warning(f"[LOCALISATION] JSON parse failed: {raw_response[:200]}")
+        return None
+
+
 async def localisationboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """PDG définit ou change la ville de son entreprise."""
+    """PDG définit ou change la ville de son entreprise. L'IA accepte n'importe quelle ville réelle."""
     user = update.effective_user
 
-    if not context.args:
-        async with AsyncSessionLocal() as session:
-            r = await session.execute(
-                select(CompanyEmployee, Company).join(
-                    Company, Company.id == CompanyEmployee.company_id
-                ).where(
-                    CompanyEmployee.user_id == user.id,
-                    CompanyEmployee.left_at == None,
-                    Company.is_active == True,
-                    CompanyEmployee.role == "pdg",
-                )
+    # ── Récupérer l'entreprise du PDG ──
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(CompanyEmployee, Company).join(
+                Company, Company.id == CompanyEmployee.company_id
+            ).where(
+                CompanyEmployee.user_id == user.id,
+                CompanyEmployee.left_at == None,
+                Company.is_active == True,
+                CompanyEmployee.role == "pdg",
             )
-            row = r.first()
+        )
+        row = r.first()
 
+    if not context.args:
         if row:
             _, company = row
             current_city = getattr(company, "city", None)
             if current_city and current_city in CITIES:
                 flag, city_label = CITIES[current_city]
                 city_str = f"{flag} <b>{city_label}</b>"
+            elif current_city:
+                city_str = f"🌍 <b>{current_city.replace('_', ' ').title()}</b>"
             else:
-                city_str = current_city or "Non définie"
+                city_str = "Non définie"
             company_name = company.name
         else:
             city_str = "—"
@@ -383,47 +422,72 @@ async def localisationboite_cmd(update: Update, context: ContextTypes.DEFAULT_TY
         for city_key, (flag, label) in CITIES.items():
             lines.append(f"  {flag} <code>/localisationboite {city_key}</code> — {label}")
 
+        lines.append("")
+        lines.append("💡 <i>Ta ville n'est pas dans la liste ? Tape-la quand même !</i>")
+        lines.append("<i>Ex: <code>/localisationboite istanbul</code>, <code>/localisationboite montreal</code>...</i>")
+
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
         return
 
-    chosen = context.args[0].lower().replace("-", "_")
-    if chosen not in CITIES:
-        await update.message.reply_text(
-            f"❌ Ville <b>{chosen}</b> inconnue.\n"
-            f"💡 Liste : <code>/localisationboite</code>",
+    if not row:
+        await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
+        return
+
+    _, company = row
+    chosen = " ".join(context.args).lower().strip().replace("-", "_").replace(" ", "_")
+
+    # ── Ville dans la liste de base → IA quand même pour la description ──
+    if chosen in CITIES:
+        flag, city_label = CITIES[chosen]
+        thinking_msg = await update.message.reply_text("🌆 Localisation en cours...")
+        result = await _resolve_city_ai(city_label, company.name)
+
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                text("UPDATE companies SET city = :city WHERE id = :cid"),
+                {"city": chosen, "cid": company.id}
+            )
+            await session.commit()
+
+        desc = result.get("description", "") if result else ""
+        lines = [f"✅ <b>{company.name}</b> est localisée à {flag} <b>{city_label}</b> !"]
+        if desc:
+            lines.append(f"\n{desc}")
+        await thinking_msg.edit_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    # ── Ville hors liste → appel IA ──
+    thinking_msg = await update.message.reply_text("🌆 Vérification de la ville en cours...")
+    result = await _resolve_city_ai(chosen.replace("_", " "), company.name)
+
+    if not result or not result.get("valid", False):
+        await thinking_msg.edit_text(
+            f"❌ Ville <b>{chosen.replace('_', ' ').title()}</b> non reconnue.\n"
+            f"💡 Essaie autrement ou tape <code>/localisationboite</code> pour la liste.",
             parse_mode="HTML"
         )
         return
 
+    final_flag  = result.get("flag", "🌍")
+    final_label = result.get("label", chosen.replace("_", " ").title())
+    country     = result.get("country", "")
+    desc        = result.get("description", "")
+
+    # Stocker ville_label en DB (slug)
+    city_slug = final_label.lower().replace(" ", "_")[:50]
     async with AsyncSessionLocal() as session:
-        r = await session.execute(
-            select(CompanyEmployee, Company).join(
-                Company, Company.id == CompanyEmployee.company_id
-            ).where(
-                CompanyEmployee.user_id == user.id,
-                CompanyEmployee.left_at == None,
-                Company.is_active == True,
-                CompanyEmployee.role == "pdg",
-            )
-        )
-        row = r.first()
-
-        if not row:
-            await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
-            return
-
-        emp, company = row
         await session.execute(
             text("UPDATE companies SET city = :city WHERE id = :cid"),
-            {"city": chosen, "cid": company.id}
+            {"city": city_slug, "cid": company.id}
         )
         await session.commit()
 
-    flag, city_label = CITIES[chosen]
-    await update.message.reply_text(
-        f"✅ <b>{company.name}</b> est maintenant localisée à {flag} <b>{city_label}</b> !",
-        parse_mode="HTML"
-    )
+    lines = [f"✅ <b>{company.name}</b> est localisée à {final_flag} <b>{final_label}</b>"]
+    if country:
+        lines.append(f"🗺️ Pays : <b>{country}</b>")
+    if desc:
+        lines.append(f"\n{desc}")
+    await thinking_msg.edit_text("\n".join(lines), parse_mode="HTML")
 
 
 # ─── JOB : IMPÔTS JOUEURS (0.05% par cycle, PDG exonérés) ────────────────────

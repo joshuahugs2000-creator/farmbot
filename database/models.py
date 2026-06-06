@@ -54,6 +54,7 @@ class User(Base):
 
     # ─── AVATAR ───────────────────────────────────────────────────────────────
     avatar_data     = Column(Text, nullable=True)          # JSON stocké côté serveur
+    nationality     = Column(String(50), nullable=True)        # nationalite choisie par le joueur
 
     # ─── ACTIVITÉ GLOBALE ─────────────────────────────────────────────────────
     total_commands  = Column(BigInteger, default=0)        # compteur cumulatif, jamais réinitialisé
@@ -268,6 +269,7 @@ class Company(Base):
     weekly_revenue  = Column(BigInteger, default=0)              # revenus nets de la semaine (reset après dividendes lundi)
     treasury_frozen = Column(Boolean, default=False)             # trésorerie gelée par l'agence fiscale
     tax_debt        = Column(BigInteger, default=0)              # total impôts impayés cumulés
+    city            = Column(String(50), nullable=True)              # localisation géographique
 
 
 class CompanyEmployee(Base):
@@ -435,3 +437,28 @@ class BureauContrat(Base):
     ends_at        = Column(DateTime, nullable=True)
     status         = Column(String(20), default="pending")      # pending / active / completed / failed
     created_at     = Column(DateTime, default=datetime.utcnow)
+
+
+# ─── BÂTIMENTS D'ENTREPRISE ───────────────────────────────────────────────────
+
+class CompanyBuilding(Base):
+    __tablename__ = "company_buildings"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    company_id  = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    building_type = Column(String(50), nullable=False)   # siege, entrepot, salle_reunion, ...
+    status      = Column(String(20), default="active")   # active | suspended
+    purchased_at = Column(DateTime, default=datetime.utcnow)
+    last_maintenance = Column(DateTime, nullable=True)
+
+
+# ─── FILIALES ─────────────────────────────────────────────────────────────────
+
+class CompanyAnnex(Base):
+    __tablename__ = "company_annexes"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    parent_id    = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    child_id     = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    director_id  = Column(BigInteger, ForeignKey("users.user_id"), nullable=True)  # directeur nommé
+    revenue_pct  = Column(Float, default=15.0)   # % reversé à la maison mère chaque jour
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    is_active    = Column(Boolean, default=True)

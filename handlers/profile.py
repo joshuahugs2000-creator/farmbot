@@ -120,6 +120,20 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gender_label = gender.capitalize() if gender else "Non défini"
     marry_emoji  = "❤️" if marriage_type == "monogame" else "💞"
 
+    # ── Nationalité ───────────────────────────────────────────────────────────
+    try:
+        from handlers.nationality import NATIONALITIES as _NATS
+        _nat_key = getattr(u, "nationality", None)
+        if _nat_key and _nat_key in _NATS:
+            _nat_flag, _nat_label = _NATS[_nat_key]
+            nat_str = f"{_nat_flag} <b>{_nat_label}</b>"
+        elif _nat_key:
+            nat_str = f"🌍 <b>{_nat_key.replace('_', ' ').capitalize()}</b>"
+        else:
+            nat_str = "<i>Non définie — /nationalite</i>"
+    except Exception:
+        nat_str = "<i>Non définie — /nationalite</i>"
+
     lines = [
         f"",
         f"「 {color_dot} 」<b>{update.effective_user.first_name}</b>",
@@ -133,6 +147,9 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"",
         f"  {gender_emoji} <b>GENRE</b>  ┊  {marry_emoji} <i>{marriage_type.capitalize()}</i>",
         f"  ╰┈➤  <b>{gender_label}</b>  <i>(/setsexe · /setmariage)</i>",
+        f"",
+        f"  🌍 <b>NATIONALITÉ</b>",
+        f"  ╰┈➤  {nat_str}",
         f"",
         f"  🏠 <b>FAMILLE</b>",
         f"  ╰┈➤  {fam_display}{fam_size_str}",

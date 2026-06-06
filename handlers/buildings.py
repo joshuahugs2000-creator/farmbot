@@ -142,8 +142,28 @@ def _building_maintenance(btype: str, company_level: int) -> int:
 
 
 async def _get_pdg_company(session, user_id: int):
-    """Retourne (Company, CompanyEmployee) si l'user est PDG d'une entreprise active."""
+    """Retourne (Company, CompanyEmployee) si l'user est PDG d'une entreprise active.
+    Exclut les filiales pour le PDG mère — retourne toujours l'entreprise principale."""
+    from database.models import CompanyAnnex
+    from sqlalchemy import select as _select
+    filiale_ids = _select(CompanyAnnex.child_id)
+
     r = await session.execute(
+        select(CompanyEmployee, Company).join(
+            Company, Company.id == CompanyEmployee.company_id
+        ).where(
+            CompanyEmployee.user_id == user_id,
+            CompanyEmployee.left_at == None,
+            Company.is_active == True,
+            CompanyEmployee.role == "pdg",
+            Company.id.not_in(filiale_ids),
+        )
+    )
+    row = r.first()
+    if row:
+        return row[1], row[0]
+    # Fallback : si pas trouvé hors filiales (il EST pdg d'une filiale), retourner quand même
+    r2 = await session.execute(
         select(CompanyEmployee, Company).join(
             Company, Company.id == CompanyEmployee.company_id
         ).where(
@@ -153,9 +173,9 @@ async def _get_pdg_company(session, user_id: int):
             CompanyEmployee.role == "pdg",
         )
     )
-    row = r.first()
-    if row:
-        return row[1], row[0]
+    row2 = r2.first()
+    if row2:
+        return row2[1], row2[0]
     return None, None
 
 
@@ -698,14 +718,19 @@ async def nommerdir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )).scalar_one_or_none()
 
         if existing_in_filiale:
-            existing_in_filiale.role = "directeur"
+            existing_in_filiale.role = "pdg"
         else:
             new_dir_emp = CompanyEmployee(
                 company_id=filiale_obj.id,
                 user_id=target.user_id,
-                role="directeur",
+                role="pdg",
             )
             session.add(new_dir_emp)
+
+        # ── CLEF DU FIX : le directeur devient owner_id de la filiale ──
+        # Il est ainsi reconnu comme PDG à part entière par toutes les commandes
+        # La maison mère reste propriétaire légal via company_annexes
+        filiale_obj.owner_id = target.user_id
 
         # Mettre à jour l'annex
         target_annex.director_id = target.user_id
@@ -716,14 +741,15 @@ async def nommerdir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=target.user_id,
                 text=(
-                    f"🎖️ <b>Tu es nommé(e) Directeur(ice) de filiale !</b>\n\n"
+                    f"🎖️ <b>Tu es nommé(e) PDG de filiale !</b>\n\n"
                     f"🏢 Maison mère : <b>{parent_company.name}</b>\n"
                     f"🏪 Filiale dont tu prends la direction : <b>{filiale_obj.name}</b>\n"
                     f"📊 Reversement vers la mère : <b>{target_annex.revenue_pct}%</b>/jour\n\n"
-                    f"✅ Tu peux désormais : recruter, licencier, verser les salaires,\n"
-                    f"   déposer/retirer en trésorerie, passer des contrats.\n"
-                    f"❌ Tu ne peux PAS : dissoudre la filiale, la céder, créer des sous-filiales,\n"
-                    f"   ni retirer plus de 20% de la trésorerie par semaine."
+                    f"✅ Tu es PDG à part entière de ta filiale :\n"
+                    f"   recruter, licencier, verser les salaires, passer des contrats,\n"
+                    f"   déposer/retirer en trésorerie, acheter des bâtiments...\n"
+                    f"❌ Tu ne peux PAS : dissoudre la filiale, la céder à quelqu'un d'autre,\n"
+                    f"   créer des sous-filiales, ni retirer plus de 20% de la trésorerie par semaine."
                 ),
                 parse_mode="HTML"
             )
@@ -855,7 +881,7 @@ async def retirerfiliale_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
-        # Rétrograder le directeur dans la filiale (il reste employé)
+        # Rétrograder le directeur (ex-PDG de filiale) → employé simple
         if target_annex.director_id:
             dir_emp = (await session.execute(
                 select(CompanyEmployee).where(
@@ -866,6 +892,9 @@ async def retirerfiliale_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )).scalar_one_or_none()
             if dir_emp:
                 dir_emp.role = "employe"
+
+        # Remettre owner_id au PDG mère (la filiale redevient sa propriété légale)
+        filiale_obj.owner_id = user.id
 
         # Désactiver le lien filiale
         target_annex.is_active = False

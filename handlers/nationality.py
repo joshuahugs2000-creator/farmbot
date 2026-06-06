@@ -66,38 +66,144 @@ async def _call_gemini(prompt: str) -> str | None:
 # ─── LISTE DE BASE DES NATIONALITÉS ──────────────────────────────────────────
 
 NATIONALITIES = {
-    "togolaise":    ("🇹🇬", "Togolaise"),
-    "beninoise":    ("🇧🇯", "Béninoise"),
-    "ivoirienne":   ("🇨🇮", "Ivoirienne"),
-    "senegalaise":  ("🇸🇳", "Sénégalaise"),
-    "camerounaise": ("🇨🇲", "Camerounaise"),
-    "malienne":     ("🇲🇱", "Malienne"),
-    "burkinabe":    ("🇧🇫", "Burkinabè"),
-    "ghaneenne":    ("🇬🇭", "Ghanéenne"),
-    "nigeriane":    ("🇳🇬", "Nigériane"),
-    "congolaise":   ("🇨🇬", "Congolaise"),
-    "gabonaise":    ("🇬🇦", "Gabonaise"),
-    "malgache":     ("🇲🇬", "Malgache"),
-    "marocaine":    ("🇲🇦", "Marocaine"),
-    "algerienne":   ("🇩🇿", "Algérienne"),
-    "tunisienne":   ("🇹🇳", "Tunisienne"),
-    "egyptienne":   ("🇪🇬", "Égyptienne"),
-    "francaise":    ("🇫🇷", "Française"),
-    "belge":        ("🇧🇪", "Belge"),
-    "suisse":       ("🇨🇭", "Suisse"),
-    "allemande":    ("🇩🇪", "Allemande"),
-    "anglaise":     ("🇬🇧", "Anglaise"),
-    "espagnole":    ("🇪🇸", "Espagnole"),
-    "italienne":    ("🇮🇹", "Italienne"),
-    "americaine":   ("🇺🇸", "Américaine"),
-    "canadienne":   ("🇨🇦", "Canadienne"),
-    "bresilienne":  ("🇧🇷", "Brésilienne"),
-    "mexicaine":    ("🇲🇽", "Mexicaine"),
-    "japonaise":    ("🇯🇵", "Japonaise"),
-    "chinoise":     ("🇨🇳", "Chinoise"),
-    "indienne":     ("🇮🇳", "Indienne"),
-    "emiratie":     ("🇦🇪", "Émiratie"),
-    "apatride":     ("🌍", "Apatride"),
+    # ── Afrique ──
+    "togolaise":          ("🇹🇬", "Togolaise"),
+    "beninoise":          ("🇧🇯", "Béninoise"),
+    "ivoirienne":         ("🇨🇮", "Ivoirienne"),
+    "senegalaise":        ("🇸🇳", "Sénégalaise"),
+    "camerounaise":       ("🇨🇲", "Camerounaise"),
+    "malienne":           ("🇲🇱", "Malienne"),
+    "burkinabe":          ("🇧🇫", "Burkinabè"),
+    "ghaneenne":          ("🇬🇭", "Ghanéenne"),
+    "nigeriane":          ("🇳🇬", "Nigériane"),
+    "nigerienne":         ("🇳🇪", "Nigérienne"),
+    "congolaise_brazza":  ("🇨🇬", "Congolaise 🇨🇬 (Congo-Brazzaville)"),
+    "congolaise_rdc":     ("🇨🇩", "Congolaise 🇨🇩 (RD Congo-Kinshasa)"),
+    "gabonaise":          ("🇬🇦", "Gabonaise"),
+    "malgache":           ("🇲🇬", "Malgache"),
+    "marocaine":          ("🇲🇦", "Marocaine"),
+    "algerienne":         ("🇩🇿", "Algérienne"),
+    "tunisienne":         ("🇹🇳", "Tunisienne"),
+    "egyptienne":         ("🇪🇬", "Égyptienne"),
+    "guineenne_conakry":  ("🇬🇳", "Guinéenne 🇬🇳 (Guinée-Conakry)"),
+    "guineenne_bissau":   ("🇬🇼", "Guinéenne 🇬🇼 (Guinée-Bissau)"),
+    "guineenne_eq":       ("🇬🇶", "Équato-Guinéenne 🇬🇶"),
+    "centrafricaine":     ("🇨🇫", "Centrafricaine"),
+    "tchadienne":         ("🇹🇩", "Tchadienne"),
+    "rwandaise":          ("🇷🇼", "Rwandaise"),
+    "burundaise":         ("🇧🇮", "Burundaise"),
+    "tanzanienne":        ("🇹🇿", "Tanzanienne"),
+    "kenyane":            ("🇰🇪", "Kenyane"),
+    "ougandaise":         ("🇺🇬", "Ougandaise"),
+    "ethiopienne":        ("🇪🇹", "Éthiopienne"),
+    "somalienne":         ("🇸🇴", "Somalienne"),
+    "angolaise":          ("🇦🇴", "Angolaise"),
+    "mozambicaine":       ("🇲🇿", "Mozambicaine"),
+    "zimbabweenne":       ("🇿🇼", "Zimbabwéenne"),
+    "zambienne":          ("🇿🇲", "Zambienne"),
+    "sud_africaine":      ("🇿🇦", "Sud-Africaine"),
+    "namibienne":         ("🇳🇦", "Namibienne"),
+    "botswanaise":        ("🇧🇼", "Botswanaise"),
+    "mauritanienne":      ("🇲🇷", "Mauritanienne"),
+    "cap_verdienne":      ("🇨🇻", "Cap-Verdienne"),
+    "djiboutienne":       ("🇩🇯", "Djiboutienne"),
+    "comorienne":         ("🇰🇲", "Comorienne"),
+    "seychelloise":       ("🇸🇨", "Seychelloise"),
+    "mauricienne":        ("🇲🇺", "Mauricienne"),
+    # ── Europe ──
+    "francaise":          ("🇫🇷", "Française"),
+    "belge":              ("🇧🇪", "Belge"),
+    "suisse":             ("🇨🇭", "Suisse"),
+    "allemande":          ("🇩🇪", "Allemande"),
+    "anglaise":           ("🇬🇧", "Anglaise"),
+    "espagnole":          ("🇪🇸", "Espagnole"),
+    "italienne":          ("🇮🇹", "Italienne"),
+    "portugaise":         ("🇵🇹", "Portugaise"),
+    "neerlandaise":       ("🇳🇱", "Néerlandaise"),
+    "grecque":            ("🇬🇷", "Grecque"),
+    "polonaise":          ("🇵🇱", "Polonaise"),
+    "russe":              ("🇷🇺", "Russe"),
+    "ukrainienne":        ("🇺🇦", "Ukrainienne"),
+    "turque":             ("🇹🇷", "Turque"),
+    "suedoise":           ("🇸🇪", "Suédoise"),
+    "norvegienne":        ("🇳🇴", "Norvégienne"),
+    "danoise":            ("🇩🇰", "Danoise"),
+    "finlandaise":        ("🇫🇮", "Finlandaise"),
+    "autrichienne":       ("🇦🇹", "Autrichienne"),
+    "roumaine":           ("🇷🇴", "Roumaine"),
+    "hongroise":          ("🇭🇺", "Hongroise"),
+    "tcheque":            ("🇨🇿", "Tchèque"),
+    "serbe":              ("🇷🇸", "Serbe"),
+    "croate":             ("🇭🇷", "Croate"),
+    # ── Amériques ──
+    "americaine":         ("🇺🇸", "Américaine"),
+    "canadienne":         ("🇨🇦", "Canadienne"),
+    "bresilienne":        ("🇧🇷", "Brésilienne"),
+    "mexicaine":          ("🇲🇽", "Mexicaine"),
+    "argentine":          ("🇦🇷", "Argentine"),
+    "colombienne":        ("🇨🇴", "Colombienne"),
+    "chilienne":          ("🇨🇱", "Chilienne"),
+    "peruvienne":         ("🇵🇪", "Péruvienne"),
+    "venezuelienne":      ("🇻🇪", "Vénézuélienne"),
+    "cubaine":            ("🇨🇺", "Cubaine"),
+    "haitienne":          ("🇭🇹", "Haïtienne"),
+    # ── Asie & Moyen-Orient ──
+    "japonaise":          ("🇯🇵", "Japonaise"),
+    "chinoise":           ("🇨🇳", "Chinoise"),
+    "indienne":           ("🇮🇳", "Indienne"),
+    "emiratie":           ("🇦🇪", "Émiratie"),
+    "saoudienne":         ("🇸🇦", "Saoudienne"),
+    "qatarie":            ("🇶🇦", "Qatarie"),
+    "coree_sud":          ("🇰🇷", "Coréenne 🇰🇷 (Sud)"),
+    "coree_nord":         ("🇰🇵", "Coréenne 🇰🇵 (Nord)"),
+    "vietnamienne":       ("🇻🇳", "Vietnamienne"),
+    "thai":               ("🇹🇭", "Thaïlandaise"),
+    "indonesienne":       ("🇮🇩", "Indonésienne"),
+    "malaisienne":        ("🇲🇾", "Malaisienne"),
+    "philippine":         ("🇵🇭", "Philippine"),
+    "pakistanaise":       ("🇵🇰", "Pakistanaise"),
+    "bangladaise":        ("🇧🇩", "Bangladaise"),
+    "iranienne":          ("🇮🇷", "Iranienne"),
+    "israelienne":        ("🇮🇱", "Israélienne"),
+    "libanaise":          ("🇱🇧", "Libanaise"),
+    # ── Autres ──
+    "australienne":       ("🇦🇺", "Australienne"),
+    "neo_zelandaise":     ("🇳🇿", "Néo-Zélandaise"),
+    "apatride":           ("🌍", "Apatride"),
+}
+
+# ─── NATIONALITÉS AMBIGUËS ────────────────────────────────────────────────────
+AMBIGUOUS = {
+    "congolaise": [
+        ("congolaise_brazza", "🇨🇬", "Congolaise — Congo-Brazzaville"),
+        ("congolaise_rdc",    "🇨🇩", "Congolaise — RD Congo (Kinshasa)"),
+    ],
+    "guineenne": [
+        ("guineenne_conakry", "🇬🇳", "Guinéenne — Guinée-Conakry"),
+        ("guineenne_bissau",  "🇬🇼", "Guinéenne — Guinée-Bissau"),
+        ("guineenne_eq",      "🇬🇶", "Équato-Guinéenne"),
+    ],
+    "guineene": [
+        ("guineenne_conakry", "🇬🇳", "Guinéenne — Guinée-Conakry"),
+        ("guineenne_bissau",  "🇬🇼", "Guinéenne — Guinée-Bissau"),
+        ("guineenne_eq",      "🇬🇶", "Équato-Guinéenne"),
+    ],
+    "nigerienne": [
+        ("nigerienne",  "🇳🇪", "Nigérienne — Niger"),
+        ("nigeriane",   "🇳🇬", "Nigériane — Nigeria"),
+    ],
+    "nigeriane": [
+        ("nigeriane",   "🇳🇬", "Nigériane — Nigeria"),
+        ("nigerienne",  "🇳🇪", "Nigérienne — Niger"),
+    ],
+    "coreenne": [
+        ("coree_sud",  "🇰🇷", "Coréenne — Corée du Sud"),
+        ("coree_nord", "🇰🇵", "Coréenne — Corée du Nord"),
+    ],
+    "coreen": [
+        ("coree_sud",  "🇰🇷", "Coréen — Corée du Sud"),
+        ("coree_nord", "🇰🇵", "Coréen — Corée du Nord"),
+    ],
 }
 
 # ─── LISTE DES VILLES ────────────────────────────────────────────────────────
@@ -210,29 +316,59 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "",
             "🌍 <b>Afrique :</b>",
         ]
-        afrique  = ["togolaise","beninoise","ivoirienne","senegalaise","camerounaise",
-                    "malienne","burkinabe","ghaneenne","nigeriane","congolaise","gabonaise",
-                    "malgache","marocaine","algerienne","tunisienne","egyptienne"]
-        europe   = ["francaise","belge","suisse","allemande","anglaise","espagnole","italienne"]
-        ameriques= ["americaine","canadienne","bresilienne","mexicaine"]
-        asie     = ["japonaise","chinoise","indienne","emiratie","apatride"]
+        afrique = [
+            "togolaise","beninoise","ivoirienne","senegalaise","camerounaise",
+            "malienne","burkinabe","ghaneenne","nigeriane","nigerienne",
+            "congolaise_brazza","congolaise_rdc","gabonaise","malgache",
+            "marocaine","algerienne","tunisienne","egyptienne",
+            "guineenne_conakry","guineenne_bissau","guineenne_eq",
+            "centrafricaine","tchadienne","rwandaise","burundaise",
+            "tanzanienne","kenyane","ougandaise","ethiopienne",
+            "angolaise","sud_africaine","mauritanienne","cap_verdienne",
+            "djiboutienne","comorienne","mauricienne",
+        ]
+        europe = [
+            "francaise","belge","suisse","allemande","anglaise","espagnole",
+            "italienne","portugaise","neerlandaise","grecque","polonaise",
+            "russe","ukrainienne","turque","suedoise","norvegienne",
+            "danoise","finlandaise","autrichienne","roumaine",
+        ]
+        ameriques = [
+            "americaine","canadienne","bresilienne","mexicaine",
+            "argentine","colombienne","chilienne","peruvienne","haitienne",
+        ]
+        asie = [
+            "japonaise","chinoise","indienne","emiratie","saoudienne","qatarie",
+            "coree_sud","coree_nord","vietnamienne","thai","indonesienne",
+            "malaisienne","pakistanaise","iranienne","israelienne","libanaise",
+            "australienne","apatride",
+        ]
 
         for nat in afrique:
+            if nat not in NATIONALITIES:
+                continue
             flag, label = NATIONALITIES[nat]
             lines.append(f"  {flag} <code>/nationalite {nat}</code> — {label}")
         lines.append("\n🌍 <b>Europe :</b>")
         for nat in europe:
+            if nat not in NATIONALITIES:
+                continue
             flag, label = NATIONALITIES[nat]
             lines.append(f"  {flag} <code>/nationalite {nat}</code> — {label}")
         lines.append("\n🌍 <b>Amériques :</b>")
         for nat in ameriques:
+            if nat not in NATIONALITIES:
+                continue
             flag, label = NATIONALITIES[nat]
             lines.append(f"  {flag} <code>/nationalite {nat}</code> — {label}")
-        lines.append("\n🌍 <b>Asie & autres :</b>")
+        lines.append("\n🌍 <b>Asie & Océanie :</b>")
         for nat in asie:
+            if nat not in NATIONALITIES:
+                continue
             flag, label = NATIONALITIES[nat]
             lines.append(f"  {flag} <code>/nationalite {nat}</code> — {label}")
 
+        lines.append("\n⚠️ <i>Pour les pays ambigus (Congo, Guinée, Corée...) le bot te demandera de préciser.</i>")
         lines.append("\n💡 <i>Ton pays n'est pas dans la liste ? Tape-le quand même !</i>")
         lines.append("<i>Ex: <code>/nationalite russe</code>, <code>/nationalite portugaise</code>...</i>")
 
@@ -240,7 +376,21 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── Choisir une nationalité ──
-    chosen = " ".join(context.args).lower().strip().replace("-", "_")
+    chosen = " ".join(context.args).lower().strip().replace("-", "_").replace(" ", "_")
+
+    # ── Détection des ambiguïtés AVANT tout traitement ──
+    if chosen in AMBIGUOUS:
+        options = AMBIGUOUS[chosen]
+        lines = [
+            f"❓ <b>« {chosen.replace('_', ' ').capitalize()} »</b> peut désigner plusieurs pays :",
+            "",
+        ]
+        for slug, emoji, label in options:
+            lines.append(f"{emoji} <code>/nationalite {slug}</code> — {label}")
+        lines.append("")
+        lines.append("👆 Tape la commande correspondant à ton pays.")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
 
     CHANGE_COST = 10_000_000_000  # 10B
 

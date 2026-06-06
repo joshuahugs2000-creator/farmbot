@@ -251,15 +251,10 @@ async def _generate_contracts(company: Company, employees: int) -> list[dict]:
 async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     async with AsyncSessionLocal() as session:
-        company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-                Company.is_bot_company == False,
-            )
-        )).scalar_one_or_none()
+        from database.db import get_main_company
+        company = await get_main_company(session, user.id)
 
-        if not company:
+        if not company or company.is_bot_company:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
             return
 
@@ -367,7 +362,7 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # ── Phase 1 : lecture seule ───────────────────────────────────────────────
     async with AsyncSessionLocal() as session:
         comp_row = (await session.execute(
-            text("SELECT id, name FROM companies WHERE owner_id=:uid AND is_active=TRUE LIMIT 1"),
+            text("SELECT id, name FROM companies WHERE owner_id=:uid AND is_active=TRUE AND id NOT IN (SELECT child_id FROM company_annexes) LIMIT 1"),
             {"uid": user.id}
         )).fetchone()
         if not comp_row:
@@ -471,13 +466,8 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     async with AsyncSessionLocal() as session:
-        # PDG ou directeur de filiale
-        company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-            )
-        )).scalar_one_or_none()
+        from database.db import get_main_company
+        company = await get_main_company(session, user.id)
 
         if not company:
             # Chercher si directeur de filiale
@@ -569,7 +559,9 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     WHERE (owner_id=:uid OR id IN (
                         SELECT company_id FROM company_employees
                         WHERE user_id=:uid AND role='directeur' AND left_at IS NULL
-                    )) AND is_active=TRUE LIMIT 1
+                    )) AND is_active=TRUE
+                    AND id NOT IN (SELECT child_id FROM company_annexes WHERE owner_id=:uid)
+                    LIMIT 1
                 """),
                 {"uid": user.id}
             )).fetchone()

@@ -4121,6 +4121,8 @@ async def negociercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # Si premier arg = @pseudo → c'est forcément un PDG qui initie
         # On cherche la boite où il est PDG
+        target_user = None
+        target_emp_found = None
         if args and args[0].startswith("@"):
             pdg_rows = (await session.execute(
                 select(CompanyEmployee, Company).join(
@@ -4155,6 +4157,7 @@ async def negociercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )).scalar_one_or_none()
                 if _target_emp:
                     company, emp = _company, _emp
+                    target_emp_found = _target_emp
                     break
             if not company:
                 await update.message.reply_text(
@@ -4285,26 +4288,13 @@ async def negociercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("❌ Seul le PDG peut initier une négociation.")
             return
 
-        mention = args[0].lstrip("@")
         subcmd_pdg = args[1].lower() if len(args) > 1 else ""
 
-        target_user = (await session.execute(
-            select(User).where(User.username == mention)
-        )).scalar_one_or_none()
-        if not target_user:
-            await update.message.reply_text(f"❌ @{mention} introuvable.")
+        # target_user et target_emp_found déjà résolus dans le bloc @mention ci-dessus
+        if not target_user or not target_emp_found:
+            await update.message.reply_text("❌ Cible introuvable.")
             return
-
-        target_emp = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.user_id == target_user.user_id,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalar_one_or_none()
-        if not target_emp:
-            await update.message.reply_text(f"❌ {target_user.first_name} n'est pas dans ton entreprise.")
-            return
+        target_emp = target_emp_found
 
         # PDG refuse une contre-proposition
         if subcmd_pdg == "refuser":

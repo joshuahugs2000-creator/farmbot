@@ -128,13 +128,10 @@ async def payerimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         # Trouver l'entreprise dont l'user est PDG
-        company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-                Company.is_bot_company == False,
-            )
-        )).scalar_one_or_none()
+        from database.db import get_main_company
+        company = await get_main_company(session, user.id)
+        if company and company.is_bot_company:
+            company = None
 
         if not company:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
@@ -377,13 +374,10 @@ async def mesimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     async with AsyncSessionLocal() as session:
-        company = (await session.execute(
-            select(Company).where(
-                Company.owner_id == user.id,
-                Company.is_active == True,
-                Company.is_bot_company == False,
-            )
-        )).scalar_one_or_none()
+        from database.db import get_main_company
+        company = await get_main_company(session, user.id)
+        if company and company.is_bot_company:
+            company = None
 
         if not company:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")

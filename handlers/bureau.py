@@ -471,6 +471,7 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     async with AsyncSessionLocal() as session:
+        # PDG ou directeur de filiale
         company = (await session.execute(
             select(Company).where(
                 Company.owner_id == user.id,
@@ -479,8 +480,23 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )).scalar_one_or_none()
 
         if not company:
-            await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
-            return
+            # Chercher si directeur de filiale
+            from database.models import CompanyEmployee
+            row = (await session.execute(
+                select(CompanyEmployee, Company).join(
+                    Company, Company.id == CompanyEmployee.company_id
+                ).where(
+                    CompanyEmployee.user_id == user.id,
+                    CompanyEmployee.role == "directeur",
+                    CompanyEmployee.left_at == None,
+                    Company.is_active == True,
+                )
+            )).first()
+            if row:
+                _, company = row
+            else:
+                await update.message.reply_text("❌ Tu n'es PDG ni directeur d'aucune entreprise.")
+                return
 
         contracts = (await session.execute(
             select(BureauContrat).where(
@@ -548,11 +564,17 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # ── Phase 1 : lecture seule ───────────────────────────────────────────
         async with AsyncSessionLocal() as s:
             row = (await s.execute(
-                text("SELECT id, treasury FROM companies WHERE owner_id=:uid AND is_active=TRUE LIMIT 1"),
+                text("""
+                    SELECT id, treasury FROM companies
+                    WHERE (owner_id=:uid OR id IN (
+                        SELECT company_id FROM company_employees
+                        WHERE user_id=:uid AND role='directeur' AND left_at IS NULL
+                    )) AND is_active=TRUE LIMIT 1
+                """),
                 {"uid": user.id}
             )).fetchone()
             if not row:
-                await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
+                await update.message.reply_text("❌ Tu n'es PDG ni directeur d'aucune entreprise.")
                 return
             company_id = int(row[0])
             treasury_now = int(row[1] or 0)

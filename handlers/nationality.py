@@ -270,39 +270,67 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await session.commit()
 
-    # 1. Dans la liste de base → traitement direct
+    # 1. Dans la liste de base OU hors liste → toujours passer par l'IA pour le fun fact
     if chosen in NATIONALITIES:
         flag, label = NATIONALITIES[chosen]
+    else:
+        flag, label = None, None
+
+    # Toujours appeler l'IA pour avoir le fun fact
+    thinking_msg = await update.message.reply_text("🌍 Vérification en cours...")
+
+    # Pour les nationalités de la liste, on fournit déjà flag+label à l'IA
+    result = await _resolve_nationality_ai(chosen, user.first_name)
+
+    if result is None or (flag is None and not result.get("valid", False)):
+        if flag is None:
+            await thinking_msg.edit_text(
+                f"❌ Nationalité <b>{chosen}</b> non reconnue.\n"
+                f"💡 Utilise <code>/nationalite</code> pour voir la liste.",
+                parse_mode="HTML"
+            )
+            return
+        # IA indisponible mais nationalité connue → afficher sans fun fact
         async with AsyncSessionLocal() as session:
             await session.execute(
                 text("UPDATE users SET nationality = :nat WHERE user_id = :uid"),
                 {"nat": chosen, "uid": user.id}
             )
             await session.commit()
-
         paid_str = f"\n💸 <b>-10 000 000 000 💰</b> débités." if current_nat else ""
-        await update.message.reply_text(
+        await thinking_msg.edit_text(
             f"✅ Nationalité définie : {flag} <b>{label}</b>{paid_str}\n\n"
             f"🌍 Tu représentes fièrement ton pays dans Your family ❤️, {user.first_name} !",
             parse_mode="HTML"
         )
         return
 
-    # 2. Hors liste → on envoie à l'IA
-    thinking_msg = await update.message.reply_text("🌍 Vérification en cours...")
+    # IA a répondu
+    if result.get("valid", False) or flag is not None:
+        # Priorité au flag/label de la liste si connus, sinon prendre ceux de l'IA
+        final_flag  = flag  or result.get("flag",  "🌍")
+        final_label = label or result.get("label", chosen.capitalize())
+        fun_fact   = result.get("fun_fact",   "")
+        bonus_hint = result.get("bonus_hint", "")
 
-    result = await _resolve_nationality_ai(chosen, user.first_name)
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                text("UPDATE users SET nationality = :nat WHERE user_id = :uid"),
+                {"nat": chosen[:50], "uid": user.id}
+            )
+            await session.commit()
 
-    if result is None:
-        # IA indisponible → fallback liste
-        await thinking_msg.edit_text(
-            f"❌ Nationalité <b>{chosen}</b> non reconnue.\n"
-            f"💡 Utilise <code>/nationalite</code> pour voir la liste.",
-            parse_mode="HTML"
-        )
+        paid_str = f"\n💸 <b>-10 000 000 000 💰</b> débités." if current_nat else ""
+        lines = [f"✅ Nationalité définie : {final_flag} <b>{final_label}</b>{paid_str}", ""]
+        if fun_fact:
+            lines.append(fun_fact)
+        if bonus_hint:
+            lines.append(bonus_hint)
+        lines.append("")
+        lines.append(f"🌍 Bienvenue dans Your family ❤️, {user.first_name} !")
+        await thinking_msg.edit_text("\n".join(lines), parse_mode="HTML")
         return
-
-    if not result.get("valid", False):
+    else:
         await thinking_msg.edit_text(
             f"❌ <b>{chosen.capitalize()}</b> ne correspond à aucun pays reconnu.\n"
             f"💡 Essaie autrement ou tape <code>/nationalite</code> pour la liste.",
@@ -310,42 +338,7 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # IA a validé → sauvegarder
-    flag  = result.get("flag", "🌍")
-    label = result.get("label", chosen.capitalize())
-    fun_fact    = result.get("fun_fact", "")
-    bonus_hint  = result.get("bonus_hint", "")
 
-    # On stocke la clé normalisée + le label pour l'affichage futur
-    nat_key = chosen[:50]  # max 50 chars en DB
-
-    async with AsyncSessionLocal() as session:
-        # Essayer de stocker aussi le label si la colonne existe
-        try:
-            await session.execute(
-                text("UPDATE users SET nationality = :nat WHERE user_id = :uid"),
-                {"nat": nat_key, "uid": user.id}
-            )
-        except Exception:
-            await session.execute(
-                text("UPDATE users SET nationality = :nat WHERE user_id = :uid"),
-                {"nat": nat_key, "uid": user.id}
-            )
-        await session.commit()
-
-    paid_str = "\n💸 <b>-10 000 000 000 💰</b> débités." if current_nat else ""
-    lines = [
-        f"✅ Nationalité définie : {flag} <b>{label}</b>{paid_str}",
-        "",
-    ]
-    if fun_fact:
-        lines.append(fun_fact)
-    if bonus_hint:
-        lines.append(bonus_hint)
-    lines.append("")
-    lines.append(f"🌍 Bienvenue dans Your family ❤️, {user.first_name} !")
-
-    await thinking_msg.edit_text("\n".join(lines), parse_mode="HTML")
 
 
 # ─── COMMANDE : /localisationboite [ville] ───────────────────────────────────

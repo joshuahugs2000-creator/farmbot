@@ -125,20 +125,14 @@ async def _get_or_create_settings(session, company_id: int) -> CompanySettings:
 async def _get_user_company(session, user_id: int):
     """
     Retourne (Company, role) pour un PDG ou un directeur de filiale.
-    role = 'pdg' ou 'directeur'
-    Retourne (None, None) si l'user n'a aucun droit de gestion.
+    Exclut les filiales de la recherche PDG pour éviter MultipleResultsFound.
     """
-    # 1. PDG classique (owner_id)
-    company = (await session.execute(
-        select(Company).where(
-            Company.owner_id == user_id,
-            Company.is_active == True,
-        )
-    )).scalar_one_or_none()
+    from database.db import get_main_company
+    company = await get_main_company(session, user_id)
     if company:
         return company, "pdg"
 
-    # 2. Directeur de filiale
+    # Directeur de filiale
     row = (await session.execute(
         select(CompanyEmployee, Company).join(
             Company, Company.id == CompanyEmployee.company_id

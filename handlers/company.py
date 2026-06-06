@@ -798,6 +798,19 @@ async def listeboites_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ─── COMMANDE : /infoboite [nom] ──────────────────────────────────────────────
 
+def _get_city_label(company) -> str:
+    """Retourne le label de la ville de l'entreprise, ou 'Non définie'."""
+    try:
+        from handlers.nationality import CITIES
+        city = getattr(company, "city", None)
+        if city and city in CITIES:
+            flag, label = CITIES[city]
+            return f"{flag} {label}"
+    except Exception:
+        pass
+    return "Non définie"
+
+
 async def infoboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("❌ Usage : <code>/infoboite [nom de l'entreprise]</code>", parse_mode="HTML")
@@ -840,6 +853,7 @@ async def infoboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🏦 <b>Trésorerie</b> : {_fmt(company.treasury)}\n"
             f"📈 <b>Revenus/jour</b> : {_fmt(int(company.value * daily_rate) // 30)} <i>(→ trésorerie, versés via /versersalaires)</i>\n"
             f"⭐ <b>Réputation</b> : {company.reputation:.1f}/5\n"
+            f"🌆 <b>Localisation</b> : {_get_city_label(company)}\n"
             f"💎 <b>PDG / PDG</b> : {owner_name}\n"
             f"👥 <b>Employés</b> : {nb_emp}/{max_emp}\n"
             f"🎂 <b>Fondée le</b> : {company.created_at.strftime('%d/%m/%Y')}\n\n"

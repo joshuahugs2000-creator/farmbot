@@ -815,6 +815,16 @@ async def main():
     app.add_handler(CommandHandler("mesparts",       _prison_checked(mesparts_cmd)))
     app.add_handler(CommandHandler("renommerboite",  _prison_checked(renommerboite_cmd)))
     app.add_handler(CommandHandler("acheterpla",     _prison_checked(acheterpla_cmd)))
+    # ── Bâtiments et Filiales ──────────────────────────────────────────────────
+    app.add_handler(CommandHandler("batiments",        _prison_checked(batiments_cmd)))
+    app.add_handler(CommandHandler("acheterbatiment",  _prison_checked(acheterbatiment_cmd)))
+    app.add_handler(CommandHandler("mesbatiments",     _prison_checked(mesbatiments_cmd)))
+    app.add_handler(CommandHandler("creerfiliale",     _prison_checked(creerfiliale_cmd)))
+    app.add_handler(CommandHandler("mesfiliates",      _prison_checked(mesfiliates_cmd)))
+    app.add_handler(CommandHandler("nommerdir",        _prison_checked(nommerdir_cmd)))
+    # ── Nationalité & Localisation ────────────────────────────────────────────
+    app.add_handler(CommandHandler("nationalite",      _prison_checked(nationalite_cmd)))
+    app.add_handler(CommandHandler("localisationboite", _prison_checked(localisationboite_cmd)))
     # ── Finances entreprise ────────────────────────────────────────────────────
     app.add_handler(CommandHandler("bilan",           _prison_checked(bilan_cmd)))
     app.add_handler(CommandHandler("emprunterboite",  _prison_checked(emprunterboite_cmd)))
@@ -967,6 +977,27 @@ async def main():
         first=timedelta(minutes=5),
         name="tax_daily",
     )
+    # ── Maintenance bâtiments (toutes les 24h) ───────────────────────────────
+    app.job_queue.run_repeating(
+        job_building_maintenance,
+        interval=timedelta(hours=24),
+        first=timedelta(minutes=25),
+        name="building_maintenance",
+    )
+    # ── Reversement filiales (toutes les 24h) ─────────────────────────────────
+    app.job_queue.run_repeating(
+        job_annex_revenue,
+        interval=timedelta(hours=24),
+        first=timedelta(minutes=30),
+        name="annex_revenue",
+    )
+    # ── Impôts joueurs (toutes les 48h, décalé du job entreprises) ────────────
+    app.job_queue.run_repeating(
+        job_player_tax,
+        interval=timedelta(hours=48),
+        first=timedelta(hours=1),
+        name="player_tax",
+    )
     # Vérification impayés toutes les heures
     app.job_queue.run_repeating(
         compet_autoclose_job,
@@ -1045,4 +1076,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())s

@@ -42,14 +42,16 @@ async def _call_gemini(prompt: str) -> str | None:
             async with session.post(
                 f"{GEMINI_API_URL}?key={api_key}",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=10),
+                timeout=aiohttp.ClientTimeout(total=25),
             ) as resp:
                 if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning(f"[NATIONALITE] Gemini HTTP {resp.status}: {body[:200]}")
                     return None
                 data = await resp.json()
                 return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
-        logger.warning(f"[NATIONALITE] Gemini error: {e}")
+        logger.warning(f"[NATIONALITE] Gemini error: {type(e).__name__}: {e}")
         return None
 
 

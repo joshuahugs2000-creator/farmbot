@@ -234,6 +234,34 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Choisir une nationalité ──
     chosen = " ".join(context.args).lower().strip().replace("-", "_")
 
+    CHANGE_COST = 10_000_000_000  # 10B
+
+    # Vérifier si le joueur a déjà une nationalité (= changement payant)
+    async with AsyncSessionLocal() as session:
+        db_user = await get_user(session, user.id)
+        current_nat = getattr(db_user, "nationality", None)
+        current_coins = db_user.coins if db_user else 0
+
+    if current_nat:
+        # Changement → coûte 10B
+        if current_coins < CHANGE_COST:
+            manquant = CHANGE_COST - current_coins
+            await update.message.reply_text(
+                f"💸 <b>Changer de nationalité coûte 10 000 000 000 💰</b>\n\n"
+                f"Ton solde : <b>{current_coins:,} 💰</b>\n"
+                f"Il te manque : <b>{manquant:,} 💰</b>\n\n"
+                f"📌 Ta nationalité actuelle est conservée.",
+                parse_mode="HTML"
+            )
+            return
+        # Débiter les 10B
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                text("UPDATE users SET coins = coins - :cost WHERE user_id = :uid"),
+                {"cost": CHANGE_COST, "uid": user.id}
+            )
+            await session.commit()
+
     # 1. Dans la liste de base → traitement direct
     if chosen in NATIONALITIES:
         flag, label = NATIONALITIES[chosen]
@@ -244,8 +272,9 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await session.commit()
 
+        paid_str = f"\n💸 <b>-10 000 000 000 💰</b> débités." if current_nat else ""
         await update.message.reply_text(
-            f"✅ Nationalité définie : {flag} <b>{label}</b>\n\n"
+            f"✅ Nationalité définie : {flag} <b>{label}</b>{paid_str}\n\n"
             f"🌍 Tu représentes fièrement ton pays dans Your family ❤️, {user.first_name} !",
             parse_mode="HTML"
         )
@@ -296,8 +325,9 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         await session.commit()
 
+    paid_str = "\n💸 <b>-10 000 000 000 💰</b> débités." if current_nat else ""
     lines = [
-        f"✅ Nationalité définie : {flag} <b>{label}</b>",
+        f"✅ Nationalité définie : {flag} <b>{label}</b>{paid_str}",
         "",
     ]
     if fun_fact:

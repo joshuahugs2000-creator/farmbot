@@ -2,8 +2,8 @@
 handlers/nationality.py — Nationalité joueur + Localisation entreprise + Impôts joueurs
 
 Commandes :
-  /nationalite              → affiche ta nationalité actuelle
-  /nationalite [pays]       → choisit/change de nationalité
+  /nationalite              → affiche ta nationalité actuelle + liste de base
+  /nationalite [pays]       → choisit/change de nationalité (IA accepte tout pays valide)
   /localisationboite [ville] → PDG définit la ville de son entreprise
 
 Impôts joueurs :
@@ -12,7 +12,11 @@ Impôts joueurs :
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
+import re
+import aiohttp
 from datetime import datetime
 
 from sqlalchemy import select, text
@@ -24,70 +28,95 @@ from database.models import User, Company, CompanyEmployee
 
 logger = logging.getLogger(__name__)
 
-# ─── LISTE DES NATIONALITÉS ──────────────────────────────────────────────────
+# ─── GEMINI ───────────────────────────────────────────────────────────────────
+
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+async def _call_gemini(prompt: str) -> str | None:
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        return None
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{GEMINI_API_URL}?key={api_key}",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        logger.warning(f"[NATIONALITE] Gemini error: {e}")
+        return None
+
+
+# ─── LISTE DE BASE DES NATIONALITÉS ──────────────────────────────────────────
 
 NATIONALITIES = {
-    # Afrique
-    "togolaise":        ("🇹🇬", "Togolaise"),
-    "beninoise":        ("🇧🇯", "Béninoise"),
-    "ivoirienne":       ("🇨🇮", "Ivoirienne"),
-    "senegalaise":      ("🇸🇳", "Sénégalaise"),
-    "camerounaise":     ("🇨🇲", "Camerounaise"),
-    "malienne":         ("🇲🇱", "Malienne"),
-    "burkinabe":        ("🇧🇫", "Burkinabè"),
-    "ghaneenne":        ("🇬🇭", "Ghanéenne"),
-    "nigeriane":        ("🇳🇬", "Nigériane"),
-    "congolaise":       ("🇨🇬", "Congolaise"),
-    "gabonaise":        ("🇬🇦", "Gabonaise"),
-    "malgache":         ("🇲🇬", "Malgache"),
-    # Europe
-    "francaise":        ("🇫🇷", "Française"),
-    "belge":            ("🇧🇪", "Belge"),
-    "suisse":           ("🇨🇭", "Suisse"),
-    "allemande":        ("🇩🇪", "Allemande"),
-    "anglaise":         ("🇬🇧", "Anglaise"),
-    # Amériques
-    "americaine":       ("🇺🇸", "Américaine"),
-    "canadienne":       ("🇨🇦", "Canadienne"),
-    "bresilienne":      ("🇧🇷", "Brésilienne"),
-    # Asie
-    "japonaise":        ("🇯🇵", "Japonaise"),
-    "chinoise":         ("🇨🇳", "Chinoise"),
-    "indienne":         ("🇮🇳", "Indienne"),
-    # Autres
-    "apatride":         ("🌍", "Apatride"),
+    "togolaise":    ("🇹🇬", "Togolaise"),
+    "beninoise":    ("🇧🇯", "Béninoise"),
+    "ivoirienne":   ("🇨🇮", "Ivoirienne"),
+    "senegalaise":  ("🇸🇳", "Sénégalaise"),
+    "camerounaise": ("🇨🇲", "Camerounaise"),
+    "malienne":     ("🇲🇱", "Malienne"),
+    "burkinabe":    ("🇧🇫", "Burkinabè"),
+    "ghaneenne":    ("🇬🇭", "Ghanéenne"),
+    "nigeriane":    ("🇳🇬", "Nigériane"),
+    "congolaise":   ("🇨🇬", "Congolaise"),
+    "gabonaise":    ("🇬🇦", "Gabonaise"),
+    "malgache":     ("🇲🇬", "Malgache"),
+    "marocaine":    ("🇲🇦", "Marocaine"),
+    "algerienne":   ("🇩🇿", "Algérienne"),
+    "tunisienne":   ("🇹🇳", "Tunisienne"),
+    "egyptienne":   ("🇪🇬", "Égyptienne"),
+    "francaise":    ("🇫🇷", "Française"),
+    "belge":        ("🇧🇪", "Belge"),
+    "suisse":       ("🇨🇭", "Suisse"),
+    "allemande":    ("🇩🇪", "Allemande"),
+    "anglaise":     ("🇬🇧", "Anglaise"),
+    "espagnole":    ("🇪🇸", "Espagnole"),
+    "italienne":    ("🇮🇹", "Italienne"),
+    "americaine":   ("🇺🇸", "Américaine"),
+    "canadienne":   ("🇨🇦", "Canadienne"),
+    "bresilienne":  ("🇧🇷", "Brésilienne"),
+    "mexicaine":    ("🇲🇽", "Mexicaine"),
+    "japonaise":    ("🇯🇵", "Japonaise"),
+    "chinoise":     ("🇨🇳", "Chinoise"),
+    "indienne":     ("🇮🇳", "Indienne"),
+    "emiratie":     ("🇦🇪", "Émiratie"),
+    "apatride":     ("🌍", "Apatride"),
 }
 
 # ─── LISTE DES VILLES ────────────────────────────────────────────────────────
 
 CITIES = {
-    # Afrique
-    "lome":             ("🇹🇬", "Lomé"),
-    "abidjan":          ("🇨🇮", "Abidjan"),
-    "accra":            ("🇬🇭", "Accra"),
-    "dakar":            ("🇸🇳", "Dakar"),
-    "douala":           ("🇨🇲", "Douala"),
-    "lagos":            ("🇳🇬", "Lagos"),
-    "nairobi":          ("🇰🇪", "Nairobi"),
-    "libreville":       ("🇬🇦", "Libreville"),
-    "cotonou":          ("🇧🇯", "Cotonou"),
-    "bamako":           ("🇲🇱", "Bamako"),
-    "ouagadougou":      ("🇧🇫", "Ouagadougou"),
-    # Europe
-    "paris":            ("🇫🇷", "Paris"),
-    "bruxelles":        ("🇧🇪", "Bruxelles"),
-    "geneve":           ("🇨🇭", "Genève"),
-    "berlin":           ("🇩🇪", "Berlin"),
-    "londres":          ("🇬🇧", "Londres"),
-    # Amériques
-    "new_york":         ("🇺🇸", "New York"),
-    "miami":            ("🇺🇸", "Miami"),
-    "toronto":          ("🇨🇦", "Toronto"),
-    "sao_paulo":        ("🇧🇷", "São Paulo"),
-    # Asie
-    "tokyo":            ("🇯🇵", "Tokyo"),
-    "dubai":            ("🇦🇪", "Dubaï"),
-    "singapour":        ("🇸🇬", "Singapour"),
+    "lome":          ("🇹🇬", "Lomé"),
+    "abidjan":       ("🇨🇮", "Abidjan"),
+    "accra":         ("🇬🇭", "Accra"),
+    "dakar":         ("🇸🇳", "Dakar"),
+    "douala":        ("🇨🇲", "Douala"),
+    "lagos":         ("🇳🇬", "Lagos"),
+    "nairobi":       ("🇰🇪", "Nairobi"),
+    "libreville":    ("🇬🇦", "Libreville"),
+    "cotonou":       ("🇧🇯", "Cotonou"),
+    "bamako":        ("🇲🇱", "Bamako"),
+    "ouagadougou":   ("🇧🇫", "Ouagadougou"),
+    "casablanca":    ("🇲🇦", "Casablanca"),
+    "paris":         ("🇫🇷", "Paris"),
+    "bruxelles":     ("🇧🇪", "Bruxelles"),
+    "geneve":        ("🇨🇭", "Genève"),
+    "berlin":        ("🇩🇪", "Berlin"),
+    "londres":       ("🇬🇧", "Londres"),
+    "new_york":      ("🇺🇸", "New York"),
+    "miami":         ("🇺🇸", "Miami"),
+    "toronto":       ("🇨🇦", "Toronto"),
+    "sao_paulo":     ("🇧🇷", "São Paulo"),
+    "tokyo":         ("🇯🇵", "Tokyo"),
+    "dubai":         ("🇦🇪", "Dubaï"),
+    "singapour":     ("🇸🇬", "Singapour"),
 }
 
 # ─── UTILITAIRES ─────────────────────────────────────────────────────────────
@@ -99,25 +128,71 @@ def _fmt(n: int) -> str:
     return str(n)
 
 
+# ─── RÉSOLUTION IA D'UNE NATIONALITÉ INCONNUE ────────────────────────────────
+
+async def _resolve_nationality_ai(raw: str, player_name: str) -> dict | None:
+    """
+    Demande à Gemini de valider et enrichir une nationalité libre.
+    Retourne un dict avec : valid, flag, label, fun_fact, bonus_hint
+    ou None si l'IA est indisponible.
+    """
+    prompt = f"""Tu es le système de gestion des nationalités d'un jeu économique Telegram appelé Your family ❤️.
+
+Un joueur nommé "{player_name}" veut définir sa nationalité comme : "{raw}"
+
+Réponds UNIQUEMENT en JSON valide (aucun texte avant/après), format :
+{{
+  "valid": true/false,
+  "flag": "🇹🇬",
+  "label": "Togolaise",
+  "fun_fact": "⚡ Bonus nationalité : les Togolais sont réputés pour leur sens des affaires — +2% sur les revenus de marché.",
+  "bonus_hint": "🎯 Trait national : Résilient — tu récupères 10% plus vite d'une faillite."
+}}
+
+Règles :
+- Si c'est une nationalité de pays réel (même orthographe approx.), valid=true avec le bon drapeau emoji et nom propre.
+- fun_fact : une phrase fun et immersive liée à la culture/réputation du pays dans le contexte d'un jeu économique. Invente un petit bonus fictif sympa.
+- bonus_hint : un trait de caractère national fictif et amusant pour le jeu.
+- Si c'est totalement inventé ou insultant, valid=false.
+- Réponds toujours en français."""
+
+    raw_response = await _call_gemini(prompt)
+    if not raw_response:
+        return None
+
+    try:
+        # Nettoyer les backticks markdown si présents
+        clean = re.sub(r"```json|```", "", raw_response).strip()
+        return json.loads(clean)
+    except Exception:
+        logger.warning(f"[NATIONALITE] JSON parse failed: {raw_response[:200]}")
+        return None
+
+
 # ─── COMMANDE : /nationalite [pays] ──────────────────────────────────────────
 
 async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Affiche ou change la nationalité du joueur."""
+    """Affiche ou change la nationalité du joueur. L'IA accepte n'importe quel pays valide."""
     user = update.effective_user
 
     if not context.args:
-        # Afficher la nationalité actuelle + liste
+        # ── Afficher nationalité actuelle + liste de base ──
         async with AsyncSessionLocal() as session:
             db_user = await get_user(session, user.id)
             current = getattr(db_user, "nationality", None)
+            current_label = getattr(db_user, "nationality_label", None)
 
-        if current and current in NATIONALITIES:
-            flag, label = NATIONALITIES[current]
+        if current:
+            if current in NATIONALITIES:
+                flag, label = NATIONALITIES[current]
+            else:
+                # Nationalité IA stockée — on affiche telle quelle
+                flag = "🌍"
+                label = current_label or current.capitalize()
             current_str = f"{flag} <b>{label}</b>"
         else:
             current_str = "Non définie"
 
-        # Grouper par région pour l'affichage
         lines = [
             f"🌍 <b>NATIONALITÉ — {user.first_name}</b>",
             f"Actuelle : {current_str}",
@@ -125,11 +200,12 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "",
             "🌍 <b>Afrique :</b>",
         ]
-        afrique = ["togolaise", "beninoise", "ivoirienne", "senegalaise", "camerounaise",
-                   "malienne", "burkinabe", "ghaneenne", "nigeriane", "congolaise", "gabonaise", "malgache"]
-        europe = ["francaise", "belge", "suisse", "allemande", "anglaise"]
-        ameriques = ["americaine", "canadienne", "bresilienne"]
-        asie = ["japonaise", "chinoise", "indienne", "apatride"]
+        afrique  = ["togolaise","beninoise","ivoirienne","senegalaise","camerounaise",
+                    "malienne","burkinabe","ghaneenne","nigeriane","congolaise","gabonaise",
+                    "malgache","marocaine","algerienne","tunisienne","egyptienne"]
+        europe   = ["francaise","belge","suisse","allemande","anglaise","espagnole","italienne"]
+        ameriques= ["americaine","canadienne","bresilienne","mexicaine"]
+        asie     = ["japonaise","chinoise","indienne","emiratie","apatride"]
 
         for nat in afrique:
             flag, label = NATIONALITIES[nat]
@@ -147,30 +223,89 @@ async def nationalite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             flag, label = NATIONALITIES[nat]
             lines.append(f"  {flag} <code>/nationalite {nat}</code> — {label}")
 
+        lines.append("\n💡 <i>Ton pays n'est pas dans la liste ? Tape-le quand même !</i>")
+        lines.append("<i>Ex: <code>/nationalite russe</code>, <code>/nationalite portugaise</code>...</i>")
+
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
         return
 
-    chosen = context.args[0].lower().replace("-", "_")
-    if chosen not in NATIONALITIES:
+    # ── Choisir une nationalité ──
+    chosen = " ".join(context.args).lower().strip().replace("-", "_")
+
+    # 1. Dans la liste de base → traitement direct
+    if chosen in NATIONALITIES:
+        flag, label = NATIONALITIES[chosen]
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                text("UPDATE users SET nationality = :nat WHERE user_id = :uid"),
+                {"nat": chosen, "uid": user.id}
+            )
+            await session.commit()
+
         await update.message.reply_text(
-            f"❌ Nationalité <b>{chosen}</b> inconnue.\n"
-            f"💡 Liste complète : <code>/nationalite</code>",
+            f"✅ Nationalité définie : {flag} <b>{label}</b>\n\n"
+            f"🌍 Tu représentes fièrement ton pays dans Your family ❤️, {user.first_name} !",
             parse_mode="HTML"
         )
         return
 
-    async with AsyncSessionLocal() as session:
-        await session.execute(
-            text("UPDATE users SET nationality = :nat WHERE user_id = :uid"),
-            {"nat": chosen, "uid": user.id}
+    # 2. Hors liste → on envoie à l'IA
+    thinking_msg = await update.message.reply_text("🌍 Vérification en cours...")
+
+    result = await _resolve_nationality_ai(chosen, user.first_name)
+
+    if result is None:
+        # IA indisponible → fallback liste
+        await thinking_msg.edit_text(
+            f"❌ Nationalité <b>{chosen}</b> non reconnue.\n"
+            f"💡 Utilise <code>/nationalite</code> pour voir la liste.",
+            parse_mode="HTML"
         )
+        return
+
+    if not result.get("valid", False):
+        await thinking_msg.edit_text(
+            f"❌ <b>{chosen.capitalize()}</b> ne correspond à aucun pays reconnu.\n"
+            f"💡 Essaie autrement ou tape <code>/nationalite</code> pour la liste.",
+            parse_mode="HTML"
+        )
+        return
+
+    # IA a validé → sauvegarder
+    flag  = result.get("flag", "🌍")
+    label = result.get("label", chosen.capitalize())
+    fun_fact    = result.get("fun_fact", "")
+    bonus_hint  = result.get("bonus_hint", "")
+
+    # On stocke la clé normalisée + le label pour l'affichage futur
+    nat_key = chosen[:50]  # max 50 chars en DB
+
+    async with AsyncSessionLocal() as session:
+        # Essayer de stocker aussi le label si la colonne existe
+        try:
+            await session.execute(
+                text("UPDATE users SET nationality = :nat WHERE user_id = :uid"),
+                {"nat": nat_key, "uid": user.id}
+            )
+        except Exception:
+            await session.execute(
+                text("UPDATE users SET nationality = :nat WHERE user_id = :uid"),
+                {"nat": nat_key, "uid": user.id}
+            )
         await session.commit()
 
-    flag, label = NATIONALITIES[chosen]
-    await update.message.reply_text(
-        f"✅ Nationalité mise à jour : {flag} <b>{label}</b>",
-        parse_mode="HTML"
-    )
+    lines = [
+        f"✅ Nationalité définie : {flag} <b>{label}</b>",
+        "",
+    ]
+    if fun_fact:
+        lines.append(fun_fact)
+    if bonus_hint:
+        lines.append(bonus_hint)
+    lines.append("")
+    lines.append(f"🌍 Bienvenue dans Your family ❤️, {user.first_name} !")
+
+    await thinking_msg.edit_text("\n".join(lines), parse_mode="HTML")
 
 
 # ─── COMMANDE : /localisationboite [ville] ───────────────────────────────────
@@ -180,7 +315,6 @@ async def localisationboite_cmd(update: Update, context: ContextTypes.DEFAULT_TY
     user = update.effective_user
 
     if not context.args:
-        # Afficher la liste + ville actuelle
         async with AsyncSessionLocal() as session:
             r = await session.execute(
                 select(CompanyEmployee, Company).join(
@@ -201,7 +335,7 @@ async def localisationboite_cmd(update: Update, context: ContextTypes.DEFAULT_TY
                 flag, city_label = CITIES[current_city]
                 city_str = f"{flag} <b>{city_label}</b>"
             else:
-                city_str = "Non définie"
+                city_str = current_city or "Non définie"
             company_name = company.name
         else:
             city_str = "—"
@@ -246,7 +380,6 @@ async def localisationboite_cmd(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         emp, company = row
-
         await session.execute(
             text("UPDATE companies SET city = :city WHERE id = :cid"),
             {"city": chosen, "cid": company.id}
@@ -262,7 +395,7 @@ async def localisationboite_cmd(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ─── JOB : IMPÔTS JOUEURS (0.05% par cycle, PDG exonérés) ────────────────────
 
-PLAYER_TAX_RATE = 0.0005  # 0.05%
+PLAYER_TAX_RATE = 0.0005
 
 async def job_player_tax(context: ContextTypes.DEFAULT_TYPE):
     """
@@ -272,7 +405,6 @@ async def job_player_tax(context: ContextTypes.DEFAULT_TYPE):
     from database.models import StateCaisse, BankAccount
 
     async with AsyncSessionLocal() as session:
-        # Récupérer les PDG actuels pour les exonérer
         pdg_ids = set(
             row[0] for row in (await session.execute(
                 select(CompanyEmployee.user_id).where(
@@ -282,7 +414,6 @@ async def job_player_tax(context: ContextTypes.DEFAULT_TYPE):
             )).fetchall()
         )
 
-        # Récupérer tous les joueurs actifs (avec coins > 0)
         users = (await session.execute(
             select(User).where(User.coins > 10_000)
         )).scalars().all()
@@ -296,16 +427,15 @@ async def job_player_tax(context: ContextTypes.DEFAULT_TYPE):
 
         for u in users:
             if u.user_id in pdg_ids:
-                continue  # PDG exonérés
+                continue
 
-            # Solde banque
             bank_row = (await session.execute(
                 select(BankAccount).where(BankAccount.user_id == u.user_id)
             )).scalar_one_or_none()
             bank_balance = bank_row.balance if bank_row else 0
 
             base = u.coins + bank_balance
-            tax = int(base * PLAYER_TAX_RATE)
+            tax  = int(base * PLAYER_TAX_RATE)
 
             if tax <= 0:
                 continue
@@ -315,7 +445,6 @@ async def job_player_tax(context: ContextTypes.DEFAULT_TYPE):
                 caisse.total += tax
                 total_collected += tax
             elif u.coins > 0:
-                # Payer ce qu'il peut
                 partial = u.coins
                 u.coins = 0
                 caisse.total += partial

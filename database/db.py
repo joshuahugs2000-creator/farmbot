@@ -251,6 +251,25 @@ async def init_db():
         )""",
         "CREATE INDEX IF NOT EXISTS idx_company_employees_user ON company_employees (user_id)",
         "CREATE INDEX IF NOT EXISTS idx_company_employees_company ON company_employees (company_id)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS nationality VARCHAR(50) DEFAULT NULL",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS city VARCHAR(50) DEFAULT NULL",
+        """CREATE TABLE IF NOT EXISTS company_buildings (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            building_type VARCHAR(50) NOT NULL,
+            status VARCHAR(20) DEFAULT 'active',
+            purchased_at TIMESTAMP DEFAULT NOW(),
+            last_maintenance TIMESTAMP DEFAULT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS company_annexes (
+            id SERIAL PRIMARY KEY,
+            parent_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            child_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            director_id BIGINT REFERENCES users(user_id),
+            revenue_pct FLOAT DEFAULT 15.0,
+            created_at TIMESTAMP DEFAULT NOW(),
+            is_active BOOLEAN DEFAULT TRUE
+        )""",
     ]
     # Chaque migration dans sa propre transaction pour éviter les rollbacks en cascade
     for sql in migrations:
@@ -645,7 +664,6 @@ async def get_leaderboard(session: AsyncSession, limit: int = 10) -> List[dict]:
         if u:
             ranked.append({"user": u, "size": int(row.family_size)})
     return ranked
-
 
 async def get_richlist(session: AsyncSession, limit: int = 10) -> List[User]:
     r = await session.execute(select(User).order_by(User.coins.desc()).limit(limit))
@@ -1266,16 +1284,31 @@ async def load_admin_ids() -> set:
 
 
 async def save_admin_id(user_id: int) -> None:
-    async with engine.begin() as conn:
-        await conn.execute(
-            text("INSERT INTO bot_admins (user_id) VALUES (:uid) ON CONFLICT DO NOTHING"),
-            {"uid": user_id}
-        )
+    # Garantit que la table existe avant d'écrire (évite UndefinedTableError)
+    await init_admins_table()
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("INSERT INTO bot_admins (user_id) VALUES (:uid) ON CONFLICT DO NOTHING"),
+                {"uid": user_id}
+            )
+    except Exception:
+        # Dernier recours : recréer la table et réessayer
+        await init_admins_table()
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("INSERT INTO bot_admins (user_id) VALUES (:uid) ON CONFLICT DO NOTHING"),
+                {"uid": user_id}
+            )
 
 
 async def remove_admin_id(user_id: int) -> None:
-    async with engine.begin() as conn:
-        await conn.execute(
-            text("DELETE FROM bot_admins WHERE user_id = :uid"),
-            {"uid": user_id}
-        )
+    await init_admins_table()
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM bot_admins WHERE user_id = :uid"),
+                {"uid": user_id}
+            )
+    except Exception:
+        pass

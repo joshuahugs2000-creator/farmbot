@@ -102,7 +102,7 @@ from handlers.article import article_cmd
 from handlers.diplome import diplome_cmd, diplome_callback
 from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse_cmd, mesimpots_cmd
 from handlers.buildings import (
-    batiments_cmd, acheterbatiment_cmd, mesbatiments_cmd,
+    batiments_cmd, acheterbatiment_cmd, mesbatiments_cmd, job_building_maintenance,
 )
 from handlers.nationality import (
     nationalite_cmd, localisationboite_cmd, job_player_tax,

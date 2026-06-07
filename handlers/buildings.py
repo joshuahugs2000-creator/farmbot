@@ -660,7 +660,8 @@ async def nommerdir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 CompanyEmployee.user_id == target.user_id,
                 CompanyEmployee.left_at == None,
             )
-        )).scalar_one_or_none()
+        )
+        ).limit(1).scalar_one_or_none()
 
         if not target_emp_mere:
             await update.message.reply_text(
@@ -703,7 +704,8 @@ async def nommerdir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     CompanyEmployee.user_id == target_annex.director_id,
                     CompanyEmployee.left_at == None,
                 )
-            )).scalar_one_or_none()
+            )
+            ).limit(1).scalar_one_or_none()
             if old_dir_emp:
                 old_dir_emp.role = "employe"  # rétrograder l'ancien directeur
 
@@ -715,7 +717,8 @@ async def nommerdir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 CompanyEmployee.user_id == target.user_id,
                 CompanyEmployee.left_at == None,
             )
-        )).scalar_one_or_none()
+        )
+        ).limit(1).scalar_one_or_none()
 
         if existing_in_filiale:
             existing_in_filiale.role = "pdg"

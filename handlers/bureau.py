@@ -361,15 +361,13 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # ── Phase 1 : lecture seule ───────────────────────────────────────────────
     async with AsyncSessionLocal() as session:
-        comp_row = (await session.execute(
-            text("SELECT id, name FROM companies WHERE owner_id=:uid AND is_active=TRUE AND id NOT IN (SELECT child_id FROM company_annexes) LIMIT 1"),
-            {"uid": user.id}
-        )).fetchone()
+        from database.db import get_main_company
+        comp_row = await get_main_company(session, user.id, include_filiale=True)
         if not comp_row:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
             return
-        company_id = int(comp_row[0])
-        company_name = comp_row[1]
+        company_id = int(comp_row.id)
+        company_name = comp_row.name
 
         contract_row = (await session.execute(
             text("SELECT id, company_id, status, title, objective_cmds, reward, duration_days "

@@ -39,7 +39,7 @@ crash_lobby_msg: dict = {}
 crash_live_msg:  dict = {}
 
 LOBBY_SECONDS = 20
-TICK_INTERVAL = 1.5
+TICK_INTERVAL = 2.0
 
 
 def _gen_crash_point() -> float:
@@ -855,14 +855,14 @@ async def roue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     msg = await update.message.reply_text(animation_frames[0], parse_mode=ParseMode.HTML)
-    for frame in animation_frames[1:]:
-        await asyncio.sleep(0.6)
-        try:
-            await msg.edit_text(frame, parse_mode=ParseMode.HTML)
-        except Exception:
-            pass
+    # Animation réduite : 1 seul edit au lieu de 5 pour éviter les 429
+    await asyncio.sleep(2.0)
+    try:
+        await msg.edit_text(animation_frames[-1], parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
 
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(0.5)
 
     # Créditer les gains AVANT d'afficher le verdict
     async with AsyncSessionLocal() as session:

@@ -103,8 +103,6 @@ from handlers.diplome import diplome_cmd, diplome_callback
 from handlers.tax import tax_daily_job, tax_overdue_job, payerimpots_cmd, caisse_cmd, mesimpots_cmd
 from handlers.buildings import (
     batiments_cmd, acheterbatiment_cmd, mesbatiments_cmd,
-    creerfiliale_cmd, mesfiliates_cmd, nommerdir_cmd, retirerfiliale_cmd,
-    job_building_maintenance, job_annex_revenue,
 )
 from handlers.nationality import (
     nationalite_cmd, localisationboite_cmd, job_player_tax,
@@ -971,10 +969,6 @@ async def main():
     app.add_handler(CommandHandler("batiments",        _prison_checked(batiments_cmd)))
     app.add_handler(CommandHandler("acheterbatiment",  _prison_checked(acheterbatiment_cmd)))
     app.add_handler(CommandHandler("mesbatiments",     _prison_checked(mesbatiments_cmd)))
-    app.add_handler(CommandHandler("creerfiliale",     _prison_checked(creerfiliale_cmd)))
-    app.add_handler(CommandHandler("mesfiliates",      _prison_checked(mesfiliates_cmd)))
-    app.add_handler(CommandHandler("nommerdir",        _prison_checked(nommerdir_cmd)))
-    app.add_handler(CommandHandler("retirerfiliale",   _prison_checked(retirerfiliale_cmd)))
     # ── Nationalité & Localisation ────────────────────────────────────────────
     app.add_handler(CommandHandler("nationalite",      _prison_checked(nationalite_cmd)))
     app.add_handler(CommandHandler("localisationboite", _prison_checked(localisationboite_cmd)))
@@ -1139,10 +1133,8 @@ async def main():
     )
     # ── Reversement filiales (toutes les 24h) ─────────────────────────────────
     app.job_queue.run_repeating(
-        job_annex_revenue,
         interval=timedelta(hours=24),
         first=timedelta(minutes=30),
-        name="annex_revenue",
     )
     # ── Impôts joueurs (toutes les 48h, décalé du job entreprises) ────────────
     app.job_queue.run_repeating(

@@ -129,7 +129,7 @@ async def payerimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         # Trouver l'entreprise dont l'user est PDG
         from database.db import get_main_company
-        company = await get_main_company(session, user.id)
+        company = await get_main_company(session, user.id, include_filiale=True)
         if company and company.is_bot_company:
             company = None
 
@@ -375,7 +375,7 @@ async def mesimpots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with AsyncSessionLocal() as session:
         from database.db import get_main_company
-        company = await get_main_company(session, user.id)
+        company = await get_main_company(session, user.id, include_filiale=True)
         if company and company.is_bot_company:
             company = None
 

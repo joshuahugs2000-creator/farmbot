@@ -608,20 +608,52 @@ async def flush_activity_queue():
 
 async def increment_contract_progress(user_id: int):
     """Incrémente cmds_done des contrats actifs de l'entreprise de l'employé.
-    Léger : 1 SELECT + 1 UPDATE atomique. Pas de throttle."""
+    Léger : 1 SELECT + 1 UPDATE atomique. Pas de throttle.
+    
+    Règle : on incrémente UNIQUEMENT l'entreprise principale de l'employé
+    (pas les filiales dont il serait owner_id par héritage).
+    Si l'employé est PDG d'une filiale, on incrémente la filiale.
+    Si l'employé est dans la boîte mère, on incrémente la boîte mère.
+    Les deux sont indépendants — jamais mélangés.
+    """
     try:
         async with AsyncSessionLocal() as session:
-            # Trouver les entreprises actives où le user est employé
+            # Récupérer toutes les appartenances actives
             rows = (await session.execute(
-                select(CompanyEmployee.company_id).where(
+                select(CompanyEmployee.company_id, CompanyEmployee.role).where(
                     CompanyEmployee.user_id == user_id,
                     CompanyEmployee.left_at == None,
                 )
-            )).scalars().all()
+            )).all()
             if not rows:
                 return
-            # UPDATE atomique en SQL pur — pas de race condition
-            for company_id in rows:
+
+            # Liste des IDs de filiales (à exclure si l'user est PDG MÈRE)
+            from database.models import CompanyAnnex
+            filiale_ids = set(
+                row[0] for row in (await session.execute(
+                    select(CompanyAnnex.child_id).where(CompanyAnnex.is_active == True)
+                )).all()
+            )
+
+            # Construire la liste des company_ids à incrémenter
+            # Règle : si PDG, exclure les filiales dont il est owner par héritage
+            # (sauf s'il EST le directeur nommé de la filiale)
+            to_increment = set()
+            is_filiale_pdg = set()
+
+            for company_id, role in rows:
+                if company_id in filiale_ids:
+                    # C'est une filiale → l'incrémenter seulement si l'user y est PDG actif (directeur nommé)
+                    if role == "pdg":
+                        is_filiale_pdg.add(company_id)
+                        to_increment.add(company_id)
+                    # Si role != pdg dans la filiale, on l'ignore (employé de passage)
+                else:
+                    # Entreprise principale → toujours incrémenter
+                    to_increment.add(company_id)
+
+            for company_id in to_increment:
                 await session.execute(
                     sa_text("""
                         UPDATE bureau_contrats 

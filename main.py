@@ -351,8 +351,15 @@ async def ban_middleware(update: Update, context) -> None:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
+            if update.message.text.startswith("/"):
+                await update.message.reply_text(
+                    "🚫 <b>Compte banni.</b> Accès révoqué.",
+                    parse_mode="HTML"
+                )
         if update.callback_query:
-            await update.callback_query.answer()
+            await update.callback_query.answer(
+                "🚫 Compte banni. Accès révoqué.", show_alert=True
+            )
         raise ApplicationHandlerStop()
     try:
         async with AsyncSessionLocal() as _s:
@@ -368,8 +375,15 @@ async def ban_middleware(update: Update, context) -> None:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
+            if update.message.text.startswith("/"):
+                await update.message.reply_text(
+                    "🚫 <b>Compte banni.</b> Accès révoqué.",
+                    parse_mode="HTML"
+                )
         if update.callback_query:
-            await update.callback_query.answer()
+            await update.callback_query.answer(
+                "🚫 Compte suspendu — accès révoqué définitivement.", show_alert=True
+            )
         raise ApplicationHandlerStop()
     except ApplicationHandlerStop:
         raise

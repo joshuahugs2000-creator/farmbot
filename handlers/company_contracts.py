@@ -128,7 +128,7 @@ async def _get_user_company(session, user_id: int):
     Exclut les filiales de la recherche PDG pour éviter MultipleResultsFound.
     """
     from database.db import get_main_company
-    company = await get_main_company(session, user_id, include_filiale=True)
+    company = await get_main_company(session, user_id)
     if company:
         return company, "pdg"
 

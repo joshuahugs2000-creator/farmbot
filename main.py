@@ -1131,11 +1131,6 @@ async def main():
         first=timedelta(minutes=25),
         name="building_maintenance",
     )
-    # ── Reversement filiales (toutes les 24h) ─────────────────────────────────
-    app.job_queue.run_repeating(
-        interval=timedelta(hours=24),
-        first=timedelta(minutes=30),
-    )
     # ── Impôts joueurs (toutes les 48h, décalé du job entreprises) ────────────
     app.job_queue.run_repeating(
         job_player_tax,

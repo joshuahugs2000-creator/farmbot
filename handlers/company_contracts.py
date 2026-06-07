@@ -458,7 +458,8 @@ async def contract_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     CompanyEmployee.role == "directeur",
                     CompanyEmployee.left_at == None,
                 )
-            )).scalar_one_or_none()
+            )
+            ).limit(1).scalar_one_or_none()
             is_director = dir_emp is not None
 
         if not is_owner and not is_director:

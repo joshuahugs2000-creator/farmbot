@@ -252,7 +252,7 @@ async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     async with AsyncSessionLocal() as session:
         from database.db import get_main_company
-        company = await get_main_company(session, user.id, include_filiale=True)
+        company = await get_main_company(session, user.id)
 
         if not company or company.is_bot_company:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
@@ -362,7 +362,7 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # ── Phase 1 : lecture seule ───────────────────────────────────────────────
     async with AsyncSessionLocal() as session:
         from database.db import get_main_company
-        comp_row = await get_main_company(session, user.id, include_filiale=True)
+        comp_row = await get_main_company(session, user.id)
         if not comp_row:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
             return
@@ -465,7 +465,7 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     async with AsyncSessionLocal() as session:
         from database.db import get_main_company
-        company = await get_main_company(session, user.id, include_filiale=True)
+        company = await get_main_company(session, user.id)
 
         if not company:
             # Chercher si directeur de filiale

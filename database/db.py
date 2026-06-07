@@ -1314,44 +1314,15 @@ async def remove_admin_id(user_id: int) -> None:
         pass
 
 
+
 async def get_main_company(session, user_id: int, include_filiale: bool = False):
-    """
-    Retourne l'entreprise active d'un PDG.
-
-    include_filiale=False (défaut) : boîte mère uniquement.
-        directeur de filiale non bloqué pour postuler/rejoindre/second boulot.
-
-    include_filiale=True : boîte mère OU filiale si directeur nommé.
-        soumettredossier, mescontratsbc, claimcontratbc, etc.
-    """
-    from database.models import Company, CompanyAnnex
+    """Retourne l'entreprise principale active d'un PDG."""
+    from database.models import Company
     from sqlalchemy import select
 
-    filiale_ids = select(CompanyAnnex.child_id)
-
-    # 1. Entreprise principale (jamais une filiale)
-    company = (await session.execute(
+    return (await session.execute(
         select(Company).where(
             Company.owner_id == user_id,
             Company.is_active == True,
-            Company.id.not_in(filiale_ids),
         ).limit(1)
     )).scalar_one_or_none()
-
-    if company:
-        return company
-
-    # 2. Filiale — seulement si explicitement demandé
-    if not include_filiale:
-        return None
-
-    # Chercher par owner_id dans les filiales (nommerdir change owner_id)
-    filiale = (await session.execute(
-        select(Company).where(
-            Company.owner_id == user_id,
-            Company.is_active == True,
-            Company.id.in_(filiale_ids),
-        ).limit(1)
-    )).scalar_one_or_none()
-
-    return filiale

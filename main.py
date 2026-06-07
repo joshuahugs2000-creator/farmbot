@@ -188,6 +188,151 @@ BAN_EXEMPT_COMMANDS = {
 }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ANTI-SPAM SOPHISTIQUÉ
+# ══════════════════════════════════════════════════════════════════════════════
+import time as _time_spam
+from collections import defaultdict, deque
+
+# Cooldowns par commande (secondes)
+_SPAM_COOLDOWNS = {
+    # Commandes économie — cooldown court
+    "acc":        2,
+    "daily":      0,   # déjà géré en DB
+    "work":       0,   # déjà géré en DB
+    "pay":        2,
+    # Jeux — cooldown moyen
+    "crash":      3,
+    "apple":      3,
+    "roue":       3,
+    "mines":      3,
+    "blackjack":  3,
+    "roulette":   3,
+    "slots":      3,
+    "cockfight":  3,
+    "ppc":        3,
+    "lancer":     3,
+    # Entreprise — cooldown court
+    "monentreprise": 3,
+    "mescontratsauto": 5,
+    "mescontratsbc": 5,
+    "presences":  5,
+    "logsboite":  5,
+    "infoboite":  3,
+    "listeboites": 3,
+    "employes":   3,
+    "bilan":      5,
+    # Profil — cooldown court
+    "me":         3,
+    "tree":       5,
+    "portfolio":  3,
+    "market":     3,
+    # Défaut pour toutes les autres commandes
+    "_default":   1,
+}
+
+# Limite globale : max N commandes en X secondes par user
+_GLOBAL_RATE_LIMIT = 8    # max 8 commandes
+_GLOBAL_RATE_WINDOW = 10  # en 10 secondes
+
+# Limite par groupe : max N commandes en X secondes par groupe
+_GROUP_RATE_LIMIT = 25    # max 25 commandes
+_GROUP_RATE_WINDOW = 10   # en 10 secondes
+
+# Stockage en mémoire
+_spam_last: dict[tuple, float] = {}          # (user_id, cmd) → last_time
+_spam_global: dict[int, deque] = defaultdict(lambda: deque())   # user_id → timestamps
+_spam_group: dict[int, deque] = defaultdict(lambda: deque())    # chat_id → timestamps
+_spam_warned: dict[int, float] = {}          # user_id → last_warn_time (évite flood de warnings)
+
+# Commandes exemptées de l'anti-spam (admin + urgences)
+_SPAM_EXEMPT = {
+    "start", "help", "bail", "adminhelp", "give", "take", "setcoins",
+    "ban", "unban", "pause", "resume", "broadcast", "liberer",
+    "emprisonner", "fin", "donate",
+}
+
+async def antispam_middleware(update: Update, context) -> None:
+    """Anti-spam sophistiqué — bloque les abus sans pénaliser les joueurs normaux."""
+    if not update.message or not update.message.text:
+        return
+    user = update.effective_user
+    if not user:
+        return
+    txt = update.message.text
+    if not txt.startswith("/"):
+        return
+
+    command = txt.split()[0].lstrip("/").split("@")[0].lower()
+    if command in _SPAM_EXEMPT:
+        return
+
+    # Admins exemptés
+    from handlers.admin import is_admin as _is_admin_fn
+    if await _is_admin_fn(user.id):
+        return
+
+    now = _time_spam.monotonic()
+    chat_id = update.effective_chat.id if update.effective_chat else None
+
+    # ── 1. Limite globale par user (sliding window) ───────────────────────────
+    q = _spam_global[user.id]
+    while q and now - q[0] > _GLOBAL_RATE_WINDOW:
+        q.popleft()
+    if len(q) >= _GLOBAL_RATE_LIMIT:
+        # Avertir max 1 fois toutes les 30s
+        last_warn = _spam_warned.get(user.id, 0)
+        if now - last_warn > 30:
+            _spam_warned[user.id] = now
+            try:
+                await update.message.reply_text(
+                    f"⚠️ <b>Trop vite !</b> Max {_GLOBAL_RATE_LIMIT} commandes/{_GLOBAL_RATE_WINDOW}s.\n"
+                    f"Attends un peu avant de continuer.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        raise ApplicationHandlerStop()
+    q.append(now)
+
+    # ── 2. Limite par groupe (évite le flood dans un seul chat) ───────────────
+    if chat_id and chat_id != user.id:  # pas en PV
+        gq = _spam_group[chat_id]
+        while gq and now - gq[0] > _GROUP_RATE_WINDOW:
+            gq.popleft()
+        if len(gq) >= _GROUP_RATE_LIMIT:
+            raise ApplicationHandlerStop()  # silencieux pour le groupe
+        gq.append(now)
+
+    # ── 3. Cooldown par commande ───────────────────────────────────────────────
+    cd = _SPAM_COOLDOWNS.get(command, _SPAM_COOLDOWNS["_default"])
+    if cd > 0:
+        key = (user.id, command)
+        last = _spam_last.get(key, 0)
+        elapsed = now - last
+        if elapsed < cd:
+            wait = round(cd - elapsed, 1)
+            last_warn = _spam_warned.get(user.id, 0)
+            if now - last_warn > 15:
+                _spam_warned[user.id] = now
+                try:
+                    await update.message.reply_text(
+                        f"⏳ <code>/{command}</code> — attends encore <b>{wait}s</b>.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+            raise ApplicationHandlerStop()
+        _spam_last[key] = now
+
+    # ── 4. Nettoyage mémoire périodique (toutes les 5 min) ───────────────────
+    if len(_spam_last) > 10000:
+        cutoff = now - 300
+        to_del = [k for k, v in _spam_last.items() if v < cutoff]
+        for k in to_del:
+            del _spam_last[k]
+
+
 import time as _time_ban
 _ban_cache: dict[int, tuple] = {}  # user_id → (timestamp, is_banned)
 _BAN_CACHE_TTL = 120  # 2 minutes
@@ -583,9 +728,10 @@ async def main():
     app.add_error_handler(error_handler)
 
     # ── Middleware de logging automatique ─────────────────────────────────────
-    app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-1)
-    app.add_handler(TypeHandler(Update, group_tracking_middleware),   group=-2)
-    app.add_handler(TypeHandler(Update, ban_middleware),              group=-3)
+    app.add_handler(TypeHandler(Update, antispam_middleware),         group=-1)
+    app.add_handler(TypeHandler(Update, activity_logging_middleware), group=-2)
+    app.add_handler(TypeHandler(Update, group_tracking_middleware),   group=-3)
+    app.add_handler(TypeHandler(Update, ban_middleware),              group=-4)
     from telegram.ext import ChatMemberHandler
     app.add_handler(ChatMemberHandler(my_chat_member_handler, ChatMemberHandler.MY_CHAT_MEMBER))
 

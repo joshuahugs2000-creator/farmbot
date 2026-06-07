@@ -216,9 +216,13 @@ async def marry_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not target:
             return await query.edit_message_text("❌ Cible introuvable.")
 
+        sender_db = await get_user(session, sender.user_id)
+
         req = await create_request(session, sender.user_id, target_id, RequestType.MARRY, group_id, 0)
-        # Stocker le type de mariage dans extra
-        req.extra = marriage_type_str
+        # Stocker le type de mariage ET les genres dans extra (snapshot au moment de la demande)
+        s_gender = getattr(sender_db, "gender", None) or ""
+        t_gender = getattr(target, "gender", None) or ""
+        req.extra = f"{marriage_type_str}|{s_gender}|{t_gender}"
         await session.commit()
 
         req_keyboard = InlineKeyboardMarkup([[
@@ -330,15 +334,24 @@ async def request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target = await get_user(session, req.to_user_id)
 
         if req_type_str == "marry":
-            # Récupérer le type de mariage stocké dans extra
-            marriage_type = getattr(req, "extra", "monogame") or "monogame"
+            # Récupérer le type de mariage et les genres stockés dans extra
+            extra = getattr(req, "extra", "monogame") or "monogame"
+            extra_parts = extra.split("|")
+            marriage_type = extra_parts[0] if extra_parts else "monogame"
 
             sender_db = await get_user(session, req.from_user_id)
             target_db = await get_user(session, req.to_user_id)
 
-            # Re-vérifier compatibilité genre au moment de l'acceptation
-            s_gender = getattr(sender_db, "gender", None)
-            t_gender = getattr(target_db, "gender", None)
+            # Utiliser les genres snapshotés au moment de la demande (évite le bug de changement de genre)
+            if len(extra_parts) == 3:
+                s_gender = extra_parts[1] or None
+                t_gender = extra_parts[2] or None
+            else:
+                # Fallback si ancienne demande sans genres stockés
+                s_gender = getattr(sender_db, "gender", None)
+                t_gender = getattr(target_db, "gender", None)
+
+            # Re-vérifier compatibilité genre
             if s_gender and t_gender and s_gender == t_gender:
                 await delete_request(session, req_id)
                 return await query.edit_message_text("❌ Mariage impossible : même genre détecté.")

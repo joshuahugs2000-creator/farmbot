@@ -452,13 +452,3 @@ class CompanyBuilding(Base):
 
 
 # ─── FILIALES ─────────────────────────────────────────────────────────────────
-
-class CompanyAnnex(Base):
-    __tablename__ = "company_annexes"
-    id           = Column(Integer, primary_key=True, autoincrement=True)
-    parent_id    = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-    child_id     = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-    director_id  = Column(BigInteger, ForeignKey("users.user_id"), nullable=True)  # directeur nommé
-    revenue_pct  = Column(Float, default=15.0)   # % reversé à la maison mère chaque jour
-    created_at   = Column(DateTime, default=datetime.utcnow)
-    is_active    = Column(Boolean, default=True)

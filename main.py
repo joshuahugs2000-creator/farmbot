@@ -1055,7 +1055,7 @@ async def main():
             _seen_updates[update_id] = now
 
         update = Update.de_json(data, app.bot)
-        asyncio.ensure_future(app.process_update(update))
+        asyncio.get_event_loop().create_task(app.process_update(update))
         return web.Response(text="OK")
 
     from api.webapp import setup_webapp_routes

@@ -628,31 +628,7 @@ async def increment_contract_progress(user_id: int):
             if not rows:
                 return
 
-            # Liste des IDs de filiales (à exclure si l'user est PDG MÈRE)
-            from database.models import CompanyAnnex
-            filiale_ids = set(
-                row[0] for row in (await session.execute(
-                    select(CompanyAnnex.child_id).where(CompanyAnnex.is_active == True)
-                )).all()
-            )
-
-            # Construire la liste des company_ids à incrémenter
-            # Règle : si PDG, exclure les filiales dont il est owner par héritage
-            # (sauf s'il EST le directeur nommé de la filiale)
-            to_increment = set()
-            is_filiale_pdg = set()
-
-            for company_id, role in rows:
-                if company_id in filiale_ids:
-                    # C'est une filiale → l'incrémenter seulement si l'user y est PDG actif (directeur nommé)
-                    if role == "pdg":
-                        is_filiale_pdg.add(company_id)
-                        to_increment.add(company_id)
-                    # Si role != pdg dans la filiale, on l'ignore (employé de passage)
-                else:
-                    # Entreprise principale → toujours incrémenter
-                    to_increment.add(company_id)
-
+            to_increment = {company_id for company_id, role in rows}
             for company_id in to_increment:
                 await session.execute(
                     sa_text("""

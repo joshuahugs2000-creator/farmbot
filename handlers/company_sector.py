@@ -518,7 +518,8 @@ async def acceptercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
                     CompanyEmployee.left_at == None,
                     CompanyEmployee.role.in_(["pdg", "directeur"]),
                 )
-            )).scalar_one_or_none()
+            )
+            ).limit(1).scalar_one_or_none()
             if not emp:
                 await update.message.reply_text("❌ Seul le PDG ou Directeur de l'entreprise concernée peut accepter.")
                 return
@@ -586,7 +587,8 @@ async def refusercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     CompanyEmployee.left_at == None,
                     CompanyEmployee.role.in_(["pdg", "directeur"]),
                 )
-            )).scalar_one_or_none()
+            )
+            ).limit(1).scalar_one_or_none()
             if not emp:
                 await update.message.reply_text("❌ Seul le PDG ou Directeur peut refuser.")
                 return
@@ -619,7 +621,8 @@ async def mescontrats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 CompanyEmployee.user_id == user.id,
                 CompanyEmployee.left_at == None,
             )
-        )).scalar_one_or_none()
+        )
+        ).limit(1).scalar_one_or_none()
 
         if not emp:
             await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
@@ -1066,7 +1069,8 @@ async def evenements_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     CompanyEmployee.user_id == user.id,
                     CompanyEmployee.left_at == None,
                 )
-            )).scalar_one_or_none()
+            )
+            ).limit(1).scalar_one_or_none()
             if not emp:
                 await update.message.reply_text("❌ Tu ne fais partie d'aucune entreprise.")
                 return

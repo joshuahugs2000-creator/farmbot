@@ -881,33 +881,53 @@ async def retirerfiliale_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
-        # Rétrograder le directeur (ex-PDG de filiale) → employé simple
-        if target_annex.director_id:
-            dir_emp = (await session.execute(
-                select(CompanyEmployee).where(
-                    CompanyEmployee.company_id == filiale_obj.id,
-                    CompanyEmployee.user_id == target_annex.director_id,
-                    CompanyEmployee.left_at == None,
+        # ── DISSOLUTION complète de la filiale ──────────────────────────────
+
+        # 1. Libérer tous les employés de la filiale SANS cooldown
+        emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == filiale_obj.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalars().all()
+
+        bypass_date = datetime.utcnow() - timedelta(days=8)
+        for e in emps:
+            e.left_at = bypass_date
+            try:
+                await context.bot.send_message(
+                    chat_id=e.user_id,
+                    text=(
+                        f"🏚️ La filiale <b>{filiale_obj.name}</b> a été dissoute par le PDG de <b>{company.name}</b>.\n"
+                        f"Tu es désormais libre de rejoindre une autre entreprise."
+                    ),
+                    parse_mode="HTML"
                 )
-            )).scalar_one_or_none()
-            if dir_emp:
-                dir_emp.role = "employe"
+            except Exception:
+                pass
 
-        # Remettre owner_id au PDG mère (la filiale redevient sa propriété légale)
-        filiale_obj.owner_id = user.id
+        # 2. Récupérer la trésorerie → retourne à la boîte mère
+        treasury_filiale = filiale_obj.treasury or 0
+        if treasury_filiale > 0:
+            company.treasury = (company.treasury or 0) + treasury_filiale
 
-        # Désactiver le lien filiale
+        # 3. Fermer la filiale
+        filiale_obj.is_active = False
+        filiale_obj.treasury = 0
+        filiale_obj.owner_id = user.id  # remettre au PDG mère pour la cohérence DB
+
+        # 4. Désactiver le lien filiale
         target_annex.is_active = False
         await session.commit()
 
-        # Notifier si possible
+        # Notifier le directeur si possible
         try:
             if target_annex.director_id:
                 await context.bot.send_message(
                     chat_id=target_annex.director_id,
                     text=(
-                        f"⚠️ <b>{filiale_obj.name}</b> a été détachée de <b>{company.name}</b>.\n"
-                        f"L'entreprise est désormais indépendante. Tu restes employé(e)."
+                        f"🏚️ <b>{filiale_obj.name}</b> a été dissoute par le PDG de <b>{company.name}</b>.\n"
+                        f"Tu es désormais libre de rejoindre une autre entreprise."
                     ),
                     parse_mode="HTML"
                 )
@@ -915,9 +935,9 @@ async def retirerfiliale_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pass
 
         await update.message.reply_text(
-            f"✅ <b>{filiale_obj.name}</b> a été détachée.\n\n"
-            f"🏢 Elle est désormais une entreprise indépendante.\n"
-            f"💰 Sa trésorerie (<b>{_fmt(filiale_obj.treasury)} $</b>) est conservée.",
+            f"🏚️ <b>{filiale_obj.name}</b> a été dissoute.\n\n"
+            f"💰 <b>{_fmt(treasury_filiale)} $</b> de trésorerie récupérés dans <b>{company.name}</b>.\n"
+            f"👥 Tous les employés de la filiale ont été libérés sans cooldown.",
             parse_mode="HTML"
         )
 

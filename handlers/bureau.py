@@ -252,7 +252,7 @@ async def soumettredossier_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     async with AsyncSessionLocal() as session:
         from database.db import get_main_company
-        company = await get_main_company(session, user.id)
+        company = await get_main_company(session, user.id, include_filiale=True)
 
         if not company or company.is_bot_company:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
@@ -361,13 +361,15 @@ async def choisircontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # ── Phase 1 : lecture seule ───────────────────────────────────────────────
     async with AsyncSessionLocal() as session:
-        from database.db import get_main_company
-        comp = await get_main_company(session, user.id)
-        if not comp:
+        comp_row = (await session.execute(
+            text("SELECT id, name FROM companies WHERE owner_id=:uid AND is_active=TRUE AND id NOT IN (SELECT child_id FROM company_annexes) LIMIT 1"),
+            {"uid": user.id}
+        )).fetchone()
+        if not comp_row:
             await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
             return
-        company_id = comp.id
-        company_name = comp.name
+        company_id = int(comp_row[0])
+        company_name = comp_row[1]
 
         contract_row = (await session.execute(
             text("SELECT id, company_id, status, title, objective_cmds, reward, duration_days "
@@ -465,7 +467,7 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     async with AsyncSessionLocal() as session:
         from database.db import get_main_company
-        company = await get_main_company(session, user.id)
+        company = await get_main_company(session, user.id, include_filiale=True)
 
         if not company:
             # Chercher si directeur de filiale
@@ -551,13 +553,23 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         # ── Phase 1 : lecture seule ───────────────────────────────────────────
         async with AsyncSessionLocal() as s:
-            from database.db import get_main_company
-            comp = await get_main_company(s, user.id)
-            if not comp:
-                await update.message.reply_text("❌ Tu n'es PDG d'aucune entreprise.")
+            row = (await s.execute(
+                text("""
+                    SELECT id, treasury FROM companies
+                    WHERE (owner_id=:uid OR id IN (
+                        SELECT company_id FROM company_employees
+                        WHERE user_id=:uid AND role='directeur' AND left_at IS NULL
+                    )) AND is_active=TRUE
+                    AND id NOT IN (SELECT child_id FROM company_annexes WHERE owner_id=:uid)
+                    LIMIT 1
+                """),
+                {"uid": user.id}
+            )).fetchone()
+            if not row:
+                await update.message.reply_text("❌ Tu n'es PDG ni directeur d'aucune entreprise.")
                 return
-            company_id = comp.id
-            treasury_now = int(comp.treasury or 0)
+            company_id = int(row[0])
+            treasury_now = int(row[1] or 0)
 
             contracts_rows = (await s.execute(
                 text("SELECT id, title, cmds_done, objective_cmds, reward, ends_at "

@@ -1316,10 +1316,13 @@ async def remove_admin_id(user_id: int) -> None:
 
 async def get_main_company(session, user_id: int):
     """
-    Retourne l'entreprise PRINCIPALE d'un PDG (owner_id == user_id)
-    en excluant les filiales (qui apparaissent dans company_annexes.child_id).
-    
-    Évite le bug MultipleResultsFound quand un PDG a créé une filiale.
+    Retourne l'entreprise active d'un PDG.
+
+    Priorité :
+    1. Entreprise principale (owner_id == user_id, hors filiales)
+    2. Filiale dont il est PDG nommé (owner_id == user_id, dans company_annexes)
+
+    Évite le bug MultipleResultsFound et gère les directeurs de filiale.
     """
     from database.models import Company, CompanyAnnex
     from sqlalchemy import select
@@ -1327,6 +1330,7 @@ async def get_main_company(session, user_id: int):
     # Sous-requête : IDs des filiales
     filiale_ids = select(CompanyAnnex.child_id)
 
+    # 1. Entreprise principale (jamais une filiale)
     company = (await session.execute(
         select(Company).where(
             Company.owner_id == user_id,
@@ -1335,4 +1339,16 @@ async def get_main_company(session, user_id: int):
         ).limit(1)
     )).scalar_one_or_none()
 
-    return company
+    if company:
+        return company
+
+    # 2. Filiale dont il est PDG nommé (directeur de filiale)
+    filiale = (await session.execute(
+        select(Company).where(
+            Company.owner_id == user_id,
+            Company.is_active == True,
+            Company.id.in_(filiale_ids),
+        ).limit(1)
+    )).scalar_one_or_none()
+
+    return filiale

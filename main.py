@@ -531,13 +531,15 @@ async def error_handler(update: object, context):
 
     err = context.error
 
-    # Flood control ou timeout réseau — on log en warning sans spammer l'utilisateur
+    # Flood control — on attend vraiment le temps demandé par Telegram
     if isinstance(err, RetryAfter):
-        wait = min(err.retry_after, 30)  # cap à 30s max, Telegram envoie parfois des valeurs aberrantes
-        logger.warning(f"Flood control Telegram : retry in {err.retry_after}s — ignoré (cap {wait}s)")
+        wait = min(err.retry_after + 1, 60)
+        logger.warning(f"Flood control Telegram : retry_after={err.retry_after}s — attente {wait}s")
+        await asyncio.sleep(wait)
         return
     if isinstance(err, (TimedOut, httpx.ReadTimeout, httpx.ConnectTimeout)):
-        logger.warning(f"Timeout réseau ({type(err).__name__}) — ignoré")
+        logger.warning(f"Timeout réseau ({type(err).__name__}) — attente 2s")
+        await asyncio.sleep(2)
         return
 
     logger.error("Exception dans un handler :", exc_info=err)
@@ -574,11 +576,13 @@ def _prison_checked(handler_func):
 
 
 async def main():
+    from telegram.ext import AIORateLimiter
     app = (
         Application.builder()
         .token(BOT_TOKEN)
         .updater(None)
         .post_init(on_startup)
+        .rate_limiter(AIORateLimiter(max_retries=3))
         .build()
     )
 

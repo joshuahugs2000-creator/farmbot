@@ -218,6 +218,15 @@ async def marry_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         sender_db = await get_user(session, sender.user_id)
 
+        # Re-vérifier la compatibilité de genre au moment du clic (anti-exploit changement de genre)
+        s_gender_check = getattr(sender_db, "gender", None)
+        t_gender_check = getattr(target, "gender", None)
+        if s_gender_check and t_gender_check and s_gender_check == t_gender_check:
+            label = "deux hommes" if s_gender_check == "homme" else "deux femmes"
+            return await query.edit_message_text(
+                f"❌ Mariage impossible : {label} détectés.\nUtilise /setsexe pour modifier ton genre."
+            )
+
         req = await create_request(session, sender.user_id, target_id, RequestType.MARRY, group_id, 0)
         # Stocker le type de mariage ET les genres dans extra (snapshot au moment de la demande)
         s_gender = getattr(sender_db, "gender", None) or ""

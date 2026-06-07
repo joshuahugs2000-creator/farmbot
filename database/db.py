@@ -1345,6 +1345,7 @@ async def get_main_company(session, user_id: int, include_filiale: bool = False)
     if not include_filiale:
         return None
 
+    # Chercher par owner_id dans les filiales (nommerdir change owner_id)
     filiale = (await session.execute(
         select(Company).where(
             Company.owner_id == user_id,

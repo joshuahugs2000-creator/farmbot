@@ -702,7 +702,8 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                         CompanyEmployee.role == "pdg",
                         CompanyEmployee.left_at == None,
                     )
-                )).scalar_one_or_none()
+                )
+                ).limit(1).scalar_one_or_none()
 
                 if pdg_emp:
                     try:
@@ -732,7 +733,8 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                         CompanyEmployee.role == "pdg",
                         CompanyEmployee.left_at == None,
                     )
-                )).scalar_one_or_none()
+                )
+                ).limit(1).scalar_one_or_none()
 
                 if pdg_emp:
                     try:

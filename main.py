@@ -531,15 +531,11 @@ async def error_handler(update: object, context):
 
     err = context.error
 
-    # Flood control — on attend vraiment le temps demandé par Telegram
     if isinstance(err, RetryAfter):
-        wait = min(err.retry_after + 1, 60)
-        logger.warning(f"Flood control Telegram : retry_after={err.retry_after}s — attente {wait}s")
-        await asyncio.sleep(wait)
+        logger.warning(f"Flood control Telegram : retry_after={err.retry_after}s")
         return
     if isinstance(err, (TimedOut, httpx.ReadTimeout, httpx.ConnectTimeout)):
-        logger.warning(f"Timeout réseau ({type(err).__name__}) — attente 2s")
-        await asyncio.sleep(2)
+        logger.warning(f"Timeout réseau ({type(err).__name__}) — ignoré")
         return
 
     logger.error("Exception dans un handler :", exc_info=err)

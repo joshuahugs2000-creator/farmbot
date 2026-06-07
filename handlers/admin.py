@@ -838,7 +838,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 sent_users += 1
             except Exception:
                 failed_users += 1
-            await asyncio.sleep(0.1)  # max 10 msgs/sec
+            await asyncio.sleep(1.0)  # max 1 msg/sec — safe Telegram
 
         for g in group_rows:
             try:
@@ -850,7 +850,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 sent_groups += 1
             except Exception:
                 failed_groups += 1
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)  # groupes — 2 msgs/sec max
     finally:
         _BROADCAST_LOCK = False
 
@@ -2929,7 +2929,7 @@ async def broadcastdm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             success += 1
         except Exception:
             fail += 1
-        await asyncio.sleep(0.3)  # max ~3 DMs/sec — évite le 429
+        await asyncio.sleep(1.0)  # max 1 DM/sec — safe Telegram
 
     await msg.edit_text(
         f"📨 <b>Broadcast DM terminé</b>\n\n"

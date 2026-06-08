@@ -196,6 +196,7 @@ async def webapp_user(request: web.Request) -> web.Response:
             'diplomes':      diplomes_str,
             'avatar_data':   user.avatar_data or None,
             'photo_file_id': user.photo_file_id or None,
+            'customization': user.profile_color or None,
             'portfolio': {
                 'invested': _fmt(invested),
                 'current':  _fmt(current),
@@ -884,11 +885,99 @@ def _apple_gen_row(level: int) -> list:
     return row  # True = bombe
 
 
+async def webapp_profile_customize(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/customize — Sauvegarder thème cover + badges équipés."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    cover_theme     = body.get('cover_theme', 'purple')
+    cover_fx        = body.get('cover_fx', '')
+    badges_equipped = body.get('badges_equipped', [])
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Lire la customisation actuelle
+        try:
+            current = json.loads(user.profile_color or '{}') if user.profile_color and user.profile_color.startswith('{') else {}
+        except Exception:
+            current = {}
+
+        current['cover_theme']     = cover_theme
+        current['cover_fx']        = cover_fx
+        current['badges_equipped'] = badges_equipped
+
+        user.profile_color = json.dumps(current)
+        await session.commit()
+
+    return web.json_response({'ok': True})
+
+
+async def webapp_profile_badge_buy(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/badge/buy — Acheter un badge avec des coins."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid      = int(body.get('user_id', 0))
+    badge_id = body.get('badge_id', '')
+    price    = int(body.get('price', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not badge_id or price <= 0:
+        return web.json_response({'error': 'Paramètres invalides'}, status=400)
+
+    VALID_BADGES = {'gold_star','diamond','fire','crown','rocket','skull','trophy','unicorn'}
+    if badge_id not in VALID_BADGES:
+        return web.json_response({'error': 'Badge inconnu'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        try:
+            current = json.loads(user.profile_color or '{}') if user.profile_color and user.profile_color.startswith('{') else {}
+        except Exception:
+            current = {}
+
+        owned = current.get('badges_owned', [])
+        if badge_id in owned:
+            return web.json_response({'error': 'Badge déjà possédé'})
+
+        if (user.coins or 0) < price:
+            return web.json_response({'error': f'Fonds insuffisants ({_fmt(user.coins)} $ disponible)'})
+
+        user.coins -= price
+        owned.append(badge_id)
+        current['badges_owned'] = owned
+        user.profile_color = json.dumps(current)
+        await session.commit()
+
+    return web.json_response({'ok': True, 'badges_owned': owned})
+
+
 def setup_webapp_routes(app: web.Application):
     """Enregistre les routes de la Mini App."""
     app.router.add_get('/',                       webapp_index)
     app.router.add_get('/webapp',                 webapp_index)
     app.router.add_post('/api/webapp/load',       webapp_load_app)
+    app.router.add_post('/api/webapp/profile/customize',   webapp_profile_customize)
+    app.router.add_post('/api/webapp/profile/badge/buy',   webapp_profile_badge_buy)
     app.router.add_get('/api/webapp/user',        webapp_user)
     app.router.add_get('/api/webapp/photo',       webapp_photo_proxy)
     app.router.add_post('/api/webapp/avatar',     webapp_save_avatar)

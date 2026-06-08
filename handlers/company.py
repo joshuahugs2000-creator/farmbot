@@ -1535,7 +1535,7 @@ async def recruter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Trouver l'utilisateur
         target = (await session.execute(
-            select(User).where(User.username == mention)
+            select(User).where(func.lower(User.username) == mention.lower())
         )).scalar_one_or_none()
         if not target:
             await update.message.reply_text(f"❌ Utilisateur @{mention} introuvable. Il doit avoir utilisé le bot au moins une fois.")
@@ -1954,7 +1954,7 @@ async def nommer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Trouver la cible
         target = (await session.execute(
-            select(User).where(User.username == mention)
+            select(User).where(func.lower(User.username) == mention.lower())
         )).scalar_one_or_none()
         if not target:
             await update.message.reply_text(f"❌ @{mention} introuvable.")
@@ -2943,7 +2943,7 @@ async def cederentreprise_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         target = (await session.execute(
-            select(User).where(User.username == mention)
+            select(User).where(func.lower(User.username) == mention.lower())
         )).scalar_one_or_none()
         if not target:
             await update.message.reply_text(f"❌ @{mention} introuvable.")
@@ -3196,7 +3196,7 @@ async def licencier_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         target = (await session.execute(
-            select(User).where(User.username == mention)
+            select(User).where(func.lower(User.username) == mention.lower())
         )).scalar_one_or_none()
         if not target:
             await update.message.reply_text(f"❌ @{mention} introuvable.")
@@ -3889,7 +3889,7 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 return
 
             target = (await session.execute(
-                select(User).where(User.username == mention)
+                select(User).where(func.lower(User.username) == mention.lower())
             )).scalar_one_or_none()
             if not target:
                 await update.message.reply_text(f"❌ @{mention} introuvable.")
@@ -4459,7 +4459,7 @@ async def payeremploye_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Trouver la cible
         target = (await session.execute(
-            select(User).where(User.username == mention)
+            select(User).where(func.lower(User.username) == mention.lower())
         )).scalar_one_or_none()
         if not target:
             await update.message.reply_text(f"❌ @{mention} introuvable.")

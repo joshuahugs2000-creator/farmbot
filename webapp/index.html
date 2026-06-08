@@ -285,23 +285,35 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     transition: background .2s;
   }
   .pf-cover-edit:hover { background: rgba(247,201,72,.3); }
-  /* Avatar */
+  /* Avatar — en dehors du cover, dans la bande identité */
+  .pf-identity-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 14px 0;
+    margin-top: -26px; /* remonte sur le cover */
+    position: relative; z-index: 2;
+  }
   .pf-avatar-wrap {
-    position: absolute; bottom: -42px; left: 18px;
-    width: 88px; height: 88px;
+    width: 72px; height: 72px; flex-shrink: 0;
     border-radius: 50%;
-    border: 4px solid var(--bg);
+    border: 3px solid var(--bg);
     background: var(--card2);
     overflow: hidden;
-    box-shadow: 0 6px 24px rgba(0,0,0,.55);
+    box-shadow: 0 4px 20px rgba(0,0,0,.6);
     cursor: pointer;
   }
   .pf-avatar-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .pf-avatar-placeholder {
     width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
-    font-size: 36px;
+    font-size: 30px;
     background: linear-gradient(135deg, #2a2a4a, #1a1a3e);
+  }
+  .pf-identity-info {
+    flex: 1; padding-top: 28px; /* espace pour sortir du cover */
+    min-width: 0;
+  }
+  .pf-fortune-block {
+    padding: 10px 14px 4px;
   }
   /* Badge rang */
   .pf-rank-badge {
@@ -403,7 +415,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     border: none; cursor: pointer;
   }
   .pf-identity {
-    padding: 46px 16px 12px;
+    padding: 12px 14px 4px;
   }
   .pf-name-row {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -513,26 +525,32 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <div class="page active" id="page-profile">
 
     <!-- Cover + Avatar -->
+    <!-- Cover (image de fond uniquement, sans avatar dedans) -->
     <div class="pf-cover" id="pf-cover">
       <div class="pf-cover-blur" id="pf-cover-blur"></div>
       <div class="pf-cover-lines"></div>
       <button class="pf-cover-edit" onclick="openCustomize()" title="Personnaliser">✏️</button>
-      <div class="pf-avatar-wrap" id="pf-avatar-wrap">
-        <div class="pf-avatar-placeholder">👤</div>
-      </div>
       <div class="pf-rank-badge" id="pf-rank-badge"># —</div>
     </div>
 
-    <!-- Identité -->
-    <div class="pf-identity" style="padding-top:54px">
-      <div class="pf-name-row">
-        <div class="pf-name" id="pf-name">—</div>
-        <div class="pf-title-badge" id="pf-title">Citoyen</div>
+    <!-- Bande identité : avatar à gauche + infos à droite -->
+    <div class="pf-identity-row">
+      <div class="pf-avatar-wrap" id="pf-avatar-wrap">
+        <div class="pf-avatar-placeholder">👤</div>
       </div>
-      <div class="pf-username" id="pf-username"></div>
-      <!-- Badges acquis -->
-      <div class="pf-badges-row" id="pf-badges-row"></div>
-      <div class="pf-fortune-hero" id="pf-coins" style="margin-top:10px">—</div>
+      <div class="pf-identity-info">
+        <div class="pf-name-row">
+          <div class="pf-name" id="pf-name">—</div>
+          <div class="pf-title-badge" id="pf-title">Citoyen</div>
+        </div>
+        <div class="pf-username" id="pf-username"></div>
+        <div class="pf-badges-row" id="pf-badges-row"></div>
+      </div>
+    </div>
+
+    <!-- Fortune hero -->
+    <div class="pf-fortune-block">
+      <div class="pf-fortune-hero" id="pf-coins">—</div>
       <div class="pf-fortune-label">Fortune totale</div>
     </div>
 
@@ -6075,16 +6093,16 @@ async function submitBid(isSalle) {
 // ════════════════════════════════════════
 
 const COVER_THEMES = [
-  { id:'purple',  label:'Violet',    bg:'linear-gradient(135deg,#1a1a3e,#0f0f2a,#1a0a2e)', overlay:'linear-gradient(135deg,rgba(162,155,254,.2),rgba(78,205,196,.12))' },
-  { id:'gold',    label:'Or',        bg:'linear-gradient(135deg,#2a1a00,#1a1000,#2a1500)', overlay:'linear-gradient(135deg,rgba(247,201,72,.25),rgba(255,180,0,.15))' },
-  { id:'teal',    label:'Vert',      bg:'linear-gradient(135deg,#0a2a2a,#051515,#0a2015)', overlay:'linear-gradient(135deg,rgba(85,239,196,.2),rgba(0,200,150,.12))' },
-  { id:'red',     label:'Rouge',     bg:'linear-gradient(135deg,#2a0a0a,#1a0505,#2a0505)', overlay:'linear-gradient(135deg,rgba(255,107,107,.2),rgba(200,0,0,.12))' },
-  { id:'blue',    label:'Bleu',      bg:'linear-gradient(135deg,#0a1a2e,#050f1f,#0a1528)', overlay:'linear-gradient(135deg,rgba(100,180,255,.2),rgba(0,100,255,.1))' },
-  { id:'pink',    label:'Rose',      bg:'linear-gradient(135deg,#2a0a1e,#1a0512,#2a0520)', overlay:'linear-gradient(135deg,rgba(253,121,168,.25),rgba(200,0,100,.1))' },
-  { id:'orange',  label:'Orange',    bg:'linear-gradient(135deg,#2a1500,#1a0c00,#221000)', overlay:'linear-gradient(135deg,rgba(255,160,0,.2),rgba(255,100,0,.1))' },
-  { id:'black',   label:'Noir',      bg:'linear-gradient(135deg,#0a0a0a,#050505,#0f0f0f)', overlay:'linear-gradient(135deg,rgba(255,255,255,.04),rgba(255,255,255,.02))' },
-  { id:'silver',  label:'Argent',    bg:'linear-gradient(135deg,#1a1a22,#0f0f18,#16161e)', overlay:'linear-gradient(135deg,rgba(200,200,255,.15),rgba(180,180,255,.08))' },
-  { id:'rainbow', label:'🌈',        bg:'linear-gradient(135deg,#1a0a2e,#0a1a2e,#0a2a1e)', overlay:'linear-gradient(90deg,rgba(255,107,107,.15),rgba(247,201,72,.15),rgba(85,239,196,.15))' },
+  { id:'purple',  label:'Violet',      swatch:'#6c5ce7', bg:'linear-gradient(135deg,#1a1a3e,#0f0f2a,#1a0a2e)', overlay:'linear-gradient(135deg,rgba(162,155,254,.25),rgba(78,205,196,.12))' },
+  { id:'gold',    label:'Or',          swatch:'#f9ca24', bg:'linear-gradient(135deg,#2a1a00,#1a1000,#2a1500)', overlay:'linear-gradient(135deg,rgba(247,201,72,.3),rgba(255,180,0,.18))' },
+  { id:'teal',    label:'Vert',        swatch:'#00b894', bg:'linear-gradient(135deg,#0a2a2a,#051515,#0a2015)', overlay:'linear-gradient(135deg,rgba(85,239,196,.25),rgba(0,200,150,.15))' },
+  { id:'red',     label:'Rouge',       swatch:'#e17055', bg:'linear-gradient(135deg,#2a0a0a,#1a0505,#2a0505)', overlay:'linear-gradient(135deg,rgba(255,107,107,.25),rgba(200,0,0,.15))' },
+  { id:'blue',    label:'Bleu',        swatch:'#0984e3', bg:'linear-gradient(135deg,#0a1a2e,#050f1f,#0a1528)', overlay:'linear-gradient(135deg,rgba(100,180,255,.25),rgba(0,100,255,.15))' },
+  { id:'pink',    label:'Rose',        swatch:'#fd79a8', bg:'linear-gradient(135deg,#2a0a1e,#1a0512,#2a0520)', overlay:'linear-gradient(135deg,rgba(253,121,168,.28),rgba(200,0,100,.15))' },
+  { id:'orange',  label:'Orange',      swatch:'#e17055', bg:'linear-gradient(135deg,#2a1500,#1a0c00,#221000)', overlay:'linear-gradient(135deg,rgba(255,160,0,.25),rgba(255,100,0,.15))' },
+  { id:'black',   label:'Noir',        swatch:'#636e72', bg:'linear-gradient(135deg,#0a0a0a,#050505,#0f0f0f)', overlay:'linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.02))' },
+  { id:'silver',  label:'Argent',      swatch:'#b2bec3', bg:'linear-gradient(135deg,#1a1a22,#0f0f18,#16161e)', overlay:'linear-gradient(135deg,rgba(200,200,255,.18),rgba(180,180,255,.1))' },
+  { id:'rainbow', label:'Arc-en-ciel', swatch:'linear-gradient(90deg,#e84393,#f9ca24,#00b894,#0984e3)', bg:'linear-gradient(135deg,#1a0a2e,#0a1a2e,#0a2a1e)', overlay:'linear-gradient(90deg,rgba(255,107,107,.18),rgba(247,201,72,.18),rgba(85,239,196,.18))' },
 ];
 
 const BADGE_CATALOG = [
@@ -6122,7 +6140,7 @@ function _renderCoverColors() {
   const grid = document.getElementById('cover-colors-grid');
   grid.innerHTML = COVER_THEMES.map(t => `
     <div class="cover-color-btn ${t.id===_pfCustom.cover_theme?'selected':''}"
-         style="background:${t.bg}"
+         style="background:${t.swatch}"
          title="${t.label}"
          onclick="selectTheme('${t.id}')"></div>
   `).join('');

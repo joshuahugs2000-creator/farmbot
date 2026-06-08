@@ -147,151 +147,17 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .game-card .game-name { font-family: 'Bangers', cursive; font-size: 16px; letter-spacing: 1px; color: var(--accent); }
 .game-card .game-desc { font-size: 11px; color: var(--text2); margin-top: 2px; }
 
-/* ── PROFILE COVER ── */
-.pf-cover {
-  position: relative;
-  width: 100%; height: 140px;
-  border-radius: var(--radius);
-  margin-bottom: 0;
-  overflow: hidden;
-  background: linear-gradient(135deg, #1a1a3e, #2d1b69);
+/* ── PROFILE HEADER ── */
+.profile-header {
+  display: flex; align-items: center; gap: 14px;
+  background: linear-gradient(135deg, var(--card), var(--card2));
+  border-radius: var(--radius); border: 1px solid var(--border);
+  padding: 16px; margin-bottom: 12px;
 }
-.pf-cover-bg {
-  position: absolute; inset: 0;
-  background: inherit;
-  transition: background 0.3s;
-}
-/* effets FX */
-.pf-cover[data-fx="dots"] .pf-cover-bg::after {
-  content:''; position:absolute; inset:0;
-  background-image: radial-gradient(circle, rgba(255,255,255,.15) 1px, transparent 1px);
-  background-size: 18px 18px;
-}
-.pf-cover[data-fx="grid"] .pf-cover-bg::after {
-  content:''; position:absolute; inset:0;
-  background-image: linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px);
-  background-size: 24px 24px;
-}
-.pf-cover[data-fx="waves"] .pf-cover-bg::after {
-  content:''; position:absolute; inset:0;
-  background: repeating-linear-gradient(
-    -45deg, transparent, transparent 10px,
-    rgba(255,255,255,.05) 10px, rgba(255,255,255,.05) 20px
-  );
-}
-.pf-cover-stats {
-  position: absolute; bottom: 12px; left: 14px;
-  display: flex; align-items: center; gap: 16px;
-}
-.pf-cover-stat { display: flex; flex-direction: column; }
-.pf-cover-stat-val {
-  font-family: 'Bangers', cursive; font-size: 20px;
-  color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6);
-  letter-spacing: 0.5px; line-height: 1;
-}
-.pf-cover-stat-lbl {
-  font-size: 9px; font-weight: 800; letter-spacing: 1.5px;
-  color: rgba(255,255,255,.6); text-transform: uppercase; margin-top: 1px;
-}
-.pf-cover-sep {
-  width: 1px; height: 32px;
-  background: rgba(255,255,255,.25); margin: 0 2px;
-}
-.pf-rank-badge {
-  position: absolute; bottom: 12px; right: 14px;
-  background: var(--accent); color: #000;
-  font-family: 'Bangers', cursive; font-size: 15px;
-  padding: 4px 10px; border-radius: 20px; letter-spacing: 1px;
-}
-.pf-edit-btn {
-  position: absolute; top: 10px; right: 10px;
-  width: 32px; height: 32px; border-radius: 50%;
-  background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.2);
-  color: #fff; font-size: 14px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; backdrop-filter: blur(4px);
-  transition: background .2s;
-}
-.pf-edit-btn:active { background: rgba(0,0,0,.7); }
-
-/* ── PROFILE IDENTITY ROW ── */
-.pf-identity {
-  display: flex; align-items: center; gap: 12px;
-  padding: 0 14px; margin-top: -28px; margin-bottom: 14px;
-  position: relative; z-index: 2;
-}
-.pf-avatar-wrap {
-  width: 76px; height: 76px; border-radius: 50%;
-  border: 3px solid var(--bg);
-  background: var(--card2);
-  overflow: hidden; flex-shrink: 0;
-}
-.pf-identity-info { flex: 1; padding-top: 30px; }
+.profile-avatar-small { width: 64px; height: 64px; border-radius: 50%; border: 3px solid var(--accent); overflow: hidden; }
 .profile-name { font-family: 'Bangers', cursive; font-size: 22px; color: var(--accent); letter-spacing: 1px; }
-.profile-title {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; color: #000; font-weight: 800;
-  background: var(--accent4); border-radius: 20px;
-  padding: 2px 8px; margin-top: 2px;
-}
-.pf-username { font-size: 12px; color: var(--text2); margin-top: 3px; }
-
-/* ── MODAL CUSTOMIZE ── */
-#modal-customize {
-  display: none;
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(0,0,0,.75);
-  align-items: flex-end; justify-content: center;
-}
-#modal-customize.open { display: flex; }
-.mc-sheet {
-  width: 100%; max-height: 80vh;
-  background: var(--card); border-radius: 20px 20px 0 0;
-  padding: 20px 16px 32px; overflow-y: auto;
-}
-.mc-handle {
-  width: 40px; height: 4px; border-radius: 2px;
-  background: var(--border); margin: 0 auto 16px;
-}
-.mc-title {
-  font-family: 'Bangers', cursive; font-size: 20px;
-  color: var(--accent); letter-spacing: 1px; margin-bottom: 16px;
-}
-.mc-section-lbl {
-  font-size: 10px; font-weight: 800; letter-spacing: 1.5px;
-  text-transform: uppercase; color: var(--text2); margin-bottom: 10px;
-}
-.mc-colors {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
-  margin-bottom: 20px;
-}
-.mc-color-btn {
-  height: 44px; border-radius: 10px; border: 2px solid transparent;
-  cursor: pointer; transition: transform .15s, border-color .15s;
-}
-.mc-color-btn.selected { border-color: #fff; transform: scale(1.08); }
-.mc-effects {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
-  margin-bottom: 24px;
-}
-.mc-fx-btn {
-  padding: 10px 4px; border-radius: 10px; border: 2px solid var(--border);
-  background: var(--card2); color: var(--text2);
-  font-size: 11px; font-weight: 700; cursor: pointer; text-align: center;
-  transition: border-color .15s, color .15s;
-}
-.mc-fx-btn.selected { border-color: var(--accent); color: var(--accent); }
-.mc-save-btn {
-  width: 100%; padding: 14px; border-radius: 12px; border: none;
-  background: var(--accent); color: #000; font-weight: 900; font-size: 15px;
-  cursor: pointer; margin-top: 4px;
-}
-.mc-cancel-btn {
-  width: 100%; padding: 12px; border-radius: 12px; border: 2px solid var(--border);
-  background: transparent; color: var(--text2); font-weight: 700; font-size: 14px;
-  cursor: pointer; margin-top: 8px;
-}
+.profile-title { font-size: 12px; color: var(--accent4); font-weight: 700; margin-top: 2px; }
+.profile-coins { font-size: 18px; font-weight: 900; color: var(--success); margin-top: 4px; }
 
 /* ── LOADING ── */
 #loading {
@@ -361,75 +227,416 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 <div id="app">
 
   <!-- ══ PAGE PROFIL ══ -->
-  <div class="page active" id="page-profile">
-    <div class="page-title">👤 Profil</div>
+  <!-- ══ STYLES PAGE PROFIL ══ -->
+  <style>
+  /* ── Cover v2 — plus grand, personnalisable ── */
+  .pf-cover {
+    position: relative;
+    height: 130px;
+    background: var(--pf-cover-bg, linear-gradient(135deg, #1a1a3e 0%, #0f0f2a 50%, #1a0a2e 100%));
+    overflow: hidden;
+    margin: -14px -14px 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  .pf-cover-blur {
+    position: absolute; inset: 0;
+    background: var(--pf-cover-overlay, linear-gradient(135deg, rgba(247,201,72,.15) 0%, rgba(162,155,254,.1) 50%, rgba(78,205,196,.1) 100%));
+  }
+  .pf-cover-lines {
+    position: absolute; inset: 0; overflow: hidden; opacity: .25;
+  }
+  .pf-cover-lines::before, .pf-cover-lines::after {
+    content: ''; position: absolute;
+    width: 200%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(247,201,72,.7), transparent);
+  }
+  .pf-cover-lines::before { top: 30%; transform: rotate(-8deg); }
+  .pf-cover-lines::after  { top: 65%; transform: rotate(5deg); }
+  /* Effet particules (class sur .pf-cover) */
+  .pf-cover.fx-dots::after {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,.18) 1px, transparent 1px);
+    background-size: 18px 18px;
+  }
+  .pf-cover.fx-grid::after {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .pf-cover.fx-waves::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 60px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 60'%3E%3Cpath d='M0,30 C200,60 400,0 600,30 C800,60 1000,0 1200,30 L1200,60 L0,60Z' fill='rgba(255,255,255,0.06)'/%3E%3C/svg%3E") repeat-x bottom;
+    background-size: 600px 60px;
+  }
+  /* Stats overlay dans le cover */
+  .pf-cover-stats {
+    position: absolute; bottom: 14px; left: 16px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .pf-cover-stat {
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .pf-cover-stat-val {
+    font-size: 15px; font-weight: 900; color: #fff;
+    text-shadow: 0 1px 6px rgba(0,0,0,.8);
+    line-height: 1;
+  }
+  .pf-cover-stat-lbl {
+    font-size: 9px; font-weight: 700; color: rgba(255,255,255,.6);
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+  .pf-cover-stat-sep {
+    width: 1px; height: 28px;
+    background: rgba(255,255,255,.2);
+  }
+  /* Bouton edit cover */
+  .pf-cover-edit {
+    position: absolute; top: 10px; right: 12px;
+    background: rgba(0,0,0,.45);
+    border: 1px solid rgba(255,255,255,.15);
+    color: #fff; font-size: 14px;
+    width: 30px; height: 30px;
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+    transition: background .2s;
+  }
+  .pf-cover-edit:hover { background: rgba(247,201,72,.3); }
+  /* Avatar — en dehors du cover, dans la bande identité */
+  .pf-identity-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 14px 0;
+    margin-top: -26px; /* remonte sur le cover */
+    position: relative; z-index: 2;
+  }
+  .pf-avatar-wrap {
+    width: 72px; height: 72px; flex-shrink: 0;
+    border-radius: 50%;
+    border: 3px solid var(--bg);
+    background: var(--card2);
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,.6);
+    cursor: pointer;
+  }
+  .pf-avatar-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pf-avatar-placeholder {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px;
+    background: linear-gradient(135deg, #2a2a4a, #1a1a3e);
+  }
+  .pf-identity-info {
+    flex: 1; padding-top: 28px; /* espace pour sortir du cover */
+    min-width: 0;
+  }
+  .pf-fortune-block {
+    padding: 10px 14px 4px;
+  }
+  /* Badge rang */
+  .pf-rank-badge {
+    position: absolute; bottom: 12px; right: 14px;
+    background: linear-gradient(135deg,#f7c948,#e6a800);
+    color: #000; font-size: 11px; font-weight: 900;
+    padding: 4px 11px; border-radius: 20px;
+    letter-spacing: .5px;
+    box-shadow: 0 2px 8px rgba(247,201,72,.4);
+  }
+  /* Badges profil affichés sous le nom */
+  .pf-badges-row {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;
+  }
+  .pf-badge {
+    font-size: 18px;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px;
+    padding: 3px 6px;
+    cursor: default;
+    position: relative;
+  }
+  .pf-badge[title]:hover::after {
+    content: attr(title);
+    position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+    background: #222; color: #fff; font-size: 11px; padding: 3px 7px;
+    border-radius: 6px; white-space: nowrap; pointer-events: none;
+    z-index: 99;
+  }
+  /* ── Modal Personnalisation ── */
+  #modal-customize {
+    display: none; position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,.7); backdrop-filter: blur(4px);
+    align-items: flex-end; justify-content: center;
+  }
+  .customize-sheet {
+    background: var(--card);
+    border-radius: 20px 20px 0 0;
+    width: 100%; max-width: 480px;
+    padding: 20px 18px 32px;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .customize-title {
+    font-size: 16px; font-weight: 900; color: var(--text);
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .customize-section-label {
+    font-size: 10px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text2); margin: 14px 0 8px;
+  }
+  /* Grille couleurs cover */
+  .cover-colors {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+  }
+  .cover-color-btn {
+    height: 36px; border-radius: 10px; border: 2px solid transparent;
+    cursor: pointer; transition: border .15s, transform .15s;
+  }
+  .cover-color-btn.selected, .cover-color-btn:hover {
+    border-color: #fff; transform: scale(1.08);
+  }
+  /* Effets cover */
+  .cover-effects {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .fx-btn {
+    padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text2);
+    font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s;
+  }
+  .fx-btn.selected { background: var(--accent); color: #000; border-color: var(--accent); }
+  /* Shop badges */
+  .badge-shop-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+  }
+  .badge-shop-item {
+    background: var(--card2); border: 1px solid var(--border);
+    border-radius: 14px; padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .badge-shop-item.owned { border-color: rgba(85,239,196,.4); }
+  .badge-emoji { font-size: 26px; }
+  .badge-info { flex: 1; }
+  .badge-name { font-size: 13px; font-weight: 800; color: var(--text); }
+  .badge-price { font-size: 11px; color: var(--accent); margin-top: 2px; }
+  .badge-buy-btn {
+    background: var(--accent); color: #000; border: none;
+    padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 900;
+    cursor: pointer;
+  }
+  .badge-buy-btn:disabled { background: var(--card); color: var(--text2); cursor: default; }
+  .customize-save-btn {
+    width: 100%; margin-top: 18px;
+    padding: 14px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), #e6a800);
+    color: #000; font-size: 15px; font-weight: 900;
+    border: none; cursor: pointer;
+  }
+  .pf-identity {
+    padding: 12px 14px 4px;
+  }
+  .pf-name-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .pf-name {
+    font-family: 'Bangers', cursive;
+    font-size: 26px; letter-spacing: 1px;
+    color: var(--text);
+    line-height: 1;
+  }
+  .pf-title-badge {
+    font-size: 11px; font-weight: 800;
+    padding: 3px 9px; border-radius: 20px;
+    background: rgba(162,155,254,.2);
+    color: var(--accent4);
+    border: 1px solid rgba(162,155,254,.3);
+  }
+  .pf-username {
+    font-size: 12px; color: var(--text2); margin-top: 2px;
+  }
+  .pf-fortune-hero {
+    margin-top: 10px;
+    font-size: 28px; font-weight: 900;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .pf-fortune-label {
+    font-size: 11px; color: var(--text2); margin-top: 1px;
+  }
+  .pf-stats-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px; padding: 0 14px 10px;
+  }
+  .pf-stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+    position: relative; overflow: hidden;
+  }
+  .pf-stat-card::before {
+    content: ''; position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: var(--pf-accent, var(--accent));
+    opacity: .6;
+  }
+  .pf-stat-icon { font-size: 18px; margin-bottom: 4px; }
+  .pf-stat-label { font-size: 10px; color: var(--text2); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+  .pf-stat-value { font-size: 15px; font-weight: 900; color: var(--text); margin-top: 2px; }
+  .pf-stat-sub   { font-size: 10px; color: var(--text2); margin-top: 1px; }
+  .pf-section {
+    margin: 0 14px 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .pf-section-header {
+    padding: 10px 14px;
+    font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text2);
+    border-bottom: 1px solid var(--border);
+    background: var(--card2);
+  }
+  .pf-section-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .pf-section-row:last-child { border-bottom: none; }
+  .pf-section-key { color: var(--text2); font-weight: 600; }
+  .pf-section-val { font-weight: 800; color: var(--text); }
+  .pf-section-val.gold { color: var(--accent); }
+  .pf-section-val.red  { color: var(--accent2); }
+  .pf-section-val.green { color: var(--success); }
+  .pf-section-val.purple { color: var(--accent4); }
+  .pf-company-banner {
+    margin: 0 14px 12px;
+    border-radius: 14px; overflow: hidden;
+    background: linear-gradient(135deg, #1a2a1a, #0f1f0f);
+    border: 1px solid rgba(85,239,196,.2);
+    padding: 14px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .pf-company-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: rgba(85,239,196,.15);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; flex-shrink: 0;
+  }
+  .pf-company-name { font-weight: 900; font-size: 15px; color: var(--text); }
+  .pf-company-role {
+    display: inline-block; margin-top: 3px;
+    font-size: 10px; font-weight: 800; padding: 2px 8px;
+    border-radius: 10px; background: rgba(85,239,196,.2);
+    color: var(--success); letter-spacing: .5px;
+  }
+  .pf-no-company {
+    margin: 0 14px 12px;
+    padding: 12px 14px; border-radius: 14px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text2); font-size: 13px; text-align: center;
+  }
+  </style>
 
-    <!-- COVER -->
-    <div class="pf-cover" id="pf-cover" data-fx="none">
-      <div class="pf-cover-bg" id="pf-cover-bg"></div>
+  <div class="page active" id="page-profile">
+
+    <!-- Cover + Avatar -->
+    <!-- Cover avec stats en overlay -->
+    <div class="pf-cover" id="pf-cover">
+      <div class="pf-cover-blur" id="pf-cover-blur"></div>
+      <div class="pf-cover-lines"></div>
+      <button class="pf-cover-edit" id="btn-cover-edit" title="Personnaliser">✏️</button>
+      <!-- Stats en bas à gauche du cover -->
       <div class="pf-cover-stats">
         <div class="pf-cover-stat">
           <span class="pf-cover-stat-val" id="pf-cover-fortune">—</span>
           <span class="pf-cover-stat-lbl">Fortune</span>
         </div>
-        <div class="pf-cover-sep"></div>
+        <div class="pf-cover-stat-sep"></div>
         <div class="pf-cover-stat">
           <span class="pf-cover-stat-val" id="pf-cover-karma">—</span>
           <span class="pf-cover-stat-lbl">Karma</span>
         </div>
       </div>
-      <div class="pf-rank-badge" id="pf-cover-rank">—</div>
-      <div class="pf-edit-btn" id="btn-cover-edit">✏️</div>
+      <div class="pf-rank-badge" id="pf-rank-badge"># —</div>
     </div>
-    <!-- IDENTITY -->
-    <div class="pf-identity">
-      <div class="pf-avatar-wrap">
-        <svg id="profile-avatar-mini" width="76" height="76" viewBox="0 0 160 210"></svg>
+
+    <!-- Bande identité : avatar à gauche + infos à droite -->
+    <div class="pf-identity-row">
+      <div class="pf-avatar-wrap" id="pf-avatar-wrap">
+        <div class="pf-avatar-placeholder">👤</div>
       </div>
       <div class="pf-identity-info">
-        <div class="profile-name" id="pf-name">—</div>
-        <div class="profile-title" id="pf-title">👤 Citoyen</div>
+        <div class="pf-name-row">
+          <div class="pf-name" id="pf-name">—</div>
+          <div class="pf-title-badge" id="pf-title">Citoyen</div>
+        </div>
         <div class="pf-username" id="pf-username"></div>
+        <div class="pf-badges-row" id="pf-badges-row"></div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">💰 Finances</div>
-      <div class="stat-row"><span class="stat-label">En poche</span><span class="stat-value gold" id="pf-cash">—</span></div>
-      <div class="stat-row"><span class="stat-label">En banque</span><span class="stat-value gold" id="pf-bank">—</span></div>
-      <div class="stat-row"><span class="stat-label">Dettes</span><span class="stat-value red" id="pf-debt">—</span></div>
-      <div class="stat-row"><span class="stat-label">Fortune totale</span><span class="stat-value gold" id="pf-total">—</span></div>
+    <!-- Fortune hero -->
+    <div class="pf-fortune-block">
+      <div class="pf-fortune-hero" id="pf-coins">—</div>
+      <div class="pf-fortune-label">Fortune totale</div>
     </div>
 
-    <div class="card">
-      <div class="card-title">⭐ Réputation & Rang</div>
-      <div class="stat-row"><span class="stat-label">Karma</span><span class="stat-value" id="pf-karma">—</span></div>
-      <div class="stat-row"><span class="stat-label">Classement</span><span class="stat-value" id="pf-rank">—</span></div>
-      <div class="stat-row"><span class="stat-label">Diplômes</span><span class="stat-value" id="pf-diplomes">—</span></div>
+    <!-- Stats grid 2x2 -->
+    <div class="pf-stats-grid">
+      <div class="pf-stat-card" style="--pf-accent:#f7c948">
+        <div class="pf-stat-icon">💵</div>
+        <div class="pf-stat-label">En poche</div>
+        <div class="pf-stat-value" id="pf-cash">—</div>
+      </div>
+      <div class="pf-stat-card" style="--pf-accent:#55efc4">
+        <div class="pf-stat-icon">🏦</div>
+        <div class="pf-stat-label">En banque</div>
+        <div class="pf-stat-value" id="pf-bank">—</div>
+      </div>
+      <div class="pf-stat-card" style="--pf-accent:#a29bfe">
+        <div class="pf-stat-icon">⭐</div>
+        <div class="pf-stat-label">Karma</div>
+        <div class="pf-stat-value" id="pf-karma">—</div>
+      </div>
+      <div class="pf-stat-card" style="--pf-accent:#ff6b6b">
+        <div class="pf-stat-icon">💳</div>
+        <div class="pf-stat-label">Dettes</div>
+        <div class="pf-stat-value" id="pf-debt">—</div>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">🏢 Emploi</div>
-      <div class="stat-row"><span class="stat-label">Entreprise</span><span class="stat-value" id="pf-company">—</span></div>
-      <div class="stat-row"><span class="stat-label">Poste</span><span class="stat-value" id="pf-role">—</span></div>
+    <!-- Entreprise -->
+    <div id="pf-company-banner" class="pf-company-banner" style="display:none">
+      <div class="pf-company-icon">🏢</div>
+      <div>
+        <div class="pf-company-name" id="pf-company">—</div>
+        <span class="pf-company-role" id="pf-role">—</span>
+      </div>
     </div>
-  </div>
+    <div id="pf-no-company" class="pf-no-company">Sans emploi</div>
 
-  <!-- ══ MODAL CUSTOMIZE COVER ══ -->
-  <div id="modal-customize">
-    <div class="mc-sheet">
-      <div class="mc-handle"></div>
-      <div class="mc-title">✏️ Personnaliser le cover</div>
-
-      <div class="mc-section-lbl">Couleur du cover</div>
-      <div class="mc-colors" id="mc-colors-grid"></div>
-
-      <div class="mc-section-lbl">Effet</div>
-      <div class="mc-effects" id="mc-effects-grid"></div>
-
-      <button class="mc-save-btn" id="mc-btn-save">💾 Sauvegarder</button>
-      <button class="mc-cancel-btn" id="mc-btn-cancel">Annuler</button>
+    <!-- Réputation & classement -->
+    <div class="pf-section">
+      <div class="pf-section-header">Réputation & classement</div>
+      <div class="pf-section-row">
+        <span class="pf-section-key">Classement fortune</span>
+        <span class="pf-section-val gold" id="pf-rank">—</span>
+      </div>
+      <div class="pf-section-row">
+        <span class="pf-section-key">Diplômes</span>
+        <span class="pf-section-val purple" id="pf-diplomes">—</span>
+      </div>
+      <div class="pf-section-row">
+        <span class="pf-section-key">Fortune totale</span>
+        <span class="pf-section-val gold" id="pf-total">—</span>
+      </div>
     </div>
+
   </div>
 
   <!-- ══ PAGE AVATAR ══ -->
@@ -2451,6 +2658,18 @@ function stars(r) {
 async function fetchT(url, opts, ms=10000) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), ms);
+  // Injecter init_data automatiquement dans chaque requête
+  const initDataEnc = encodeURIComponent(tg?.initData || '');
+  if (opts && opts.method === 'POST' && opts.body) {
+    try {
+      const bodyObj = JSON.parse(opts.body);
+      if (!bodyObj.init_data) bodyObj.init_data = tg?.initData || '';
+      opts = { ...opts, body: JSON.stringify(bodyObj) };
+    } catch(e) {}
+  } else {
+    const sep = url.includes('?') ? '&' : '?';
+    if (!url.includes('init_data=')) url = url + sep + 'init_data=' + initDataEnc;
+  }
   try {
     const r = await fetch(url, { ...opts, signal: ctrl.signal });
     clearTimeout(tid);
@@ -2491,58 +2710,89 @@ async function loadData() {
 }
 
 function fillProfile(d) {
-  // ── Avatar depuis le serveur (source de vérité) ──
+  const _set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+  // ── Customisation cover + badges ──
+  _loadProfileCustomization(d);
+
+
+  // ── Photo de profil Telegram ──
+  const wrap = document.getElementById('pf-avatar-wrap');
+  if (wrap && d.photo_file_id) {
+    wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}" alt="" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
+  }
+
+  // ── Avatar SVG (pour la page avatar séparée) ──
   if (d.avatar_data) {
     try {
       const serverAvatar = typeof d.avatar_data === 'string'
-        ? JSON.parse(d.avatar_data)
-        : d.avatar_data;
+        ? JSON.parse(d.avatar_data) : d.avatar_data;
       avatar = { ...avatar, ...serverAvatar };
-      // Sync localStorage avec les données serveur
       try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
-      drawAvatar('avatar-canvas');
-      drawAvatar('profile-avatar-mini');
+      if (document.getElementById('avatar-canvas')) drawAvatar('avatar-canvas');
       renderOptions();
     } catch(e) {}
   }
 
-  const _set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  _set('pf-name',     d.name || firstName);
-  _set('pf-title',    '👤 ' + (d.title || 'Citoyen'));
-  _set('pf-username', d.username ? '@' + d.username : '');
-  _set('pf-coins',    '💰 ' + fmt(d.coins));
-  // Cover stats
+  // ── Stats cover overlay ──
   _set('pf-cover-fortune', fmt(d.fortune_totale));
-  _set('pf-cover-karma',   (d.karma >= 0 ? '+' : '') + (d.karma || 0));
-  _set('pf-cover-rank',    '#' + (d.rank || '?'));
-  // Charger la customization
-  _loadCoverCustomization(d);
-  _set('pf-cash',     fmt(d.coins));
-  _set('pf-bank',     fmt(d.bank_total));
-  _set('pf-debt',     fmt(d.loans_total));
-  _set('pf-total',    fmt(d.fortune_totale));
-  _set('pf-karma',    (d.karma>=0?'+':'')+d.karma);
-  _set('pf-rank',     '#'+d.rank+' / '+d.total_players);
-  _set('pf-diplomes', d.diplomes || '—');
-  _set('co-name',     d.company || '—');
-  _set('co-level',     d.company_level || '—');
-  _set('co-stars',     d.company_rep ? stars(d.company_rep) : '—');
-  _set('co-value',     fmt(d.company_value));
-  _set('co-treasury',  fmt(d.company_treasury));
-  _set('co-revenue',   fmt(d.company_revenue_day));
-  _set('co-employees', d.company_employees || '—');
-  _set('co-myrole',    d.role || '—');
-  _set('co-owner',     d.company_owner || '—');
-  _set('pf-company',   d.company || 'Sans emploi');
-  _set('pf-role',      d.role || '—');
+  _set('pf-cover-karma',   (d.karma >= 0 ? '+' : '') + d.karma);
 
+  // ── Identité ──
+  _set('pf-name',    d.name || firstName);
+  _set('pf-title',   d.title || 'Citoyen');
+  _set('pf-username', d.username ? '@' + d.username : '');
+  _set('pf-coins',   fmt(d.fortune_totale));
+  _set('pf-cash',    fmt(d.coins));
+  _set('pf-bank',    fmt(d.bank_total));
+  _set('pf-debt',    fmt(d.loans_total));
+  _set('pf-total',   fmt(d.fortune_totale));
+  _set('pf-karma',   (d.karma >= 0 ? '+' : '') + d.karma);
+  _set('pf-diplomes', d.diplomes || '—');
+
+  // ── Rang ──
+  const rankBadge = document.getElementById('pf-rank-badge');
+  const rankText  = document.getElementById('pf-rank');
+  const rankStr = '#' + d.rank + ' / ' + d.total_players;
+  if (rankBadge) rankBadge.textContent = '#' + d.rank;
+  if (rankText)  rankText.textContent  = rankStr;
+
+  // ── Entreprise ──
+  const banner    = document.getElementById('pf-company-banner');
+  const noCompany = document.getElementById('pf-no-company');
+  if (d.company) {
+    _set('pf-company', d.company);
+    _set('pf-role',    d.role || '—');
+    if (banner)    banner.style.display    = 'flex';
+    if (noCompany) noCompany.style.display = 'none';
+  } else {
+    if (banner)    banner.style.display    = 'none';
+    if (noCompany) noCompany.style.display = 'block';
+  }
+
+  // ── Données entreprise (onglet Économie) ──
+  _set('co-name',       d.company || '—');
+  _set('co-level',      d.company_level || '—');
+  _set('co-stars',      d.company_rep ? stars(d.company_rep) : '—');
+  _set('co-value',      fmt(d.company_value));
+  _set('co-treasury',   fmt(d.company_treasury));
+  _set('co-revenue',    fmt(d.company_revenue_day));
+  _set('co-employees',  d.company_employees || '—');
+  _set('co-myrole',     d.role || '—');
+  _set('co-owner',      d.company_owner || '—');
+
+  // ── Portfolio ──
   if (d.portfolio) {
-    document.getElementById('mk-invested').textContent = fmt(d.portfolio.invested);
-    document.getElementById('mk-current').textContent  = fmt(d.portfolio.current);
-    const pnl = d.portfolio.pnl;
-    const el = document.getElementById('mk-pnl');
-    el.textContent = (pnl>=0?'+':'')+fmt(Math.abs(pnl));
-    el.className = 'stat-value '+(pnl>=0?'green':'red');
+    const mkInv = document.getElementById('mk-invested');
+    const mkCur = document.getElementById('mk-current');
+    const mkPnl = document.getElementById('mk-pnl');
+    if (mkInv) mkInv.textContent = fmt(d.portfolio.invested);
+    if (mkCur) mkCur.textContent = fmt(d.portfolio.current);
+    if (mkPnl) {
+      const pnl = d.portfolio.pnl;
+      mkPnl.textContent = (pnl >= 0 ? '+' : '') + fmt(Math.abs(pnl));
+      mkPnl.className = 'stat-value ' + (pnl >= 0 ? 'green' : 'red');
+    }
   }
 }
 
@@ -4094,27 +4344,23 @@ async function rebetAction(action) {
 }
 
 function fillMock() {
-  const _s = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  _s('pf-name',           firstName);
-  _s('pf-title',          '👤 Citoyen');
-  _s('pf-cover-fortune',  '—');
-  _s('pf-cover-karma',    '—');
-  _s('pf-cover-rank',     '—');
-  _s('pf-cash',           '—');
-  _s('pf-bank',           '—');
-  _s('pf-debt',           '—');
-  _s('pf-total',          '—');
-  _s('pf-karma',          '—');
-  _s('pf-rank',           '—');
-  _applyCover('purple', 'none');
+  const _s = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
+  _s('pf-name',  firstName);
+  _s('pf-title', 'Citoyen');
+  _s('pf-coins', '—');
+  _s('pf-cash',  '—');
+  _s('pf-bank',  '—');
+  _s('pf-debt',  '—');
+  _s('pf-total', '—');
+  _s('pf-karma', '—');
+  _s('pf-rank',  '—');
 }
 
 // ════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════
 window.addEventListener('load', () => {
-  drawAvatar('avatar-canvas');
-  drawAvatar('profile-avatar-mini');
+  if (document.getElementById('avatar-canvas')) drawAvatar('avatar-canvas');
   renderOptions();
   loadData();
   // Précharge en cascade — délais échelonnés pour ne pas saturer le serveur
@@ -5855,140 +6101,204 @@ async function submitBid(isSalle) {
   } catch(e) { showToast('Erreur réseau'); }
 }
 
+// Attacher les listeners customize — appelé depuis fillProfile une fois le DOM réel prêt
+// document.addEventListener('DOMContentLoaded', _attachCustomizeListeners); // pas fiable après document.write
+
 // ════════════════════════════════════════
-//  COVER CUSTOMIZE
+//  PERSONNALISATION PROFIL
 // ════════════════════════════════════════
 
 const COVER_THEMES = [
-  { id:'purple',   label:'Violet',   swatch:'#6c5ce7', bg:'linear-gradient(135deg,#2d1b69,#6c5ce7)' },
-  { id:'gold',     label:'Or',       swatch:'#f9ca24', bg:'linear-gradient(135deg,#7d5a00,#f9ca24)' },
-  { id:'teal',     label:'Cyan',     swatch:'#00b894', bg:'linear-gradient(135deg,#004d40,#00b894)' },
-  { id:'red',      label:'Rouge',    swatch:'#e17055', bg:'linear-gradient(135deg,#6b1a0f,#e17055)' },
-  { id:'blue',     label:'Bleu',     swatch:'#0984e3', bg:'linear-gradient(135deg,#003366,#0984e3)' },
-  { id:'pink',     label:'Rose',     swatch:'#fd79a8', bg:'linear-gradient(135deg,#6d1f3a,#fd79a8)' },
-  { id:'orange',   label:'Orange',   swatch:'#e67e22', bg:'linear-gradient(135deg,#6e2700,#e67e22)' },
-  { id:'dark',     label:'Nuit',     swatch:'#2d3436', bg:'linear-gradient(135deg,#0a0a0a,#2d3436)' },
-  { id:'silver',   label:'Argent',   swatch:'#b2bec3', bg:'linear-gradient(135deg,#4a5568,#b2bec3)' },
-  { id:'rainbow',  label:'Arc-ciel', swatch:'linear-gradient(90deg,#e17055,#f9ca24,#00b894,#0984e3,#a29bfe)', bg:'linear-gradient(135deg,#e17055,#f9ca24,#00b894,#0984e3,#a29bfe)' },
+  { id:'purple',  label:'Violet',      swatch:'#6c5ce7', bg:'linear-gradient(135deg,#1a1a3e,#0f0f2a,#1a0a2e)', overlay:'linear-gradient(135deg,rgba(162,155,254,.25),rgba(78,205,196,.12))' },
+  { id:'gold',    label:'Or',          swatch:'#f9ca24', bg:'linear-gradient(135deg,#2a1a00,#1a1000,#2a1500)', overlay:'linear-gradient(135deg,rgba(247,201,72,.3),rgba(255,180,0,.18))' },
+  { id:'teal',    label:'Vert',        swatch:'#00b894', bg:'linear-gradient(135deg,#0a2a2a,#051515,#0a2015)', overlay:'linear-gradient(135deg,rgba(85,239,196,.25),rgba(0,200,150,.15))' },
+  { id:'red',     label:'Rouge',       swatch:'#e17055', bg:'linear-gradient(135deg,#2a0a0a,#1a0505,#2a0505)', overlay:'linear-gradient(135deg,rgba(255,107,107,.25),rgba(200,0,0,.15))' },
+  { id:'blue',    label:'Bleu',        swatch:'#0984e3', bg:'linear-gradient(135deg,#0a1a2e,#050f1f,#0a1528)', overlay:'linear-gradient(135deg,rgba(100,180,255,.25),rgba(0,100,255,.15))' },
+  { id:'pink',    label:'Rose',        swatch:'#fd79a8', bg:'linear-gradient(135deg,#2a0a1e,#1a0512,#2a0520)', overlay:'linear-gradient(135deg,rgba(253,121,168,.28),rgba(200,0,100,.15))' },
+  { id:'orange',  label:'Orange',      swatch:'#e17055', bg:'linear-gradient(135deg,#2a1500,#1a0c00,#221000)', overlay:'linear-gradient(135deg,rgba(255,160,0,.25),rgba(255,100,0,.15))' },
+  { id:'black',   label:'Noir',        swatch:'#636e72', bg:'linear-gradient(135deg,#0a0a0a,#050505,#0f0f0f)', overlay:'linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.02))' },
+  { id:'silver',  label:'Argent',      swatch:'#b2bec3', bg:'linear-gradient(135deg,#1a1a22,#0f0f18,#16161e)', overlay:'linear-gradient(135deg,rgba(200,200,255,.18),rgba(180,180,255,.1))' },
+  { id:'rainbow', label:'Arc-en-ciel', swatch:'linear-gradient(90deg,#e84393,#f9ca24,#00b894,#0984e3)', bg:'linear-gradient(135deg,#1a0a2e,#0a1a2e,#0a2a1e)', overlay:'linear-gradient(90deg,rgba(255,107,107,.18),rgba(247,201,72,.18),rgba(85,239,196,.18))' },
 ];
 
-const COVER_FX = [
-  { id:'none',  label:'Aucun' },
-  { id:'dots',  label:'Points' },
-  { id:'grid',  label:'Grille' },
-  { id:'waves', label:'Vagues' },
+const BADGE_CATALOG = [
+  { id:'gold_star',   emoji:'🌟', name:'Étoile d\'Or',    price:500_000,  desc:'Joueur fortuné' },
+  { id:'diamond',     emoji:'💎', name:'Diamant',         price:2_000_000, desc:'Élite du bot' },
+  { id:'fire',        emoji:'🔥', name:'Enflammé',        price:300_000,  desc:'Actif en jeu' },
+  { id:'crown',       emoji:'👑', name:'Couronne',        price:5_000_000, desc:'Roi de la fortune' },
+  { id:'rocket',      emoji:'🚀', name:'Fusée',           price:1_000_000, desc:'Investisseur fou' },
+  { id:'skull',       emoji:'💀', name:'Skull',           price:800_000,  desc:'Parieur extrême' },
+  { id:'trophy',      emoji:'🏆', name:'Trophée',         price:1_500_000, desc:'Champion' },
+  { id:'unicorn',     emoji:'🦄', name:'Licorne',         price:3_000_000, desc:'Rarissime' },
 ];
 
-// État local
-let _coverTheme = 'purple';
-let _coverFx    = 'none';
+let _pfCustom = {
+  cover_theme: 'purple',
+  cover_fx: '',
+  badges_owned: [],
+  badges_equipped: [],
+};
+let _pfCoins = 0;
 
-function _applyCover(themeId, fx) {
-  const theme = COVER_THEMES.find(t => t.id === themeId) || COVER_THEMES[0];
+function openCustomize() {
+  _pfCoins = parseInt(document.getElementById('pf-cash')?.textContent?.replace(/[^0-9]/g,'')) || 0;
+  const modal = document.getElementById('modal-customize');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  _renderCoverColors();
+  _renderFxButtons();
+  _renderBadgeShop();
+}
+function closeCustomize() {
+  const modal = document.getElementById('modal-customize');
+  if (modal) modal.style.display = 'none';
+}
+function _attachCustomizeListeners() {
+  // Délégation sur document — fonctionne peu importe quand les éléments apparaissent
+  document.addEventListener('click', function(e) {
+    const t = e.target;
+    // Bouton crayon cover
+    if (t.id === 'btn-cover-edit' || t.closest('#btn-cover-edit')) { openCustomize(); return; }
+    // Sauvegarder
+    if (t.id === 'btn-customize-save') { saveCustomize(); return; }
+    // Annuler
+    if (t.id === 'btn-customize-cancel') { closeCustomize(); return; }
+    // Fermer fond modal
+    if (t.id === 'modal-customize') { closeCustomize(); return; }
+    // Boutons FX
+    const fxBtn = t.closest('.fx-btn');
+    if (fxBtn && fxBtn.closest('#cover-effects-btns')) { selectFx(fxBtn, fxBtn.dataset.fx); return; }
+  });
+}
+// Attacher immédiatement — la délégation sur document fonctionne toujours
+_attachCustomizeListeners();
+function _renderCoverColors() {
+  const grid = document.getElementById('cover-colors-grid');
+  grid.innerHTML = COVER_THEMES.map(t => `
+    <div class="cover-color-btn ${t.id===_pfCustom.cover_theme?'selected':''}"
+         style="background:${t.swatch}"
+         title="${t.label}"
+         data-theme="${t.id}"></div>
+  `).join('');
+  grid.querySelectorAll('.cover-color-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { selectTheme(btn.dataset.theme); });
+  });
+}
+function selectTheme(id) {
+  _pfCustom.cover_theme = id;
+  _applyCustomToCover();
+  _renderCoverColors();
+}
+function selectFx(btn, fx) {
+  _pfCustom.cover_fx = fx;
+  _applyCustomToCover();
+  document.querySelectorAll('.fx-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+}
+function _applyCustomToCover() {
   const cover = document.getElementById('pf-cover');
-  const bg    = document.getElementById('pf-cover-bg');
-  if (!cover || !bg) return;
-  bg.style.background = theme.bg;
-  cover.setAttribute('data-fx', fx || 'none');
+  const blur  = document.getElementById('pf-cover-blur');
+  const theme = COVER_THEMES.find(t => t.id === _pfCustom.cover_theme) || COVER_THEMES[0];
+  cover.style.background = theme.bg;
+  if (blur) blur.style.background = theme.overlay;
+  cover.className = 'pf-cover' + (_pfCustom.cover_fx ? ' fx-'+_pfCustom.cover_fx : '');
 }
-
-function _renderCustomizeModal() {
-  // Couleurs
-  const cgrid = document.getElementById('mc-colors-grid');
-  if (cgrid) {
-    cgrid.innerHTML = COVER_THEMES.map(t => {
-      const isRainbow = t.id === 'rainbow';
-      const bgStyle = isRainbow ? t.swatch : `background:${t.swatch}`;
-      return `<button
-        class="mc-color-btn${_coverTheme === t.id ? ' selected' : ''}"
-        data-theme="${t.id}"
-        style="${isRainbow ? 'background:' + t.swatch : 'background:' + t.swatch}"
-        title="${t.label}"></button>`;
-    }).join('');
-  }
-  // Effets
-  const egrid = document.getElementById('mc-effects-grid');
-  if (egrid) {
-    egrid.innerHTML = COVER_FX.map(f =>
-      `<button class="mc-fx-btn${_coverFx === f.id ? ' selected' : ''}" data-fx="${f.id}">${f.label}</button>`
-    ).join('');
-  }
+function _renderFxButtons() {
+  document.querySelectorAll('.fx-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.fx === _pfCustom.cover_fx);
+  });
 }
-
-function _openCustomize() {
-  _renderCustomizeModal();
-  document.getElementById('modal-customize').classList.add('open');
+function _renderBadgeShop() {
+  const owned    = _pfCustom.badges_owned || [];
+  const equipped = _pfCustom.badges_equipped || [];
+  const grid = document.getElementById('badge-shop-grid');
+  grid.innerHTML = BADGE_CATALOG.map(b => {
+    const isOwned    = owned.includes(b.id);
+    const isEquipped = equipped.includes(b.id);
+    return `<div class="badge-shop-item ${isOwned?'owned':''}" data-badge-id="${b.id}" data-badge-price="${b.price}">
+      <div class="badge-emoji">${b.emoji}</div>
+      <div class="badge-info">
+        <div class="badge-name">${b.name}</div>
+        <div class="badge-price" id="badge-price-${b.id}">${isOwned ? (isEquipped?'✅ Équipé':'✔ Possédé') : fmt(b.price)+' $'}</div>
+      </div>
+      ${isOwned
+        ? `<button class="badge-buy-btn badge-action" data-action="${isEquipped?'unequip':'equip'}" data-badge="${b.id}" style="background:${isEquipped?'var(--accent2)':'var(--success)'}">${isEquipped?'Retirer':'Équiper'}</button>`
+        : `<button class="badge-buy-btn badge-action" data-action="buy" data-badge="${b.id}" data-price="${b.price}">Acheter</button>`
+      }
+    </div>`;
+  }).join('');
+  // Attacher les listeners sur les boutons badge
+  grid.querySelectorAll('.badge-action').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const action = btn.dataset.action;
+      const badgeId = btn.dataset.badge;
+      if (action === 'buy') buyBadge(badgeId, parseInt(btn.dataset.price));
+      else toggleBadge(badgeId);
+    });
+  });
 }
-
-function _closeCustomize() {
-  document.getElementById('modal-customize').classList.remove('open');
+function toggleBadge(id) {
+  const eq = _pfCustom.badges_equipped || [];
+  const idx = eq.indexOf(id);
+  if (idx >= 0) eq.splice(idx,1); else { if (eq.length < 5) eq.push(id); else { showToast('Max 5 badges équipés'); return; } }
+  _pfCustom.badges_equipped = eq;
+  _renderBadgeShop();
+  _renderProfileBadges();
 }
-
-async function _saveCustomize() {
-  // Appliquer visuellement
-  _applyCover(_coverTheme, _coverFx);
-  _closeCustomize();
-
-  // Sauvegarder en DB
+async function buyBadge(id, price) {
   if (!uid) return;
   try {
-    await fetch('/api/webapp/profile/customize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: uid, theme: _coverTheme, fx: _coverFx })
+    const r = await fetchT('/api/webapp/profile/badge/buy', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, badge_id: id, price })
     });
-  } catch(e) { console.warn('[customize save]', e); }
+    const d = await r.json();
+    if (d.ok) {
+      _pfCustom.badges_owned = d.badges_owned;
+      showToast('✅ Badge acheté !');
+      _renderBadgeShop();
+    } else { showToast(d.error || 'Erreur'); }
+  } catch(e) { showToast('Erreur réseau'); }
 }
-
-// Chargement de la customization depuis le payload user
-function _loadCoverCustomization(d) {
-  if (!d) return;
-  // profile_color peut être "purple" (ancien) ou JSON "{theme,fx}"
-  const raw = d.profile_color || 'purple';
+async function saveCustomize() {
+  if (!uid) return;
   try {
-    const parsed = JSON.parse(raw);
-    _coverTheme = parsed.theme || 'purple';
-    _coverFx    = parsed.fx   || 'none';
-  } catch {
-    // ancien format = couleur simple
-    _coverTheme = raw;
-    _coverFx    = 'none';
-  }
-  _applyCover(_coverTheme, _coverFx);
+    const r = await fetchT('/api/webapp/profile/customize', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, cover_theme: _pfCustom.cover_theme, cover_fx: _pfCustom.cover_fx, badges_equipped: _pfCustom.badges_equipped })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✅ Profil sauvegardé !');
+      closeCustomize();
+    } else { showToast(d.error || 'Erreur'); }
+  } catch(e) { showToast('Erreur réseau'); }
+}
+function _renderProfileBadges() {
+  const row = document.getElementById('pf-badges-row');
+  if (!row) return;
+  const equipped = _pfCustom.badges_equipped || [];
+  const owned    = _pfCustom.badges_owned || [];
+  row.innerHTML = equipped
+    .filter(id => owned.includes(id))
+    .map(id => {
+      const b = BADGE_CATALOG.find(x => x.id===id);
+      return b ? `<div class="pf-badge" title="${b.name}">${b.emoji}</div>` : '';
+    }).join('');
+}
+function _loadProfileCustomization(d) {
+  if (!d.customization) return;
+  try {
+    const c = typeof d.customization === 'string' ? JSON.parse(d.customization) : d.customization;
+    _pfCustom.cover_theme    = c.cover_theme    || 'purple';
+    _pfCustom.cover_fx       = c.cover_fx       || '';
+    _pfCustom.badges_owned   = c.badges_owned   || [];
+    _pfCustom.badges_equipped = c.badges_equipped || [];
+    _applyCustomToCover();
+    _renderProfileBadges();
+  } catch(e) {}
 }
 
-// Event delegation sur document — fonctionne peu importe le timing Telegram
-document.addEventListener('click', function(e) {
-  const t = e.target;
-
-  // Bouton ✏️ cover
-  if (t.id === 'btn-cover-edit' || t.closest('#btn-cover-edit')) {
-    _openCustomize();
-    return;
-  }
-
-  // Sélection couleur
-  if (t.dataset.theme) {
-    _coverTheme = t.dataset.theme;
-    document.querySelectorAll('.mc-color-btn').forEach(b => b.classList.toggle('selected', b.dataset.theme === _coverTheme));
-    return;
-  }
-
-  // Sélection effet
-  if (t.dataset.fx !== undefined && t.classList.contains('mc-fx-btn')) {
-    _coverFx = t.dataset.fx;
-    document.querySelectorAll('.mc-fx-btn').forEach(b => b.classList.toggle('selected', b.dataset.fx === _coverFx));
-    return;
-  }
-
-  // Sauvegarder
-  if (t.id === 'mc-btn-save') { _saveCustomize(); return; }
-
-  // Annuler
-  if (t.id === 'mc-btn-cancel') { _closeCustomize(); return; }
-
-  // Clic fond
-  if (t.id === 'modal-customize') { _closeCustomize(); return; }
-});
-
-</script>
+</script>s

@@ -4174,9 +4174,8 @@ async def negociercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
                         CompanyEmployee.company_id == _company.id,
                         CompanyEmployee.user_id == target_user.user_id,
                         CompanyEmployee.left_at == None,
-                    )
-                )
-                ).limit(1).scalar_one_or_none()
+                    ).limit(1)
+                )).scalar_one_or_none()
                 if _target_emp:
                     company, emp = _company, _emp
                     target_emp_found = _target_emp

@@ -1744,9 +1744,8 @@ async def rejoindre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     CompanyEmployee.company_id == target.id,
                     CompanyEmployee.role == "pdg",
                     CompanyEmployee.left_at == None,
-                )
-            )
-            ).limit(1).scalar_one_or_none()
+                ).limit(1)
+            )).scalar_one_or_none()
             if pdg_emp:
                 try:
                     await context.bot.send_message(
@@ -1867,9 +1866,8 @@ async def demissionner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     CompanyEmployee.company_id == company.id,
                     CompanyEmployee.role == "directeur",
                     CompanyEmployee.left_at == None,
-                )
-            )
-            ).limit(1).scalar_one_or_none()
+                ).limit(1)
+            )).scalar_one_or_none()
             if not director:
                 await update.message.reply_text(
                     "❌ En tant que PDG, tu dois d'abord nommer un <b>Directeur</b> avant de partir.",
@@ -3900,9 +3898,8 @@ async def versersalaires_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     CompanyEmployee.company_id == company.id,
                     CompanyEmployee.user_id == target.user_id,
                     CompanyEmployee.left_at == None,
-                )
-            )
-            ).limit(1).scalar_one_or_none()
+                ).limit(1)
+            )).scalar_one_or_none()
             if not target_emp:
                 await update.message.reply_text(f"❌ {target.first_name} n'est pas dans ton entreprise.")
                 return
@@ -4226,9 +4223,8 @@ async def negociercontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
                     CompanyEmployee.company_id == company.id,
                     CompanyEmployee.role == "pdg",
                     CompanyEmployee.left_at == None,
-                )
-            )
-            ).limit(1).scalar_one_or_none()
+                ).limit(1)
+            )).scalar_one_or_none()
 
             if subcmd == "accepter":
                 emp.daily_salary = pending_sal
@@ -4732,9 +4728,8 @@ async def annoncerecrutement_callback(update: Update, context: ContextTypes.DEFA
                 CompanyEmployee.user_id == user_id,
                 CompanyEmployee.left_at == None,
                 CompanyEmployee.role.in_(["pdg", "directeur"]),
-            )
-        )
-        ).limit(1).scalar_one_or_none()
+            ).limit(1)
+        )).scalar_one_or_none()
         if not emp:
             return await query.edit_message_text("❌ Tu n'es plus autorisé à faire cette action.")
 

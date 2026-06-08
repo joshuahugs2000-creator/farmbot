@@ -14,12 +14,51 @@ WEBAPP_ADMIN_IDS = {
     6227863810,   # Admin 1
 }
 
+# Mini App fermée au public — seule la validation initData Telegram donne accès
+WEBAPP_OPEN = False
+
 def _is_allowed(user_id: int) -> bool:
-    """Ouvert à tous les joueurs enregistrés — la DB vérifie l existence du user."""
-    return user_id > 0
+    """Bloqué tant que WEBAPP_OPEN = False."""
+    return WEBAPP_OPEN
 
 def _is_admin(user_id: int) -> bool:
     return user_id in WEBAPP_ADMIN_IDS
+
+
+@web.middleware
+async def webapp_auth_middleware(request: web.Request, handler):
+    """Middleware : bloque toutes les routes /api/webapp/* et /webapp sans initData valide."""
+    path = request.path
+
+    # Routes publiques (health, webhook Telegram) — on laisse passer
+    if not (path.startswith('/api/webapp') or path in ('/', '/webapp')):
+        return await handler(request)
+
+    # Si la webapp est ouverte, laisser passer normalement
+    if WEBAPP_OPEN:
+        return await handler(request)
+
+    # Webapp fermée — chercher init_data dans query, body JSON ou header
+    init_data = request.rel_url.query.get('init_data', '')
+
+    if not init_data:
+        try:
+            body = await request.json()
+            init_data = body.get('init_data', '')
+        except Exception:
+            pass
+
+    if not init_data:
+        init_data = request.headers.get('X-Init-Data', '')
+
+    if _verify_init_data(init_data):
+        return await handler(request)
+
+    # Pas de signature valide — bloquer
+    if path.startswith('/api/webapp'):
+        return web.json_response({'error': 'Mini App fermée — accès non autorisé.'}, status=403)
+    else:
+        return web.Response(text=_build_locked_page(), content_type='text/html', status=403)
 
 
 def _verify_init_data(init_data: str) -> bool:
@@ -238,25 +277,12 @@ async def webapp_save_avatar(request: web.Request) -> web.Response:
 
 
 async def webapp_index(request: web.Request) -> web.Response:
-    """Sert la Mini App HTML — accès restreint côté serveur."""
+    """Sert la Mini App HTML — le middleware a déjà validé l'accès."""
     import os
-
-    # Récupérer user_id depuis query params (Telegram le passe via tgWebAppData)
-    user_id_str = request.rel_url.query.get('user_id') or request.rel_url.query.get('tgWebAppData')
-
-    # Bloquer côté serveur si user_id fourni et pas dans la whitelist
-    if user_id_str:
-        try:
-            uid_int = int(user_id_str)
-            if not _is_allowed(uid_int):
-                return web.Response(text=_build_locked_page(), content_type='text/html')
-        except ValueError:
-            pass
-
     path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
     with open(path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    return web.Response(text=content, content_type='text/html')
+        html = f.read()
+    return web.Response(text=html, content_type='text/html')
 
 
 async def webapp_load_app(request: web.Request) -> web.Response:

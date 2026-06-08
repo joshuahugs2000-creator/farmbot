@@ -38,6 +38,14 @@ async def webapp_auth_middleware(request: web.Request, handler):
     if WEBAPP_OPEN:
         return await handler(request)
 
+    # Admins toujours autorisés
+    uid_str = request.rel_url.query.get('user_id', '')
+    try:
+        if int(uid_str) in WEBAPP_ADMIN_IDS:
+            return await handler(request)
+    except (ValueError, TypeError):
+        pass
+
     # Webapp fermée — chercher init_data dans query, body JSON ou header
     init_data = request.rel_url.query.get('init_data', '')
 
@@ -45,6 +53,12 @@ async def webapp_auth_middleware(request: web.Request, handler):
         try:
             body = await request.json()
             init_data = body.get('init_data', '')
+            # Vérifier aussi user_id dans le body
+            try:
+                if int(body.get('user_id', 0)) in WEBAPP_ADMIN_IDS:
+                    return await handler(request)
+            except (ValueError, TypeError):
+                pass
         except Exception:
             pass
 

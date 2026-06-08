@@ -232,7 +232,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   /* ── Cover v2 — plus grand, personnalisable ── */
   .pf-cover {
     position: relative;
-    height: 165px;
+    height: 130px;
     background: var(--pf-cover-bg, linear-gradient(135deg, #1a1a3e 0%, #0f0f2a 50%, #1a0a2e 100%));
     overflow: hidden;
     margin: -14px -14px 0;
@@ -271,6 +271,27 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     position: absolute; bottom: 0; left: 0; right: 0; height: 60px;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 60'%3E%3Cpath d='M0,30 C200,60 400,0 600,30 C800,60 1000,0 1200,30 L1200,60 L0,60Z' fill='rgba(255,255,255,0.06)'/%3E%3C/svg%3E") repeat-x bottom;
     background-size: 600px 60px;
+  }
+  /* Stats overlay dans le cover */
+  .pf-cover-stats {
+    position: absolute; bottom: 14px; left: 16px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .pf-cover-stat {
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .pf-cover-stat-val {
+    font-size: 15px; font-weight: 900; color: #fff;
+    text-shadow: 0 1px 6px rgba(0,0,0,.8);
+    line-height: 1;
+  }
+  .pf-cover-stat-lbl {
+    font-size: 9px; font-weight: 700; color: rgba(255,255,255,.6);
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+  .pf-cover-stat-sep {
+    width: 1px; height: 28px;
+    background: rgba(255,255,255,.2);
   }
   /* Bouton edit cover */
   .pf-cover-edit {
@@ -525,11 +546,23 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <div class="page active" id="page-profile">
 
     <!-- Cover + Avatar -->
-    <!-- Cover (image de fond uniquement, sans avatar dedans) -->
+    <!-- Cover avec stats en overlay -->
     <div class="pf-cover" id="pf-cover">
       <div class="pf-cover-blur" id="pf-cover-blur"></div>
       <div class="pf-cover-lines"></div>
       <button class="pf-cover-edit" onclick="openCustomize()" title="Personnaliser">✏️</button>
+      <!-- Stats en bas à gauche du cover -->
+      <div class="pf-cover-stats">
+        <div class="pf-cover-stat">
+          <span class="pf-cover-stat-val" id="pf-cover-fortune">—</span>
+          <span class="pf-cover-stat-lbl">Fortune</span>
+        </div>
+        <div class="pf-cover-stat-sep"></div>
+        <div class="pf-cover-stat">
+          <span class="pf-cover-stat-val" id="pf-cover-karma">—</span>
+          <span class="pf-cover-stat-lbl">Karma</span>
+        </div>
+      </div>
       <div class="pf-rank-badge" id="pf-rank-badge"># —</div>
     </div>
 
@@ -605,30 +638,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
-  </div>
-
-  <!-- ══ MODAL PERSONNALISATION PROFIL ══ -->
-  <div id="modal-customize">
-    <div class="customize-sheet">
-      <div class="customize-title">✨ Personnaliser le profil</div>
-
-      <div class="customize-section-label">🎨 Couleur du cover</div>
-      <div class="cover-colors" id="cover-colors-grid"></div>
-
-      <div class="customize-section-label">✨ Effet cover</div>
-      <div class="cover-effects" id="cover-effects-btns">
-        <button class="fx-btn selected" data-fx="" onclick="selectFx(this,'')">Aucun</button>
-        <button class="fx-btn" data-fx="dots" onclick="selectFx(this,'dots')">· Points</button>
-        <button class="fx-btn" data-fx="grid" onclick="selectFx(this,'grid')">⊞ Grille</button>
-        <button class="fx-btn" data-fx="waves" onclick="selectFx(this,'waves')">〰 Vagues</button>
-      </div>
-
-      <div class="customize-section-label">🏅 Badges (cliquer pour équiper/déséquiper)</div>
-      <div class="badge-shop-grid" id="badge-shop-grid"></div>
-
-      <button class="customize-save-btn" onclick="saveCustomize()">💾 Sauvegarder</button>
-      <button onclick="closeCustomize()" style="width:100%;margin-top:10px;padding:12px;background:none;border:1px solid var(--border);border-radius:12px;color:var(--text2);font-size:14px;cursor:pointer">Annuler</button>
-    </div>
   </div>
 
   <!-- ══ PAGE AVATAR ══ -->
@@ -2724,6 +2733,10 @@ function fillProfile(d) {
       renderOptions();
     } catch(e) {}
   }
+
+  // ── Stats cover overlay ──
+  _set('pf-cover-fortune', fmt(d.fortune_totale));
+  _set('pf-cover-karma',   (d.karma >= 0 ? '+' : '') + d.karma);
 
   // ── Identité ──
   _set('pf-name',    d.name || firstName);

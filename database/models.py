@@ -73,7 +73,7 @@ class Relationship(Base):
     id              = Column(Integer, primary_key=True, autoincrement=True)
     user_id         = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
     related_user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
-    relation_type   = Column(SAEnum(RelationType), nullable=False)
+    relation_type   = Column(SAEnum(RelationType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     group_id        = Column(BigInteger, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
 
@@ -83,7 +83,7 @@ class PendingRequest(Base):
     id           = Column(Integer, primary_key=True, autoincrement=True)
     from_user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
     to_user_id   = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
-    request_type = Column(SAEnum(RequestType), nullable=False)
+    request_type = Column(SAEnum(RequestType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     group_id     = Column(BigInteger, nullable=False)
     message_id   = Column(BigInteger, nullable=True)
     expires_at   = Column(DateTime, nullable=False)

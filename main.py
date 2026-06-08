@@ -258,7 +258,7 @@ async def antispam_middleware(update: Update, context) -> None:
     if not user:
         return
     txt = update.message.text
-    if not txt.startswith("/"):
+    if not txt.startswith("/") or len(txt) < 2 or not txt[1].isalpha():
         return
 
     command = txt.split()[0].lstrip("/").split("@")[0].lower()
@@ -344,10 +344,12 @@ async def ban_middleware(update: Update, context) -> None:
 
     # Détermine si c'est une commande bot ou un callback (à bloquer si banni)
     # Les messages normaux (texte sans '/') passent toujours.
-    is_command = (
-        update.message
-        and update.message.text
-        and update.message.text.startswith("/")
+    _msg_text = update.message.text if update.message else None
+    is_command = bool(
+        _msg_text
+        and _msg_text.startswith("/")
+        and len(_msg_text) > 1
+        and _msg_text[1].isalpha()
     )
     is_callback = bool(update.callback_query)
 
@@ -366,14 +368,6 @@ async def ban_middleware(update: Update, context) -> None:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
-            await update.message.reply_text(
-                "🚫 <b>Compte banni.</b> Accès révoqué.",
-                parse_mode="HTML"
-            )
-        if is_callback:
-            await update.callback_query.answer(
-                "🚫 Compte banni. Accès révoqué.", show_alert=True
-            )
         raise ApplicationHandlerStop()
     try:
         async with AsyncSessionLocal() as _s:
@@ -389,14 +383,6 @@ async def ban_middleware(update: Update, context) -> None:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
-            await update.message.reply_text(
-                "🚫 <b>Compte banni.</b> Accès révoqué.",
-                parse_mode="HTML"
-            )
-        if is_callback:
-            await update.callback_query.answer(
-                "🚫 Compte suspendu — accès révoqué définitivement.", show_alert=True
-            )
         raise ApplicationHandlerStop()
     except ApplicationHandlerStop:
         raise

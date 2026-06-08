@@ -367,11 +367,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   }
   /* ── Modal Personnalisation ── */
   #modal-customize {
-    display: none; position: fixed; inset: 0; z-index: 900;
+    display: none; position: fixed; inset: 0; z-index: 9999;
     background: rgba(0,0,0,.7); backdrop-filter: blur(4px);
     align-items: flex-end; justify-content: center;
   }
-  #modal-customize.open { display: flex; }
   .customize-sheet {
     background: var(--card);
     border-radius: 20px 20px 0 0;
@@ -550,7 +549,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div class="pf-cover" id="pf-cover">
       <div class="pf-cover-blur" id="pf-cover-blur"></div>
       <div class="pf-cover-lines"></div>
-      <button class="pf-cover-edit" onclick="openCustomize()" title="Personnaliser">✏️</button>
+      <button class="pf-cover-edit" id="btn-cover-edit" title="Personnaliser">✏️</button>
       <!-- Stats en bas à gauche du cover -->
       <div class="pf-cover-stats">
         <div class="pf-cover-stat">
@@ -2715,6 +2714,11 @@ function fillProfile(d) {
 
   // ── Customisation cover + badges ──
   _loadProfileCustomization(d);
+  // Attacher les listeners de la modal (une seule fois)
+  if (!window._customizeListenersAttached) {
+    window._customizeListenersAttached = true;
+    _attachCustomizeListeners();
+  }
 
   // ── Photo de profil Telegram ──
   const wrap = document.getElementById('pf-avatar-wrap');
@@ -6101,6 +6105,9 @@ async function submitBid(isSalle) {
   } catch(e) { showToast('Erreur réseau'); }
 }
 
+// Attacher les listeners customize — appelé depuis fillProfile une fois le DOM réel prêt
+// document.addEventListener('DOMContentLoaded', _attachCustomizeListeners); // pas fiable après document.write
+
 // ════════════════════════════════════════
 //  PERSONNALISATION PROFIL
 // ════════════════════════════════════════
@@ -6139,15 +6146,36 @@ let _pfCoins = 0;
 
 function openCustomize() {
   _pfCoins = parseInt(document.getElementById('pf-cash')?.textContent?.replace(/[^0-9]/g,'')) || 0;
-  // Lire customization depuis le profil chargé
   const modal = document.getElementById('modal-customize');
-  modal.classList.add('open');
+  if (!modal) return;
+  modal.style.display = 'flex';
   _renderCoverColors();
   _renderFxButtons();
   _renderBadgeShop();
 }
 function closeCustomize() {
-  document.getElementById('modal-customize').classList.remove('open');
+  const modal = document.getElementById('modal-customize');
+  if (modal) modal.style.display = 'none';
+}
+function _attachCustomizeListeners() {
+  // Bouton ouvrir
+  const editBtn = document.getElementById('btn-cover-edit');
+  if (editBtn) editBtn.addEventListener('click', openCustomize);
+  // Sauvegarder
+  const saveBtn = document.getElementById('btn-customize-save');
+  if (saveBtn) saveBtn.addEventListener('click', saveCustomize);
+  // Annuler
+  const cancelBtn = document.getElementById('btn-customize-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeCustomize);
+  // Fermer en cliquant sur le fond
+  const modal = document.getElementById('modal-customize');
+  if (modal) modal.addEventListener('click', function(e) {
+    if (e.target === modal) closeCustomize();
+  });
+  // Boutons effets FX
+  document.querySelectorAll('#cover-effects-btns .fx-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { selectFx(btn, btn.dataset.fx); });
+  });
 }
 function _renderCoverColors() {
   const grid = document.getElementById('cover-colors-grid');
@@ -6155,8 +6183,11 @@ function _renderCoverColors() {
     <div class="cover-color-btn ${t.id===_pfCustom.cover_theme?'selected':''}"
          style="background:${t.swatch}"
          title="${t.label}"
-         onclick="selectTheme('${t.id}')"></div>
+         data-theme="${t.id}"></div>
   `).join('');
+  grid.querySelectorAll('.cover-color-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { selectTheme(btn.dataset.theme); });
+  });
 }
 function selectTheme(id) {
   _pfCustom.cover_theme = id;
@@ -6189,19 +6220,27 @@ function _renderBadgeShop() {
   grid.innerHTML = BADGE_CATALOG.map(b => {
     const isOwned    = owned.includes(b.id);
     const isEquipped = equipped.includes(b.id);
-    return `<div class="badge-shop-item ${isOwned?'owned':''}">
+    return `<div class="badge-shop-item ${isOwned?'owned':''}" data-badge-id="${b.id}" data-badge-price="${b.price}">
       <div class="badge-emoji">${b.emoji}</div>
       <div class="badge-info">
         <div class="badge-name">${b.name}</div>
-        <div class="badge-price">${isOwned ? (isEquipped?'✅ Équipé':'✔ Possédé') : fmt(b.price)+' $'}</div>
+        <div class="badge-price" id="badge-price-${b.id}">${isOwned ? (isEquipped?'✅ Équipé':'✔ Possédé') : fmt(b.price)+' $'}</div>
       </div>
       ${isOwned
-        ? `<button class="badge-buy-btn" style="background:${isEquipped?'var(--accent2)':'var(--success)'}"
-             onclick="toggleBadge('${b.id}')">${isEquipped?'Retirer':'Équiper'}</button>`
-        : `<button class="badge-buy-btn" onclick="buyBadge('${b.id}',${b.price})">Acheter</button>`
+        ? `<button class="badge-buy-btn badge-action" data-action="${isEquipped?'unequip':'equip'}" data-badge="${b.id}" style="background:${isEquipped?'var(--accent2)':'var(--success)'}">${isEquipped?'Retirer':'Équiper'}</button>`
+        : `<button class="badge-buy-btn badge-action" data-action="buy" data-badge="${b.id}" data-price="${b.price}">Acheter</button>`
       }
     </div>`;
   }).join('');
+  // Attacher les listeners sur les boutons badge
+  grid.querySelectorAll('.badge-action').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const action = btn.dataset.action;
+      const badgeId = btn.dataset.badge;
+      if (action === 'buy') buyBadge(badgeId, parseInt(btn.dataset.price));
+      else toggleBadge(badgeId);
+    });
+  });
 }
 function toggleBadge(id) {
   const eq = _pfCustom.badges_equipped || [];

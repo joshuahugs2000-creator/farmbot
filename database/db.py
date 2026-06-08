@@ -334,16 +334,22 @@ async def get_settings(session: AsyncSession, group_id: int) -> GroupSettings:
 
 # ─── RELATIONSHIPS ────────────────────────────────────────────────────────────
 
+_relationships_cleaned = False  # flag global : migration faite une seule fois au runtime
+
 async def get_relationships(session: AsyncSession, user_id: int, group_id: Optional[int] = None) -> List[Relationship]:
-    # Corriger les valeurs enum corrompues en majuscules AVANT de charger via ORM
-    from sqlalchemy import text as _text
-    try:
-        await session.execute(_text(
-            "UPDATE relationships SET relation_type = LOWER(relation_type) "
-            "WHERE relation_type != LOWER(relation_type)"
-        ))
-    except Exception:
-        pass
+    global _relationships_cleaned
+    if not _relationships_cleaned:
+        # Corriger les valeurs enum corrompues en majuscules via connexion indépendante
+        try:
+            from sqlalchemy import text as _text
+            async with engine.begin() as _conn:
+                await _conn.execute(_text(
+                    "UPDATE relationships SET relation_type = LOWER(relation_type) "
+                    "WHERE relation_type != LOWER(relation_type)"
+                ))
+            _relationships_cleaned = True
+        except Exception:
+            _relationships_cleaned = True  # ne pas reboucler même en cas d'erreur
     cond = [or_(Relationship.user_id == user_id, Relationship.related_user_id == user_id)]
     if group_id is not None:
         cond.append(or_(Relationship.group_id == group_id, Relationship.group_id.is_(None)))

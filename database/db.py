@@ -438,13 +438,13 @@ async def create_request(session: AsyncSession, from_id: int, to_id: int,
         delete(PendingRequest).where(
             and_(PendingRequest.from_user_id == from_id,
                  PendingRequest.to_user_id   == to_id,
-                 PendingRequest.request_type  == req_type)
+                 PendingRequest.request_type  == req_type.name)
         )
     )
     req = PendingRequest(
         from_user_id = from_id,
         to_user_id   = to_id,
-        request_type  = req_type,
+        request_type  = req_type.name,
         group_id     = group_id,
         message_id   = msg_id,
         expires_at   = datetime.utcnow() + timedelta(seconds=REQUEST_TIMEOUT),

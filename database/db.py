@@ -387,14 +387,14 @@ async def add_relationship(session: AsyncSession, uid: int, rid: int,
                     and_(Relationship.user_id == uid, Relationship.related_user_id == rid),
                     and_(Relationship.user_id == rid, Relationship.related_user_id == uid),
                 ),
-                Relationship.relation_type == rel_type,
+                Relationship.relation_type == rel_type.value,
             )
         )
     )
     existing = check.scalar_one_or_none()
     if existing is not None:
         return existing  # Relation déjà existante — ne pas insérer
-    rel = Relationship(user_id=uid, related_user_id=rid, relation_type=rel_type, group_id=group_id)
+    rel = Relationship(user_id=uid, related_user_id=rid, relation_type=rel_type.value, group_id=group_id)
     session.add(rel)
     await session.commit()
     return rel
@@ -423,7 +423,7 @@ async def relationship_exists(session: AsyncSession, uid: int, rid: int, rel_typ
                     and_(Relationship.user_id == uid, Relationship.related_user_id == rid),
                     and_(Relationship.user_id == rid, Relationship.related_user_id == uid),
                 ),
-                Relationship.relation_type == rel_type,
+                Relationship.relation_type == rel_type.value,
             )
         )
     )

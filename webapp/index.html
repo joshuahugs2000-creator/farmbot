@@ -227,38 +227,235 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 <div id="app">
 
   <!-- ══ PAGE PROFIL ══ -->
-  <div class="page active" id="page-profile">
-    <div class="page-title">👤 Profil</div>
+  <!-- ══ STYLES PAGE PROFIL ══ -->
+  <style>
+  .pf-cover {
+    position: relative;
+    height: 110px;
+    background: linear-gradient(135deg, #1a1a3e 0%, #0f0f2a 50%, #1a0a2e 100%);
+    overflow: hidden;
+    margin: -14px -14px 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  .pf-cover-blur {
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(247,201,72,.15) 0%, rgba(162,155,254,.1) 50%, rgba(78,205,196,.1) 100%);
+  }
+  .pf-cover-lines {
+    position: absolute; inset: 0; overflow: hidden; opacity: .2;
+  }
+  .pf-cover-lines::before, .pf-cover-lines::after {
+    content: ''; position: absolute;
+    width: 200%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(247,201,72,.6), transparent);
+  }
+  .pf-cover-lines::before { top: 30%; transform: rotate(-8deg); }
+  .pf-cover-lines::after  { top: 65%; transform: rotate(5deg); }
+  .pf-avatar-wrap {
+    position: absolute; bottom: -36px; left: 20px;
+    width: 76px; height: 76px;
+    border-radius: 50%;
+    border: 3px solid var(--bg);
+    background: var(--card2);
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  }
+  .pf-avatar-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pf-avatar-placeholder {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px;
+    background: linear-gradient(135deg, #2a2a4a, #1a1a3e);
+  }
+  .pf-rank-badge {
+    position: absolute; bottom: 10px; right: 16px;
+    background: linear-gradient(135deg,#f7c948,#e6a800);
+    color: #000; font-size: 11px; font-weight: 900;
+    padding: 4px 10px; border-radius: 20px;
+    letter-spacing: .5px;
+  }
+  .pf-identity {
+    padding: 46px 16px 12px;
+  }
+  .pf-name-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .pf-name {
+    font-family: 'Bangers', cursive;
+    font-size: 26px; letter-spacing: 1px;
+    color: var(--text);
+    line-height: 1;
+  }
+  .pf-title-badge {
+    font-size: 11px; font-weight: 800;
+    padding: 3px 9px; border-radius: 20px;
+    background: rgba(162,155,254,.2);
+    color: var(--accent4);
+    border: 1px solid rgba(162,155,254,.3);
+  }
+  .pf-username {
+    font-size: 12px; color: var(--text2); margin-top: 2px;
+  }
+  .pf-fortune-hero {
+    margin-top: 10px;
+    font-size: 28px; font-weight: 900;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .pf-fortune-label {
+    font-size: 11px; color: var(--text2); margin-top: 1px;
+  }
+  .pf-stats-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px; padding: 0 14px 10px;
+  }
+  .pf-stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+    position: relative; overflow: hidden;
+  }
+  .pf-stat-card::before {
+    content: ''; position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: var(--pf-accent, var(--accent));
+    opacity: .6;
+  }
+  .pf-stat-icon { font-size: 18px; margin-bottom: 4px; }
+  .pf-stat-label { font-size: 10px; color: var(--text2); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+  .pf-stat-value { font-size: 15px; font-weight: 900; color: var(--text); margin-top: 2px; }
+  .pf-stat-sub   { font-size: 10px; color: var(--text2); margin-top: 1px; }
+  .pf-section {
+    margin: 0 14px 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .pf-section-header {
+    padding: 10px 14px;
+    font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text2);
+    border-bottom: 1px solid var(--border);
+    background: var(--card2);
+  }
+  .pf-section-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .pf-section-row:last-child { border-bottom: none; }
+  .pf-section-key { color: var(--text2); font-weight: 600; }
+  .pf-section-val { font-weight: 800; color: var(--text); }
+  .pf-section-val.gold { color: var(--accent); }
+  .pf-section-val.red  { color: var(--accent2); }
+  .pf-section-val.green { color: var(--success); }
+  .pf-section-val.purple { color: var(--accent4); }
+  .pf-company-banner {
+    margin: 0 14px 12px;
+    border-radius: 14px; overflow: hidden;
+    background: linear-gradient(135deg, #1a2a1a, #0f1f0f);
+    border: 1px solid rgba(85,239,196,.2);
+    padding: 14px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .pf-company-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: rgba(85,239,196,.15);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; flex-shrink: 0;
+  }
+  .pf-company-name { font-weight: 900; font-size: 15px; color: var(--text); }
+  .pf-company-role {
+    display: inline-block; margin-top: 3px;
+    font-size: 10px; font-weight: 800; padding: 2px 8px;
+    border-radius: 10px; background: rgba(85,239,196,.2);
+    color: var(--success); letter-spacing: .5px;
+  }
+  .pf-no-company {
+    margin: 0 14px 12px;
+    padding: 12px 14px; border-radius: 14px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text2); font-size: 13px; text-align: center;
+  }
+  </style>
 
-    <div class="profile-header" id="profile-header">
-      <svg id="profile-avatar-mini" width="64" height="64" viewBox="0 0 160 210"></svg>
-      <div>
-        <div class="profile-name" id="pf-name">—</div>
-        <div class="profile-title" id="pf-title">Citoyen</div>
-        <div class="profile-coins" id="pf-coins">💰 —</div>
+  <div class="page active" id="page-profile">
+
+    <!-- Cover + Avatar -->
+    <div class="pf-cover">
+      <div class="pf-cover-blur"></div>
+      <div class="pf-cover-lines"></div>
+      <div class="pf-avatar-wrap" id="pf-avatar-wrap">
+        <div class="pf-avatar-placeholder" id="pf-avatar-placeholder">👤</div>
+      </div>
+      <div class="pf-rank-badge" id="pf-rank-badge"># —</div>
+    </div>
+
+    <!-- Identité -->
+    <div class="pf-identity">
+      <div class="pf-name-row">
+        <div class="pf-name" id="pf-name">—</div>
+        <div class="pf-title-badge" id="pf-title">Citoyen</div>
+      </div>
+      <div class="pf-username" id="pf-username"></div>
+      <div class="pf-fortune-hero" id="pf-coins">—</div>
+      <div class="pf-fortune-label">Fortune totale</div>
+    </div>
+
+    <!-- Stats grid 2x2 -->
+    <div class="pf-stats-grid">
+      <div class="pf-stat-card" style="--pf-accent:#f7c948">
+        <div class="pf-stat-icon">💵</div>
+        <div class="pf-stat-label">En poche</div>
+        <div class="pf-stat-value" id="pf-cash">—</div>
+      </div>
+      <div class="pf-stat-card" style="--pf-accent:#55efc4">
+        <div class="pf-stat-icon">🏦</div>
+        <div class="pf-stat-label">En banque</div>
+        <div class="pf-stat-value" id="pf-bank">—</div>
+      </div>
+      <div class="pf-stat-card" style="--pf-accent:#a29bfe">
+        <div class="pf-stat-icon">⭐</div>
+        <div class="pf-stat-label">Karma</div>
+        <div class="pf-stat-value" id="pf-karma">—</div>
+      </div>
+      <div class="pf-stat-card" style="--pf-accent:#ff6b6b">
+        <div class="pf-stat-icon">💳</div>
+        <div class="pf-stat-label">Dettes</div>
+        <div class="pf-stat-value" id="pf-debt">—</div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">💰 Finances</div>
-      <div class="stat-row"><span class="stat-label">En poche</span><span class="stat-value gold" id="pf-cash">—</span></div>
-      <div class="stat-row"><span class="stat-label">En banque</span><span class="stat-value gold" id="pf-bank">—</span></div>
-      <div class="stat-row"><span class="stat-label">Dettes</span><span class="stat-value red" id="pf-debt">—</span></div>
-      <div class="stat-row"><span class="stat-label">Fortune totale</span><span class="stat-value gold" id="pf-total">—</span></div>
+    <!-- Entreprise -->
+    <div id="pf-company-banner" class="pf-company-banner" style="display:none">
+      <div class="pf-company-icon">🏢</div>
+      <div>
+        <div class="pf-company-name" id="pf-company">—</div>
+        <span class="pf-company-role" id="pf-role">—</span>
+      </div>
+    </div>
+    <div id="pf-no-company" class="pf-no-company">Sans emploi</div>
+
+    <!-- Réputation & classement -->
+    <div class="pf-section">
+      <div class="pf-section-header">Réputation & classement</div>
+      <div class="pf-section-row">
+        <span class="pf-section-key">Classement fortune</span>
+        <span class="pf-section-val gold" id="pf-rank">—</span>
+      </div>
+      <div class="pf-section-row">
+        <span class="pf-section-key">Diplômes</span>
+        <span class="pf-section-val purple" id="pf-diplomes">—</span>
+      </div>
+      <div class="pf-section-row">
+        <span class="pf-section-key">Fortune totale</span>
+        <span class="pf-section-val gold" id="pf-total">—</span>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">⭐ Réputation & Rang</div>
-      <div class="stat-row"><span class="stat-label">Karma</span><span class="stat-value" id="pf-karma">—</span></div>
-      <div class="stat-row"><span class="stat-label">Classement</span><span class="stat-value" id="pf-rank">—</span></div>
-      <div class="stat-row"><span class="stat-label">Diplômes</span><span class="stat-value" id="pf-diplomes">—</span></div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">🏢 Emploi</div>
-      <div class="stat-row"><span class="stat-label">Entreprise</span><span class="stat-value" id="pf-company">—</span></div>
-      <div class="stat-row"><span class="stat-label">Poste</span><span class="stat-value" id="pf-role">—</span></div>
-    </div>
   </div>
 
   <!-- ══ PAGE AVATAR ══ -->
@@ -2332,51 +2529,81 @@ async function loadData() {
 }
 
 function fillProfile(d) {
-  // ── Avatar depuis le serveur (source de vérité) ──
+  const _set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+  // ── Photo de profil Telegram ──
+  const wrap = document.getElementById('pf-avatar-wrap');
+  if (wrap && d.photo_file_id) {
+    wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}" alt="" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
+  }
+
+  // ── Avatar SVG (pour la page avatar séparée) ──
   if (d.avatar_data) {
     try {
       const serverAvatar = typeof d.avatar_data === 'string'
-        ? JSON.parse(d.avatar_data)
-        : d.avatar_data;
+        ? JSON.parse(d.avatar_data) : d.avatar_data;
       avatar = { ...avatar, ...serverAvatar };
-      // Sync localStorage avec les données serveur
       try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
-      drawAvatar('avatar-canvas');
-      drawAvatar('profile-avatar-mini');
+      if (document.getElementById('avatar-canvas')) drawAvatar('avatar-canvas');
       renderOptions();
     } catch(e) {}
   }
 
-  const _set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  _set('pf-name',     d.name || firstName);
-  _set('pf-title',    d.title || 'Citoyen');
-  _set('pf-coins',    '💰 ' + fmt(d.coins));
-  _set('pf-cash',     fmt(d.coins));
-  _set('pf-bank',     fmt(d.bank_total));
-  _set('pf-debt',     fmt(d.loans_total));
-  _set('pf-total',    fmt(d.fortune_totale));
-  _set('pf-karma',    (d.karma>=0?'+':'')+d.karma);
-  _set('pf-rank',     '#'+d.rank+' / '+d.total_players);
+  // ── Identité ──
+  _set('pf-name',    d.name || firstName);
+  _set('pf-title',   d.title || 'Citoyen');
+  _set('pf-username', d.username ? '@' + d.username : '');
+  _set('pf-coins',   fmt(d.fortune_totale));
+  _set('pf-cash',    fmt(d.coins));
+  _set('pf-bank',    fmt(d.bank_total));
+  _set('pf-debt',    fmt(d.loans_total));
+  _set('pf-total',   fmt(d.fortune_totale));
+  _set('pf-karma',   (d.karma >= 0 ? '+' : '') + d.karma);
   _set('pf-diplomes', d.diplomes || '—');
-  _set('co-name',     d.company || '—');
-  _set('co-level',     d.company_level || '—');
-  _set('co-stars',     d.company_rep ? stars(d.company_rep) : '—');
-  _set('co-value',     fmt(d.company_value));
-  _set('co-treasury',  fmt(d.company_treasury));
-  _set('co-revenue',   fmt(d.company_revenue_day));
-  _set('co-employees', d.company_employees || '—');
-  _set('co-myrole',    d.role || '—');
-  _set('co-owner',     d.company_owner || '—');
-  _set('pf-company',   d.company || 'Sans emploi');
-  _set('pf-role',      d.role || '—');
 
+  // ── Rang ──
+  const rankBadge = document.getElementById('pf-rank-badge');
+  const rankText  = document.getElementById('pf-rank');
+  const rankStr = '#' + d.rank + ' / ' + d.total_players;
+  if (rankBadge) rankBadge.textContent = '#' + d.rank;
+  if (rankText)  rankText.textContent  = rankStr;
+
+  // ── Entreprise ──
+  const banner    = document.getElementById('pf-company-banner');
+  const noCompany = document.getElementById('pf-no-company');
+  if (d.company) {
+    _set('pf-company', d.company);
+    _set('pf-role',    d.role || '—');
+    if (banner)    banner.style.display    = 'flex';
+    if (noCompany) noCompany.style.display = 'none';
+  } else {
+    if (banner)    banner.style.display    = 'none';
+    if (noCompany) noCompany.style.display = 'block';
+  }
+
+  // ── Données entreprise (onglet Économie) ──
+  _set('co-name',       d.company || '—');
+  _set('co-level',      d.company_level || '—');
+  _set('co-stars',      d.company_rep ? stars(d.company_rep) : '—');
+  _set('co-value',      fmt(d.company_value));
+  _set('co-treasury',   fmt(d.company_treasury));
+  _set('co-revenue',    fmt(d.company_revenue_day));
+  _set('co-employees',  d.company_employees || '—');
+  _set('co-myrole',     d.role || '—');
+  _set('co-owner',      d.company_owner || '—');
+
+  // ── Portfolio ──
   if (d.portfolio) {
-    document.getElementById('mk-invested').textContent = fmt(d.portfolio.invested);
-    document.getElementById('mk-current').textContent  = fmt(d.portfolio.current);
-    const pnl = d.portfolio.pnl;
-    const el = document.getElementById('mk-pnl');
-    el.textContent = (pnl>=0?'+':'')+fmt(Math.abs(pnl));
-    el.className = 'stat-value '+(pnl>=0?'green':'red');
+    const mkInv = document.getElementById('mk-invested');
+    const mkCur = document.getElementById('mk-current');
+    const mkPnl = document.getElementById('mk-pnl');
+    if (mkInv) mkInv.textContent = fmt(d.portfolio.invested);
+    if (mkCur) mkCur.textContent = fmt(d.portfolio.current);
+    if (mkPnl) {
+      const pnl = d.portfolio.pnl;
+      mkPnl.textContent = (pnl >= 0 ? '+' : '') + fmt(Math.abs(pnl));
+      mkPnl.className = 'stat-value ' + (pnl >= 0 ? 'green' : 'red');
+    }
   }
 }
 
@@ -3928,23 +4155,23 @@ async function rebetAction(action) {
 }
 
 function fillMock() {
-  document.getElementById('pf-name').textContent    = firstName;
-  document.getElementById('pf-title').textContent   = '👤 Citoyen';
-  document.getElementById('pf-coins').textContent   = '💰 —';
-  document.getElementById('pf-cash').textContent    = '—';
-  document.getElementById('pf-bank').textContent    = '—';
-  document.getElementById('pf-debt').textContent    = '—';
-  document.getElementById('pf-total').textContent   = '—';
-  document.getElementById('pf-karma').textContent   = '—';
-  document.getElementById('pf-rank').textContent    = '—';
+  const _s = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
+  _s('pf-name',  firstName);
+  _s('pf-title', 'Citoyen');
+  _s('pf-coins', '—');
+  _s('pf-cash',  '—');
+  _s('pf-bank',  '—');
+  _s('pf-debt',  '—');
+  _s('pf-total', '—');
+  _s('pf-karma', '—');
+  _s('pf-rank',  '—');
 }
 
 // ════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════
 window.addEventListener('load', () => {
-  drawAvatar('avatar-canvas');
-  drawAvatar('profile-avatar-mini');
+  if (document.getElementById('avatar-canvas')) drawAvatar('avatar-canvas');
   renderOptions();
   loadData();
   // Précharge en cascade — délais échelonnés pour ne pas saturer le serveur

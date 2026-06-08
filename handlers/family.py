@@ -699,7 +699,8 @@ async def _sibling_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, label
             await update.message.reply_text("❌ Vous êtes déjà frère/sœur !")
             return
         req = await create_request(session, sender.user_id, target.user_id,
-                                   RequestType.FRIEND, update.effective_chat.id)
+                                   RequestType.FRIEND, update.effective_chat.id,
+                                   update.message.message_id)
         # On stocke le type sibling dans le message de la demande
         emoji = "👦" if label == "brother" else "👧"
         await update.message.reply_text(

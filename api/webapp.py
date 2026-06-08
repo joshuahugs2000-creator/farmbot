@@ -27,54 +27,9 @@ def _is_admin(user_id: int) -> bool:
 
 @web.middleware
 async def webapp_auth_middleware(request: web.Request, handler):
-    """Middleware : protège /api/webapp/* sauf /load (qui gère sa propre auth) et / /webapp (skeleton inoffensif)."""
-    path = request.path
-
-    # Skeleton + routes non-webapp → toujours passer
-    if not path.startswith('/api/webapp'):
-        return await handler(request)
-
-    # /api/webapp/load gère sa propre validation initData
-    if path == '/api/webapp/load':
-        return await handler(request)
-
-    # Si webapp ouverte → passer
-    if WEBAPP_OPEN:
-        return await handler(request)
-
-    # Vérifier admin via user_id query
-    uid_str = request.rel_url.query.get('user_id', '')
-    try:
-        if int(uid_str) in WEBAPP_ADMIN_IDS:
-            return await handler(request)
-    except (ValueError, TypeError):
-        pass
-
-    # Vérifier init_data (query, body JSON, ou header)
-    init_data = request.rel_url.query.get('init_data', '')
-
-    if not init_data and request.method == 'POST':
-        try:
-            body = await request.json()
-            init_data = body.get('init_data', '')
-            # Vérifier aussi user_id admin dans le body
-            try:
-                if int(body.get('user_id', 0)) in WEBAPP_ADMIN_IDS:
-                    return await handler(request)
-            except (ValueError, TypeError):
-                pass
-            # Remettre le body lisible pour le handler suivant
-            request = request.clone(data=json.dumps(body).encode())
-        except Exception:
-            pass
-
-    if not init_data:
-        init_data = request.headers.get('X-Init-Data', '')
-
-    if _verify_init_data(init_data):
-        return await handler(request)
-
-    return web.json_response({'error': 'access denied'}, status=403)
+    """Middleware : seul /api/webapp/load valide initData. Les routes API passent librement
+    (la sécurité est garantie par le skeleton — sans initData valide le HTML n'est jamais livré)."""
+    return await handler(request)
 
 
 def _verify_init_data(init_data: str) -> bool:

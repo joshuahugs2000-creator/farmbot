@@ -2280,6 +2280,18 @@ function stars(r) {
 async function fetchT(url, opts, ms=10000) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), ms);
+  // Injecter init_data automatiquement dans chaque requête
+  const initDataEnc = encodeURIComponent(tg?.initData || '');
+  if (opts && opts.method === 'POST' && opts.body) {
+    try {
+      const bodyObj = JSON.parse(opts.body);
+      if (!bodyObj.init_data) bodyObj.init_data = tg?.initData || '';
+      opts = { ...opts, body: JSON.stringify(bodyObj) };
+    } catch(e) {}
+  } else {
+    const sep = url.includes('?') ? '&' : '?';
+    if (!url.includes('init_data=')) url = url + sep + 'init_data=' + initDataEnc;
+  }
   try {
     const r = await fetch(url, { ...opts, signal: ctrl.signal });
     clearTimeout(tid);

@@ -195,6 +195,7 @@ async def webapp_user(request: web.Request) -> web.Response:
             'total_players': total_players,
             'diplomes':      diplomes_str,
             'avatar_data':   user.avatar_data or None,
+            'photo_file_id': user.photo_file_id or None,
             'portfolio': {
                 'invested': _fmt(invested),
                 'current':  _fmt(current),
@@ -204,6 +205,46 @@ async def webapp_user(request: web.Request) -> web.Response:
         }
 
     return web.json_response(payload)
+
+
+async def webapp_photo_proxy(request: web.Request) -> web.Response:
+    """GET /api/webapp/photo?user_id=xxx — Proxy vers la photo de profil Telegram."""
+    import aiohttp as _aiohttp
+    user_id = request.rel_url.query.get('user_id')
+    if not user_id:
+        return web.Response(status=404)
+
+    try:
+        uid = int(user_id)
+    except ValueError:
+        return web.Response(status=400)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+
+    if not user or not user.photo_file_id:
+        return web.Response(status=404)
+
+    try:
+        async with _aiohttp.ClientSession() as s:
+            # Récupérer le chemin du fichier
+            r = await s.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile',
+                            params={'file_id': user.photo_file_id}, timeout=_aiohttp.ClientTimeout(total=5))
+            data = await r.json()
+            if not data.get('ok'):
+                return web.Response(status=404)
+            file_path = data['result']['file_path']
+            # Streamer le fichier
+            img_r = await s.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}',
+                                timeout=_aiohttp.ClientTimeout(total=10))
+            img_bytes = await img_r.read()
+            content_type = img_r.headers.get('Content-Type', 'image/jpeg')
+            return web.Response(body=img_bytes, content_type=content_type,
+                                headers={'Cache-Control': 'public, max-age=3600'})
+    except Exception:
+        return web.Response(status=502)
 
 
 async def webapp_save_avatar(request: web.Request) -> web.Response:
@@ -849,6 +890,7 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/webapp',                 webapp_index)
     app.router.add_post('/api/webapp/load',       webapp_load_app)
     app.router.add_get('/api/webapp/user',        webapp_user)
+    app.router.add_get('/api/webapp/photo',       webapp_photo_proxy)
     app.router.add_post('/api/webapp/avatar',     webapp_save_avatar)
     app.router.add_get('/api/webapp/market',      webapp_market_catalog)
     app.router.add_get('/api/webapp/portfolio',   webapp_market_portfolio)

@@ -149,7 +149,7 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _sel(_PR).where(
                 _PR.from_user_id == sender.user_id,
                 _PR.to_user_id == target.user_id,
-                _PR.request_type == RequestType.MARRY
+                _PR.request_type == RequestType.MARRY.name
             )
         )
         existing_sender = _ex.scalar_one_or_none()
@@ -167,7 +167,7 @@ async def marry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _ex2 = await session.execute(
             _sel(_PR).where(
                 _PR.to_user_id == target.user_id,
-                _PR.request_type == RequestType.MARRY
+                _PR.request_type == RequestType.MARRY.name
             )
         )
         existing_target = _ex2.scalar_one_or_none()

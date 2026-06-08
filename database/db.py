@@ -335,6 +335,15 @@ async def get_settings(session: AsyncSession, group_id: int) -> GroupSettings:
 # ─── RELATIONSHIPS ────────────────────────────────────────────────────────────
 
 async def get_relationships(session: AsyncSession, user_id: int, group_id: Optional[int] = None) -> List[Relationship]:
+    # Corriger les valeurs enum corrompues en majuscules AVANT de charger via ORM
+    from sqlalchemy import text as _text
+    try:
+        await session.execute(_text(
+            "UPDATE relationships SET relation_type = LOWER(relation_type) "
+            "WHERE relation_type != LOWER(relation_type)"
+        ))
+    except Exception:
+        pass
     cond = [or_(Relationship.user_id == user_id, Relationship.related_user_id == user_id)]
     if group_id is not None:
         cond.append(or_(Relationship.group_id == group_id, Relationship.group_id.is_(None)))

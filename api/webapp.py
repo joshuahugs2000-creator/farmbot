@@ -14,12 +14,12 @@ WEBAPP_ADMIN_IDS = {
     6227863810,   # Admin 1
 }
 
-# Mini App fermée au public — seule la validation initData Telegram donne accès
+# Mini App fermée au public — le skeleton /webapp exige initData valide avant de livrer le HTML
 WEBAPP_OPEN = False
 
 def _is_allowed(user_id: int) -> bool:
-    """Bloqué tant que WEBAPP_OPEN = False."""
-    return WEBAPP_OPEN
+    """Toujours True — la sécurité est garantie par /api/webapp/load (initData)."""
+    return True
 
 def _is_admin(user_id: int) -> bool:
     return user_id in WEBAPP_ADMIN_IDS

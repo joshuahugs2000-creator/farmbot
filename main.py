@@ -336,10 +336,25 @@ _ban_cache: dict[int, tuple] = {}  # user_id → (timestamp, is_banned)
 _BAN_CACHE_TTL = 120  # 2 minutes
 
 async def ban_middleware(update: Update, context) -> None:
-    """Bloque toutes les interactions des utilisateurs bannis."""
+    """Bloque les commandes et callbacks des utilisateurs bannis.
+    Les messages normaux (non-commandes) sont ignorés silencieusement."""
     user = update.effective_user
     if not user:
         return
+
+    # Détermine si c'est une commande bot ou un callback (à bloquer si banni)
+    # Les messages normaux (texte sans '/') passent toujours.
+    is_command = (
+        update.message
+        and update.message.text
+        and update.message.text.startswith("/")
+    )
+    is_callback = bool(update.callback_query)
+
+    if not is_command and not is_callback:
+        # Message lambda → on ne fait rien, même pour un banni
+        return
+
     now_mono = _time_ban.monotonic()
     cached = _ban_cache.get(user.id)
     if cached is not None and now_mono - cached[0] < _BAN_CACHE_TTL:
@@ -347,16 +362,15 @@ async def ban_middleware(update: Update, context) -> None:
             return
         if await is_admin(user.id):
             return
-        if update.message and update.message.text:
+        if is_command:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
-            if update.message.text.startswith("/"):
-                await update.message.reply_text(
-                    "🚫 <b>Compte banni.</b> Accès révoqué.",
-                    parse_mode="HTML"
-                )
-        if update.callback_query:
+            await update.message.reply_text(
+                "🚫 <b>Compte banni.</b> Accès révoqué.",
+                parse_mode="HTML"
+            )
+        if is_callback:
             await update.callback_query.answer(
                 "🚫 Compte banni. Accès révoqué.", show_alert=True
             )
@@ -371,16 +385,15 @@ async def ban_middleware(update: Update, context) -> None:
                 return
         if await is_admin(user.id):
             return
-        if update.message and update.message.text:
+        if is_command:
             cmd = update.message.text.split()[0].lstrip("/").split("@")[0].lower()
             if cmd in BAN_EXEMPT_COMMANDS:
                 return
-            if update.message.text.startswith("/"):
-                await update.message.reply_text(
-                    "🚫 <b>Compte banni.</b> Accès révoqué.",
-                    parse_mode="HTML"
-                )
-        if update.callback_query:
+            await update.message.reply_text(
+                "🚫 <b>Compte banni.</b> Accès révoqué.",
+                parse_mode="HTML"
+            )
+        if is_callback:
             await update.callback_query.answer(
                 "🚫 Compte suspendu — accès révoqué définitivement.", show_alert=True
             )

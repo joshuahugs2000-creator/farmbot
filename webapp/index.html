@@ -229,50 +229,178 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <!-- ══ PAGE PROFIL ══ -->
   <!-- ══ STYLES PAGE PROFIL ══ -->
   <style>
+  /* ── Cover v2 — plus grand, personnalisable ── */
   .pf-cover {
     position: relative;
-    height: 110px;
-    background: linear-gradient(135deg, #1a1a3e 0%, #0f0f2a 50%, #1a0a2e 100%);
+    height: 165px;
+    background: var(--pf-cover-bg, linear-gradient(135deg, #1a1a3e 0%, #0f0f2a 50%, #1a0a2e 100%));
     overflow: hidden;
     margin: -14px -14px 0;
     border-radius: var(--radius) var(--radius) 0 0;
   }
   .pf-cover-blur {
     position: absolute; inset: 0;
-    background: linear-gradient(135deg, rgba(247,201,72,.15) 0%, rgba(162,155,254,.1) 50%, rgba(78,205,196,.1) 100%);
+    background: var(--pf-cover-overlay, linear-gradient(135deg, rgba(247,201,72,.15) 0%, rgba(162,155,254,.1) 50%, rgba(78,205,196,.1) 100%));
   }
   .pf-cover-lines {
-    position: absolute; inset: 0; overflow: hidden; opacity: .2;
+    position: absolute; inset: 0; overflow: hidden; opacity: .25;
   }
   .pf-cover-lines::before, .pf-cover-lines::after {
     content: ''; position: absolute;
     width: 200%; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(247,201,72,.6), transparent);
+    background: linear-gradient(90deg, transparent, rgba(247,201,72,.7), transparent);
   }
   .pf-cover-lines::before { top: 30%; transform: rotate(-8deg); }
   .pf-cover-lines::after  { top: 65%; transform: rotate(5deg); }
+  /* Effet particules (class sur .pf-cover) */
+  .pf-cover.fx-dots::after {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,.18) 1px, transparent 1px);
+    background-size: 18px 18px;
+  }
+  .pf-cover.fx-grid::after {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .pf-cover.fx-waves::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 60px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 60'%3E%3Cpath d='M0,30 C200,60 400,0 600,30 C800,60 1000,0 1200,30 L1200,60 L0,60Z' fill='rgba(255,255,255,0.06)'/%3E%3C/svg%3E") repeat-x bottom;
+    background-size: 600px 60px;
+  }
+  /* Bouton edit cover */
+  .pf-cover-edit {
+    position: absolute; top: 10px; right: 12px;
+    background: rgba(0,0,0,.45);
+    border: 1px solid rgba(255,255,255,.15);
+    color: #fff; font-size: 14px;
+    width: 30px; height: 30px;
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+    transition: background .2s;
+  }
+  .pf-cover-edit:hover { background: rgba(247,201,72,.3); }
+  /* Avatar */
   .pf-avatar-wrap {
-    position: absolute; bottom: -36px; left: 20px;
-    width: 76px; height: 76px;
+    position: absolute; bottom: -42px; left: 18px;
+    width: 88px; height: 88px;
     border-radius: 50%;
-    border: 3px solid var(--bg);
+    border: 4px solid var(--bg);
     background: var(--card2);
     overflow: hidden;
-    box-shadow: 0 4px 20px rgba(0,0,0,.5);
+    box-shadow: 0 6px 24px rgba(0,0,0,.55);
+    cursor: pointer;
   }
   .pf-avatar-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .pf-avatar-placeholder {
     width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
-    font-size: 32px;
+    font-size: 36px;
     background: linear-gradient(135deg, #2a2a4a, #1a1a3e);
   }
+  /* Badge rang */
   .pf-rank-badge {
-    position: absolute; bottom: 10px; right: 16px;
+    position: absolute; bottom: 12px; right: 14px;
     background: linear-gradient(135deg,#f7c948,#e6a800);
     color: #000; font-size: 11px; font-weight: 900;
-    padding: 4px 10px; border-radius: 20px;
+    padding: 4px 11px; border-radius: 20px;
     letter-spacing: .5px;
+    box-shadow: 0 2px 8px rgba(247,201,72,.4);
+  }
+  /* Badges profil affichés sous le nom */
+  .pf-badges-row {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;
+  }
+  .pf-badge {
+    font-size: 18px;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px;
+    padding: 3px 6px;
+    cursor: default;
+    position: relative;
+  }
+  .pf-badge[title]:hover::after {
+    content: attr(title);
+    position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+    background: #222; color: #fff; font-size: 11px; padding: 3px 7px;
+    border-radius: 6px; white-space: nowrap; pointer-events: none;
+    z-index: 99;
+  }
+  /* ── Modal Personnalisation ── */
+  #modal-customize {
+    display: none; position: fixed; inset: 0; z-index: 900;
+    background: rgba(0,0,0,.7); backdrop-filter: blur(4px);
+    align-items: flex-end; justify-content: center;
+  }
+  #modal-customize.open { display: flex; }
+  .customize-sheet {
+    background: var(--card);
+    border-radius: 20px 20px 0 0;
+    width: 100%; max-width: 480px;
+    padding: 20px 18px 32px;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .customize-title {
+    font-size: 16px; font-weight: 900; color: var(--text);
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .customize-section-label {
+    font-size: 10px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text2); margin: 14px 0 8px;
+  }
+  /* Grille couleurs cover */
+  .cover-colors {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+  }
+  .cover-color-btn {
+    height: 36px; border-radius: 10px; border: 2px solid transparent;
+    cursor: pointer; transition: border .15s, transform .15s;
+  }
+  .cover-color-btn.selected, .cover-color-btn:hover {
+    border-color: #fff; transform: scale(1.08);
+  }
+  /* Effets cover */
+  .cover-effects {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .fx-btn {
+    padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text2);
+    font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s;
+  }
+  .fx-btn.selected { background: var(--accent); color: #000; border-color: var(--accent); }
+  /* Shop badges */
+  .badge-shop-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+  }
+  .badge-shop-item {
+    background: var(--card2); border: 1px solid var(--border);
+    border-radius: 14px; padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .badge-shop-item.owned { border-color: rgba(85,239,196,.4); }
+  .badge-emoji { font-size: 26px; }
+  .badge-info { flex: 1; }
+  .badge-name { font-size: 13px; font-weight: 800; color: var(--text); }
+  .badge-price { font-size: 11px; color: var(--accent); margin-top: 2px; }
+  .badge-buy-btn {
+    background: var(--accent); color: #000; border: none;
+    padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 900;
+    cursor: pointer;
+  }
+  .badge-buy-btn:disabled { background: var(--card); color: var(--text2); cursor: default; }
+  .customize-save-btn {
+    width: 100%; margin-top: 18px;
+    padding: 14px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), #e6a800);
+    color: #000; font-size: 15px; font-weight: 900;
+    border: none; cursor: pointer;
   }
   .pf-identity {
     padding: 46px 16px 12px;
@@ -385,23 +513,26 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <div class="page active" id="page-profile">
 
     <!-- Cover + Avatar -->
-    <div class="pf-cover">
-      <div class="pf-cover-blur"></div>
+    <div class="pf-cover" id="pf-cover">
+      <div class="pf-cover-blur" id="pf-cover-blur"></div>
       <div class="pf-cover-lines"></div>
+      <button class="pf-cover-edit" onclick="openCustomize()" title="Personnaliser">✏️</button>
       <div class="pf-avatar-wrap" id="pf-avatar-wrap">
-        <div class="pf-avatar-placeholder" id="pf-avatar-placeholder">👤</div>
+        <div class="pf-avatar-placeholder">👤</div>
       </div>
       <div class="pf-rank-badge" id="pf-rank-badge"># —</div>
     </div>
 
     <!-- Identité -->
-    <div class="pf-identity">
+    <div class="pf-identity" style="padding-top:54px">
       <div class="pf-name-row">
         <div class="pf-name" id="pf-name">—</div>
         <div class="pf-title-badge" id="pf-title">Citoyen</div>
       </div>
       <div class="pf-username" id="pf-username"></div>
-      <div class="pf-fortune-hero" id="pf-coins">—</div>
+      <!-- Badges acquis -->
+      <div class="pf-badges-row" id="pf-badges-row"></div>
+      <div class="pf-fortune-hero" id="pf-coins" style="margin-top:10px">—</div>
       <div class="pf-fortune-label">Fortune totale</div>
     </div>
 
@@ -456,6 +587,30 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
+  </div>
+
+  <!-- ══ MODAL PERSONNALISATION PROFIL ══ -->
+  <div id="modal-customize">
+    <div class="customize-sheet">
+      <div class="customize-title">✨ Personnaliser le profil</div>
+
+      <div class="customize-section-label">🎨 Couleur du cover</div>
+      <div class="cover-colors" id="cover-colors-grid"></div>
+
+      <div class="customize-section-label">✨ Effet cover</div>
+      <div class="cover-effects" id="cover-effects-btns">
+        <button class="fx-btn selected" data-fx="" onclick="selectFx(this,'')">Aucun</button>
+        <button class="fx-btn" data-fx="dots" onclick="selectFx(this,'dots')">· Points</button>
+        <button class="fx-btn" data-fx="grid" onclick="selectFx(this,'grid')">⊞ Grille</button>
+        <button class="fx-btn" data-fx="waves" onclick="selectFx(this,'waves')">〰 Vagues</button>
+      </div>
+
+      <div class="customize-section-label">🏅 Badges (cliquer pour équiper/déséquiper)</div>
+      <div class="badge-shop-grid" id="badge-shop-grid"></div>
+
+      <button class="customize-save-btn" onclick="saveCustomize()">💾 Sauvegarder</button>
+      <button onclick="closeCustomize()" style="width:100%;margin-top:10px;padding:12px;background:none;border:1px solid var(--border);border-radius:12px;color:var(--text2);font-size:14px;cursor:pointer">Annuler</button>
+    </div>
   </div>
 
   <!-- ══ PAGE AVATAR ══ -->
@@ -2530,6 +2685,9 @@ async function loadData() {
 
 function fillProfile(d) {
   const _set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+  // ── Customisation cover + badges ──
+  _loadProfileCustomization(d);
 
   // ── Photo de profil Telegram ──
   const wrap = document.getElementById('pf-avatar-wrap');
@@ -5910,6 +6068,172 @@ async function submitBid(isSalle) {
       if (isSalle) { closeSalleBidModal(); _loadSalle(); } else { closeBidModal(); _loadAuctionLive(); }
     } else { showToast(d.error || 'Erreur'); }
   } catch(e) { showToast('Erreur réseau'); }
+}
+
+// ════════════════════════════════════════
+//  PERSONNALISATION PROFIL
+// ════════════════════════════════════════
+
+const COVER_THEMES = [
+  { id:'purple',  label:'Violet',    bg:'linear-gradient(135deg,#1a1a3e,#0f0f2a,#1a0a2e)', overlay:'linear-gradient(135deg,rgba(162,155,254,.2),rgba(78,205,196,.12))' },
+  { id:'gold',    label:'Or',        bg:'linear-gradient(135deg,#2a1a00,#1a1000,#2a1500)', overlay:'linear-gradient(135deg,rgba(247,201,72,.25),rgba(255,180,0,.15))' },
+  { id:'teal',    label:'Vert',      bg:'linear-gradient(135deg,#0a2a2a,#051515,#0a2015)', overlay:'linear-gradient(135deg,rgba(85,239,196,.2),rgba(0,200,150,.12))' },
+  { id:'red',     label:'Rouge',     bg:'linear-gradient(135deg,#2a0a0a,#1a0505,#2a0505)', overlay:'linear-gradient(135deg,rgba(255,107,107,.2),rgba(200,0,0,.12))' },
+  { id:'blue',    label:'Bleu',      bg:'linear-gradient(135deg,#0a1a2e,#050f1f,#0a1528)', overlay:'linear-gradient(135deg,rgba(100,180,255,.2),rgba(0,100,255,.1))' },
+  { id:'pink',    label:'Rose',      bg:'linear-gradient(135deg,#2a0a1e,#1a0512,#2a0520)', overlay:'linear-gradient(135deg,rgba(253,121,168,.25),rgba(200,0,100,.1))' },
+  { id:'orange',  label:'Orange',    bg:'linear-gradient(135deg,#2a1500,#1a0c00,#221000)', overlay:'linear-gradient(135deg,rgba(255,160,0,.2),rgba(255,100,0,.1))' },
+  { id:'black',   label:'Noir',      bg:'linear-gradient(135deg,#0a0a0a,#050505,#0f0f0f)', overlay:'linear-gradient(135deg,rgba(255,255,255,.04),rgba(255,255,255,.02))' },
+  { id:'silver',  label:'Argent',    bg:'linear-gradient(135deg,#1a1a22,#0f0f18,#16161e)', overlay:'linear-gradient(135deg,rgba(200,200,255,.15),rgba(180,180,255,.08))' },
+  { id:'rainbow', label:'🌈',        bg:'linear-gradient(135deg,#1a0a2e,#0a1a2e,#0a2a1e)', overlay:'linear-gradient(90deg,rgba(255,107,107,.15),rgba(247,201,72,.15),rgba(85,239,196,.15))' },
+];
+
+const BADGE_CATALOG = [
+  { id:'gold_star',   emoji:'🌟', name:'Étoile d\'Or',    price:500_000,  desc:'Joueur fortuné' },
+  { id:'diamond',     emoji:'💎', name:'Diamant',         price:2_000_000, desc:'Élite du bot' },
+  { id:'fire',        emoji:'🔥', name:'Enflammé',        price:300_000,  desc:'Actif en jeu' },
+  { id:'crown',       emoji:'👑', name:'Couronne',        price:5_000_000, desc:'Roi de la fortune' },
+  { id:'rocket',      emoji:'🚀', name:'Fusée',           price:1_000_000, desc:'Investisseur fou' },
+  { id:'skull',       emoji:'💀', name:'Skull',           price:800_000,  desc:'Parieur extrême' },
+  { id:'trophy',      emoji:'🏆', name:'Trophée',         price:1_500_000, desc:'Champion' },
+  { id:'unicorn',     emoji:'🦄', name:'Licorne',         price:3_000_000, desc:'Rarissime' },
+];
+
+let _pfCustom = {
+  cover_theme: 'purple',
+  cover_fx: '',
+  badges_owned: [],
+  badges_equipped: [],
+};
+let _pfCoins = 0;
+
+function openCustomize() {
+  _pfCoins = parseInt(document.getElementById('pf-cash')?.textContent?.replace(/[^0-9]/g,'')) || 0;
+  // Lire customization depuis le profil chargé
+  const modal = document.getElementById('modal-customize');
+  modal.classList.add('open');
+  _renderCoverColors();
+  _renderFxButtons();
+  _renderBadgeShop();
+}
+function closeCustomize() {
+  document.getElementById('modal-customize').classList.remove('open');
+}
+function _renderCoverColors() {
+  const grid = document.getElementById('cover-colors-grid');
+  grid.innerHTML = COVER_THEMES.map(t => `
+    <div class="cover-color-btn ${t.id===_pfCustom.cover_theme?'selected':''}"
+         style="background:${t.bg}"
+         title="${t.label}"
+         onclick="selectTheme('${t.id}')"></div>
+  `).join('');
+}
+function selectTheme(id) {
+  _pfCustom.cover_theme = id;
+  _applyCustomToCover();
+  _renderCoverColors();
+}
+function selectFx(btn, fx) {
+  _pfCustom.cover_fx = fx;
+  _applyCustomToCover();
+  document.querySelectorAll('.fx-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+}
+function _applyCustomToCover() {
+  const cover = document.getElementById('pf-cover');
+  const blur  = document.getElementById('pf-cover-blur');
+  const theme = COVER_THEMES.find(t => t.id === _pfCustom.cover_theme) || COVER_THEMES[0];
+  cover.style.background = theme.bg;
+  if (blur) blur.style.background = theme.overlay;
+  cover.className = 'pf-cover' + (_pfCustom.cover_fx ? ' fx-'+_pfCustom.cover_fx : '');
+}
+function _renderFxButtons() {
+  document.querySelectorAll('.fx-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.fx === _pfCustom.cover_fx);
+  });
+}
+function _renderBadgeShop() {
+  const owned    = _pfCustom.badges_owned || [];
+  const equipped = _pfCustom.badges_equipped || [];
+  const grid = document.getElementById('badge-shop-grid');
+  grid.innerHTML = BADGE_CATALOG.map(b => {
+    const isOwned    = owned.includes(b.id);
+    const isEquipped = equipped.includes(b.id);
+    return `<div class="badge-shop-item ${isOwned?'owned':''}">
+      <div class="badge-emoji">${b.emoji}</div>
+      <div class="badge-info">
+        <div class="badge-name">${b.name}</div>
+        <div class="badge-price">${isOwned ? (isEquipped?'✅ Équipé':'✔ Possédé') : fmt(b.price)+' $'}</div>
+      </div>
+      ${isOwned
+        ? `<button class="badge-buy-btn" style="background:${isEquipped?'var(--accent2)':'var(--success)'}"
+             onclick="toggleBadge('${b.id}')">${isEquipped?'Retirer':'Équiper'}</button>`
+        : `<button class="badge-buy-btn" onclick="buyBadge('${b.id}',${b.price})">Acheter</button>`
+      }
+    </div>`;
+  }).join('');
+}
+function toggleBadge(id) {
+  const eq = _pfCustom.badges_equipped || [];
+  const idx = eq.indexOf(id);
+  if (idx >= 0) eq.splice(idx,1); else { if (eq.length < 5) eq.push(id); else { showToast('Max 5 badges équipés'); return; } }
+  _pfCustom.badges_equipped = eq;
+  _renderBadgeShop();
+  _renderProfileBadges();
+}
+async function buyBadge(id, price) {
+  if (!uid) return;
+  try {
+    const r = await fetchT('/api/webapp/profile/badge/buy', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, badge_id: id, price })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      _pfCustom.badges_owned = d.badges_owned;
+      showToast('✅ Badge acheté !');
+      _renderBadgeShop();
+    } else { showToast(d.error || 'Erreur'); }
+  } catch(e) { showToast('Erreur réseau'); }
+}
+async function saveCustomize() {
+  if (!uid) return;
+  try {
+    const r = await fetchT('/api/webapp/profile/customize', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, cover_theme: _pfCustom.cover_theme, cover_fx: _pfCustom.cover_fx, badges_equipped: _pfCustom.badges_equipped })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✅ Profil sauvegardé !');
+      closeCustomize();
+    } else { showToast(d.error || 'Erreur'); }
+  } catch(e) { showToast('Erreur réseau'); }
+}
+function _renderProfileBadges() {
+  const row = document.getElementById('pf-badges-row');
+  if (!row) return;
+  const equipped = _pfCustom.badges_equipped || [];
+  const owned    = _pfCustom.badges_owned || [];
+  row.innerHTML = equipped
+    .filter(id => owned.includes(id))
+    .map(id => {
+      const b = BADGE_CATALOG.find(x => x.id===id);
+      return b ? `<div class="pf-badge" title="${b.name}">${b.emoji}</div>` : '';
+    }).join('');
+}
+function _loadProfileCustomization(d) {
+  if (!d.customization) return;
+  try {
+    const c = typeof d.customization === 'string' ? JSON.parse(d.customization) : d.customization;
+    _pfCustom.cover_theme    = c.cover_theme    || 'purple';
+    _pfCustom.cover_fx       = c.cover_fx       || '';
+    _pfCustom.badges_owned   = c.badges_owned   || [];
+    _pfCustom.badges_equipped = c.badges_equipped || [];
+    _applyCustomToCover();
+    _renderProfileBadges();
+  } catch(e) {}
 }
 
 </script>

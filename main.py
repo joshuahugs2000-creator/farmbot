@@ -1203,9 +1203,9 @@ async def main():
         asyncio.get_event_loop().create_task(app.process_update(update))
         return web.Response(text="OK")
 
-    from api.webapp import setup_webapp_routes
+    from api.webapp import setup_webapp_routes, webapp_auth_middleware
 
-    webserver = web.Application()
+    webserver = web.Application(middlewares=[webapp_auth_middleware])
     webserver.router.add_get("/health", health)
     webserver.router.add_post("/webhook", telegram_webhook)
     setup_webapp_routes(webserver)

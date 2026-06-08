@@ -27,18 +27,30 @@ def _is_admin(user_id: int) -> bool:
 
 @web.middleware
 async def webapp_auth_middleware(request: web.Request, handler):
-    """Middleware : bloque toutes les routes /api/webapp/* et /webapp sans initData valide."""
+    """Middleware : protège /api/webapp/* sauf /load (qui gère sa propre auth) et / /webapp (skeleton inoffensif)."""
     path = request.path
 
-    # Routes publiques (health, webhook Telegram) — on laisse passer
-    if not (path.startswith('/api/webapp') or path in ('/', '/webapp')):
+    # Skeleton + routes non-webapp → toujours passer
+    if not path.startswith('/api/webapp'):
         return await handler(request)
 
-    # Si la webapp est ouverte, laisser passer normalement
+    # /api/webapp/load gère sa propre validation initData
+    if path == '/api/webapp/load':
+        return await handler(request)
+
+    # Si webapp ouverte → passer
     if WEBAPP_OPEN:
         return await handler(request)
 
-    # Admins toujours autorisés
+    # Vérifier init_data (query ou header)
+    init_data = request.rel_url.query.get('init_data', '')
+    if not init_data:
+        init_data = request.headers.get('X-Init-Data', '')
+
+    if _verify_init_data(init_data):
+        return await handler(request)
+
+    # Vérifier admin via user_id query
     uid_str = request.rel_url.query.get('user_id', '')
     try:
         if int(uid_str) in WEBAPP_ADMIN_IDS:
@@ -46,33 +58,7 @@ async def webapp_auth_middleware(request: web.Request, handler):
     except (ValueError, TypeError):
         pass
 
-    # Webapp fermée — chercher init_data dans query, body JSON ou header
-    init_data = request.rel_url.query.get('init_data', '')
-
-    if not init_data:
-        try:
-            body = await request.json()
-            init_data = body.get('init_data', '')
-            # Vérifier aussi user_id dans le body
-            try:
-                if int(body.get('user_id', 0)) in WEBAPP_ADMIN_IDS:
-                    return await handler(request)
-            except (ValueError, TypeError):
-                pass
-        except Exception:
-            pass
-
-    if not init_data:
-        init_data = request.headers.get('X-Init-Data', '')
-
-    if _verify_init_data(init_data):
-        return await handler(request)
-
-    # Pas de signature valide — bloquer
-    if path.startswith('/api/webapp'):
-        return web.json_response({'error': 'Mini App fermée — accès non autorisé.'}, status=403)
-    else:
-        return web.Response(text=_build_locked_page(), content_type='text/html', status=403)
+    return web.json_response({'error': 'access denied'}, status=403)
 
 
 def _verify_init_data(init_data: str) -> bool:
@@ -291,12 +277,66 @@ async def webapp_save_avatar(request: web.Request) -> web.Response:
 
 
 async def webapp_index(request: web.Request) -> web.Response:
-    """Sert la Mini App HTML — le middleware a déjà validé l'accès."""
-    import os
-    path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
-    with open(path, 'r', encoding='utf-8') as f:
-        html = f.read()
-    return web.Response(text=html, content_type='text/html')
+    """Sert un skeleton vide — le vrai HTML est livré par /api/webapp/load après validation initData."""
+    skeleton = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<title>Family Bot</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#0f0f1a;color:#f0f0f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center}
+.loader{text-align:center}
+.spinner{width:48px;height:48px;border:4px solid #2a2a4a;border-top-color:#f7c948;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lbl{color:#a0a0b0;font-size:13px}
+</style>
+</head>
+<body>
+<div class="loader" id="loader">
+  <div class="spinner"></div>
+  <div class="lbl">Chargement...</div>
+</div>
+<script>
+(async function() {
+  const tg = window.Telegram?.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  const initData = tg?.initData || '';
+  const userId   = tg?.initDataUnsafe?.user?.id || null;
+
+  // Pas dans Telegram du tout → page bientôt
+  if (!initData && !userId) {
+    document.getElementById('loader').innerHTML = '<div style="font-size:48px">🚧</div><div style="font-family:sans-serif;font-size:22px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div><div style="color:#a0a0b0;font-size:13px">La Mini App arrive très bientôt !</div>';
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/webapp/load', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ init_data: initData, user_id: userId })
+    });
+
+    if (!res.ok) {
+      document.getElementById('loader').innerHTML = '<div style="font-size:48px">🚧</div><div style="font-family:sans-serif;font-size:22px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div><div style="color:#a0a0b0;font-size:13px">La Mini App arrive très bientôt !</div>';
+      return;
+    }
+
+    const html = await res.text();
+    document.open();
+    document.write(html);
+    document.close();
+  } catch(e) {
+    document.getElementById('loader').innerHTML = '<div style="color:#ff6b6b;font-size:13px">Erreur de connexion</div>';
+  }
+})();
+</script>
+</body>
+</html>"""
+    return web.Response(text=skeleton, content_type='text/html')
 
 
 async def webapp_load_app(request: web.Request) -> web.Response:
@@ -310,16 +350,19 @@ async def webapp_load_app(request: web.Request) -> web.Response:
     init_data = body.get('init_data', '')
 
     valid_init = _verify_init_data(init_data)
-    valid_uid  = uid and _is_allowed(int(uid))
+    try:
+        is_admin = uid is not None and int(uid) in WEBAPP_ADMIN_IDS
+    except (ValueError, TypeError):
+        is_admin = False
 
-    if not (valid_init or valid_uid):
-        return web.Response(text=_build_locked_page(), content_type='text/html', status=403)
+    if not (valid_init or is_admin):
+        return web.json_response({'error': 'access denied'}, status=403)
 
     import os
     path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
     with open(path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    return web.Response(text=content, content_type='text/html')
+        real_html = f.read()
+    return web.Response(text=real_html, content_type='text/html')
 
 
 def _build_locked_page() -> str:

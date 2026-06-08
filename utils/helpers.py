@@ -85,6 +85,7 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE, allow
                 class _FakeUserById:
                     def __init__(self, u):
                         self.id         = u.user_id
+                        self.user_id    = u.user_id
                         self.first_name = u.first_name
                         self.username   = u.username
                         self.is_bot     = False
@@ -126,6 +127,7 @@ async def parse_target(update: Update, context: ContextTypes.DEFAULT_TYPE, allow
                 class _FakeUser:
                     def __init__(self, u):
                         self.id         = u.user_id
+                        self.user_id    = u.user_id
                         self.first_name = u.first_name
                         self.username   = u.username
                         self.is_bot     = False

@@ -676,6 +676,24 @@ async def on_startup(application: Application):
         except Exception as e:
             logger.warning(f"Backfill total_commands ignoré: {e}")
 
+
+        # Migration : corriger les valeurs enum en majuscules dans relationships
+        # (données corrompues : "FRIEND" au lieu de "friend", etc.)
+        try:
+            await _conn.execute(_text("""
+                UPDATE relationships
+                SET relation_type = LOWER(relation_type)
+                WHERE relation_type != LOWER(relation_type)
+            """))
+            await _conn.execute(_text("""
+                UPDATE pending_requests
+                SET type = LOWER(type)
+                WHERE type IN ('MARRY','FRIEND','PARENT','SIBLING','DIVORCE')
+            """))
+            logger.info("Migration enum relationships effectuée.")
+        except Exception as e:
+            logger.warning(f"Migration enum relationships ignorée: {e}")
+
     logger.info("Base de données initialisée.")
     asyncio.create_task(_flush_log_queue())
     asyncio.create_task(_flush_cmd_count_queue())

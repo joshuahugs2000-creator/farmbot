@@ -14,12 +14,22 @@ WEBAPP_ADMIN_IDS = {
     6227863810,   # Admin 1
 }
 
+# Mini App fermée au public — le skeleton /webapp exige initData valide avant de livrer le HTML
+WEBAPP_OPEN = False
+
 def _is_allowed(user_id: int) -> bool:
-    """Ouvert à tous les joueurs enregistrés — la DB vérifie l existence du user."""
-    return user_id > 0
+    """Toujours True — la sécurité est garantie par /api/webapp/load (initData)."""
+    return True
 
 def _is_admin(user_id: int) -> bool:
     return user_id in WEBAPP_ADMIN_IDS
+
+
+@web.middleware
+async def webapp_auth_middleware(request: web.Request, handler):
+    """Middleware : seul /api/webapp/load valide initData. Les routes API passent librement
+    (la sécurité est garantie par le skeleton — sans initData valide le HTML n'est jamais livré)."""
+    return await handler(request)
 
 
 def _verify_init_data(init_data: str) -> bool:
@@ -185,7 +195,8 @@ async def webapp_user(request: web.Request) -> web.Response:
             'total_players': total_players,
             'diplomes':      diplomes_str,
             'avatar_data':   user.avatar_data or None,
-            'profile_color': user.profile_color or 'purple',
+            'photo_file_id': user.photo_file_id or None,
+            'customization': user.profile_color or None,
             'portfolio': {
                 'invested': _fmt(invested),
                 'current':  _fmt(current),
@@ -195,6 +206,46 @@ async def webapp_user(request: web.Request) -> web.Response:
         }
 
     return web.json_response(payload)
+
+
+async def webapp_photo_proxy(request: web.Request) -> web.Response:
+    """GET /api/webapp/photo?user_id=xxx — Proxy vers la photo de profil Telegram."""
+    import aiohttp as _aiohttp
+    user_id = request.rel_url.query.get('user_id')
+    if not user_id:
+        return web.Response(status=404)
+
+    try:
+        uid = int(user_id)
+    except ValueError:
+        return web.Response(status=400)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+
+    if not user or not user.photo_file_id:
+        return web.Response(status=404)
+
+    try:
+        async with _aiohttp.ClientSession() as s:
+            # Récupérer le chemin du fichier
+            r = await s.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile',
+                            params={'file_id': user.photo_file_id}, timeout=_aiohttp.ClientTimeout(total=5))
+            data = await r.json()
+            if not data.get('ok'):
+                return web.Response(status=404)
+            file_path = data['result']['file_path']
+            # Streamer le fichier
+            img_r = await s.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}',
+                                timeout=_aiohttp.ClientTimeout(total=10))
+            img_bytes = await img_r.read()
+            content_type = img_r.headers.get('Content-Type', 'image/jpeg')
+            return web.Response(body=img_bytes, content_type=content_type,
+                                headers={'Cache-Control': 'public, max-age=3600'})
+    except Exception:
+        return web.Response(status=502)
 
 
 async def webapp_save_avatar(request: web.Request) -> web.Response:
@@ -239,25 +290,66 @@ async def webapp_save_avatar(request: web.Request) -> web.Response:
 
 
 async def webapp_index(request: web.Request) -> web.Response:
-    """Sert la Mini App HTML — accès restreint côté serveur."""
-    import os
+    """Sert un skeleton vide — le vrai HTML est livré par /api/webapp/load après validation initData."""
+    skeleton = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<title>Family Bot</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#0f0f1a;color:#f0f0f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center}
+.loader{text-align:center}
+.spinner{width:48px;height:48px;border:4px solid #2a2a4a;border-top-color:#f7c948;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lbl{color:#a0a0b0;font-size:13px}
+</style>
+</head>
+<body>
+<div class="loader" id="loader">
+  <div class="spinner"></div>
+  <div class="lbl">Chargement...</div>
+</div>
+<script>
+(async function() {
+  const tg = window.Telegram?.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
 
-    # Récupérer user_id depuis query params (Telegram le passe via tgWebAppData)
-    user_id_str = request.rel_url.query.get('user_id') or request.rel_url.query.get('tgWebAppData')
+  const initData = tg?.initData || '';
+  const userId   = tg?.initDataUnsafe?.user?.id || null;
 
-    # Bloquer côté serveur si user_id fourni et pas dans la whitelist
-    if user_id_str:
-        try:
-            uid_int = int(user_id_str)
-            if not _is_allowed(uid_int):
-                return web.Response(text=_build_locked_page(), content_type='text/html')
-        except ValueError:
-            pass
+  // Pas dans Telegram du tout → page bientôt
+  if (!initData && !userId) {
+    document.getElementById('loader').innerHTML = '<div style="font-size:48px">🚧</div><div style="font-family:sans-serif;font-size:22px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div><div style="color:#a0a0b0;font-size:13px">La Mini App arrive très bientôt !</div>';
+    return;
+  }
 
-    path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
-    with open(path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    return web.Response(text=content, content_type='text/html')
+  try {
+    const res = await fetch('/api/webapp/load', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ init_data: initData, user_id: userId })
+    });
+
+    if (!res.ok) {
+      document.getElementById('loader').innerHTML = '<div style="font-size:48px">🚧</div><div style="font-family:sans-serif;font-size:22px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div><div style="color:#a0a0b0;font-size:13px">La Mini App arrive très bientôt !</div>';
+      return;
+    }
+
+    const html = await res.text();
+    document.open();
+    document.write(html);
+    document.close();
+  } catch(e) {
+    document.getElementById('loader').innerHTML = '<div style="color:#ff6b6b;font-size:13px">Erreur de connexion</div>';
+  }
+})();
+</script>
+</body>
+</html>"""
+    return web.Response(text=skeleton, content_type='text/html')
 
 
 async def webapp_load_app(request: web.Request) -> web.Response:
@@ -271,16 +363,19 @@ async def webapp_load_app(request: web.Request) -> web.Response:
     init_data = body.get('init_data', '')
 
     valid_init = _verify_init_data(init_data)
-    valid_uid  = uid and _is_allowed(int(uid))
+    try:
+        is_admin = uid is not None and int(uid) in WEBAPP_ADMIN_IDS
+    except (ValueError, TypeError):
+        is_admin = False
 
-    if not (valid_init or valid_uid):
-        return web.Response(text=_build_locked_page(), content_type='text/html', status=403)
+    if not (valid_init or is_admin):
+        return web.json_response({'error': 'access denied'}, status=403)
 
     import os
     path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
     with open(path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    return web.Response(text=content, content_type='text/html')
+        real_html = f.read()
+    return web.Response(text=real_html, content_type='text/html')
 
 
 def _build_locked_page() -> str:
@@ -791,25 +886,89 @@ def _apple_gen_row(level: int) -> list:
 
 
 async def webapp_profile_customize(request: web.Request) -> web.Response:
-    """POST /api/webapp/profile/customize — Sauvegarde thème + fx du cover."""
-    import json as _json
-    body = await request.json()
-    uid  = int(body.get('user_id', 0))
-    if not uid:
-        return web.json_response({'error': 'missing user_id'}, status=400)
-    theme = body.get('theme', 'purple')
-    fx    = body.get('fx', 'none')
-    # On sérialise en JSON pour stocker theme + fx dans profile_color
-    payload_str = _json.dumps({'theme': theme, 'fx': fx})
+    """POST /api/webapp/profile/customize — Sauvegarder thème cover + badges équipés."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    cover_theme     = body.get('cover_theme', 'purple')
+    cover_fx        = body.get('cover_fx', '')
+    badges_equipped = body.get('badges_equipped', [])
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(
             select(User).where(User.user_id == uid)
         )).scalar_one_or_none()
         if not user:
             return web.json_response({'error': 'user not found'}, status=404)
-        user.profile_color = payload_str
+
+        # Lire la customisation actuelle
+        try:
+            current = json.loads(user.profile_color or '{}') if user.profile_color and user.profile_color.startswith('{') else {}
+        except Exception:
+            current = {}
+
+        current['cover_theme']     = cover_theme
+        current['cover_fx']        = cover_fx
+        current['badges_equipped'] = badges_equipped
+
+        user.profile_color = json.dumps(current)
         await session.commit()
+
     return web.json_response({'ok': True})
+
+
+async def webapp_profile_badge_buy(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/badge/buy — Acheter un badge avec des coins."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid      = int(body.get('user_id', 0))
+    badge_id = body.get('badge_id', '')
+    price    = int(body.get('price', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not badge_id or price <= 0:
+        return web.json_response({'error': 'Paramètres invalides'}, status=400)
+
+    VALID_BADGES = {'gold_star','diamond','fire','crown','rocket','skull','trophy','unicorn'}
+    if badge_id not in VALID_BADGES:
+        return web.json_response({'error': 'Badge inconnu'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        try:
+            current = json.loads(user.profile_color or '{}') if user.profile_color and user.profile_color.startswith('{') else {}
+        except Exception:
+            current = {}
+
+        owned = current.get('badges_owned', [])
+        if badge_id in owned:
+            return web.json_response({'error': 'Badge déjà possédé'})
+
+        if (user.coins or 0) < price:
+            return web.json_response({'error': f'Fonds insuffisants ({_fmt(user.coins)} $ disponible)'})
+
+        user.coins -= price
+        owned.append(badge_id)
+        current['badges_owned'] = owned
+        user.profile_color = json.dumps(current)
+        await session.commit()
+
+    return web.json_response({'ok': True, 'badges_owned': owned})
 
 
 def setup_webapp_routes(app: web.Application):
@@ -817,7 +976,10 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/',                       webapp_index)
     app.router.add_get('/webapp',                 webapp_index)
     app.router.add_post('/api/webapp/load',       webapp_load_app)
+    app.router.add_post('/api/webapp/profile/customize',   webapp_profile_customize)
+    app.router.add_post('/api/webapp/profile/badge/buy',   webapp_profile_badge_buy)
     app.router.add_get('/api/webapp/user',        webapp_user)
+    app.router.add_get('/api/webapp/photo',       webapp_photo_proxy)
     app.router.add_post('/api/webapp/avatar',     webapp_save_avatar)
     app.router.add_get('/api/webapp/market',      webapp_market_catalog)
     app.router.add_get('/api/webapp/portfolio',   webapp_market_portfolio)
@@ -856,8 +1018,6 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/company/payerimpots', webapp_company_payerimpots)
     app.router.add_post('/api/webapp/company/accepter',    webapp_company_accepter)
     app.router.add_post('/api/webapp/company/refuser',     webapp_company_refuser)
-
-    app.router.add_post('/api/webapp/profile/customize', webapp_profile_customize)
 
     app.router.add_get('/api/webapp/gains',        webapp_gains)
     app.router.add_post('/api/webapp/gains/daily', webapp_gains_daily)

@@ -2714,11 +2714,7 @@ function fillProfile(d) {
 
   // ── Customisation cover + badges ──
   _loadProfileCustomization(d);
-  // Attacher les listeners de la modal (une seule fois)
-  if (!window._customizeListenersAttached) {
-    window._customizeListenersAttached = true;
-    _attachCustomizeListeners();
-  }
+
 
   // ── Photo de profil Telegram ──
   const wrap = document.getElementById('pf-avatar-wrap');
@@ -6158,25 +6154,24 @@ function closeCustomize() {
   if (modal) modal.style.display = 'none';
 }
 function _attachCustomizeListeners() {
-  // Bouton ouvrir
-  const editBtn = document.getElementById('btn-cover-edit');
-  if (editBtn) editBtn.addEventListener('click', openCustomize);
-  // Sauvegarder
-  const saveBtn = document.getElementById('btn-customize-save');
-  if (saveBtn) saveBtn.addEventListener('click', saveCustomize);
-  // Annuler
-  const cancelBtn = document.getElementById('btn-customize-cancel');
-  if (cancelBtn) cancelBtn.addEventListener('click', closeCustomize);
-  // Fermer en cliquant sur le fond
-  const modal = document.getElementById('modal-customize');
-  if (modal) modal.addEventListener('click', function(e) {
-    if (e.target === modal) closeCustomize();
-  });
-  // Boutons effets FX
-  document.querySelectorAll('#cover-effects-btns .fx-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() { selectFx(btn, btn.dataset.fx); });
+  // Délégation sur document — fonctionne peu importe quand les éléments apparaissent
+  document.addEventListener('click', function(e) {
+    const t = e.target;
+    // Bouton crayon cover
+    if (t.id === 'btn-cover-edit' || t.closest('#btn-cover-edit')) { openCustomize(); return; }
+    // Sauvegarder
+    if (t.id === 'btn-customize-save') { saveCustomize(); return; }
+    // Annuler
+    if (t.id === 'btn-customize-cancel') { closeCustomize(); return; }
+    // Fermer fond modal
+    if (t.id === 'modal-customize') { closeCustomize(); return; }
+    // Boutons FX
+    const fxBtn = t.closest('.fx-btn');
+    if (fxBtn && fxBtn.closest('#cover-effects-btns')) { selectFx(fxBtn, fxBtn.dataset.fx); return; }
   });
 }
+// Attacher immédiatement — la délégation sur document fonctionne toujours
+_attachCustomizeListeners();
 function _renderCoverColors() {
   const grid = document.getElementById('cover-colors-grid');
   grid.innerHTML = COVER_THEMES.map(t => `

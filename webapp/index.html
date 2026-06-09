@@ -136,16 +136,113 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .company-level { color: var(--text2); font-size: 13px; margin-top: 4px; }
 .rep-stars { color: var(--accent); font-size: 18px; margin-top: 6px; }
 
-/* ── GAMES ── */
-.games-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-.game-card {
-  background: var(--card2); border-radius: var(--radius); border: 1px solid var(--border);
-  padding: 20px 12px; text-align: center; cursor: pointer; transition: all .2s;
+/* ── GAMES CASINO HUB ── */
+#page-games { padding: 0; }
+.casino-header {
+  padding: 28px 20px 20px;
+  background: linear-gradient(180deg, rgba(255,107,107,.08) 0%, transparent 100%);
+  border-bottom: 1px solid rgba(255,255,255,.05);
+  text-align: center;
 }
-.game-card:active { transform: scale(.96); }
-.game-card .game-icon { font-size: 36px; margin-bottom: 8px; }
-.game-card .game-name { font-family: 'Bangers', cursive; font-size: 16px; letter-spacing: 1px; color: var(--accent); }
-.game-card .game-desc { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.casino-header-title {
+  font-family: 'Bangers', cursive; font-size: 32px; letter-spacing: 4px;
+  background: linear-gradient(135deg, #ff6b6b, #f7c948, #ff6b6b);
+  background-size: 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  animation: shimmer 3s linear infinite;
+}
+.casino-header-sub { font-size: 11px; color: rgba(255,255,255,.35); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+.casino-balance-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 30px; padding: 8px 16px; margin-top: 14px;
+  font-size: 16px; font-weight: 900; color: #f7c948;
+  backdrop-filter: blur(8px);
+}
+.casino-balance-chip-label { font-size: 10px; color: rgba(255,255,255,.4); font-weight: 700; letter-spacing: 1px; }
+
+.casino-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  padding: 20px 16px;
+}
+.casino-grid .full-width { grid-column: 1 / -1; }
+
+.game-card {
+  border-radius: 22px; cursor: pointer; position: relative; overflow: hidden;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 16px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.07);
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s, border-color .2s;
+  padding: 0;
+}
+.game-card:active { transform: translateY(-4px) scale(1.02); box-shadow: 0 12px 32px rgba(0,0,0,.6); }
+.game-card-inner { padding: 18px 16px 16px; position: relative; z-index: 1; }
+.game-card-glow {
+  position: absolute; top: -30px; right: -20px; width: 120px; height: 120px;
+  border-radius: 50%; pointer-events: none; opacity: .6;
+  filter: blur(30px);
+}
+.game-card-top-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 22px 22px 0 0; }
+.game-card-icon-bg {
+  width: 52px; height: 52px; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 14px; flex-shrink: 0;
+}
+.game-card-icon-bg svg { width: 28px; height: 28px; }
+.game-card-label {
+  font-size: 9px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
+  margin-bottom: 4px; opacity: .6;
+}
+.game-card-name { font-family: 'Bangers', cursive; font-size: 22px; letter-spacing: 2px; line-height: 1; margin-bottom: 6px; }
+.game-card-desc { font-size: 11px; color: rgba(255,255,255,.4); line-height: 1.4; }
+.game-card-meta {
+  display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap;
+}
+.game-card-tag {
+  font-size: 9px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 20px;
+}
+
+/* Per-game themes */
+.game-crash .game-card-top-bar { background: linear-gradient(90deg, #ff6b6b, #ff9f43); }
+.game-crash .game-card-glow { background: #ff6b6b; }
+.game-crash .game-card-icon-bg { background: rgba(255,107,107,.15); border: 1px solid rgba(255,107,107,.25); }
+.game-crash .game-card-name { color: #ff9f43; }
+.game-crash .game-card-label { color: #ff6b6b; }
+.game-crash .game-card-tag { background: rgba(255,107,107,.15); color: #ff9f43; border: 1px solid rgba(255,107,107,.2); }
+.game-crash { border-color: rgba(255,107,107,.15); }
+
+.game-roue .game-card-top-bar { background: linear-gradient(90deg, #a29bfe, #fd79a8); }
+.game-roue .game-card-glow { background: #a29bfe; }
+.game-roue .game-card-icon-bg { background: rgba(162,155,254,.15); border: 1px solid rgba(162,155,254,.25); }
+.game-roue .game-card-name { color: #a29bfe; }
+.game-roue .game-card-label { color: #a29bfe; }
+.game-roue .game-card-tag { background: rgba(162,155,254,.15); color: #a29bfe; border: 1px solid rgba(162,155,254,.2); }
+.game-roue { border-color: rgba(162,155,254,.15); }
+
+.game-mines .game-card-top-bar { background: linear-gradient(90deg, #55efc4, #00b894); }
+.game-mines .game-card-glow { background: #55efc4; }
+.game-mines .game-card-icon-bg { background: rgba(85,239,196,.12); border: 1px solid rgba(85,239,196,.2); }
+.game-mines .game-card-name { color: #55efc4; }
+.game-mines .game-card-label { color: #55efc4; }
+.game-mines .game-card-tag { background: rgba(85,239,196,.12); color: #55efc4; border: 1px solid rgba(85,239,196,.2); }
+.game-mines { border-color: rgba(85,239,196,.15); }
+
+.game-apple .game-card-top-bar { background: linear-gradient(90deg, #6bcb77, #4d9e57); }
+.game-apple .game-card-glow { background: #6bcb77; }
+.game-apple .game-card-icon-bg { background: rgba(107,203,119,.12); border: 1px solid rgba(107,203,119,.2); }
+.game-apple .game-card-name { color: #6bcb77; }
+.game-apple .game-card-label { color: #6bcb77; }
+.game-apple .game-card-tag { background: rgba(107,203,119,.12); color: #6bcb77; border: 1px solid rgba(107,203,119,.2); }
+.game-apple { border-color: rgba(107,203,119,.15); }
+
+.game-rebet .game-card-top-bar { background: linear-gradient(90deg, #f7c948, #e17055); }
+.game-rebet .game-card-glow { background: #f7c948; }
+.game-rebet .game-card-icon-bg { background: rgba(247,201,72,.12); border: 1px solid rgba(247,201,72,.2); }
+.game-rebet .game-card-name { color: #f7c948; }
+.game-rebet .game-card-label { color: #f7c948; }
+.game-rebet .game-card-tag { background: rgba(247,201,72,.12); color: #f7c948; border: 1px solid rgba(247,201,72,.2); }
+.game-rebet { border-color: rgba(247,201,72,.15); }
 
 /* ── PROFILE HEADER ── */
 .profile-header {
@@ -188,17 +285,15 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .game-tab.active { background: var(--accent); color: #000; border-color: var(--accent); }
 .game-panel { animation: fadeIn .3s ease; }
 .game-back-btn {
-  display: flex; align-items: center; gap: 6px; margin-bottom: 12px;
-  padding: 8px 14px; border-radius: 20px; border: 1.5px solid var(--border);
-  background: var(--card2); color: var(--text2); font-family: 'Nunito', sans-serif;
-  font-size: 13px; font-weight: 700; cursor: pointer; width: fit-content;
+  display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
+  padding: 9px 16px; border-radius: 24px; border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.7);
+  font-size: 13px; font-weight: 800; cursor: pointer; width: fit-content;
+  backdrop-filter: blur(8px); transition: background .15s, color .15s;
+  letter-spacing: .3px;
 }
-.game-card { position: relative; overflow: hidden; }
-.game-card::after {
-  content: ''; position: absolute; inset: 0;
-  background: linear-gradient(135deg, rgba(247,201,72,.08), transparent);
-  pointer-events: none;
-}
+.game-back-btn:active { background: rgba(255,255,255,.12); color: #fff; }
+/* game-card base defined in GAMES CASINO HUB section */
 #crash-arena { position: relative; border-radius: var(--radius); overflow: hidden; background: #070714; }
 
 /* ── MINES CELLS ── */
@@ -1842,43 +1937,134 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE CLASSEMENT ══ -->
   <div class="page" id="page-games">
-    <div class="page-title">🎮 Casino</div>
 
+    <!-- Header Casino -->
+    <div class="casino-header">
+      <div class="casino-header-title">CASINO</div>
+      <div class="casino-header-sub">Joue · Risque · Gagne</div>
+      <div class="casino-balance-chip">
+        <span class="casino-balance-chip-label">Solde</span>
+        <span id="casino-balance-display">—</span>
+        <span style="font-size:13px;color:rgba(247,201,72,.6)">$</span>
+      </div>
+    </div>
 
     <!-- GRILLE DE SÉLECTION -->
     <div id="games-selection">
-      <div class="games-grid">
-        <div class="game-card" onclick="openGame('crash')">
-          <div class="game-icon">🚀</div>
-          <div class="game-name">CRASH</div>
-          <div class="game-desc">Cash out avant le crash !</div>
+      <div class="casino-grid">
+
+        <!-- CRASH — full width -->
+        <div class="game-card game-crash full-width" onclick="openGame('crash')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-inner" style="display:flex;align-items:center;gap:16px">
+            <div class="game-card-icon-bg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#ff9f43" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <div style="flex:1">
+              <div class="game-card-label">Crash</div>
+              <div class="game-card-name">CRASH</div>
+              <div class="game-card-desc">Cash out avant que ça crash !</div>
+              <div class="game-card-meta">
+                <span class="game-card-tag">∞× max</span>
+                <span class="game-card-tag">Mise min 1 000 $</span>
+              </div>
+            </div>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
         </div>
-        <div class="game-card" onclick="openGame('roue')">
-          <div class="game-icon">🎡</div>
-          <div class="game-name">ROUE</div>
-          <div class="game-desc">Tente ta chance</div>
+
+        <!-- ROUE -->
+        <div class="game-card game-roue" onclick="openGame('roue')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-inner">
+            <div class="game-card-icon-bg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#a29bfe" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+              </svg>
+            </div>
+            <div class="game-card-label">Roue</div>
+            <div class="game-card-name">ROUE</div>
+            <div class="game-card-desc">Tente ta chance</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">x0 – x5</span>
+            </div>
+          </div>
         </div>
-        <div class="game-card" onclick="openGame('mines')">
-          <div class="game-icon">💣</div>
-          <div class="game-name">MINES</div>
-          <div class="game-desc">Évite les bombes</div>
+
+        <!-- MINES -->
+        <div class="game-card game-mines" onclick="openGame('mines')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-inner">
+            <div class="game-card-icon-bg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#55efc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><path d="M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M19.07 4.93l-2.83 2.83M7.76 16.24l-2.83 2.83"/>
+              </svg>
+            </div>
+            <div class="game-card-label">Mines</div>
+            <div class="game-card-name">MINES</div>
+            <div class="game-card-desc">Évite les bombes</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">1–20 💣</span>
+            </div>
+          </div>
         </div>
-        <div class="game-card" onclick="openGame('apple')">
-          <div class="game-icon">🍏</div>
-          <div class="game-name">APPLE</div>
-          <div class="game-desc">Gravis 10 niveaux</div>
+
+        <!-- APPLE -->
+        <div class="game-card game-apple" onclick="openGame('apple')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-inner">
+            <div class="game-card-icon-bg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#6bcb77" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06z"/><path d="M10 2c1 .5 2 2 2 5"/>
+              </svg>
+            </div>
+            <div class="game-card-label">Apple</div>
+            <div class="game-card-name">APPLE</div>
+            <div class="game-card-desc">Gravis 10 niveaux</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">10 niv</span>
+            </div>
+          </div>
         </div>
-        <div class="game-card" onclick="openGame('rebet')">
-          <div class="game-icon">🎲</div>
-          <div class="game-name">REBET</div>
-          <div class="game-desc">Quitte ou double</div>
+
+        <!-- REBET — full width -->
+        <div class="game-card game-rebet full-width" onclick="openGame('rebet')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-inner" style="display:flex;align-items:center;gap:16px">
+            <div class="game-card-icon-bg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#f7c948" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="20" rx="4"/><path d="M8 8h.01M16 8h.01M8 16h.01M16 16h.01M12 12h.01"/>
+              </svg>
+            </div>
+            <div style="flex:1">
+              <div class="game-card-label">Rebet</div>
+              <div class="game-card-name">REBET</div>
+              <div class="game-card-desc">Quitte ou double — récupère ou remise !</div>
+              <div class="game-card-meta">
+                <span class="game-card-tag">x2 par tour</span>
+                <span class="game-card-tag">Mise min 5 000 $</span>
+              </div>
+            </div>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
         </div>
+
       </div>
     </div>
 
     <!-- VUE JEU (cachée par défaut) -->
-    <div id="game-view" style="display:none;">
-      <button class="game-back-btn" onclick="backToGameList()">← Retour</button>
+    <div id="game-view" style="display:none;padding:16px 16px 0;">
+      <button class="game-back-btn" onclick="backToGameList()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Retour
+      </button>
 
       <!-- CRASH -->
       <div id="game-crash" class="game-panel" style="display:none;">
@@ -3259,6 +3445,7 @@ function subTab(page, fn) {
   if (el) {
     el.classList.add('active');
     if (page === 'eco-hub') loadEcoHub();
+    if (page === 'games') loadCasinoBalance();
   }
   const resolvedFn = fn || (tab && tab.subs.find(s=>s.p===page)?.fn) || '';
   if (resolvedFn && window[resolvedFn]) window[resolvedFn]();
@@ -4460,6 +4647,14 @@ document.getElementById('mkt-modal').addEventListener('click', function(e) {
 //  GAMES — Crash / Roue / Mines
 // ════════════════════════════════════════
 
+async function loadCasinoBalance() {
+  try {
+    const d = await apiFetch('/bank');
+    const el = document.getElementById('casino-balance-display');
+    if (el && d?.wallet) el.textContent = d.wallet;
+  } catch(e) {}
+}
+
 function openGame(name) {
   document.getElementById('games-selection').style.display = 'none';
   document.getElementById('game-view').style.display = 'block';
@@ -4473,6 +4668,7 @@ function openGame(name) {
 function backToGameList() {
   document.getElementById('game-view').style.display = 'none';
   document.getElementById('games-selection').style.display = 'block';
+  loadCasinoBalance();
   // Arrêter le crash si en cours
   if (crashState === 'running') {
     cancelAnimationFrame(crashRAF);

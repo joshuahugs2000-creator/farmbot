@@ -1372,173 +1372,242 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   .eco-push-content { padding: 16px; }
 
   /* ── HUB LAYOUT ── */
+  #page-eco-hub { padding: 16px; }
+
   .hub-wallet-card {
-    border-radius: 22px; padding: 24px 20px;
-    background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 50%, #0d2a1a 100%);
-    border: 1px solid rgba(85,239,196,.15);
-    margin-bottom: 20px; position: relative; overflow: hidden;
+    border-radius: 28px; padding: 26px 22px 22px;
+    background: linear-gradient(145deg, rgba(0,184,148,.18) 0%, rgba(13,13,30,.85) 40%, rgba(8,24,30,.9) 100%);
+    border: 1px solid rgba(85,239,196,.22);
+    margin-bottom: 16px; position: relative; overflow: hidden;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 8px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
   }
-  .hub-wallet-bg {
-    position: absolute; right: -10px; top: -10px;
-    font-size: 100px; opacity: .06; line-height: 1; pointer-events: none;
+  .hub-wallet-glow {
+    position: absolute; top: -40px; right: -40px; width: 160px; height: 160px;
+    border-radius: 50%; background: radial-gradient(circle, rgba(85,239,196,.18) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hub-wallet-glow2 {
+    position: absolute; bottom: -30px; left: 20px; width: 100px; height: 100px;
+    border-radius: 50%; background: radial-gradient(circle, rgba(0,206,201,.1) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hub-wallet-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+  .hub-wallet-icon-wrap {
+    width: 44px; height: 44px; border-radius: 14px;
+    background: rgba(85,239,196,.15); border: 1px solid rgba(85,239,196,.25);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
   .hub-wallet-label {
-    font-size: 10px; font-weight: 800; letter-spacing: 2px;
-    text-transform: uppercase; color: var(--success); margin-bottom: 8px;
+    font-size: 10px; font-weight: 800; letter-spacing: 2.5px;
+    text-transform: uppercase; color: rgba(85,239,196,.7); margin-bottom: 4px;
   }
   .hub-wallet-amount {
-    font-size: 36px; font-weight: 900; color: #fff; letter-spacing: -1px;
-    line-height: 1; margin-bottom: 4px;
+    font-size: 38px; font-weight: 900; color: #fff; letter-spacing: -2px;
+    line-height: 1; text-shadow: 0 0 40px rgba(85,239,196,.3);
   }
-  .hub-wallet-sub { font-size: 12px; color: rgba(255,255,255,.45); }
-  .hub-wallet-actions {
-    display: flex; gap: 8px; margin-top: 16px;
-  }
+  .hub-wallet-amount-unit { font-size: 20px; font-weight: 700; color: rgba(255,255,255,.5); margin-left: 4px; }
+  .hub-wallet-sub { font-size: 11px; color: rgba(255,255,255,.35); margin-top: 4px; }
+  .hub-wallet-actions { display: flex; gap: 10px; margin-top: 20px; }
   .hub-wallet-btn {
-    flex: 1; padding: 11px 6px; border-radius: 14px; border: none;
-    font-size: 11px; font-weight: 800; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    transition: opacity .15s;
+    flex: 1; padding: 13px 8px; border-radius: 16px; border: none;
+    font-size: 12px; font-weight: 800; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: transform .15s, opacity .15s;
+    letter-spacing: .3px;
   }
-  .hub-wallet-btn:active { opacity: .75; }
-  .hub-wallet-btn span { font-size: 18px; }
-  .hub-wallet-btn.wg { background: rgba(85,239,196,.15); color: var(--success); border: 1px solid rgba(85,239,196,.25); }
-  .hub-wallet-btn.wy { background: rgba(247,201,72,.15); color: var(--accent); border: 1px solid rgba(247,201,72,.25); }
-  .hub-wallet-btn.wp { background: rgba(162,155,254,.15); color: var(--accent4); border: 1px solid rgba(162,155,254,.25); }
-  .hub-wallet-btn.wr { background: rgba(255,107,107,.15); color: var(--accent2); border: 1px solid rgba(255,107,107,.25); }
+  .hub-wallet-btn:active { transform: scale(.96); opacity: .85; }
+  .hub-wallet-btn.wsend {
+    background: linear-gradient(135deg, #00b894, #00cec9);
+    color: #0d1117; box-shadow: 0 4px 20px rgba(0,184,148,.35);
+  }
+  .hub-wallet-btn.whist {
+    background: rgba(255,255,255,.07); color: rgba(255,255,255,.75);
+    border: 1px solid rgba(255,255,255,.1);
+    backdrop-filter: blur(8px);
+  }
 
   /* ── HUB SECTION ── */
-  .hub-section { margin-bottom: 22px; }
+  .hub-section { margin-bottom: 24px; }
   .hub-section-header {
     display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 10px; padding-left: 2px;
+    margin-bottom: 12px; padding-left: 2px;
   }
   .hub-section-title {
-    font-size: 13px; font-weight: 900; color: var(--text);
-    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 900; color: rgba(255,255,255,.55);
+    letter-spacing: 1.5px; text-transform: uppercase;
+    display: flex; align-items: center; gap: 8px;
   }
-  .hub-section-title::before {
-    content: ''; display: inline-block; width: 3px; height: 16px;
-    border-radius: 3px; flex-shrink: 0;
+  .hub-section-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
   }
-  .hub-section-title.bank::before { background: var(--success); }
-  .hub-section-title.market::before { background: #74b9ff; }
-  .hub-section-title.company::before { background: var(--accent); }
-  .hub-section-title.parts::before { background: #00b894; }
-  .hub-section-title.contrats::before { background: #fdcb6e; }
+  .hub-section-dot.bank { background: #55efc4; box-shadow: 0 0 6px rgba(85,239,196,.7); }
+  .hub-section-dot.market { background: #74b9ff; box-shadow: 0 0 6px rgba(116,185,255,.7); }
+  .hub-section-dot.company { background: #f7c948; box-shadow: 0 0 6px rgba(247,201,72,.7); }
+  .hub-section-dot.parts { background: #00cec9; box-shadow: 0 0 6px rgba(0,206,201,.7); }
+  .hub-section-dot.contrats { background: #fdcb6e; box-shadow: 0 0 6px rgba(253,203,110,.7); }
   .hub-section-see-all {
-    font-size: 11px; font-weight: 800; color: var(--accent);
-    cursor: pointer; padding: 4px 10px; border-radius: 20px;
-    background: rgba(247,201,72,.08); border: 1px solid rgba(247,201,72,.18);
+    font-size: 11px; font-weight: 700; color: rgba(255,255,255,.4);
+    cursor: pointer; padding: 5px 12px; border-radius: 20px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08);
+    transition: color .15s, background .15s;
   }
+  .hub-section-see-all:active { background: rgba(255,255,255,.1); color: var(--text); }
 
   /* ── HORIZONTAL SCROLL CARDS ── */
   .hub-scroll-row {
-    display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px;
+    display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px;
     scrollbar-width: none;
   }
   .hub-scroll-row::-webkit-scrollbar { display: none; }
 
-  /* ── ENTITY CARDS ── */
+  /* ── GLASS ENTITY CARDS ── */
   .hub-card {
-    flex-shrink: 0; width: 160px; border-radius: 18px;
-    background: var(--card); border: 1.5px solid var(--border);
+    flex-shrink: 0; width: 150px; border-radius: 20px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.09);
     padding: 16px 14px; cursor: pointer; position: relative;
-    transition: transform .18s, border-color .18s, box-shadow .18s;
+    transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
     overflow: hidden;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 2px 12px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);
   }
-  .hub-card:active { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
-  .hub-card-accent { position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 3px 3px 0 0; }
-  .hub-card-icon { font-size: 28px; margin-bottom: 10px; display: block; }
-  .hub-card-name { font-size: 13px; font-weight: 900; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .hub-card-val { font-size: 15px; font-weight: 900; color: var(--accent); }
-  .hub-card-sub { font-size: 10px; color: var(--text2); margin-top: 2px; }
+  .hub-card:active { transform: translateY(-4px) scale(1.02); box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+  .hub-card-accent { position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 20px 20px 0 0; }
+  .hub-card-icon-wrap {
+    width: 38px; height: 38px; border-radius: 12px; margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .hub-card-icon-wrap svg { width: 20px; height: 20px; }
+  .hub-card-name { font-size: 12px; font-weight: 900; color: var(--text); margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hub-card-val { font-size: 16px; font-weight: 900; line-height: 1; }
+  .hub-card-sub { font-size: 10px; color: var(--text2); margin-top: 3px; }
   .hub-card-badge {
-    position: absolute; top: 10px; right: 10px;
-    background: var(--accent2); color: #fff;
-    font-size: 10px; font-weight: 900; min-width: 18px; height: 18px;
+    position: absolute; top: 12px; right: 12px;
+    background: #ff6b6b; color: #fff;
+    font-size: 9px; font-weight: 900; min-width: 18px; height: 18px;
     border-radius: 9px; display: flex; align-items: center; justify-content: center;
-    padding: 0 5px;
+    padding: 0 5px; box-shadow: 0 2px 8px rgba(255,107,107,.5);
   }
+  .hub-card.bank-accent { border-color: rgba(85,239,196,.2); }
   .hub-card.bank-accent .hub-card-accent { background: linear-gradient(90deg, #00b894, #55efc4); }
+  .hub-card.bank-accent .hub-card-icon-wrap { background: rgba(85,239,196,.12); border: 1px solid rgba(85,239,196,.2); }
+  .hub-card.bank-accent .hub-card-val { color: #55efc4; }
+  .hub-card.market-accent { border-color: rgba(116,185,255,.2); }
   .hub-card.market-accent .hub-card-accent { background: linear-gradient(90deg, #0984e3, #74b9ff); }
-  .hub-card.company-accent .hub-card-accent { background: linear-gradient(90deg, #f7c948, #e67e22); }
+  .hub-card.market-accent .hub-card-icon-wrap { background: rgba(116,185,255,.12); border: 1px solid rgba(116,185,255,.2); }
+  .hub-card.market-accent .hub-card-val { color: #74b9ff; }
+  .hub-card.parts-accent { border-color: rgba(0,206,201,.2); }
   .hub-card.parts-accent .hub-card-accent { background: linear-gradient(90deg, #00b894, #00cec9); }
+  .hub-card.parts-accent .hub-card-icon-wrap { background: rgba(0,206,201,.12); border: 1px solid rgba(0,206,201,.2); }
+  .hub-card.parts-accent .hub-card-val { color: #00cec9; }
+  .hub-card.contrat-accent { border-color: rgba(253,203,110,.2); }
   .hub-card.contrat-accent .hub-card-accent { background: linear-gradient(90deg, #fdcb6e, #e17055); }
+  .hub-card.contrat-accent .hub-card-icon-wrap { background: rgba(253,203,110,.12); border: 1px solid rgba(253,203,110,.2); }
+  .hub-card.contrat-accent .hub-card-val { color: #fdcb6e; }
   .hub-card.add-card {
-    border-style: dashed; border-color: rgba(255,255,255,.12);
+    border-style: dashed; border-color: rgba(255,255,255,.1);
     background: rgba(255,255,255,.02); display: flex;
     flex-direction: column; align-items: center; justify-content: center;
-    gap: 6px;
+    gap: 8px; height: 120px;
   }
-  .hub-card.add-card .add-icon { font-size: 24px; color: var(--text2); }
-  .hub-card.add-card .add-label { font-size: 11px; color: var(--text2); font-weight: 700; text-align: center; line-height: 1.4; }
+  .hub-card.add-card .add-icon { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.3); font-size: 18px; }
+  .hub-card.add-card .add-label { font-size: 11px; color: rgba(255,255,255,.3); font-weight: 700; text-align: center; line-height: 1.4; }
 
   /* ── COMPANY HUB CARD (pleine largeur) ── */
   .hub-company-card {
-    border-radius: 20px; padding: 18px;
-    background: linear-gradient(135deg, #1a1500 0%, #1a1a2e 60%, #0d1117 100%);
-    border: 1.5px solid rgba(247,201,72,.2);
+    border-radius: 22px; padding: 18px 18px 16px;
+    background: rgba(247,201,72,.05);
+    border: 1px solid rgba(247,201,72,.18);
     cursor: pointer; position: relative; overflow: hidden;
-    transition: border-color .2s, transform .18s;
+    transition: transform .2s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .2s;
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 4px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06);
   }
-  .hub-company-card:active { transform: scale(.99); border-color: rgba(247,201,72,.5); }
-  .hub-company-card-bg { position: absolute; right: 10px; top: 10px; font-size: 80px; opacity: .06; line-height: 1; pointer-events: none; }
-  .hub-company-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-  .hub-company-logo { width: 48px; height: 48px; border-radius: 14px; background: rgba(247,201,72,.12); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; border: 1px solid rgba(247,201,72,.2); }
+  .hub-company-card:active { transform: scale(.99); border-color: rgba(247,201,72,.4); box-shadow: 0 8px 32px rgba(0,0,0,.5); }
+  .hub-company-accent { position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 22px 22px 0 0; background: linear-gradient(90deg, #f7c948, #e17055, #f7c948); background-size: 200%; animation: shimmer 3s linear infinite; }
+  @keyframes shimmer { 0% {background-position: 0%} 100% {background-position: 200%} }
+  .hub-company-glow { position: absolute; top: -20px; right: -20px; width: 100px; height: 100px; border-radius: 50%; background: radial-gradient(circle, rgba(247,201,72,.12) 0%, transparent 70%); pointer-events: none; }
+  .hub-company-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; margin-top: 6px; }
+  .hub-company-logo { width: 50px; height: 50px; border-radius: 16px; background: rgba(247,201,72,.1); display: flex; align-items: center; justify-content: center; font-size: 26px; flex-shrink: 0; border: 1px solid rgba(247,201,72,.2); }
   .hub-company-name { font-size: 16px; font-weight: 900; color: var(--text); }
-  .hub-company-role { font-size: 11px; color: var(--accent); font-weight: 700; margin-top: 2px; }
+  .hub-company-role { font-size: 11px; color: rgba(247,201,72,.8); font-weight: 700; margin-top: 3px; letter-spacing: .5px; }
   .hub-company-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-  .hub-company-stat { background: rgba(255,255,255,.04); border-radius: 10px; padding: 10px 8px; text-align: center; }
-  .hub-company-stat-val { font-size: 14px; font-weight: 900; color: var(--accent); }
-  .hub-company-stat-label { font-size: 9px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .hub-company-stat { background: rgba(255,255,255,.04); border-radius: 12px; padding: 10px 8px; text-align: center; border: 1px solid rgba(255,255,255,.06); }
+  .hub-company-stat-val { font-size: 14px; font-weight: 900; color: #f7c948; }
+  .hub-company-stat-label { font-size: 9px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-top: 3px; }
 
   /* ── NOTIFICATION BADGE NAV ── */
   .nav-notif-badge {
     position: absolute; top: 2px; right: 2px;
-    background: var(--accent2); color: #fff;
+    background: #ff6b6b; color: #fff;
     font-size: 9px; font-weight: 900;
     min-width: 14px; height: 14px; border-radius: 7px;
     display: flex; align-items: center; justify-content: center;
     padding: 0 3px; pointer-events: none;
+    box-shadow: 0 2px 6px rgba(255,107,107,.6);
   }
   .nav-btn { position: relative; }
 
   /* ── VIREMENT RAPIDE (hub) ── */
   .hub-pay-banner {
-    border-radius: 16px; padding: 14px 16px;
-    background: linear-gradient(135deg, rgba(162,155,254,.12), rgba(108,92,231,.06));
-    border: 1.5px solid rgba(162,155,254,.18);
-    display: flex; align-items: center; gap: 12px;
-    cursor: pointer; margin-bottom: 20px;
-    transition: border-color .18s, transform .15s;
+    border-radius: 18px; padding: 16px 18px;
+    background: rgba(162,155,254,.07);
+    border: 1px solid rgba(162,155,254,.15);
+    display: flex; align-items: center; gap: 14px;
+    cursor: pointer; margin-bottom: 24px;
+    transition: transform .18s cubic-bezier(.34,1.56,.64,1), border-color .18s, box-shadow .18s;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 2px 16px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.05);
   }
-  .hub-pay-banner:active { transform: scale(.99); border-color: var(--accent4); }
-  .hub-pay-icon { font-size: 28px; flex-shrink: 0; }
+  .hub-pay-banner:active { transform: scale(.98); border-color: rgba(162,155,254,.4); box-shadow: 0 6px 24px rgba(108,92,231,.25); }
+  .hub-pay-icon-wrap {
+    width: 42px; height: 42px; border-radius: 13px; flex-shrink: 0;
+    background: rgba(162,155,254,.15); border: 1px solid rgba(162,155,254,.2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hub-pay-icon-wrap svg { width: 22px; height: 22px; }
   .hub-pay-text-title { font-size: 14px; font-weight: 900; color: var(--text); }
-  .hub-pay-text-sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
-  .hub-pay-arrow { margin-left: auto; color: var(--accent4); font-size: 18px; }
+  .hub-pay-text-sub { font-size: 11px; color: var(--text2); margin-top: 3px; }
+  .hub-pay-arrow { margin-left: auto; color: rgba(162,155,254,.6); font-size: 20px; font-weight: 300; flex-shrink: 0; }
   </style>
 
   <!-- ══ PAGE HUB ÉCONOMIE ══ -->
   <div class="page" id="page-eco-hub">
     <!-- Portefeuille -->
     <div class="hub-wallet-card">
-      <div class="hub-wallet-bg">💰</div>
-      <div class="hub-wallet-label">Mon portefeuille</div>
-      <div class="hub-wallet-amount" id="hub-wallet-amount">—</div>
+      <div class="hub-wallet-glow"></div>
+      <div class="hub-wallet-glow2"></div>
+      <div class="hub-wallet-top">
+        <div class="hub-wallet-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#55efc4" stroke-width="2" stroke-linecap="round">
+            <path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
+          </svg>
+        </div>
+      </div>
+      <div class="hub-wallet-label">Portefeuille</div>
+      <div class="hub-wallet-amount" id="hub-wallet-amount">—<span class="hub-wallet-amount-unit">$</span></div>
       <div class="hub-wallet-sub">Solde disponible en poche</div>
       <div class="hub-wallet-actions">
-        <button class="hub-wallet-btn wg" onclick="ecoGo('bank')"><span>⬇️</span>Déposer</button>
-        <button class="hub-wallet-btn wy" onclick="ecoGo('bank')"><span>⬆️</span>Retirer</button>
-        <button class="hub-wallet-btn wp" onclick="ecoGo('pay')"><span>💸</span>Virer</button>
-        <button class="hub-wallet-btn wr" onclick="ecoGo('bank')"><span>💳</span>Prêt</button>
+        <button class="hub-wallet-btn wsend" onclick="ecoGo('pay')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          Envoyer
+        </button>
+        <button class="hub-wallet-btn whist" onclick="ecoGo('bank')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Historique
+        </button>
       </div>
     </div>
 
     <!-- Virement rapide -->
     <div class="hub-pay-banner" onclick="ecoGo('pay')">
-      <div class="hub-pay-icon">💸</div>
+      <div class="hub-pay-icon-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#a29bfe" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+        </svg>
+      </div>
       <div>
         <div class="hub-pay-text-title">Envoyer de l'argent</div>
         <div class="hub-pay-text-sub">Virement instantané vers un joueur</div>
@@ -1549,7 +1618,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <!-- Section Banque -->
     <div class="hub-section">
       <div class="hub-section-header">
-        <div class="hub-section-title bank">🏦 Banque</div>
+        <div class="hub-section-title"><span class="hub-section-dot bank"></span>Banque</div>
         <div class="hub-section-see-all" onclick="ecoGo('bank')">Tout voir</div>
       </div>
       <div class="hub-scroll-row" id="hub-bank-cards">
@@ -1560,7 +1629,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <!-- Section Marché -->
     <div class="hub-section">
       <div class="hub-section-header">
-        <div class="hub-section-title market">📈 Marché</div>
+        <div class="hub-section-title"><span class="hub-section-dot market"></span>Marché</div>
         <div class="hub-section-see-all" onclick="ecoGo('market')">Tout voir</div>
       </div>
       <div class="hub-scroll-row" id="hub-market-cards">
@@ -1571,7 +1640,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <!-- Section Entreprise -->
     <div class="hub-section">
       <div class="hub-section-header">
-        <div class="hub-section-title company">🏢 Mon Entreprise</div>
+        <div class="hub-section-title"><span class="hub-section-dot company"></span>Mon Entreprise</div>
         <div class="hub-section-see-all" onclick="ecoGo('company')">Gérer</div>
       </div>
       <div id="hub-company-area">
@@ -1582,7 +1651,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <!-- Section Parts -->
     <div class="hub-section">
       <div class="hub-section-header">
-        <div class="hub-section-title parts">📜 Parts</div>
+        <div class="hub-section-title"><span class="hub-section-dot parts"></span>Parts</div>
         <div class="hub-section-see-all" onclick="ecoGo('parts')">Tout voir</div>
       </div>
       <div class="hub-scroll-row" id="hub-parts-cards">
@@ -1593,7 +1662,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <!-- Section Contrats -->
     <div class="hub-section">
       <div class="hub-section-header">
-        <div class="hub-section-title contrats">📋 Contrats Bureau</div>
+        <div class="hub-section-title"><span class="hub-section-dot contrats"></span>Contrats Bureau</div>
         <div class="hub-section-see-all" onclick="ecoGo('contrats')">Tout voir</div>
       </div>
       <div class="hub-scroll-row" id="hub-contrats-cards">
@@ -3212,7 +3281,8 @@ async function loadEcoHub() {
     // Solde poche via bank endpoint
     const pd = await apiFetch('/bank');
     if (pd?.wallet) {
-      document.getElementById('hub-wallet-amount').textContent = pd.wallet + ' $';
+      const amtEl = document.getElementById('hub-wallet-amount');
+      if (amtEl) amtEl.innerHTML = pd.wallet + '<span class="hub-wallet-amount-unit">$</span>';
     }
     loadHubBank(pd);
     loadHubMarket();
@@ -3240,10 +3310,10 @@ async function loadHubBank(prefetched) {
     el.innerHTML = accounts.map(a => `
       <div class="hub-card bank-accent" onclick="ecoGo('bank')">
         <div class="hub-card-accent"></div>
-        <span class="hub-card-icon">${a.emoji||'🏦'}</span>
+        <div class="hub-card-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7 12 2"/></svg></div>
         <div class="hub-card-name">${a.name||'Compte'}</div>
         <div class="hub-card-val">${a.balance||'—'} $</div>
-        <div class="hub-card-sub">Taux ${a.interest_rate||0}% · Prêt max ${a.max_loan||'—'}</div>
+        <div class="hub-card-sub">Taux ${a.interest_rate||0}%</div>
       </div>`
     ).join('') + `<div class="hub-card add-card" onclick="ecoGo('bank')">
       <div class="add-icon">+</div>
@@ -3269,7 +3339,7 @@ async function loadHubMarket() {
       const pnlColor = p.pnl_positive ? 'var(--success)' : '#ff6b6b';
       return `<div class="hub-card market-accent" onclick="ecoGo('market')">
         <div class="hub-card-accent"></div>
-        <span class="hub-card-icon">${p.emoji||'📈'}</span>
+        <div class="hub-card-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
         <div class="hub-card-name">${p.name||'Asset'}</div>
         <div class="hub-card-val">${p.cur_total_fmt||'—'} $</div>
         <div class="hub-card-sub" style="color:${pnlColor}">${p.pnl_fmt||'—'}</div>
@@ -3298,7 +3368,8 @@ async function loadHubCompany() {
     const role = co.is_pdg ? '👑 PDG' : roleMap[co.my_role] || '👤 Employé';
     const emoji = co.sector_emoji || '🏢';
     el.innerHTML = `<div class="hub-company-card" onclick="ecoGo('company')">
-      <div class="hub-company-card-bg">🏢</div>
+      <div class="hub-company-accent"></div>
+      <div class="hub-company-glow"></div>
       <div class="hub-company-row">
         <div class="hub-company-logo">${emoji}</div>
         <div>
@@ -3340,7 +3411,7 @@ async function loadHubParts() {
     el.innerHTML = parts.slice(0,4).map(p => `
       <div class="hub-card parts-accent" onclick="ecoGo('parts')">
         <div class="hub-card-accent"></div>
-        <span class="hub-card-icon">${p.sec_emoji||'📜'}</span>
+        <div class="hub-card-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="16 8 8 8 8 16"/><line x1="16" y1="16" x2="8" y2="8"/></svg></div>
         <div class="hub-card-name">${p.company||'—'}</div>
         <div class="hub-card-val">${p.quantity||0} parts</div>
         <div class="hub-card-sub">${p.price_per||'—'} $/part</div>
@@ -3368,6 +3439,7 @@ async function loadHubContrats() {
       const canClaim = c.status === 'completed' || c.pct >= 100;
       return `<div class="hub-card contrat-accent" onclick="ecoGo('contrats')">
         <div class="hub-card-accent"></div>
+        <div class="hub-card-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
         ${canClaim ? `<div class="hub-card-badge">!</div>` : ''}
         <span class="hub-card-icon">📋</span>
         <div class="hub-card-name" style="font-size:11px;white-space:normal;line-height:1.3">${(c.title||'Contrat').slice(0,28)}</div>

@@ -918,81 +918,114 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE ENTREPRISE ══ -->
   <div class="page" id="page-company">
-    <div class="page-title">🏢 Entreprise</div>
 
     <!-- Pas d'entreprise -->
-    <div id="co-none" style="display:none;text-align:center;padding:40px 0;">
-      <div style="font-size:48px;margin-bottom:12px;">🏗️</div>
-      <div style="color:var(--text2);font-size:15px;">Tu n'es dans aucune entreprise.</div>
-      <div style="color:var(--text2);font-size:13px;margin-top:8px;">Utilise /postuler sur le bot.</div>
+    <div id="co-none" style="display:none;text-align:center;padding:50px 20px;">
+      <div style="font-size:64px;margin-bottom:16px;filter:grayscale(1);opacity:.4;">🏗️</div>
+      <div style="color:var(--text2);font-size:15px;font-weight:700;">Aucune entreprise</div>
+      <div style="color:var(--text2);font-size:13px;margin-top:8px;">Utilise <code style="background:var(--card);padding:2px 6px;border-radius:6px;">/postuler</code> sur le bot.</div>
     </div>
 
     <!-- Contenu entreprise -->
     <div id="co-content" style="display:none;">
 
-      <!-- Header entreprise -->
-      <div class="card" style="background:linear-gradient(135deg,#0d1117,#1a1a2e,#16213e);border:2px solid rgba(247,201,72,.4);text-align:center;padding:20px;position:relative;overflow:hidden;">
-        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#ff6b6b,var(--accent));"></div>
-        <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--accent);letter-spacing:2px;text-shadow:0 0 20px rgba(247,201,72,.4);" id="co-name">—</div>
-        <div style="color:var(--text2);font-size:12px;margin-top:4px;" id="co-level">—</div>
-        <div style="margin:8px 0;" id="co-stars">—</div>
-        <div id="co-frozen-banner" style="display:none;background:#e55;color:#fff;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:700;margin-bottom:8px;">🔒 TRÉSORERIE GELÉE — Impôts impayés</div>
-        <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;">
-          <span style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--text2);" id="co-sector">—</span>
-          <span style="background:rgba(247,201,72,.12);border:1px solid rgba(247,201,72,.3);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--accent);font-weight:700;" id="co-role-badge">—</span>
+      <!-- Hero entreprise -->
+      <div class="eco-hero" style="background:linear-gradient(135deg,#0d1117 0%,#1a1a2e 60%,#16213e 100%);margin-bottom:0;border-radius:20px 20px 0 0;">
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#ff6b6b,var(--accent4),var(--accent));z-index:3;"></div>
+        <div class="eco-hero-bg" style="opacity:.06;font-size:120px;">🏢</div>
+        <div class="eco-hero-content">
+          <div id="co-frozen-banner" style="display:none;background:rgba(229,85,85,.15);border:1px solid #e55;color:#ff8888;border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;margin-bottom:8px;width:fit-content;">🔒 TRÉSORERIE GELÉE</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+            <span style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:3px 10px;font-size:10px;color:var(--text2);" id="co-sector">—</span>
+            <span style="background:rgba(247,201,72,.12);border:1px solid rgba(247,201,72,.3);border-radius:20px;padding:3px 10px;font-size:10px;color:var(--accent);font-weight:800;" id="co-role-badge">—</span>
+          </div>
+          <div style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.5px;" id="co-name">—</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:3px;" id="co-level">—</div>
+          <div style="margin-top:4px;" id="co-stars">—</div>
         </div>
       </div>
 
-      <!-- Onglets -->
-      <div class="tab-bar" style="margin:14px 0 0;display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;">
-        <button class="co-tab-btn active" onclick="coTab('general',this)" data-tab="general">📊 Général</button>
-        <button class="co-tab-btn" onclick="coTab('equipe',this)" data-tab="equipe">👥 Équipe</button>
-        <button class="co-tab-btn" onclick="coTab('contrats',this)" data-tab="contrats">📋 Bureau</button>
-        <button class="co-tab-btn" onclick="coTab('auto',this)" data-tab="auto">🤖 Auto</button>
-        <button class="co-tab-btn" onclick="coTab('impots',this)" data-tab="impots">🏛️ Impôts</button>
-        <button class="co-tab-btn" onclick="coTab('parts',this)" data-tab="parts">📜 Parts</button>
-        <button class="co-tab-btn" onclick="coTab('candidatures',this)" data-tab="candidatures">📥 Candidats</button>
-        <button class="co-tab-btn" onclick="coTab('logs',this)" data-tab="logs">📜 Logs</button>
+      <!-- Onglets underline style -->
+      <div style="background:var(--card);border-bottom:1px solid var(--border);margin-bottom:12px;">
+        <div style="display:flex;overflow-x:auto;scrollbar-width:none;">
+          <button class="co-tab-btn active" onclick="coTab('general',this)" data-tab="general" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid var(--accent);color:var(--accent);font-weight:800;font-size:11px;cursor:pointer;white-space:nowrap;">📊 Général</button>
+          <button class="co-tab-btn" onclick="coTab('equipe',this)" data-tab="equipe" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">👥 Équipe</button>
+          <button class="co-tab-btn" onclick="coTab('contrats',this)" data-tab="contrats" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📋 Bureau</button>
+          <button class="co-tab-btn" onclick="coTab('auto',this)" data-tab="auto" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">🤖 Auto</button>
+          <button class="co-tab-btn" onclick="coTab('impots',this)" data-tab="impots" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">🏛️ Impôts</button>
+          <button class="co-tab-btn" onclick="coTab('parts',this)" data-tab="parts" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📜 Parts</button>
+          <button class="co-tab-btn" onclick="coTab('candidatures',this)" data-tab="candidatures" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📥 Candidats</button>
+          <button class="co-tab-btn" onclick="coTab('logs',this)" data-tab="logs" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📜 Logs</button>
+        </div>
       </div>
 
       <!-- ── ONGLET GÉNÉRAL ── -->
       <div id="co-tab-general">
-        <div class="card" style="margin-top:10px;">
-          <div class="card-title">💰 FINANCES</div>
-          <div class="stat-row"><span class="stat-label">Valeur</span><span class="stat-value gold" id="co-value">—</span></div>
-          <div class="stat-row"><span class="stat-label">Trésorerie</span><span class="stat-value gold" id="co-treasury">—</span></div>
-          <div class="stat-row"><span class="stat-label">Revenu hebdo</span><span class="stat-value" id="co-weekly" style="color:var(--success)">—</span></div>
-          <div class="stat-row"><span class="stat-label">Réserve légale</span><span class="stat-value" id="co-legal-reserve">—</span></div>
-          <div class="stat-row"><span class="stat-label">Dette fiscale</span><span class="stat-value" id="co-taxdebt" style="color:#e55;">—</span></div>
+        <!-- Bento finances -->
+        <div class="eco-bento">
+          <div class="eco-bento-cell wide" data-icon="🏦">
+            <div class="eco-bento-label">Trésorerie</div>
+            <div class="eco-bento-val gold" id="co-treasury" style="font-size:22px;">—</div>
+          </div>
+          <div class="eco-bento-cell" data-icon="📈">
+            <div class="eco-bento-label">Valeur</div>
+            <div class="eco-bento-val gold" id="co-value">—</div>
+          </div>
+          <div class="eco-bento-cell" data-icon="💹">
+            <div class="eco-bento-label">Revenu/sem</div>
+            <div class="eco-bento-val green" id="co-weekly">—</div>
+          </div>
+          <div class="eco-bento-cell" data-icon="🛡️">
+            <div class="eco-bento-label">Réserve légale</div>
+            <div class="eco-bento-val" id="co-legal-reserve">—</div>
+          </div>
+          <div class="eco-bento-cell" data-icon="⚠️">
+            <div class="eco-bento-label">Dette fiscale</div>
+            <div class="eco-bento-val red" id="co-taxdebt">—</div>
+          </div>
         </div>
 
-        <div class="card" style="margin-top:10px;">
-          <div class="card-title">📊 ACTIVITÉ</div>
-          <div class="stat-row"><span class="stat-label">Mes commandes</span><span class="stat-value" id="co-mycmds">—</span></div>
-          <div class="stat-row"><span class="stat-label">Cmds équipe total</span><span class="stat-value" id="co-totalcmds">—</span></div>
-          <div class="stat-row"><span class="stat-label">Équipe</span><span class="stat-value" id="co-emp-count">—</span></div>
-          <div class="stat-row"><span class="stat-label">Contrats actifs</span><span class="stat-value" id="co-nb-contrats">—</span></div>
+        <!-- Bento activité -->
+        <div class="eco-section-title">📊 Activité</div>
+        <div class="eco-bento">
+          <div class="eco-bento-cell" data-icon="⌨️">
+            <div class="eco-bento-label">Mes cmds</div>
+            <div class="eco-bento-val" id="co-mycmds">—</div>
+          </div>
+          <div class="eco-bento-cell" data-icon="🔢">
+            <div class="eco-bento-label">Total équipe</div>
+            <div class="eco-bento-val" id="co-totalcmds">—</div>
+          </div>
+          <div class="eco-bento-cell" data-icon="👥">
+            <div class="eco-bento-label">Équipe</div>
+            <div class="eco-bento-val" id="co-emp-count">—</div>
+          </div>
+          <div class="eco-bento-cell" data-icon="📋">
+            <div class="eco-bento-label">Contrats</div>
+            <div class="eco-bento-val" id="co-nb-contrats">—</div>
+          </div>
         </div>
 
         <!-- Actions PDG -->
         <div id="co-pdg-actions" style="display:none;">
-          <div class="card" style="margin-top:10px;">
-            <div class="card-title">⚡ ACTIONS PDG</div>
-            <div style="display:flex;gap:8px;margin-top:10px;">
-              <button class="btn-success" style="flex:1;" onclick="coShowDepot()">💰 Déposer</button>
-              <button class="btn-outline" style="flex:1;" onclick="coShowRetrait()">💸 Retirer</button>
-            </div>
+          <div class="eco-section-title">⚡ Actions PDG</div>
+          <div class="eco-action-grid">
+            <button class="eco-action-btn green" onclick="coShowDepot()">
+              <span class="ico">💰</span>Déposer
+            </button>
+            <button class="eco-action-btn red" onclick="coShowRetrait()">
+              <span class="ico">💸</span>Retirer
+            </button>
           </div>
         </div>
 
-        <!-- Parts -->
-        <div class="card" style="margin-top:10px;">
-          <div class="card-title">📜 ACTIONNARIAT</div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-            <span style="font-size:12px;color:var(--text2);">Parts émises : <span id="co-total-shares" style="color:var(--text1);font-weight:700;">—</span></span>
-          </div>
-          <div id="co-parts-list"><div style="color:var(--text2);font-size:13px;">—</div></div>
+        <!-- Actionnariat -->
+        <div class="eco-section-title">📜 Actionnariat</div>
+        <div class="eco-row" style="cursor:default;">
+          <span style="font-size:13px;color:var(--text2);">Parts émises</span>
+          <span style="font-size:14px;font-weight:900;" id="co-total-shares">—</span>
         </div>
+        <div id="co-parts-list"></div>
       </div>
 
       <!-- ── ONGLET ÉQUIPE ── -->
@@ -1107,67 +1140,280 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   </div><!-- /page-company -->
 
+  <!-- ══ STYLES ÉCONOMIE REDESIGN ══ -->
+  <style>
+  /* ── ECO HERO CARD ── */
+  .eco-hero {
+    position: relative; overflow: hidden;
+    border-radius: 20px; padding: 24px 20px 20px;
+    margin-bottom: 16px; min-height: 130px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  .eco-hero::before {
+    content: ''; position: absolute; inset: 0;
+    background: inherit; filter: brightness(1.1);
+    z-index: 0;
+  }
+  .eco-hero-bg {
+    position: absolute; inset: 0; z-index: 1;
+    opacity: .08; font-size: 140px; display: flex;
+    align-items: center; justify-content: flex-end;
+    padding-right: 10px; line-height: 1; pointer-events: none;
+  }
+  .eco-hero-content { position: relative; z-index: 2; }
+  .eco-hero-label {
+    font-size: 10px; font-weight: 800; letter-spacing: 2px;
+    text-transform: uppercase; opacity: .7; margin-bottom: 4px;
+  }
+  .eco-hero-value {
+    font-size: 30px; font-weight: 900; letter-spacing: -1px;
+    line-height: 1;
+  }
+  .eco-hero-sub { font-size: 12px; opacity: .65; margin-top: 4px; }
+
+  /* ── ECO BENTO GRID ── */
+  .eco-bento {
+    display: grid; gap: 10px;
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 14px;
+  }
+  .eco-bento-cell {
+    background: var(--card); border-radius: 16px;
+    border: 1px solid var(--border);
+    padding: 14px 12px; position: relative; overflow: hidden;
+  }
+  .eco-bento-cell.wide { grid-column: 1 / -1; }
+  .eco-bento-cell::after {
+    content: attr(data-icon);
+    position: absolute; right: 8px; bottom: 4px;
+    font-size: 36px; opacity: .07; line-height: 1;
+    pointer-events: none;
+  }
+  .eco-bento-label {
+    font-size: 9px; font-weight: 800; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--text2); margin-bottom: 6px;
+  }
+  .eco-bento-val {
+    font-size: 16px; font-weight: 900; color: var(--text);
+  }
+  .eco-bento-val.gold { color: var(--accent); }
+  .eco-bento-val.green { color: var(--success); }
+  .eco-bento-val.red { color: #ff6b6b; }
+  .eco-bento-val.purple { color: var(--accent4); }
+
+  /* ── ECO SECTION TITLE ── */
+  .eco-section-title {
+    font-size: 10px; font-weight: 800; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--text2);
+    margin: 16px 0 8px; padding-left: 2px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .eco-section-title::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* ── ECO ROW ITEM ── */
+  .eco-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 14px; background: var(--card);
+    border-radius: 13px; margin-bottom: 8px;
+    border: 1px solid var(--border);
+    transition: border-color .2s;
+  }
+  .eco-row:active { border-color: var(--accent); }
+  .eco-row-left { display: flex; align-items: center; gap: 10px; }
+  .eco-row-icon {
+    width: 38px; height: 38px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .eco-row-name { font-size: 13px; font-weight: 800; color: var(--text); }
+  .eco-row-sub { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .eco-row-right { text-align: right; }
+  .eco-row-val { font-size: 14px; font-weight: 900; color: var(--text); }
+  .eco-row-tag {
+    font-size: 10px; font-weight: 700; padding: 2px 7px;
+    border-radius: 6px; margin-top: 2px; display: inline-block;
+  }
+
+  /* ── ECO ACTION BTNS ── */
+  .eco-action-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px; margin-bottom: 14px;
+  }
+  .eco-action-btn {
+    padding: 13px 10px; border-radius: 14px; border: none;
+    font-size: 12px; font-weight: 800; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 4px; transition: transform .15s, box-shadow .15s;
+  }
+  .eco-action-btn:active { transform: scale(.96); }
+  .eco-action-btn span.ico { font-size: 20px; }
+  .eco-action-btn.green { background: linear-gradient(135deg,#00b894,#00cec9); color: #fff; }
+  .eco-action-btn.yellow { background: linear-gradient(135deg,#f7c948,#e67e22); color: #000; }
+  .eco-action-btn.purple { background: linear-gradient(135deg,#6c5ce7,#a29bfe); color: #fff; }
+  .eco-action-btn.red { background: linear-gradient(135deg,#e17055,#d63031); color: #fff; }
+  .eco-action-btn.blue { background: linear-gradient(135deg,#0984e3,#74b9ff); color: #fff; }
+  .eco-action-btn.dark { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+
+  /* ── ECO PILL TABS ── */
+  .eco-pill-tabs {
+    display: flex; gap: 6px; overflow-x: auto;
+    scrollbar-width: none; padding-bottom: 2px; margin-bottom: 14px;
+  }
+  .eco-pill-tabs::-webkit-scrollbar { display: none; }
+  .eco-pill {
+    flex-shrink: 0; padding: 7px 16px; border-radius: 30px;
+    font-size: 12px; font-weight: 800; cursor: pointer;
+    background: var(--card); border: 1.5px solid var(--border);
+    color: var(--text2); transition: all .18s;
+    white-space: nowrap;
+  }
+  .eco-pill.active {
+    background: var(--accent); border-color: var(--accent); color: #000;
+  }
+
+  /* ── ECO INPUT ── */
+  .eco-input {
+    width: 100%; box-sizing: border-box;
+    padding: 12px 14px; border-radius: 13px;
+    border: 1.5px solid var(--border); background: var(--card);
+    color: var(--text); font-size: 14px; font-weight: 700;
+    outline: none; margin-bottom: 10px;
+    transition: border-color .2s;
+  }
+  .eco-input:focus { border-color: var(--accent); }
+
+  /* ── ECO SUBMIT BTN ── */
+  .eco-submit {
+    width: 100%; padding: 14px; border-radius: 14px; border: none;
+    background: linear-gradient(135deg, var(--accent), #e67e22);
+    color: #000; font-size: 15px; font-weight: 900;
+    cursor: pointer; transition: opacity .2s;
+    margin-top: 4px;
+  }
+  .eco-submit:active { opacity: .85; }
+
+  /* ── SLIDE TRANSITION ── */
+  .page.eco-slide-in {
+    animation: ecoSlideIn .25s cubic-bezier(.4,0,.2,1) both;
+  }
+  @keyframes ecoSlideIn {
+    from { opacity: 0; transform: translateX(18px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  /* ── ASSET CARD MARCHÉ ── */
+  .asset-card {
+    background: var(--card); border-radius: 16px;
+    border: 1px solid var(--border); padding: 14px;
+    margin-bottom: 8px; display: flex;
+    align-items: center; justify-content: space-between;
+    cursor: pointer; transition: border-color .18s, transform .15s;
+  }
+  .asset-card:active { transform: scale(.98); border-color: var(--accent); }
+  .asset-icon {
+    width: 42px; height: 42px; border-radius: 13px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0; margin-right: 12px;
+  }
+  .asset-name { font-size: 13px; font-weight: 800; }
+  .asset-cat { font-size: 10px; color: var(--text2); margin-top: 2px; }
+  .asset-price { font-size: 14px; font-weight: 900; color: var(--accent); text-align: right; }
+  .asset-risk { font-size: 10px; margin-top: 2px; text-align: right; }
+
+  /* ── CONTRAT CARD ── */
+  .contrat-card {
+    background: var(--card); border-radius: 16px;
+    border: 1px solid var(--border); padding: 14px;
+    margin-bottom: 10px; position: relative; overflow: hidden;
+  }
+  .contrat-progress-bar {
+    height: 4px; border-radius: 4px; background: var(--border);
+    margin-top: 10px; overflow: hidden;
+  }
+  .contrat-progress-fill {
+    height: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, var(--accent), #00b894);
+    transition: width .4s ease;
+  }
+  </style>
+
   <!-- ══ PAGE MARCHÉ ══ -->
   <div class="page" id="page-market">
-    <div class="page-title">📈 Marché</div>
 
-    <!-- onglets -->
-    <div class="tab-bar" id="market-tabs" style="display:flex;gap:8px;margin-bottom:14px;">
-      <button class="mkt-tab-btn active" onclick="mktTab('catalog',this)">🏪 Catalogue</button>
-      <button class="mkt-tab-btn" onclick="mktTab('portfolio',this)">💼 Portfolio</button>
+    <!-- Hero -->
+    <div class="eco-hero" style="background:linear-gradient(135deg,#0d1b2a 0%,#1a2744 50%,#0d2137 100%);">
+      <div class="eco-hero-bg">📈</div>
+      <div class="eco-hero-content">
+        <div class="eco-hero-label" style="color:#74b9ff">Marché Financier</div>
+        <div class="eco-hero-value" style="color:#fff">Investissements</div>
+        <div class="eco-hero-sub" style="color:#74b9ff">Achète · Vends · Génère des revenus</div>
+      </div>
     </div>
 
-    <!-- ── CATALOGUE ── -->
-    <div id="mkt-catalog">
-      <!-- filtre catégories -->
-      <div id="mkt-cat-filter" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none;"></div>
-
-      <!-- barre de recherche -->
-      <div style="position:relative;margin-bottom:12px;">
-        <input id="mkt-search" type="text" placeholder="🔍 Rechercher un asset…"
-          oninput="mktFilter()"
-          style="width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 12px;color:var(--text1);font-size:14px;outline:none;">
+    <!-- Bento résumé portfolio -->
+    <div class="eco-bento">
+      <div class="eco-bento-cell" data-icon="📊">
+        <div class="eco-bento-label">Positions</div>
+        <div class="eco-bento-val" id="mk-count">—</div>
       </div>
+      <div class="eco-bento-cell" data-icon="💰">
+        <div class="eco-bento-label">Investi</div>
+        <div class="eco-bento-val gold" id="mk-invested">—</div>
+      </div>
+      <div class="eco-bento-cell" data-icon="📉">
+        <div class="eco-bento-label">Valeur actuelle</div>
+        <div class="eco-bento-val gold" id="mk-current">—</div>
+      </div>
+      <div class="eco-bento-cell" data-icon="🎯">
+        <div class="eco-bento-label">P&amp;L</div>
+        <div class="eco-bento-val" id="mk-pnl">—</div>
+      </div>
+    </div>
 
+    <!-- Pill tabs -->
+    <div class="eco-pill-tabs">
+      <button class="eco-pill active" onclick="mktTab('catalog',this)">🏪 Catalogue</button>
+      <button class="eco-pill" onclick="mktTab('portfolio',this)">💼 Mon portfolio</button>
+    </div>
+
+    <!-- Catalogue -->
+    <div id="mkt-catalog">
+      <div id="mkt-cat-filter" style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none;"></div>
+      <input id="mkt-search" type="text" placeholder="🔍 Rechercher un asset…"
+        oninput="mktFilter()" class="eco-input"/>
       <div id="mkt-assets-list"></div>
     </div>
 
-    <!-- ── PORTFOLIO ── -->
+    <!-- Portfolio -->
     <div id="mkt-portfolio" style="display:none;">
-      <div class="card" style="margin-bottom:12px;">
-        <div class="card-title">📊 Résumé</div>
-        <div class="stat-row"><span class="stat-label">Positions actives</span><span class="stat-value" id="mk-count">—</span></div>
-        <div class="stat-row"><span class="stat-label">Total investi</span><span class="stat-value gold" id="mk-invested">—</span></div>
-        <div class="stat-row"><span class="stat-label">Valeur actuelle</span><span class="stat-value gold" id="mk-current">—</span></div>
-        <div class="stat-row"><span class="stat-label">P&L global</span><span class="stat-value" id="mk-pnl">—</span></div>
-      </div>
       <div id="mk-positions-list"></div>
     </div>
 
-    <!-- ── MODAL ACHAT ── -->
-    <div id="mkt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:flex-end;">
-      <div style="background:var(--card);border-radius:20px 20px 0 0;padding:24px;width:100%;box-sizing:border-box;max-height:85vh;overflow-y:auto;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-          <div id="modal-title" style="font-size:18px;font-weight:700;color:var(--text1);">Asset</div>
-          <button onclick="closeMktModal()" style="background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;">✕</button>
+    <!-- Modal achat -->
+    <div id="mkt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:flex-end;">
+      <div style="background:var(--card);border-radius:22px 22px 0 0;padding:24px;width:100%;box-sizing:border-box;max-height:85vh;overflow-y:auto;border-top:2px solid var(--border);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <div id="modal-title" style="font-size:17px;font-weight:900;">Asset</div>
+          <button onclick="closeMktModal()" style="background:var(--card2);border:none;color:var(--text2);font-size:16px;width:30px;height:30px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
         </div>
-        <div id="modal-desc" style="color:var(--text2);font-size:13px;margin-bottom:12px;"></div>
-        <div class="stat-row"><span class="stat-label">Prix unitaire</span><span class="stat-value gold" id="modal-price">—</span></div>
-        <div class="stat-row"><span class="stat-label">Risque</span><span class="stat-value" id="modal-risk">—</span></div>
-        <div class="stat-row"><span class="stat-label">Volatilité</span><span class="stat-value" id="modal-vol">—</span></div>
-        <div style="height:1px;background:var(--border);margin:16px 0;"></div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-          <button onclick="mktQty(-1)" style="width:36px;height:36px;border-radius:50%;background:var(--border);border:none;color:var(--text1);font-size:18px;cursor:pointer;">−</button>
-          <input id="modal-qty" type="number" value="1" min="1"
-            oninput="mktUpdateTotal()"
-            style="flex:1;text-align:center;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px;color:var(--text1);font-size:16px;font-weight:700;">
-          <button onclick="mktQty(1)" style="width:36px;height:36px;border-radius:50%;background:var(--border);border:none;color:var(--text1);font-size:18px;cursor:pointer;">+</button>
+        <div id="modal-desc" style="color:var(--text2);font-size:13px;margin-bottom:14px;line-height:1.5;"></div>
+        <div class="eco-bento" style="margin-bottom:14px;">
+          <div class="eco-bento-cell" data-icon="💵"><div class="eco-bento-label">Prix</div><div class="eco-bento-val gold" id="modal-price">—</div></div>
+          <div class="eco-bento-cell" data-icon="⚠️"><div class="eco-bento-label">Risque</div><div class="eco-bento-val" id="modal-risk">—</div></div>
         </div>
-        <div class="stat-row"><span class="stat-label">Total</span><span class="stat-value gold" id="modal-total">—</span></div>
-        <button id="modal-buy-btn" onclick="confirmBuy()"
-          style="width:100%;margin-top:16px;padding:14px;border-radius:12px;border:none;background:var(--success);color:#fff;font-size:16px;font-weight:700;cursor:pointer;">
-          ✅ Acheter
-        </button>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <button onclick="mktQty(-1)" style="width:40px;height:40px;border-radius:50%;background:var(--border);border:none;color:var(--text);font-size:20px;cursor:pointer;flex-shrink:0;">−</button>
+          <input id="modal-qty" type="number" value="1" min="1" oninput="mktUpdateTotal()"
+            style="flex:1;text-align:center;background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:10px;color:var(--text);font-size:18px;font-weight:900;">
+          <button onclick="mktQty(1)" style="width:40px;height:40px;border-radius:50%;background:var(--border);border:none;color:var(--text);font-size:20px;cursor:pointer;flex-shrink:0;">+</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:rgba(247,201,72,.08);border-radius:12px;border:1px solid rgba(247,201,72,.2);margin-bottom:16px;">
+          <span style="font-size:12px;color:var(--text2);font-weight:700;">TOTAL</span>
+          <span style="font-size:18px;font-weight:900;color:var(--accent);" id="modal-total">—</span>
+        </div>
+        <button id="modal-buy-btn" onclick="confirmBuy()" class="eco-submit">✅ Acheter maintenant</button>
         <div id="modal-msg" style="text-align:center;margin-top:10px;font-size:13px;color:var(--text2);min-height:18px;"></div>
       </div>
     </div>
@@ -1175,46 +1421,66 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE BANQUE ══ -->
   <div class="page" id="page-bank">
-    <div class="page-title">🏦 Banque</div>
 
-    <div class="card" style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-color:#f7c948">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <div style="font-size:11px;color:var(--text2);font-weight:800;text-transform:uppercase;letter-spacing:1px">Portefeuille</div>
-          <div id="bank-wallet" style="font-size:22px;font-weight:900;color:var(--accent)">—</div>
-        </div>
-        <span style="font-size:36px">👛</span>
+    <!-- Hero -->
+    <div class="eco-hero" style="background:linear-gradient(135deg,#0a1628 0%,#1a2744 50%,#0d2a1a 100%);">
+      <div class="eco-hero-bg">🏦</div>
+      <div class="eco-hero-content">
+        <div class="eco-hero-label" style="color:#55efc4">Banque</div>
+        <div class="eco-hero-value" style="color:#fff" id="bank-wallet">—</div>
+        <div class="eco-hero-sub" style="color:#55efc4">Solde en poche disponible</div>
       </div>
     </div>
 
-    <div class="card-title" style="margin-top:4px">💰 MES COMPTES</div>
-    <div id="bank-accounts-list"><div style="color:var(--text2);font-size:13px;padding:12px 0">Chargement...</div></div>
+    <!-- Actions rapides -->
+    <div class="eco-action-grid">
+      <button class="eco-action-btn green" onclick="openBankModal('deposit')">
+        <span class="ico">⬇️</span>Déposer
+      </button>
+      <button class="eco-action-btn yellow" onclick="openBankModal('withdraw')">
+        <span class="ico">⬆️</span>Retirer
+      </button>
+      <button class="eco-action-btn blue" onclick="openBankModal('loan')">
+        <span class="ico">💳</span>Emprunter
+      </button>
+      <button class="eco-action-btn dark" onclick="openBankModal('repay')">
+        <span class="ico">✅</span>Rembourser
+      </button>
+    </div>
 
-    <div id="bank-loans-section" style="display:none">
-      <div class="card-title" style="margin-top:8px">💳 PRÊTS ACTIFS</div>
+    <!-- Mes comptes -->
+    <div class="eco-section-title">💰 Mes comptes</div>
+    <div id="bank-accounts-list"><div style="color:var(--text2);font-size:13px;padding:8px 0">Chargement...</div></div>
+
+    <!-- Prêts actifs -->
+    <div id="bank-loans-section" style="display:none;">
+      <div class="eco-section-title">💳 Prêts actifs</div>
       <div id="bank-loans-list"></div>
     </div>
 
-    <div class="card-title" style="margin-top:8px">🏛️ OUVRIR UN COMPTE</div>
+    <!-- Ouvrir un compte -->
+    <div class="eco-section-title">🏛️ Ouvrir un compte</div>
     <div id="bank-open-list"></div>
   </div>
 
   <!-- MODAL BANQUE -->
-  <div id="bank-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:flex-end">
-    <div style="background:var(--card);border-radius:20px 20px 0 0;padding:24px;width:100%;border-top:2px solid var(--border)">
-      <div id="bank-modal-title" style="font-family:'Bangers',cursive;font-size:22px;color:var(--accent);margin-bottom:6px">Dépôt</div>
-      <div id="bank-modal-info" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
-      <input id="bank-modal-input" type="number" placeholder="Montant ($)"
-        style="width:100%;padding:12px 14px;border-radius:12px;border:2px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;margin-bottom:8px"/>
-      <div style="display:flex;gap:8px;margin-bottom:14px">
-        <button onclick="bankQuick(.25)" class="bank-quick-btn">25%</button>
-        <button onclick="bankQuick(.5)"  class="bank-quick-btn">50%</button>
-        <button onclick="bankQuick(.75)" class="bank-quick-btn">75%</button>
-        <button onclick="bankQuick(1)"   class="bank-quick-btn">MAX</button>
+  <div id="bank-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:300;align-items:flex-end;">
+    <div style="background:var(--card);border-radius:22px 22px 0 0;padding:24px;width:100%;border-top:2px solid var(--accent);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div id="bank-modal-title" style="font-size:18px;font-weight:900;color:var(--accent);">Dépôt</div>
+        <button onclick="closeBankModal()" style="background:var(--card2);border:none;color:var(--text2);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;">✕</button>
       </div>
-      <div style="display:flex;gap:10px">
-        <button onclick="closeBankModal()" style="flex:1;padding:13px;border-radius:12px;border:2px solid var(--border);background:var(--card2);color:var(--text);font-weight:800;font-size:14px;cursor:pointer">Annuler</button>
-        <button id="bank-modal-confirm" onclick="confirmBankAction()" style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:900;font-size:14px;cursor:pointer">Confirmer</button>
+      <div id="bank-modal-info" style="font-size:12px;color:var(--text2);margin-bottom:14px;"></div>
+      <input id="bank-modal-input" type="number" placeholder="Montant ($)" class="eco-input"/>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button onclick="bankQuick(.25)" style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text2);font-size:12px;font-weight:800;cursor:pointer;">25%</button>
+        <button onclick="bankQuick(.5)"  style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text2);font-size:12px;font-weight:800;cursor:pointer;">50%</button>
+        <button onclick="bankQuick(.75)" style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text2);font-size:12px;font-weight:800;cursor:pointer;">75%</button>
+        <button onclick="bankQuick(1)"   style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--accent);background:rgba(247,201,72,.1);color:var(--accent);font-size:12px;font-weight:800;cursor:pointer;">MAX</button>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button onclick="closeBankModal()" style="flex:1;padding:13px;border-radius:13px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-weight:800;font-size:14px;cursor:pointer;">Annuler</button>
+        <button id="bank-modal-confirm" onclick="confirmBankAction()" class="eco-submit" style="flex:2;margin-top:0;">Confirmer</button>
       </div>
     </div>
   </div>
@@ -1439,22 +1705,27 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE PAY ══ -->
   <div class="page" id="page-pay">
-    <div class="page-title">💸 Transfert</div>
-    <div class="card">
-      <div class="card-title">ENVOYER DES FONDS</div>
-      <input id="pay-search-input" type="text" placeholder="🔍 Rechercher un joueur…"
-        oninput="paySearchPlayer(this.value)"
-        style="width:100%;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;margin-bottom:10px"/>
-      <div id="pay-search-results"></div>
-      <div id="pay-form" style="display:none">
-        <div id="pay-target-info" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--card2);border-radius:12px;border:1px solid var(--border);margin-bottom:12px"></div>
-        <input id="pay-amount" type="number" placeholder="Montant ($)" min="1"
-          style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;margin-bottom:10px"/>
-        <input id="pay-note" type="text" placeholder="Note (optionnelle)" maxlength="60"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;margin-bottom:12px"/>
-        <button onclick="submitPay()" class="save-btn" style="font-size:16px">💸 Confirmer le virement</button>
-        <button onclick="cancelPay()" style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:none;color:var(--text2);font-weight:700;margin-top:8px;cursor:pointer">Annuler</button>
+
+    <!-- Hero -->
+    <div class="eco-hero" style="background:linear-gradient(135deg,#1a0d2e 0%,#2d1b4e 50%,#1a0a3a 100%);">
+      <div class="eco-hero-bg">💸</div>
+      <div class="eco-hero-content">
+        <div class="eco-hero-label" style="color:#a29bfe">Virement</div>
+        <div class="eco-hero-value" style="color:#fff">Envoyer des fonds</div>
+        <div class="eco-hero-sub" style="color:#a29bfe">Instantané · Sécurisé</div>
       </div>
+    </div>
+
+    <input id="pay-search-input" type="text" placeholder="🔍 Rechercher un joueur…"
+      oninput="paySearchPlayer(this.value)" class="eco-input"/>
+    <div id="pay-search-results"></div>
+
+    <div id="pay-form" style="display:none">
+      <div id="pay-target-info" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(162,155,254,.08);border-radius:14px;border:1.5px solid rgba(162,155,254,.25);margin-bottom:12px;"></div>
+      <input id="pay-amount" type="number" placeholder="Montant ($)" min="1" class="eco-input"/>
+      <input id="pay-note" type="text" placeholder="Note (optionnelle)" maxlength="60" class="eco-input"/>
+      <button onclick="submitPay()" class="eco-submit">💸 Confirmer le virement</button>
+      <button onclick="cancelPay()" style="width:100%;padding:11px;border-radius:13px;border:none;background:none;color:var(--text2);font-weight:700;margin-top:8px;cursor:pointer;">Annuler</button>
     </div>
   </div>
 
@@ -1501,52 +1772,66 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE PARTS ══ -->
   <div class="page" id="page-parts">
-    <div class="page-title">📜 Mes Parts</div>
-    <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;scrollbar-width:none">
-      <button class="parts-tab-btn active" onclick="partsTab('mes',this)">📜 Mes parts</button>
-      <button class="parts-tab-btn" onclick="partsTab('offres',this)">📥 Offres reçues</button>
-      <button class="parts-tab-btn" onclick="partsTab('vendre',this)">📤 Vendre</button>
-      <button class="parts-tab-btn" onclick="partsTab('acheter',this)">🛒 Acheter</button>
+
+    <!-- Hero -->
+    <div class="eco-hero" style="background:linear-gradient(135deg,#0d1f0a 0%,#1a3a14 50%,#0a2010 100%);">
+      <div class="eco-hero-bg">📜</div>
+      <div class="eco-hero-content">
+        <div class="eco-hero-label" style="color:#55efc4">Actionnariat</div>
+        <div class="eco-hero-value" style="color:#fff">Mes Parts</div>
+        <div class="eco-hero-sub" style="color:#55efc4">Achète · Vends · Gère tes participations</div>
+      </div>
     </div>
-    <div id="parts-mes"><div class="plus-loader">⏳ Chargement…</div></div>
-    <div id="parts-offres" style="display:none"><div class="plus-loader">⏳ Chargement…</div></div>
+
+    <div class="eco-pill-tabs">
+      <button class="eco-pill active" onclick="partsTab('mes',this)">📜 Mes parts</button>
+      <button class="eco-pill" onclick="partsTab('offres',this)">📥 Offres reçues</button>
+      <button class="eco-pill" onclick="partsTab('vendre',this)">📤 Vendre</button>
+      <button class="eco-pill" onclick="partsTab('acheter',this)">🛒 Acheter</button>
+    </div>
+
+    <div id="parts-mes"><div style="color:var(--text2);font-size:13px;padding:12px 0;">Chargement…</div></div>
+
+    <div id="parts-offres" style="display:none"><div style="color:var(--text2);font-size:13px;padding:12px 0;">Chargement…</div></div>
+
     <div id="parts-vendre" style="display:none">
-      <div class="card">
-        <div class="card-title">VENDRE DES PARTS</div>
-        <input id="parts-sell-company" type="text" placeholder="Nom de l'entreprise"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:10px"/>
-        <input id="parts-sell-qty" type="number" placeholder="Quantité de parts" min="1"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:10px"/>
-        <input id="parts-sell-price" type="number" placeholder="Prix par part ($)" min="1"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:12px"/>
-        <input id="parts-sell-target" type="text" placeholder="Acheteur cible (optionnel)"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:12px"/>
-        <button onclick="submitVendreParts()" class="save-btn" style="font-size:15px">📤 Mettre en vente</button>
-      </div>
+      <div class="eco-section-title">📤 Mettre des parts en vente</div>
+      <input id="parts-sell-company" type="text" placeholder="Nom de l'entreprise" class="eco-input"/>
+      <input id="parts-sell-qty" type="number" placeholder="Quantité de parts" min="1" class="eco-input"/>
+      <input id="parts-sell-price" type="number" placeholder="Prix par part ($)" min="1" class="eco-input"/>
+      <input id="parts-sell-target" type="text" placeholder="Acheteur cible (optionnel)" class="eco-input"/>
+      <button onclick="submitVendreParts()" class="eco-submit">📤 Mettre en vente</button>
     </div>
+
     <div id="parts-acheter" style="display:none">
-      <div class="card">
-        <div class="card-title">ACHETER DES PARTS</div>
-        <input id="parts-buy-company" type="text" placeholder="Nom de l'entreprise"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:10px"/>
-        <input id="parts-buy-qty" type="number" placeholder="Quantité à acheter" min="1"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:10px"/>
-        <input id="parts-buy-price" type="number" placeholder="Prix max par part ($)" min="1"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;margin-bottom:12px"/>
-        <button onclick="submitAcheterParts()" class="save-btn" style="font-size:15px">🛒 Soumettre l'offre</button>
-      </div>
+      <div class="eco-section-title">🛒 Soumettre une offre d'achat</div>
+      <input id="parts-buy-company" type="text" placeholder="Nom de l'entreprise" class="eco-input"/>
+      <input id="parts-buy-qty" type="number" placeholder="Quantité à acheter" min="1" class="eco-input"/>
+      <input id="parts-buy-price" type="number" placeholder="Prix max par part ($)" min="1" class="eco-input"/>
+      <button onclick="submitAcheterParts()" class="eco-submit">🛒 Soumettre l'offre</button>
     </div>
   </div>
 
   <!-- ══ PAGE CONTRATS ══ -->
   <div class="page" id="page-contrats">
-    <div class="page-title">📋 Contrats</div>
-    <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;scrollbar-width:none">
-      <button class="contrat-tab-btn active" onclick="contratsTab('bc',this)">🤝 Boîtes à commissions</button>
-      <button class="contrat-tab-btn" onclick="contratsTab('auto',this)">🤖 Auto-transactions</button>
+
+    <!-- Hero -->
+    <div class="eco-hero" style="background:linear-gradient(135deg,#1a1200 0%,#2e2010 50%,#1a0e00 100%);">
+      <div class="eco-hero-bg">📋</div>
+      <div class="eco-hero-content">
+        <div class="eco-hero-label" style="color:#f7c948">Contrats</div>
+        <div class="eco-hero-value" style="color:#fff">Bureau des Contrats</div>
+        <div class="eco-hero-sub" style="color:#f7c948">Commissions · Automatiques</div>
+      </div>
     </div>
-    <div id="contrats-bc"><div class="plus-loader">⏳ Chargement…</div></div>
-    <div id="contrats-auto" style="display:none"><div class="plus-loader">⏳ Chargement…</div></div>
+
+    <div class="eco-pill-tabs">
+      <button class="eco-pill active" onclick="contratsTab('bc',this)">🤝 À commission</button>
+      <button class="eco-pill" onclick="contratsTab('auto',this)">🤖 Auto-transactions</button>
+    </div>
+
+    <div id="contrats-bc"><div style="color:var(--text2);font-size:13px;padding:12px 0;">Chargement…</div></div>
+    <div id="contrats-auto" style="display:none"><div style="color:var(--text2);font-size:13px;padding:12px 0;">Chargement…</div></div>
   </div>
 
   <!-- ══ PAGE RECRUTER (PDG) ══ -->
@@ -2587,7 +2872,6 @@ function mainTab(key, btn) {
 
 function subTab(page, fn) {
   _curSub = page;
-  // Rebuild subnav with correct active state
   const tab = MAIN_TABS[_curMain];
   const subnav = document.getElementById('subnav');
   if (tab && tab.subs.length) {
@@ -2595,11 +2879,12 @@ function subTab(page, fn) {
       `<button class="snav-btn${s.p===page?' snav-active':''}" onclick="subTab('${s.p}','${s.fn||''}')">${s.l}</button>`
     ).join('');
   }
-  // Afficher la page
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => { p.classList.remove('active'); p.classList.remove('eco-slide-in'); });
   const el = document.getElementById('page-'+page);
-  if (el) el.classList.add('active');
-  // Callback de chargement — résoudre fn depuis MAIN_TABS si non fourni
+  if (el) {
+    el.classList.add('active');
+    if (_curMain === 'eco') { void el.offsetWidth; el.classList.add('eco-slide-in'); }
+  }
   const resolvedFn = fn || (tab && tab.subs.find(s=>s.p===page)?.fn) || '';
   if (resolvedFn && window[resolvedFn]) window[resolvedFn]();
 }
@@ -4527,8 +4812,14 @@ function coTab(tab, btn) {
     const el = document.getElementById('co-tab-'+t);
     if (el) el.style.display = t===tab ? 'block' : 'none';
   });
-  document.querySelectorAll('#page-company .co-tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  document.querySelectorAll('#page-company .co-tab-btn').forEach(b => {
+    b.style.borderBottom = '2.5px solid transparent';
+    b.style.color = 'var(--text2)';
+    b.style.fontWeight = '700';
+  });
+  btn.style.borderBottom = '2.5px solid var(--accent)';
+  btn.style.color = 'var(--accent)';
+  btn.style.fontWeight = '800';
 }
 
 function _coRoleLabel(role) {

@@ -32,6 +32,7 @@ from database.db import AsyncSessionLocal, get_user
 from database.models import (
     User, Company, CompanyEmployee, CompanyBuilding, CompanyShare,
 )
+from handlers.company import _get_user_company
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,13 @@ def _building_maintenance(btype: str, company_level: int) -> int:
 async def _get_pdg_company(session, user_id: int):
     """Retourne (Company, CompanyEmployee) si l'user est PDG d'une entreprise active.
     Exclut les filiales pour le PDG mère — retourne toujours l'entreprise principale."""
+    result = await _get_user_company(session, user_id)
+    if result is None:
+        return None, None
+    company, emp = result
+    if emp.role != 'pdg':
+        return None, None
+    return company, emp
 
 async def batiments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Affiche le catalogue des bâtiments avec les prix adaptés au niveau."""

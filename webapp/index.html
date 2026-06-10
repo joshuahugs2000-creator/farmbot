@@ -47,6 +47,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .page { display: none; padding: 16px; animation: fadeIn .3s ease; }
 .page.active { display: block; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes gradShift { 0% { background-position:0% 50%; } 100% { background-position:200% 50%; } }
 
 /* ── HEADER ── */
 .page-title {
@@ -1007,6 +1008,122 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div style="font-size:24px;font-weight:900;color:var(--accent);margin-top:6px;font-family:'Bangers',cursive;letter-spacing:2px" id="dip-cooldown-val">—</div>
       </div>
     </div>
+  </div>
+
+  <!-- ══ PAGE FAMILLE ══ -->
+  <!-- ══ PAGE SOCIAL HUB ══ -->
+  <div class="page" id="page-social-hub">
+
+    <!-- Hero -->
+    <div class="eco-hero" style="background:linear-gradient(135deg,#0a0a1a 0%,#0d1b2a 40%,#0a1628 100%);border-radius:20px;margin-bottom:14px;overflow:hidden;position:relative;">
+      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#a29bfe,#74b9ff,#00cec9,#a29bfe);background-size:200%;animation:gradShift 3s linear infinite;z-index:3;"></div>
+      <div class="eco-hero-bg" style="opacity:.05;font-size:130px;top:-10px;">👥</div>
+      <div class="eco-hero-content" style="padding:20px 20px 18px;">
+        <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#a29bfe;font-weight:800;margin-bottom:6px;">COMMUNAUTÉ</div>
+        <div style="font-size:26px;font-weight:900;color:#fff;letter-spacing:-0.5px;line-height:1.1;" id="sh-greeting">Bonjour 👋</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.45);margin-top:5px;" id="sh-sub">Connecte-toi, monte dans le classement, développe ton réseau.</div>
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+          <div style="background:rgba(162,155,254,.12);border:1px solid rgba(162,155,254,.25);border-radius:20px;padding:5px 12px;font-size:11px;color:#a29bfe;font-weight:800;" id="sh-rank-badge">🏆 Rang —</div>
+          <div style="background:rgba(116,185,255,.1);border:1px solid rgba(116,185,255,.2);border-radius:20px;padding:5px 12px;font-size:11px;color:#74b9ff;font-weight:800;" id="sh-fam-badge">👨‍👩‍👧 Famille —</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bento stats rapides -->
+    <div class="eco-bento" style="margin-bottom:14px;">
+      <div class="eco-bento-cell" data-icon="💰" onclick="subTab('ranking','loadRanking')" style="cursor:pointer;">
+        <div class="eco-bento-label">Ma fortune</div>
+        <div class="eco-bento-val gold" id="sh-coins">—</div>
+      </div>
+      <div class="eco-bento-cell" data-icon="🏆" onclick="subTab('ranking','loadRanking')" style="cursor:pointer;">
+        <div class="eco-bento-label">Mon rang</div>
+        <div class="eco-bento-val" id="sh-rank-val" style="color:#a29bfe;">—</div>
+      </div>
+      <div class="eco-bento-cell" data-icon="👨‍👩‍👧" onclick="subTab('famille','loadFamille')" style="cursor:pointer;">
+        <div class="eco-bento-label">Famille</div>
+        <div class="eco-bento-val" id="sh-fam-val" style="color:#74b9ff;">—</div>
+      </div>
+      <div class="eco-bento-cell" data-icon="📬" onclick="subTab('invitations','loadInvitations')" style="cursor:pointer;">
+        <div class="eco-bento-label">Invitations</div>
+        <div class="eco-bento-val" id="sh-inv-val" style="color:#fd79a8;">—</div>
+      </div>
+    </div>
+
+    <!-- Section titre -->
+    <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text2);margin:0 2px 10px;display:flex;align-items:center;gap:8px;">
+      SECTIONS
+      <span style="flex:1;height:1px;background:rgba(255,255,255,.06);display:block;"></span>
+    </div>
+
+    <!-- Cards sections -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+
+      <!-- Famille -->
+      <div onclick="subTab('famille','loadFamille')" style="background:linear-gradient(135deg,rgba(116,185,255,.08),rgba(116,185,255,.03));border:1px solid rgba(116,185,255,.18);border-radius:16px;padding:16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s;">
+        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#74b9ff,#0984e3);"></div>
+        <div style="font-size:28px;margin-bottom:8px;">👨‍👩‍👧</div>
+        <div style="font-weight:900;font-size:13px;color:#74b9ff;">Famille</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">Conjoint·e, parents, enfants, amis</div>
+      </div>
+
+      <!-- Classement -->
+      <div onclick="subTab('ranking','loadRanking')" style="background:linear-gradient(135deg,rgba(247,201,72,.08),rgba(247,201,72,.03));border:1px solid rgba(247,201,72,.18);border-radius:16px;padding:16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s;">
+        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#f7c948,#e17055);"></div>
+        <div style="font-size:28px;margin-bottom:8px;">🏆</div>
+        <div style="font-weight:900;font-size:13px;color:#f7c948;">Classement</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">Fortune · Famille · Entreprise</div>
+      </div>
+
+      <!-- Entreprises -->
+      <div onclick="subTab('entreprises','loadEntreprises')" style="background:linear-gradient(135deg,rgba(0,206,201,.08),rgba(0,206,201,.03));border:1px solid rgba(0,206,201,.18);border-radius:16px;padding:16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s;">
+        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#00cec9,#00b894);"></div>
+        <div style="font-size:28px;margin-bottom:8px;">🏢</div>
+        <div style="font-weight:900;font-size:13px;color:#00cec9;">Entreprises</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">Toutes les boîtes · Postuler</div>
+      </div>
+
+      <!-- Invitations -->
+      <div onclick="subTab('invitations','loadInvitations')" style="background:linear-gradient(135deg,rgba(253,121,168,.08),rgba(253,121,168,.03));border:1px solid rgba(253,121,168,.18);border-radius:16px;padding:16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s;">
+        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#fd79a8,#e84393);"></div>
+        <div style="font-size:28px;margin-bottom:8px;">📬</div>
+        <div style="font-weight:900;font-size:13px;color:#fd79a8;">Invitations</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">Offres d'emploi reçues</div>
+      </div>
+
+    </div>
+
+    <!-- Cards secondaires en row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+
+      <!-- Présences -->
+      <div onclick="subTab('presences','loadPresences')" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px;cursor:pointer;display:flex;align-items:center;gap:12px;">
+        <div style="font-size:24px;">📊</div>
+        <div>
+          <div style="font-weight:900;font-size:12px;color:var(--text);">Présences</div>
+          <div style="font-size:11px;color:var(--text2);">Activité équipe</div>
+        </div>
+      </div>
+
+      <!-- Recruter -->
+      <div onclick="subTab('recruter','loadRecruter')" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px;cursor:pointer;display:flex;align-items:center;gap:12px;">
+        <div style="font-size:24px;">👥</div>
+        <div>
+          <div style="font-weight:900;font-size:12px;color:var(--text);">Recruter</div>
+          <div style="font-size:11px;color:var(--text2);">Gérer l'équipe</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Top 3 rapide -->
+    <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text2);margin:0 2px 10px;display:flex;align-items:center;gap:8px;">
+      TOP FORTUNE
+      <span style="flex:1;height:1px;background:rgba(255,255,255,.06);display:block;"></span>
+    </div>
+    <div id="sh-top3" style="display:flex;gap:8px;justify-content:center;margin-bottom:14px;">
+      <div style="color:var(--text2);font-size:12px;padding:20px 0;">Chargement…</div>
+    </div>
+
   </div>
 
   <!-- ══ PAGE FAMILLE ══ -->
@@ -3553,7 +3670,7 @@ const MAIN_TABS = {
   moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'},{l:'💰 Gains',p:'gains',fn:'loadGains'},{l:'🎓 Diplômes',p:'diplomes',fn:'loadDiplomes'}], def:'profile' },
   eco:    { subs:[], def:'eco-hub' },
   jeux:   { subs:[], def:'games' },
-  social: { subs:[{l:'👨‍👩‍👧 Famille',p:'famille',fn:'loadFamille'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'},{l:'🏢 Entreprises',p:'entreprises',fn:'loadEntreprises'},{l:'📬 Invitations',p:'invitations',fn:'loadInvitations'},{l:'📊 Présences',p:'presences',fn:'loadPresences'},{l:'👥 Recruter',p:'recruter',fn:'loadRecruter'}], def:'famille' },
+  social: { subs:[{l:'🏠 Hub',p:'social-hub',fn:'loadSocialHub'},{l:'👨‍👩‍👧 Famille',p:'famille',fn:'loadFamille'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'},{l:'🏢 Entreprises',p:'entreprises',fn:'loadEntreprises'},{l:'📬 Invitations',p:'invitations',fn:'loadInvitations'},{l:'📊 Présences',p:'presences',fn:'loadPresences'},{l:'👥 Recruter',p:'recruter',fn:'loadRecruter'}], def:'social-hub' },
   plus:   { subs:[{l:'📖 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'},{l:'🔨 Enchères',p:'encheres',fn:'loadEncheres'}], def:'journal' },
 };
 let _curMain = 'moi';
@@ -4296,6 +4413,96 @@ function mktTab(tab, btn) {
 // ════════════════════════════════════════
 //  SOCIAL — FAMILLE & CLASSEMENT
 // ════════════════════════════════════════
+
+// ════════════════════════════════════════
+//  👥 SOCIAL HUB
+// ════════════════════════════════════════
+let _shLoaded = false;
+
+async function loadSocialHub() {
+  // Greeting
+  const greet = document.getElementById('sh-greeting');
+  if (greet && firstName) greet.textContent = `Bonjour, ${firstName} 👋`;
+
+  // Remplir depuis cache si dispo
+  if (window._cachedRanking && !_shLoaded) _shFillRanking(window._cachedRanking);
+
+  // Charger ranking coins
+  try {
+    const r = await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=coins`, {}, 12000);
+    const d = await r.json();
+    if (!d.error) {
+      window._cachedRanking = d;
+      _shFillRanking(d);
+    }
+  } catch(e) {}
+
+  // Charger famille pour badge
+  try {
+    const r = await fetchT(`/api/webapp/family?user_id=${uid}`, {}, 12000);
+    const d = await r.json();
+    if (!d.error) {
+      const famBadge = document.getElementById('sh-fam-badge');
+      const famVal   = document.getElementById('sh-fam-val');
+      const name = d.family_name || '—';
+      const count = (d.spouses||[]).length + (d.parents||[]).length + (d.children||[]).length + (d.friends||[]).length;
+      if (famBadge) famBadge.textContent = `👨‍👩‍👧 ${name}`;
+      if (famVal) famVal.textContent = count > 0 ? `${count} membre${count>1?'s':''}` : '—';
+    }
+  } catch(e) {}
+
+  // Invitations count
+  try {
+    const r = await fetchT(`/api/webapp/user?user_id=${uid}`, {}, 10000);
+    const d = await r.json();
+    if (!d.error) {
+      const inv = document.getElementById('sh-inv-val');
+      if (inv) inv.textContent = d.pending_invitations > 0 ? `${d.pending_invitations} en attente` : '—';
+      const coinsEl = document.getElementById('sh-coins');
+      if (coinsEl && d.coins != null) coinsEl.textContent = Number(d.coins).toLocaleString('fr-FR') + ' $';
+    }
+  } catch(e) {}
+
+  _shLoaded = true;
+}
+
+function _shFillRanking(d) {
+  const rows = d.ranking || [];
+  const me = rows.find(r => r.is_me) || d.my_row;
+
+  // Badge rang
+  const rankBadge = document.getElementById('sh-rank-badge');
+  const rankVal   = document.getElementById('sh-rank-val');
+  if (me) {
+    if (rankBadge) rankBadge.textContent = `🏆 Rang #${me.rank}`;
+    if (rankVal) rankVal.textContent = `#${me.rank}`;
+  }
+
+  // Top 3
+  const top3El = document.getElementById('sh-top3');
+  if (!top3El) return;
+  const top3 = rows.slice(0, 3);
+  if (!top3.length) { top3El.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:20px 0;">—</div>'; return; }
+
+  const medals = ['🥇','🥈','🥉'];
+  const heights = ['56px','44px','36px'];
+  const colors  = ['#f7c948','#c8c8d8','#d4956a'];
+  const order   = [1,0,2]; // podium: 2nd left, 1st center, 3rd right
+
+  const podiumOrder = [top3[1], top3[0], top3[2]].filter(Boolean);
+  const podiumHeights = [heights[1], heights[0], heights[2]];
+  const podiumColors  = [colors[1],  colors[0],  colors[2]];
+  const podiumMedals  = [medals[1],  medals[0],  medals[2]];
+
+  top3El.innerHTML = podiumOrder.map((p, i) => `
+    <div style="flex:1;text-align:center;display:flex;flex-direction:column;align-items:center;">
+      <div style="font-size:${i===1?'44px':'34px'};line-height:1;margin-bottom:4px;">${podiumMedals[i]}</div>
+      <div style="font-size:${i===1?'13px':'11px'};font-weight:900;color:${podiumColors[i]};max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.name||p.username||'?'}</div>
+      <div style="font-size:10px;color:var(--text2);margin-top:2px;">${Number(p.value).toLocaleString('fr-FR')} $</div>
+      <div style="width:100%;border-radius:8px 8px 0 0;margin-top:8px;background:${podiumColors[i]}22;border:1px solid ${podiumColors[i]}44;height:${podiumHeights[i]};"></div>
+    </div>
+  `).join('');
+}
 
 (function injectSocialCSS() {
   if (document.getElementById('social-css')) return;

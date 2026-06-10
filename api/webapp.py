@@ -859,6 +859,105 @@ async def webapp_game(request: web.Request) -> web.Response:
                     return web.json_response({'ok': True, 'won': False, 'lost': sess['gains']})
             return web.json_response({'error': 'Action invalide'})
 
+        # ── COCKFIGHT ─────────────────────────────────────────────────────────
+        if game == 'cockfight':
+            mise = int(body.get('mise', 0))
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            import random as _cr
+            def _gen_coq():
+                return {'hp': 100, 'atk': _cr.randint(15, 35), 'def': _cr.randint(5, 20)}
+
+            coq1 = _gen_coq()
+            coq2 = _gen_coq()
+            log = []
+            round_n = 1
+            while coq1['hp'] > 0 and coq2['hp'] > 0 and round_n <= 10:
+                # Player attacks bot
+                dmg1 = max(1, coq1['atk'] - _cr.randint(0, coq2['def']))
+                coq2['hp'] = max(0, coq2['hp'] - dmg1)
+                log.append(f"🐔 Tour {round_n} : Ton coq inflige {dmg1} dégâts (bot : {coq2['hp']} ❤️)")
+                if coq2['hp'] <= 0:
+                    break
+                # Bot attacks player
+                dmg2 = max(1, coq2['atk'] - _cr.randint(0, coq1['def']))
+                coq1['hp'] = max(0, coq1['hp'] - dmg2)
+                log.append(f"🐓 Bot riposte : {dmg2} dégâts (toi : {coq1['hp']} ❤️)")
+                round_n += 1
+
+            if coq1['hp'] > coq2['hp']:
+                winner = 'player'
+                gain = int(mise * 1.8)
+                user.coins += gain - mise
+            elif coq2['hp'] > coq1['hp']:
+                winner = 'bot'
+                gain = 0
+                user.coins -= mise
+            else:
+                winner = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'winner': winner, 'gain': gain if winner == 'player' else 0, 'log': log})
+
+        # ── PPC ───────────────────────────────────────────────────────────────
+        if game == 'ppc':
+            mise = int(body.get('mise', 0))
+            choice = body.get('choice', '')
+            choices = ['pierre', 'papier', 'ciseaux']
+            beats = {'pierre': 'ciseaux', 'papier': 'pierre', 'ciseaux': 'papier'}
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            if choice not in choices:
+                return web.json_response({'error': 'Choix invalide'})
+
+            import random as _pr
+            bot_choice = _pr.choice(choices)
+            if beats[choice] == bot_choice:
+                result = 'win'
+                gain = int(mise * 1.9)
+                user.coins += gain - mise
+            elif beats[bot_choice] == choice:
+                result = 'lose'
+                gain = 0
+                user.coins -= mise
+            else:
+                result = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'result': result, 'bot_choice': bot_choice, 'gain': gain if result == 'win' else 0})
+
+        # ── LANCER DE DÉS ────────────────────────────────────────────────────
+        if game == 'lancer':
+            mise = int(body.get('mise', 0))
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            import random as _lr
+            p1 = [_lr.randint(1, 6), _lr.randint(1, 6)]
+            p2 = [_lr.randint(1, 6), _lr.randint(1, 6)]
+            t1, t2 = sum(p1), sum(p2)
+            if t1 > t2:
+                winner = 'player'
+                gain = int(mise * 1.9)
+                user.coins += gain - mise
+            elif t2 > t1:
+                winner = 'bot'
+                gain = 0
+                user.coins -= mise
+            else:
+                winner = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'winner': winner, 'p1_dice': p1, 'p2_dice': p2,
+                                      'p1_total': t1, 'p2_total': t2, 'gain': gain if winner == 'player' else 0})
+
     return web.json_response({'error': 'Jeu inconnu'}, status=400)
 
 

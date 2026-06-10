@@ -244,6 +244,30 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .game-rebet .game-card-tag { background: rgba(247,201,72,.12); color: #f7c948; border: 1px solid rgba(247,201,72,.2); }
 .game-rebet { border-color: rgba(247,201,72,.15); }
 
+.game-cockfight .game-card-top-bar { background: linear-gradient(90deg, #ff6b35, #c0392b); }
+.game-cockfight .game-card-glow { background: #ff6b35; }
+.game-cockfight .game-card-icon-bg { background: rgba(255,107,53,.12); border: 1px solid rgba(255,107,53,.2); }
+.game-cockfight .game-card-name { color: #ff6b35; }
+.game-cockfight .game-card-label { color: #ff6b35; }
+.game-cockfight .game-card-tag { background: rgba(255,107,53,.12); color: #ff6b35; border: 1px solid rgba(255,107,53,.2); }
+.game-cockfight { border-color: rgba(255,107,53,.15); }
+
+.game-ppc .game-card-top-bar { background: linear-gradient(90deg, #00b4d8, #0077b6); }
+.game-ppc .game-card-glow { background: #00b4d8; }
+.game-ppc .game-card-icon-bg { background: rgba(0,180,216,.12); border: 1px solid rgba(0,180,216,.2); }
+.game-ppc .game-card-name { color: #00b4d8; }
+.game-ppc .game-card-label { color: #00b4d8; }
+.game-ppc .game-card-tag { background: rgba(0,180,216,.12); color: #00b4d8; border: 1px solid rgba(0,180,216,.2); }
+.game-ppc { border-color: rgba(0,180,216,.15); }
+
+.game-lancer .game-card-top-bar { background: linear-gradient(90deg, #a29bfe, #6c5ce7); }
+.game-lancer .game-card-glow { background: #a29bfe; }
+.game-lancer .game-card-icon-bg { background: rgba(162,155,254,.12); border: 1px solid rgba(162,155,254,.2); }
+.game-lancer .game-card-name { color: #a29bfe; }
+.game-lancer .game-card-label { color: #a29bfe; }
+.game-lancer .game-card-tag { background: rgba(162,155,254,.12); color: #a29bfe; border: 1px solid rgba(162,155,254,.2); }
+.game-lancer { border-color: rgba(162,155,254,.15); }
+
 /* ── PROFILE HEADER ── */
 .profile-header {
   display: flex; align-items: center; gap: 14px;
@@ -2033,6 +2057,63 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           </div>
         </div>
 
+        <!-- COCKFIGHT -->
+        <div class="game-card game-cockfight" onclick="openGame('cockfight')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-inner">
+            <div class="game-card-icon-bg">
+              <span style="font-size:26px;">🐔</span>
+            </div>
+            <div class="game-card-label">PvP</div>
+            <div class="game-card-name">COCKFIGHT</div>
+            <div class="game-card-desc">Mise sur ton coq et bats le bot !</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">x1.8</span>
+              <span class="game-card-tag">Min 1 000 $</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- PPC -->
+        <div class="game-card game-ppc" onclick="openGame('ppc')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-inner">
+            <div class="game-card-icon-bg">
+              <span style="font-size:26px;">✂️</span>
+            </div>
+            <div class="game-card-label">PvP</div>
+            <div class="game-card-name">P·P·C</div>
+            <div class="game-card-desc">Pierre Papier Ciseaux vs le bot</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">x1.9</span>
+              <span class="game-card-tag">Min 1 000 $</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- LANCER DE DÉS — full width -->
+        <div class="game-card game-lancer full-width" onclick="openGame('lancer')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-inner" style="display:flex;align-items:center;gap:16px">
+            <div class="game-card-icon-bg">
+              <span style="font-size:30px;">🎲</span>
+            </div>
+            <div style="flex:1">
+              <div class="game-card-label">Duel de dés</div>
+              <div class="game-card-name">LANCER DE DÉS</div>
+              <div class="game-card-desc">Lance les dés — le plus haut total gagne !</div>
+              <div class="game-card-meta">
+                <span class="game-card-tag">x1.9</span>
+                <span class="game-card-tag">Min 1 000 $</span>
+              </div>
+            </div>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
         <!-- REBET — full width -->
         <div class="game-card game-rebet full-width" onclick="openGame('rebet')">
           <div class="game-card-glow"></div>
@@ -2216,6 +2297,117 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
             <button onclick="rebetAction('double')" style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#9c27b0,#673ab7);color:#fff;font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">🎲 DOUBLER !</button>
           </div>
           <div id="rebet-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
+        </div>
+      </div>
+
+      <!-- COCKFIGHT -->
+      <div id="game-cockfight" class="game-panel" style="display:none;">
+        <div class="card" style="text-align:center;">
+          <div style="font-family:'Bangers',cursive;font-size:28px;color:#ff6b35;letter-spacing:2px;margin-bottom:4px;">🐔 COCKFIGHT</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:18px;">Ton coq vs le bot — mise et gagne x1.8 !</div>
+          <div id="cockfight-arena" style="display:none;margin-bottom:16px;">
+            <div style="background:var(--card2);border-radius:14px;padding:16px;position:relative;overflow:hidden;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <div style="flex:1;text-align:center;">
+                  <div style="font-size:48px;" id="cf-coq1-emoji">🐔</div>
+                  <div style="font-family:'Bangers',cursive;font-size:16px;color:#ff6b35;">TON COQ</div>
+                  <div id="cf-coq1-hp" style="font-size:22px;font-weight:900;color:var(--success);">100 ❤️</div>
+                </div>
+                <div style="font-family:'Bangers',cursive;font-size:28px;color:var(--text2);">VS</div>
+                <div style="flex:1;text-align:center;">
+                  <div style="font-size:48px;" id="cf-coq2-emoji">🐓</div>
+                  <div style="font-family:'Bangers',cursive;font-size:16px;color:#c0392b;">BOT</div>
+                  <div id="cf-coq2-hp" style="font-size:22px;font-weight:900;color:var(--success);">100 ❤️</div>
+                </div>
+              </div>
+              <div id="cf-log" style="margin-top:12px;font-size:13px;color:var(--text2);min-height:40px;line-height:1.6;"></div>
+            </div>
+          </div>
+          <div id="cockfight-controls">
+            <div style="display:flex;gap:8px;margin-bottom:10px;">
+              <input id="cf-mise" type="number" placeholder="Mise (min 1 000 $)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
+            </div>
+            <button onclick="cockfightStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#ff6b35,#c0392b);color:#fff;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🐔 LANCER LE COMBAT</button>
+          </div>
+          <div id="cf-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
+        </div>
+      </div>
+
+      <!-- PPC -->
+      <div id="game-ppc" class="game-panel" style="display:none;">
+        <div class="card" style="text-align:center;">
+          <div style="font-family:'Bangers',cursive;font-size:28px;color:#00b4d8;letter-spacing:2px;margin-bottom:4px;">✂️ PIERRE PAPIER CISEAUX</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:18px;">Bats le bot — gagne x1.9 ta mise !</div>
+          <div id="ppc-arena" style="display:none;margin-bottom:16px;">
+            <div style="background:var(--card2);border-radius:14px;padding:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;">
+                <div style="flex:1;text-align:center;">
+                  <div style="font-size:52px;" id="ppc-p1-icon">❓</div>
+                  <div style="font-family:'Bangers',cursive;font-size:14px;color:#00b4d8;">TOI</div>
+                  <div id="ppc-p1-choice" style="font-size:12px;color:var(--text2);"></div>
+                </div>
+                <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--text2);">VS</div>
+                <div style="flex:1;text-align:center;">
+                  <div style="font-size:52px;" id="ppc-p2-icon">❓</div>
+                  <div style="font-family:'Bangers',cursive;font-size:14px;color:#0077b6;">BOT</div>
+                  <div id="ppc-p2-choice" style="font-size:12px;color:var(--text2);"></div>
+                </div>
+              </div>
+              <div id="ppc-verdict" style="font-family:'Bangers',cursive;font-size:22px;min-height:30px;"></div>
+            </div>
+          </div>
+          <div id="ppc-controls">
+            <div style="display:flex;gap:8px;margin-bottom:12px;">
+              <input id="ppc-mise" type="number" placeholder="Mise (min 1 000 $)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button onclick="ppcPlay('pierre')" style="flex:1;padding:14px 0;border-radius:12px;border:2px solid rgba(0,180,216,.3);background:rgba(0,180,216,.08);color:#00b4d8;font-size:28px;cursor:pointer;">🪨</button>
+              <button onclick="ppcPlay('papier')" style="flex:1;padding:14px 0;border-radius:12px;border:2px solid rgba(0,180,216,.3);background:rgba(0,180,216,.08);color:#00b4d8;font-size:28px;cursor:pointer;">📄</button>
+              <button onclick="ppcPlay('ciseaux')" style="flex:1;padding:14px 0;border-radius:12px;border:2px solid rgba(0,180,216,.3);background:rgba(0,180,216,.08);color:#00b4d8;font-size:28px;cursor:pointer;">✂️</button>
+            </div>
+          </div>
+          <div id="ppc-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
+          <button id="ppc-replay-btn" onclick="ppcReset()" style="display:none;margin-top:10px;width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">🔄 REJOUER</button>
+        </div>
+      </div>
+
+      <!-- LANCER DE DÉS -->
+      <div id="game-lancer" class="game-panel" style="display:none;">
+        <div class="card" style="text-align:center;">
+          <div style="font-family:'Bangers',cursive;font-size:28px;color:#a29bfe;letter-spacing:2px;margin-bottom:4px;">🎲 LANCER DE DÉS</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:18px;">2 dés chacun — le plus haut total gagne x1.9 !</div>
+          <div id="lancer-arena" style="display:none;margin-bottom:16px;">
+            <div style="background:var(--card2);border-radius:14px;padding:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+                <div style="flex:1;text-align:center;">
+                  <div style="font-family:'Bangers',cursive;font-size:14px;color:#a29bfe;margin-bottom:8px;">TOI</div>
+                  <div style="display:flex;justify-content:center;gap:8px;">
+                    <div id="ld-d1" style="font-size:42px;">🎲</div>
+                    <div id="ld-d2" style="font-size:42px;">🎲</div>
+                  </div>
+                  <div id="ld-score1" style="font-family:'Bangers',cursive;font-size:28px;color:var(--success);margin-top:6px;">0</div>
+                </div>
+                <div style="font-family:'Bangers',cursive;font-size:24px;color:var(--text2);">VS</div>
+                <div style="flex:1;text-align:center;">
+                  <div style="font-family:'Bangers',cursive;font-size:14px;color:#6c5ce7;margin-bottom:8px;">BOT</div>
+                  <div style="display:flex;justify-content:center;gap:8px;">
+                    <div id="ld-d3" style="font-size:42px;">🎲</div>
+                    <div id="ld-d4" style="font-size:42px;">🎲</div>
+                  </div>
+                  <div id="ld-score2" style="font-family:'Bangers',cursive;font-size:28px;color:var(--success);margin-top:6px;">0</div>
+                </div>
+              </div>
+              <div id="ld-verdict" style="font-family:'Bangers',cursive;font-size:22px;min-height:30px;"></div>
+            </div>
+          </div>
+          <div id="lancer-controls">
+            <div style="display:flex;gap:8px;margin-bottom:10px;">
+              <input id="ld-mise" type="number" placeholder="Mise (min 1 000 $)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
+            </div>
+            <button onclick="lancerStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#a29bfe,#6c5ce7);color:#fff;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🎲 LANCER LES DÉS</button>
+          </div>
+          <div id="ld-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
+          <button id="ld-replay-btn" onclick="lancerReset()" style="display:none;margin-top:10px;width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">🔄 REJOUER</button>
         </div>
       </div>
 
@@ -5423,6 +5615,183 @@ async function rebetAction(action) {
       loadData();
     }
   }
+}
+
+// ════════════════════════════════════════
+//  🐔 COCKFIGHT
+// ════════════════════════════════════════
+const DICE_EMOJIS = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+
+async function cockfightStart() {
+  const mise = parseInt(document.getElementById('cf-mise').value);
+  if (!mise || mise < 1000) return showToast('❌ Mise minimum 1 000 $');
+  document.getElementById('cockfight-controls').style.display = 'none';
+  document.getElementById('cf-result').textContent = '';
+  document.getElementById('cockfight-arena').style.display = 'block';
+  document.getElementById('cf-log').textContent = '⚔️ Le combat commence…';
+  document.getElementById('cf-coq1-hp').textContent = '100 ❤️';
+  document.getElementById('cf-coq2-hp').textContent = '100 ❤️';
+
+  const res = await gamePost({ game: 'cockfight', mise });
+  if (res.error) {
+    showToast('❌ ' + res.error);
+    document.getElementById('cockfight-controls').style.display = 'block';
+    document.getElementById('cockfight-arena').style.display = 'none';
+    return;
+  }
+  // Animate fight log
+  const logs = res.log || [];
+  let i = 0;
+  const logEl = document.getElementById('cf-log');
+  const anim = setInterval(() => {
+    if (i >= logs.length) {
+      clearInterval(anim);
+      const won = res.winner === 'player';
+      document.getElementById('cf-coq1-hp').textContent = won ? '❤️ WINNER' : '💀';
+      document.getElementById('cf-coq2-hp').textContent = won ? '💀' : '❤️ WINNER';
+      const el = document.getElementById('cf-result');
+      if (won) {
+        el.style.color = 'var(--success)';
+        el.textContent = `🏆 Victoire ! +${res.gain.toLocaleString('fr-FR')} $`;
+      } else {
+        el.style.color = '#ff4444';
+        el.textContent = `💀 Défaite… -${mise.toLocaleString('fr-FR')} $`;
+      }
+      document.getElementById('cockfight-controls').style.display = 'block';
+      document.getElementById('cf-mise').value = '';
+      loadData();
+      return;
+    }
+    logEl.innerHTML = logs.slice(0, i+1).join('<br>');
+    i++;
+  }, 500);
+}
+
+// ════════════════════════════════════════
+//  ✂️ PPC
+// ════════════════════════════════════════
+const PPC_EMOJIS = { pierre: '🪨', papier: '📄', ciseaux: '✂️' };
+let ppcMiseActive = 0;
+
+async function ppcPlay(choice) {
+  const mise = parseInt(document.getElementById('ppc-mise').value);
+  if (!mise || mise < 1000) return showToast('❌ Mise minimum 1 000 $');
+  ppcMiseActive = mise;
+  document.querySelectorAll('#ppc-controls button').forEach(b => b.disabled = true);
+  document.getElementById('ppc-controls').style.opacity = '0.5';
+  document.getElementById('ppc-arena').style.display = 'block';
+  document.getElementById('ppc-p1-icon').textContent = PPC_EMOJIS[choice];
+  document.getElementById('ppc-p1-choice').textContent = choice;
+  document.getElementById('ppc-p2-icon').textContent = '❓';
+  document.getElementById('ppc-p2-choice').textContent = '';
+  document.getElementById('ppc-verdict').textContent = '🤔 Le bot réfléchit…';
+  document.getElementById('ppc-result').textContent = '';
+  document.getElementById('ppc-replay-btn').style.display = 'none';
+
+  const res = await gamePost({ game: 'ppc', mise, choice });
+  if (res.error) {
+    showToast('❌ ' + res.error);
+    ppcReset();
+    return;
+  }
+  setTimeout(() => {
+    document.getElementById('ppc-p2-icon').textContent = PPC_EMOJIS[res.bot_choice];
+    document.getElementById('ppc-p2-choice').textContent = res.bot_choice;
+    const verdict = document.getElementById('ppc-verdict');
+    const result = document.getElementById('ppc-result');
+    if (res.result === 'win') {
+      verdict.style.color = 'var(--success)';
+      verdict.textContent = '🏆 TU GAGNES !';
+      result.style.color = 'var(--success)';
+      result.textContent = `+${res.gain.toLocaleString('fr-FR')} $`;
+    } else if (res.result === 'lose') {
+      verdict.style.color = '#ff4444';
+      verdict.textContent = '💀 T\'AS PERDU !';
+      result.style.color = '#ff4444';
+      result.textContent = `-${mise.toLocaleString('fr-FR')} $`;
+    } else {
+      verdict.style.color = '#f7c948';
+      verdict.textContent = '🤝 ÉGALITÉ !';
+      result.style.color = 'var(--text2)';
+      result.textContent = 'Remboursé.';
+    }
+    document.getElementById('ppc-replay-btn').style.display = 'block';
+    loadData();
+  }, 800);
+}
+
+function ppcReset() {
+  document.getElementById('ppc-arena').style.display = 'none';
+  document.getElementById('ppc-controls').style.opacity = '1';
+  document.getElementById('ppc-controls').style.display = 'block';
+  document.getElementById('ppc-result').textContent = '';
+  document.getElementById('ppc-replay-btn').style.display = 'none';
+  document.getElementById('ppc-mise').value = '';
+  document.querySelectorAll('#ppc-controls button').forEach(b => b.disabled = false);
+}
+
+// ════════════════════════════════════════
+//  🎲 LANCER DE DÉS
+// ════════════════════════════════════════
+async function lancerStart() {
+  const mise = parseInt(document.getElementById('ld-mise').value);
+  if (!mise || mise < 1000) return showToast('❌ Mise minimum 1 000 $');
+  document.getElementById('lancer-controls').style.display = 'none';
+  document.getElementById('ld-result').textContent = '';
+  document.getElementById('ld-replay-btn').style.display = 'none';
+  document.getElementById('lancer-arena').style.display = 'block';
+  ['ld-d1','ld-d2','ld-d3','ld-d4'].forEach(id => document.getElementById(id).textContent = '🎲');
+  document.getElementById('ld-score1').textContent = '?';
+  document.getElementById('ld-score2').textContent = '?';
+  document.getElementById('ld-verdict').textContent = '🎲 Les dés tombent…';
+
+  const res = await gamePost({ game: 'lancer', mise });
+  if (res.error) {
+    showToast('❌ ' + res.error);
+    lancerReset();
+    return;
+  }
+  // Animate dice reveal
+  setTimeout(() => {
+    document.getElementById('ld-d1').textContent = DICE_EMOJIS[res.p1_dice[0]-1];
+    document.getElementById('ld-d2').textContent = DICE_EMOJIS[res.p1_dice[1]-1];
+    document.getElementById('ld-score1').textContent = res.p1_total;
+  }, 400);
+  setTimeout(() => {
+    document.getElementById('ld-d3').textContent = DICE_EMOJIS[res.p2_dice[0]-1];
+    document.getElementById('ld-d4').textContent = DICE_EMOJIS[res.p2_dice[1]-1];
+    document.getElementById('ld-score2').textContent = res.p2_total;
+  }, 900);
+  setTimeout(() => {
+    const verdict = document.getElementById('ld-verdict');
+    const result = document.getElementById('ld-result');
+    if (res.winner === 'player') {
+      verdict.style.color = 'var(--success)';
+      verdict.textContent = '🏆 TU GAGNES !';
+      result.style.color = 'var(--success)';
+      result.textContent = `+${res.gain.toLocaleString('fr-FR')} $`;
+    } else if (res.winner === 'tie') {
+      verdict.style.color = '#f7c948';
+      verdict.textContent = '🤝 ÉGALITÉ !';
+      result.style.color = 'var(--text2)';
+      result.textContent = 'Remboursé.';
+    } else {
+      verdict.style.color = '#ff4444';
+      verdict.textContent = '💀 DÉFAITE !';
+      result.style.color = '#ff4444';
+      result.textContent = `-${mise.toLocaleString('fr-FR')} $`;
+    }
+    document.getElementById('ld-replay-btn').style.display = 'block';
+    loadData();
+  }, 1400);
+}
+
+function lancerReset() {
+  document.getElementById('lancer-arena').style.display = 'none';
+  document.getElementById('lancer-controls').style.display = 'block';
+  document.getElementById('ld-result').textContent = '';
+  document.getElementById('ld-replay-btn').style.display = 'none';
+  document.getElementById('ld-mise').value = '';
 }
 
 function fillMock() {

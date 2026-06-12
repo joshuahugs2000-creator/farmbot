@@ -576,6 +576,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     background: rgba(0,0,0,.7); backdrop-filter: blur(4px);
     align-items: flex-end; justify-content: center;
   }
+  .cust-tab {
+    padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text2);
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    white-space: nowrap; transition: all .15s; flex-shrink: 0;
+  }
+  .cust-tab.active { background: var(--accent); color: #000; border-color: var(--accent); }
   .customize-sheet {
     background: var(--card);
     border-radius: 20px 20px 0 0;
@@ -923,6 +930,68 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
+  </div>
+
+  <!-- ══ MODAL PERSONNALISATION ══ -->
+  <div id="modal-customize">
+    <div class="customize-sheet">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <div class="customize-title">✏️ Personnaliser mon profil</div>
+        <button id="btn-customize-cancel" style="width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">×</button>
+      </div>
+
+      <!-- Onglets internes -->
+      <div style="display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding-bottom:2px">
+        <button class="cust-tab active" data-tab="colors">🎨 Couleurs</button>
+        <button class="cust-tab" data-tab="fx">✨ Effets</button>
+        <button class="cust-tab" data-tab="badges">🏅 Badges</button>
+        <button class="cust-tab" data-tab="photo">📸 Photo</button>
+      </div>
+
+      <!-- Panneau Couleurs -->
+      <div class="cust-panel" id="cust-panel-colors">
+        <div class="customize-section-label">Couleur du cover</div>
+        <div class="cover-colors" id="cover-colors-grid"></div>
+      </div>
+
+      <!-- Panneau Effets -->
+      <div class="cust-panel" id="cust-panel-fx" style="display:none">
+        <div class="customize-section-label">Effet visuel</div>
+        <div class="cover-effects" id="cover-effects-btns">
+          <button class="fx-btn" data-fx="">Aucun</button>
+          <button class="fx-btn" data-fx="particles">✦ Particules</button>
+          <button class="fx-btn" data-fx="rain">🌧 Pluie</button>
+          <button class="fx-btn" data-fx="snow">❄️ Neige</button>
+          <button class="fx-btn" data-fx="neon">⚡ Néon</button>
+          <button class="fx-btn" data-fx="matrix">🔢 Matrix</button>
+        </div>
+      </div>
+
+      <!-- Panneau Badges -->
+      <div class="cust-panel" id="cust-panel-badges" style="display:none">
+        <div class="customize-section-label">Badges de profil</div>
+        <div class="badge-shop-grid" id="badge-shop-grid"></div>
+      </div>
+
+      <!-- Panneau Photo -->
+      <div class="cust-panel" id="cust-panel-photo" style="display:none">
+        <div class="customize-section-label">Photo de profil</div>
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+          <div id="cust-photo-preview" style="width:72px;height:72px;border-radius:50%;background:var(--card2);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:32px">👤</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px">Photo personnalisée</div>
+            <div style="font-size:11px;color:var(--text2);line-height:1.5">Remplace ta photo Telegram<br>sur la mini app uniquement.</div>
+          </div>
+        </div>
+        <input type="file" id="cust-photo-input" accept="image/*" style="display:none" onchange="onCustPhotoSelected(this)">
+        <button onclick="document.getElementById('cust-photo-input').click()" style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">🖼️ Choisir une photo</button>
+        <div id="cust-photo-status" style="text-align:center;font-size:12px;color:var(--text2);min-height:16px"></div>
+      </div>
+
+      <!-- Bouton Enregistrer tout -->
+      <button id="btn-customize-save" style="margin-top:20px;width:100%;padding:14px;border-radius:14px;border:none;background:var(--accent);color:#000;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px">💾 Enregistrer</button>
+    </div>
   </div>
 
   <!-- ══ PAGE AVATAR ══ -->
@@ -8997,32 +9066,73 @@ function openCustomize() {
   const modal = document.getElementById('modal-customize');
   if (!modal) return;
   modal.style.display = 'flex';
+  // Reset sur onglet couleurs
+  custTab('colors');
   _renderCoverColors();
   _renderFxButtons();
   _renderBadgeShop();
+  // Sync preview photo
+  const avatar = document.querySelector('#pf-avatar-wrap img');
+  const prev = document.getElementById('cust-photo-preview');
+  if (prev && avatar) {
+    prev.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = avatar.src;
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover';
+    prev.appendChild(img);
+  }
 }
 function closeCustomize() {
   const modal = document.getElementById('modal-customize');
   if (modal) modal.style.display = 'none';
 }
+function custTab(name) {
+  document.querySelectorAll('.cust-tab').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  document.querySelectorAll('.cust-panel').forEach(function(p) {
+    p.style.display = p.id === 'cust-panel-' + name ? '' : 'none';
+  });
+}
+
+let _custPhotoBase64 = null;
+function onCustPhotoSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    document.getElementById('cust-photo-status').textContent = '⚠️ Image trop lourde (max 5 Mo)';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    _custPhotoBase64 = e.target.result;
+    const prev = document.getElementById('cust-photo-preview');
+    if (prev) {
+      prev.innerHTML = `<img src="${_custPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
+    }
+    document.getElementById('cust-photo-status').textContent = '✅ Photo prête — clique sur Enregistrer';
+  };
+  reader.readAsDataURL(file);
+}
 function _attachCustomizeListeners() {
-  // Délégation sur document — fonctionne peu importe quand les éléments apparaissent
   document.addEventListener('click', function(e) {
     const t = e.target;
-    // Bouton crayon cover
+    // Crayon cover
     if (t.id === 'btn-cover-edit' || t.closest('#btn-cover-edit')) { openCustomize(); return; }
     // Sauvegarder
-    if (t.id === 'btn-customize-save') { saveCustomize(); return; }
-    // Annuler
-    if (t.id === 'btn-customize-cancel') { closeCustomize(); return; }
-    // Fermer fond modal
+    if (t.id === 'btn-customize-save' || t.closest('#btn-customize-save')) { saveCustomize(); return; }
+    // Annuler / fermer ×
+    if (t.id === 'btn-customize-cancel' || t.closest('#btn-customize-cancel')) { closeCustomize(); return; }
+    // Fermer en cliquant le fond du modal
     if (t.id === 'modal-customize') { closeCustomize(); return; }
+    // Onglets internes cust-tab
+    const tab = t.closest('.cust-tab');
+    if (tab && tab.dataset.tab) { custTab(tab.dataset.tab); return; }
     // Boutons FX
     const fxBtn = t.closest('.fx-btn');
     if (fxBtn && fxBtn.closest('#cover-effects-btns')) { selectFx(fxBtn, fxBtn.dataset.fx); return; }
   });
 }
-// Attacher immédiatement — la délégation sur document fonctionne toujours
 _attachCustomizeListeners();
 function _renderCoverColors() {
   const grid = document.getElementById('cover-colors-grid');
@@ -9115,18 +9225,46 @@ async function buyBadge(id, price) {
 }
 async function saveCustomize() {
   if (!uid) return;
+  const btn = document.getElementById('btn-customize-save');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Enregistrement…'; }
   try {
+    // 1. Sauvegarder couleurs/effets/badges
     const r = await fetchT('/api/webapp/profile/customize', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ user_id: uid, cover_theme: _pfCustom.cover_theme, cover_fx: _pfCustom.cover_fx, badges_equipped: _pfCustom.badges_equipped })
     });
     const d = await r.json();
-    if (d.ok) {
-      showToast('✅ Profil sauvegardé !');
-      closeCustomize();
-    } else { showToast(d.error || 'Erreur'); }
+    if (!d.ok) { showToast(d.error || 'Erreur'); return; }
+
+    // 2. Sauvegarder photo si modifiée
+    if (_custPhotoBase64) {
+      const status = document.getElementById('cust-photo-status');
+      if (status) status.textContent = '📤 Upload photo…';
+      const rp = await fetchT('/api/webapp/profile/photo', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ user_id: uid, photo_b64: _custPhotoBase64 })
+      });
+      const dp = await rp.json();
+      if (dp.ok) {
+        _custPhotoBase64 = null;
+        // Mettre à jour l'avatar affiché
+        const wrap = document.getElementById('pf-avatar-wrap');
+        if (wrap) {
+          wrap.innerHTML = `<img src="${document.getElementById('cust-photo-preview')?.querySelector('img')?.src || ''}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+        }
+      } else {
+        showToast(dp.error || 'Erreur photo');
+      }
+    }
+
+    showToast('✅ Profil sauvegardé !');
+    closeCustomize();
   } catch(e) { showToast('Erreur réseau'); }
+  finally {
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Enregistrer'; }
+  }
 }
 function _renderProfileBadges() {
   const row = document.getElementById('pf-badges-row');

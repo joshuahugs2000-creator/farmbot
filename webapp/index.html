@@ -883,6 +883,46 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
+    <!-- ── PHOTO DE PROFIL ── -->
+    <div class="pf-section">
+      <div class="pf-section-header">📸 Photo de profil</div>
+      <div style="padding:14px 16px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+          <div id="pf-photo-preview" style="width:64px;height:64px;border-radius:50%;background:var(--card2);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:28px">👤</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px">Photo personnalisée</div>
+            <div style="font-size:11px;color:var(--text2);line-height:1.5">Choisir une image depuis ta galerie.<br>Elle remplacera ta photo Telegram sur la mini app.</div>
+          </div>
+        </div>
+        <input type="file" id="pf-photo-input" accept="image/*" style="display:none" onchange="onPhotoSelected(this)">
+        <button onclick="document.getElementById('pf-photo-input').click()" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px">🖼️ Choisir une photo</button>
+        <button id="pf-photo-save-btn" onclick="saveProfilePhoto()" style="display:none;width:100%;padding:12px;border-radius:12px;border:none;background:var(--accent);color:#000;font-size:14px;font-weight:900;cursor:pointer">💾 Enregistrer</button>
+        <div id="pf-photo-status" style="text-align:center;font-size:12px;font-weight:700;min-height:16px;margin-top:4px"></div>
+      </div>
+    </div>
+
+    <!-- ── DIPLÔMES ── -->
+    <div class="pf-section">
+      <div class="pf-section-header">🎓 Diplômes</div>
+      <div style="padding:14px 16px">
+        <div id="pf-dip-domain-wrap" style="display:none;margin-bottom:12px" class="dip-domain-pill">🎓 <span id="pf-dip-domain">—</span></div>
+        <div class="dip-track" id="pf-diplomes-list"></div>
+        <div id="pf-dip-cooldown-card" style="display:none;text-align:center;padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;margin-top:8px">
+          <div style="font-size:22px;margin-bottom:4px">⏳</div>
+          <div style="font-size:11px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">Prochain examen dans</div>
+          <div style="font-size:20px;font-weight:900;color:var(--accent);margin-top:4px;font-family:'Bangers',cursive;letter-spacing:2px" id="pf-dip-cooldown-val">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GAINS ── -->
+    <div class="pf-section" style="margin-bottom:24px">
+      <div class="pf-section-header">💰 Gains quotidiens</div>
+      <div style="padding:14px 16px" id="pf-gains-inner">
+        <div style="text-align:center;padding:20px;color:var(--text2);font-size:13px">Chargement…</div>
+      </div>
+    </div>
+
   </div>
 
   <!-- ══ PAGE AVATAR ══ -->
@@ -4207,7 +4247,7 @@ function saveAvatar() {
 //  NAVIGATION GROUPÉE (5 onglets)
 // ════════════════════════════════════════
 const MAIN_TABS = {
-  moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'},{l:'💰 Gains',p:'gains',fn:'loadGains'},{l:'🎓 Diplômes',p:'diplomes',fn:'loadDiplomes'}], def:'profile' },
+  moi:    { subs:[], def:'profile' },
   eco:    { subs:[], def:'eco-hub' },
   jeux:   { subs:[], def:'games' },
   social: { subs:[], def:'social-hub' },
@@ -4815,6 +4855,16 @@ function fillProfile(d) {
       mkPnl.className = 'stat-value ' + (pnl >= 0 ? 'green' : 'red');
     }
   }
+
+  // Sections intégrées dans la page profil
+  _loadProfileDiplomes();
+  _loadProfileGains();
+
+  // Pré-remplir preview photo
+  const photoPreview = document.getElementById('pf-photo-preview');
+  if (photoPreview && d.photo_file_id) {
+    photoPreview.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.innerHTML='👤'">`;
+  }
 }
 
 
@@ -5031,6 +5081,188 @@ async function loadDiplomes() {
   }
 }
 
+
+
+
+// ════════════════════════════════════════
+//  PROFIL — DIPLÔMES INTÉGRÉS
+// ════════════════════════════════════════
+
+async function _loadProfileDiplomes() {
+  if (!uid) return;
+  const list = document.getElementById('pf-diplomes-list');
+  if (!list) return;
+  try {
+    const r = await fetchT(`/api/webapp/diplomes?user_id=${uid}`, {}, 15000);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    const domWrap = document.getElementById('pf-dip-domain-wrap');
+    if (d.domain) {
+      document.getElementById('pf-dip-domain').textContent = d.domain;
+      domWrap.style.display = '';
+    } else {
+      domWrap.style.display = 'none';
+    }
+
+    list.innerHTML = d.diplomes.map((dip, i) => `
+      <div class="dip-node${dip.obtained ? ' obtained' : ''}" style="${dip.obtained ? `border-color:${DIP_COLORS[i]}44;background:${DIP_COLORS[i]}08;` : ''}">
+        <div class="dip-dot${dip.obtained ? ' done' : ''}" style="${dip.obtained ? `border-color:${DIP_COLORS[i]};` : ''}"></div>
+        <div class="dip-emoji" style="${!dip.obtained ? 'filter:grayscale(1);opacity:.4' : ''}">${dip.obtained ? dip.emoji : '🔒'}</div>
+        <div class="dip-info">
+          <div class="dip-name" style="${dip.obtained ? `color:${DIP_COLORS[i]}` : ''}">${dip.label}</div>
+          <div class="dip-sub">${dip.obtained ? `<span style="color:${DIP_COLORS[i]}">✓ Obtenu</span>` : (dip['prerequis'] ? `Nécessite : ${dip['prerequis']}` : 'Disponible')}</div>
+        </div>
+        ${dip.obtained ? `<div class="dip-check" style="color:${DIP_COLORS[i]}">✦</div>` : ''}
+      </div>
+    `).join('');
+
+    if (d.cooldown_left > 0) {
+      const h = Math.floor(d.cooldown_left / 60);
+      const m = d.cooldown_left % 60;
+      document.getElementById('pf-dip-cooldown-val').textContent = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
+      document.getElementById('pf-dip-cooldown-card').style.display = 'block';
+    } else {
+      document.getElementById('pf-dip-cooldown-card').style.display = 'none';
+    }
+  } catch(e) {
+    if (list) list.innerHTML = `<div style="color:var(--text2);font-size:12px;padding:8px 0">${e.message}</div>`;
+  }
+}
+
+// ════════════════════════════════════════
+//  PROFIL — GAINS INTÉGRÉS
+// ════════════════════════════════════════
+
+async function _loadProfileGains() {
+  if (!uid) return;
+  const inner = document.getElementById('pf-gains-inner');
+  if (!inner) return;
+  try {
+    const r = await fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 15000);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    const dailyAvail = !d.daily_claimed;
+    const workAvail  = d.work_cooldown_left === 0;
+
+    inner.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="background:rgba(247,201,72,0.06);border:1px solid rgba(247,201,72,0.2);border-radius:16px;padding:14px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div style="font-size:22px;width:36px;text-align:center">${dailyAvail ? '🎁' : '⏳'}</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:900;color:var(--text)">Coffre du jour</div>
+              <div style="font-size:11px;color:${dailyAvail ? '#00c864' : 'var(--text2)'};margin-top:1px">${dailyAvail ? '✦ Disponible' : 'Demain'}</div>
+            </div>
+          </div>
+          <button onclick="claimDailyFromProfile()" ${dailyAvail ? '' : 'disabled'}
+            style="width:100%;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:900;cursor:${dailyAvail ? 'pointer' : 'not-allowed'};background:${dailyAvail ? 'var(--accent)' : 'rgba(255,255,255,0.06)'};color:${dailyAvail ? '#000' : 'var(--text2)'}">
+            🎁 Récupérer
+          </button>
+          <div id="pf-daily-result" style="text-align:center;font-size:12px;font-weight:700;min-height:16px;margin-top:6px"></div>
+        </div>
+        <div style="background:rgba(108,99,255,0.06);border:1px solid rgba(108,99,255,0.2);border-radius:16px;padding:14px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div style="font-size:22px;width:36px;text-align:center">${workAvail ? '💼' : '⏳'}</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:900;color:var(--text)">Travail</div>
+              <div style="font-size:11px;color:${workAvail ? '#00c864' : 'var(--text2)'};margin-top:1px">${workAvail ? '✦ Prêt à travailler' : `Repos — ${_fmtCooldown(d.work_cooldown_left)}`}</div>
+            </div>
+          </div>
+          <button onclick="claimWorkFromProfile()" ${workAvail ? '' : 'disabled'}
+            style="width:100%;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:900;cursor:${workAvail ? 'pointer' : 'not-allowed'};background:${workAvail ? '#6c63ff' : 'rgba(255,255,255,0.06)'};color:${workAvail ? '#fff' : 'var(--text2)'}">
+            💼 Travailler
+          </button>
+          <div id="pf-work-result" style="text-align:center;font-size:12px;font-weight:700;min-height:16px;margin-top:6px"></div>
+        </div>
+      </div>
+    `;
+  } catch(e) {
+    if (inner) inner.innerHTML = `<div style="color:var(--text2);font-size:12px;padding:8px 0">Chargement impossible</div>`;
+  }
+}
+
+function _fmtCooldown(mins) {
+  if (!mins) return '—';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
+}
+
+async function claimDailyFromProfile() {
+  const btn = document.querySelector('#pf-gains-inner button');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetchT('/api/webapp/daily', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
+    const d = await r.json();
+    const res = document.getElementById('pf-daily-result');
+    if (res) res.textContent = d.ok ? `✅ ${d.msg}` : `❌ ${d.error}`;
+    if (d.ok) setTimeout(() => _loadProfileGains(), 1200);
+  } catch(e) {}
+}
+
+async function claimWorkFromProfile() {
+  try {
+    const r = await fetchT('/api/webapp/work', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
+    const d = await r.json();
+    const res = document.getElementById('pf-work-result');
+    if (res) res.textContent = d.ok ? `✅ ${d.msg}` : `❌ ${d.error}`;
+    if (d.ok) setTimeout(() => _loadProfileGains(), 1200);
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════
+//  PROFIL — PHOTO
+// ════════════════════════════════════════
+
+let _pendingPhotoBase64 = null;
+
+function onPhotoSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('Image trop lourde (max 5 Mo)'); return; }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    _pendingPhotoBase64 = e.target.result; // data:image/jpeg;base64,...
+    const preview = document.getElementById('pf-photo-preview');
+    if (preview) preview.innerHTML = `<img src="${_pendingPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
+    const saveBtn = document.getElementById('pf-photo-save-btn');
+    if (saveBtn) saveBtn.style.display = 'block';
+    const status = document.getElementById('pf-photo-status');
+    if (status) status.textContent = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveProfilePhoto() {
+  if (!_pendingPhotoBase64 || !uid) return;
+  const saveBtn = document.getElementById('pf-photo-save-btn');
+  const status  = document.getElementById('pf-photo-status');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Envoi…'; }
+  try {
+    const r = await fetchT('/api/webapp/profile/photo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: uid, photo_base64: _pendingPhotoBase64 })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      if (status) status.textContent = '✅ Photo enregistrée !';
+      if (saveBtn) saveBtn.style.display = 'none';
+      _pendingPhotoBase64 = null;
+      // Mettre à jour aussi l'avatar dans le header
+      const wrap = document.getElementById('pf-avatar-wrap');
+      if (wrap) wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${Date.now()}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
+    } else {
+      if (status) status.textContent = `❌ ${d.error || 'Erreur'}`;
+    }
+  } catch(e) {
+    if (status) status.textContent = '❌ Erreur réseau';
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Enregistrer'; }
+  }
+}
 
 // ════════════════════════════════════════
 //  MARCHÉ

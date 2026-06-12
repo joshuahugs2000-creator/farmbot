@@ -1712,7 +1712,103 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   .eco-push-content { padding: 16px; }
 
   /* ── HUB LAYOUT ── */
-  #page-eco-hub { padding: 16px; }
+  /* ══ ECO HUB REDESIGN ══ */
+  #page-eco-hub { padding: 14px 14px 30px; overflow-y: auto; }
+
+  /* HERO */
+  .eco-hero-card {
+    background: #141428; border: 1px solid rgba(0,212,212,.18);
+    border-radius: 22px; padding: 20px 18px 16px;
+    margin-bottom: 12px; position: relative; overflow: hidden;
+  }
+  .eco-hero-card::before {
+    content:''; position:absolute; inset:0;
+    background: radial-gradient(ellipse at 85% -5%, rgba(0,212,212,.09) 0%, transparent 55%);
+    pointer-events:none;
+  }
+  .eco-hero-eyebrow { font-size:10px;font-weight:900;color:#00d4d4;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:6px; }
+  .eco-hero-amount { font-family:'Courier New',monospace;font-size:36px;font-weight:900;color:#f0f0f0;letter-spacing:-1px;line-height:1; }
+  .eco-hero-amount sup { font-size:17px;color:rgba(240,240,240,.38);margin-left:4px;font-family:'Nunito',sans-serif; }
+  .eco-hero-sub-lbl { font-size:10px;color:rgba(240,240,240,.3);margin-top:4px;margin-bottom:12px; }
+  .eco-sparkline { width:100%;height:36px;display:block;margin-bottom:12px; }
+  .eco-splits { display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px; }
+  .eco-split { background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:11px;padding:8px 9px; }
+  .eco-split-lbl { font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:rgba(240,240,240,.3);margin-bottom:3px; }
+  .eco-split-val { font-family:'Courier New',monospace;font-size:12px;font-weight:900; }
+
+  /* QUICK ACTIONS */
+  .eco-qactions { display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:12px; }
+  .eco-qbtn { background:#141428;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:10px 4px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;transition:transform .1s;-webkit-tap-highlight-color:transparent; }
+  .eco-qbtn:active { transform:scale(.94); }
+  .eco-qbtn-icon { width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px; }
+  .eco-qbtn-lbl { font-size:9px;font-weight:800;color:rgba(240,240,240,.38);letter-spacing:.3px;text-align:center; }
+
+  /* ACCORDION */
+  .eco-acc-list { display:flex;flex-direction:column;gap:8px; }
+  .eco-acc-item { background:#141428;border:1px solid rgba(255,255,255,.07);border-radius:18px;overflow:hidden;transition:border-color .2s; }
+  .eco-acc-item.open { border-color:rgba(0,212,212,.22); }
+  .eco-acc-head { display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none; }
+  .eco-acc-head:active { background:rgba(255,255,255,.03); }
+  .eco-acc-icon { width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0; }
+  .eco-acc-info { flex:1;min-width:0; }
+  .eco-acc-name { font-size:14px;font-weight:900;color:#f0f0f0; }
+  .eco-acc-sub { font-size:10px;color:rgba(240,240,240,.35);font-weight:700;margin-top:2px; }
+  .eco-acc-right { display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0; }
+  .eco-acc-val { font-family:'Courier New',monospace;font-size:13px;font-weight:900; }
+  .eco-acc-chevron { font-size:16px;color:rgba(240,240,240,.25);transition:transform .25s;flex-shrink:0;margin-left:6px; }
+  .eco-acc-item.open .eco-acc-chevron { transform:rotate(180deg); }
+  .eco-acc-notif { background:#ff6b6b;color:#fff;font-size:8px;font-weight:900;padding:2px 6px;border-radius:20px;animation:ecoNotifPulse 1.5s infinite; }
+  @keyframes ecoNotifPulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,107,107,.5)} 50%{box-shadow:0 0 0 5px rgba(255,107,107,0)} }
+  .eco-acc-body { max-height:0;overflow:hidden;transition:max-height .32s cubic-bezier(0.4,0,0.2,1); }
+  .eco-acc-item.open .eco-acc-body { max-height:700px; }
+  .eco-acc-inner { padding:0 16px 16px;border-top:1px solid rgba(255,255,255,.05); }
+
+  /* inside body */
+  .eco-stat-row { display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05); }
+  .eco-stat-row:last-of-type { border-bottom:none; }
+  .eco-stat-key { font-size:12px;color:rgba(240,240,240,.4);font-weight:700; }
+  .eco-stat-v { font-family:'Courier New',monospace;font-size:13px;font-weight:900; }
+  .eco-metrics-grid { display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin:12px 0 10px; }
+  .eco-metric-cell { background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center; }
+  .eco-metric-v { font-family:'Courier New',monospace;font-size:12px;font-weight:900;color:#f7c948; }
+  .eco-metric-l { font-size:8px;color:rgba(240,240,240,.3);font-weight:700;text-transform:uppercase;letter-spacing:.8px;margin-top:2px; }
+  .eco-badge-row { display:flex;gap:6px;flex-wrap:wrap;margin-top:8px; }
+  .eco-ebadge { font-size:9px;font-weight:900;padding:3px 8px;border-radius:20px;letter-spacing:.4px; }
+  .eco-acc-btn { width:100%;margin-top:12px;padding:10px;border-radius:12px;border:none;cursor:pointer;font-size:12px;font-weight:900;letter-spacing:.5px;transition:opacity .15s;-webkit-tap-highlight-color:transparent; }
+  .eco-acc-btn:active { opacity:.7; }
+  .eco-mini-item { display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05); }
+  .eco-mini-item:last-of-type { border-bottom:none; }
+  .eco-mini-tag { font-size:10px;font-weight:700;color:rgba(240,240,240,.35); }
+  .eco-mini-val { font-family:'Courier New',monospace;font-size:12px;font-weight:900; }
+  .eco-prog-bar { height:4px;background:rgba(255,255,255,.07);border-radius:99px;margin-top:7px;overflow:hidden; }
+  .eco-prog-fill { height:100%;border-radius:99px; }
+  .eco-contrat-item { padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05); }
+  .eco-contrat-item:last-of-type { border-bottom:none; }
+  .eco-contrat-title { font-size:11px;font-weight:800;color:#f0f0f0;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .eco-contrat-row { display:flex;justify-content:space-between;align-items:center; }
+  .eco-contrat-pct { font-size:10px;color:rgba(240,240,240,.35); }
+  .eco-contrat-reward { font-family:'Courier New',monospace;font-size:11px;font-weight:900;color:#fdcb6e; }
+  .eco-claim-badge { background:rgba(85,239,196,.1);border:1px solid rgba(85,239,196,.25);color:#55efc4;font-size:9px;font-weight:900;padding:2px 7px;border-radius:20px; }
+
+  /* keep nav badge */
+  .hub-wallet-card { display:none; }
+  .nav-notif-badge {
+    position: absolute; top: 2px; right: 2px;
+    background: #ff6b6b; color: #fff;
+    font-size: 9px; font-weight: 900;
+    min-width: 14px; height: 14px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 3px; pointer-events: none;
+    box-shadow: 0 2px 6px rgba(255,107,107,.6);
+  }
+  .nav-btn { position: relative; }
+
+  /* legacy – keep shimmer for company accent */
+  @keyframes shimmer { 0%{background-position:0%} 100%{background-position:200%} }
+
+  /* OLD HUB CLASSES – hidden, kept for JS compat */
+  .hub-wallet-card,
+  .hub-pay-banner { display:none!important; }
 
   .hub-wallet-card {
     border-radius: 28px; padding: 26px 22px 22px;
@@ -1914,100 +2010,143 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE HUB ÉCONOMIE ══ -->
   <div class="page" id="page-eco-hub">
-    <!-- Portefeuille -->
-    <div class="hub-wallet-card">
-      <div class="hub-wallet-glow"></div>
-      <div class="hub-wallet-glow2"></div>
-      <div class="hub-wallet-top">
-        <div class="hub-wallet-icon-wrap">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#55efc4" stroke-width="2" stroke-linecap="round">
-            <path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
-          </svg>
+
+    <!-- HERO FORTUNE -->
+    <div class="eco-hero-card">
+      <div class="eco-hero-eyebrow">Fortune nette</div>
+      <div class="eco-hero-amount" id="hub-wallet-amount">—<sup>$</sup></div>
+      <div class="eco-hero-sub-lbl">Poche · Banque · Portfolio</div>
+      <svg class="eco-sparkline" id="eco-sparkline-svg" viewBox="0 0 340 36" preserveAspectRatio="none">
+        <defs><linearGradient id="ecoSparkGrad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#00d4d4" stop-opacity=".25"/><stop offset="100%" stop-color="#00d4d4" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,28 C40,26 80,22 120,16 S200,8 260,5 S310,3 340,2" fill="none" stroke="#00d4d4" stroke-width="1.5" stroke-linecap="round" opacity=".7"/>
+        <path d="M0,28 C40,26 80,22 120,16 S200,8 260,5 S310,3 340,2 L340,36 L0,36 Z" fill="url(#ecoSparkGrad)"/>
+      </svg>
+      <div class="eco-splits">
+        <div class="eco-split">
+          <div class="eco-split-lbl">Poche</div>
+          <div class="eco-split-val" style="color:#00d4d4" id="hub-split-pocket">—</div>
+        </div>
+        <div class="eco-split">
+          <div class="eco-split-lbl">Banque</div>
+          <div class="eco-split-val" style="color:#55efc4" id="hub-split-bank">—</div>
+        </div>
+        <div class="eco-split">
+          <div class="eco-split-lbl">Portfolio</div>
+          <div class="eco-split-val" style="color:#74b9ff" id="hub-split-portfolio">—</div>
         </div>
       </div>
-      <div class="hub-wallet-label">Portefeuille</div>
-      <div class="hub-wallet-amount" id="hub-wallet-amount">—<span class="hub-wallet-amount-unit">$</span></div>
-      <div class="hub-wallet-sub">Solde disponible en poche</div>
-      <div class="hub-wallet-actions">
-        <button class="hub-wallet-btn wsend" onclick="ecoGo('pay')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          Envoyer
-        </button>
-        <button class="hub-wallet-btn whist" onclick="ecoGo('bank')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          Historique
-        </button>
+    </div>
+
+    <!-- QUICK ACTIONS -->
+    <div class="eco-qactions">
+      <div class="eco-qbtn" onclick="ecoGo('pay')">
+        <div class="eco-qbtn-icon" style="background:rgba(0,212,212,.12);border:1px solid rgba(0,212,212,.2)">➤</div>
+        <div class="eco-qbtn-lbl">Envoyer</div>
+      </div>
+      <div class="eco-qbtn" onclick="ecoGo('bank')">
+        <div class="eco-qbtn-icon" style="background:rgba(85,239,196,.12);border:1px solid rgba(85,239,196,.2)">↓</div>
+        <div class="eco-qbtn-lbl">Déposer</div>
+      </div>
+      <div class="eco-qbtn" onclick="ecoGo('market')">
+        <div class="eco-qbtn-icon" style="background:rgba(116,185,255,.12);border:1px solid rgba(116,185,255,.2)">★</div>
+        <div class="eco-qbtn-lbl">Investir</div>
       </div>
     </div>
 
-    <!-- Virement rapide -->
-    <div class="hub-pay-banner" onclick="ecoGo('pay')">
-      <div class="hub-pay-icon-wrap">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#a29bfe" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>
-        </svg>
-      </div>
-      <div>
-        <div class="hub-pay-text-title">Envoyer de l'argent</div>
-        <div class="hub-pay-text-sub">Virement instantané vers un joueur</div>
-      </div>
-      <div class="hub-pay-arrow">›</div>
-    </div>
+    <!-- ACCORDÉONS -->
+    <div class="eco-acc-list">
 
-    <!-- Section Banque -->
-    <div class="hub-section">
-      <div class="hub-section-header">
-        <div class="hub-section-title"><span class="hub-section-dot bank"></span>Banque</div>
-        <div class="hub-section-see-all" onclick="ecoGo('bank')">Tout voir</div>
+      <!-- BANQUE -->
+      <div class="eco-acc-item" id="eco-acc-bank">
+        <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-bank')">
+          <div class="eco-acc-icon" style="background:rgba(85,239,196,.1);border:1px solid rgba(85,239,196,.18)">🏦</div>
+          <div class="eco-acc-info">
+            <div class="eco-acc-name">Banque</div>
+            <div class="eco-acc-sub" id="eco-acc-bank-sub">Chargement…</div>
+          </div>
+          <div class="eco-acc-right">
+            <div class="eco-acc-val" style="color:#55efc4" id="eco-acc-bank-val">—</div>
+          </div>
+          <div class="eco-acc-chevron">⌄</div>
+        </div>
+        <div class="eco-acc-body">
+          <div class="eco-acc-inner" id="eco-acc-bank-body">
+            <div style="color:var(--text2);font-size:12px;padding:12px 0;text-align:center">Chargement…</div>
+          </div>
+        </div>
       </div>
-      <div class="hub-scroll-row" id="hub-bank-cards">
-        <div style="color:var(--text2);font-size:12px;padding:10px 0">Chargement...</div>
-      </div>
-    </div>
 
-    <!-- Section Marché -->
-    <div class="hub-section">
-      <div class="hub-section-header">
-        <div class="hub-section-title"><span class="hub-section-dot market"></span>Marché</div>
-        <div class="hub-section-see-all" onclick="ecoGo('market')">Tout voir</div>
+      <!-- MARCHÉ / PORTFOLIO -->
+      <div class="eco-acc-item" id="eco-acc-market">
+        <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-market')">
+          <div class="eco-acc-icon" style="background:rgba(116,185,255,.1);border:1px solid rgba(116,185,255,.18)">📈</div>
+          <div class="eco-acc-info">
+            <div class="eco-acc-name">Marché</div>
+            <div class="eco-acc-sub" id="eco-acc-market-sub">Chargement…</div>
+          </div>
+          <div class="eco-acc-right">
+            <div class="eco-acc-val" style="color:#74b9ff" id="eco-acc-market-val">—</div>
+            <div style="font-size:10px;font-weight:800" id="eco-acc-market-pnl"></div>
+          </div>
+          <div class="eco-acc-chevron">⌄</div>
+        </div>
+        <div class="eco-acc-body">
+          <div class="eco-acc-inner" id="eco-acc-market-body">
+            <div style="color:var(--text2);font-size:12px;padding:12px 0;text-align:center">Chargement…</div>
+          </div>
+        </div>
       </div>
-      <div class="hub-scroll-row" id="hub-market-cards">
-        <div style="color:var(--text2);font-size:12px;padding:10px 0">Chargement...</div>
-      </div>
-    </div>
 
-    <!-- Section Entreprise -->
-    <div class="hub-section">
-      <div class="hub-section-header">
-        <div class="hub-section-title"><span class="hub-section-dot company"></span>Mon Entreprise</div>
-        <div class="hub-section-see-all" onclick="ecoGo('company')">Gérer</div>
-      </div>
+      <!-- ENTREPRISE(S) -->
       <div id="hub-company-area">
-        <div style="color:var(--text2);font-size:12px;padding:10px 0">Chargement...</div>
+        <div style="color:var(--text2);font-size:12px;padding:10px 0">Chargement…</div>
       </div>
-    </div>
 
-    <!-- Section Parts -->
-    <div class="hub-section">
-      <div class="hub-section-header">
-        <div class="hub-section-title"><span class="hub-section-dot parts"></span>Parts</div>
-        <div class="hub-section-see-all" onclick="ecoGo('parts')">Tout voir</div>
+      <!-- PARTS -->
+      <div class="eco-acc-item" id="eco-acc-parts">
+        <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-parts')">
+          <div class="eco-acc-icon" style="background:rgba(0,206,201,.1);border:1px solid rgba(0,206,201,.18)">📜</div>
+          <div class="eco-acc-info">
+            <div class="eco-acc-name">Parts</div>
+            <div class="eco-acc-sub" id="eco-acc-parts-sub">Chargement…</div>
+          </div>
+          <div class="eco-acc-right">
+            <div class="eco-acc-val" style="color:#00cec9" id="eco-acc-parts-val">—</div>
+          </div>
+          <div class="eco-acc-chevron">⌄</div>
+        </div>
+        <div class="eco-acc-body">
+          <div class="eco-acc-inner" id="eco-acc-parts-body">
+            <div style="color:var(--text2);font-size:12px;padding:12px 0;text-align:center">Chargement…</div>
+          </div>
+        </div>
       </div>
-      <div class="hub-scroll-row" id="hub-parts-cards">
-        <div style="color:var(--text2);font-size:12px;padding:10px 0">Chargement...</div>
-      </div>
-    </div>
 
-    <!-- Section Contrats -->
-    <div class="hub-section">
-      <div class="hub-section-header">
-        <div class="hub-section-title"><span class="hub-section-dot contrats"></span>Contrats Bureau</div>
-        <div class="hub-section-see-all" onclick="ecoGo('contrats')">Tout voir</div>
+      <!-- CONTRATS BC -->
+      <div class="eco-acc-item" id="eco-acc-contrats">
+        <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-contrats')">
+          <div class="eco-acc-icon" style="background:rgba(253,203,110,.1);border:1px solid rgba(253,203,110,.18)">📋</div>
+          <div class="eco-acc-info">
+            <div class="eco-acc-name">Contrats Bureau</div>
+            <div class="eco-acc-sub" id="eco-acc-contrats-sub">Chargement…</div>
+          </div>
+          <div class="eco-acc-right" id="eco-acc-contrats-right"></div>
+          <div class="eco-acc-chevron">⌄</div>
+        </div>
+        <div class="eco-acc-body">
+          <div class="eco-acc-inner" id="eco-acc-contrats-body">
+            <div style="color:var(--text2);font-size:12px;padding:12px 0;text-align:center">Chargement…</div>
+          </div>
+        </div>
       </div>
-      <div class="hub-scroll-row" id="hub-contrats-cards">
-        <div style="color:var(--text2);font-size:12px;padding:10px 0">Chargement...</div>
-      </div>
-    </div>
+
+    </div><!-- /acc-list -->
+
+    <!-- Legacy hidden containers (JS compat) -->
+    <div id="hub-bank-cards" style="display:none"></div>
+    <div id="hub-market-cards" style="display:none"></div>
+    <div id="hub-parts-cards" style="display:none"></div>
+    <div id="hub-contrats-cards" style="display:none"></div>
   </div>
 
   <!-- ══ PAGE MARCHÉ ══ -->
@@ -3908,184 +4047,258 @@ function showPage(name, btn) {
 // ════════════════════════════════════════
 //  HUB ÉCONOMIE
 // ════════════════════════════════════════
+// ── ECO HUB ACCORDION TOGGLE ────────────────
+function ecoAccToggle(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('open');
+}
+
+// ── LOAD ECO HUB ────────────────────────────
 async function loadEcoHub() {
   if (!uid) return;
   try {
-    // Solde poche via bank endpoint
     const pd = await apiFetch('/bank');
-    if (pd?.wallet) {
-      const amtEl = document.getElementById('hub-wallet-amount');
-      if (amtEl) amtEl.innerHTML = pd.wallet + '<span class="hub-wallet-amount-unit">$</span>';
-    }
-    loadHubBank(pd);
-    loadHubMarket();
-    loadHubCompany();
-    loadHubParts();
-    loadHubContrats();
+    // wallet amount (poche)
+    const wallet = pd?.wallet_raw ?? pd?.wallet ?? 0;
+    const amtEl = document.getElementById('hub-wallet-amount');
+    if (amtEl) amtEl.innerHTML = fmt(wallet) + '<sup>$</sup>';
+    const splitPocket = document.getElementById('hub-split-pocket');
+    if (splitPocket) splitPocket.textContent = fmt(wallet) + ' $';
+
+    ecoLoadAccBank(pd);
+    ecoLoadAccMarket();
+    ecoLoadAccCompany();
+    ecoLoadAccParts();
+    ecoLoadAccContrats();
     pollEcoNotifs();
   } catch(e) {}
 }
 
-async function loadHubBank(prefetched) {
-  const el = document.getElementById('hub-bank-cards');
-  if (!el) return;
+// ── BANQUE ───────────────────────────────────
+async function ecoLoadAccBank(prefetched) {
+  const body = document.getElementById('eco-acc-bank-body');
+  const sub  = document.getElementById('eco-acc-bank-sub');
+  const val  = document.getElementById('eco-acc-bank-val');
+  const splitBank = document.getElementById('hub-split-bank');
+  if (!body) return;
   try {
     const d = prefetched || await apiFetch('/bank');
-    if (!d) { el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('bank')"><div class="add-icon">🏦</div><div class="add-label">Voir la banque</div></div>`; return; }
-    const accounts = d.accounts || [];
+    const accounts = d?.accounts || [];
+    const loans = d?.loans || [];
+    const totalBank = accounts.reduce((s, a) => s + (a.balance_raw || a.balance || 0), 0);
+    if (val) val.textContent = fmt(totalBank) + ' $';
+    if (splitBank) splitBank.textContent = fmt(totalBank) + ' $';
+    if (sub) sub.textContent = accounts.length ? `${accounts.length} compte${accounts.length>1?'s':''} actif${accounts.length>1?'s':''}` : 'Aucun compte';
     if (!accounts.length) {
-      el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('bank')">
-        <div class="add-icon">🏦</div>
-        <div class="add-label">Ouvrir un compte bancaire</div>
+      body.innerHTML = `<div style="padding:14px 0;text-align:center">
+        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">Aucun compte bancaire</div>
+        <button class="eco-acc-btn" style="background:rgba(85,239,196,.08);color:#55efc4;border:1px solid rgba(85,239,196,.2)" onclick="ecoGo('bank')">Ouvrir un compte →</button>
       </div>`;
       return;
     }
-    el.innerHTML = accounts.map(a => `
-      <div class="hub-card bank-accent" onclick="ecoGo('bank')">
-        <div class="hub-card-accent"></div>
-        <div class="hub-card-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7 12 2"/></svg></div>
-        <div class="hub-card-name">${a.name||'Compte'}</div>
-        <div class="hub-card-val">${a.balance||'—'} $</div>
-        <div class="hub-card-sub">Taux ${a.interest_rate||0}%</div>
-      </div>`
-    ).join('') + `<div class="hub-card add-card" onclick="ecoGo('bank')">
-      <div class="add-icon">+</div>
-      <div class="add-label">Ouvrir un autre compte</div>
-    </div>`;
-  } catch(e) { el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('bank')"><div class="add-icon">🏦</div><div class="add-label">Banque</div></div>`; }
+    const accsHtml = accounts.map(a => {
+      const bal = a.balance_raw || a.balance || 0;
+      const cap = a.max_balance || a.cap || 0;
+      const pct = cap ? Math.min(100, Math.round(bal/cap*100)) : 0;
+      return `<div class="eco-mini-item" style="flex-direction:column;align-items:stretch;gap:5px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:12px;font-weight:900;color:#f0f0f0">${a.name||'Compte'}</div>
+            <div class="eco-mini-tag">Taux ${a.interest_rate||0}%${cap?' · cap '+fmt(cap)+' $':''}</div>
+          </div>
+          <div class="eco-mini-val" style="color:#55efc4">${fmt(bal)} $</div>
+        </div>
+        ${cap ? `<div class="eco-prog-bar"><div class="eco-prog-fill" style="width:${pct}%;background:#55efc4"></div></div>` : ''}
+      </div>`;
+    }).join('');
+    const loanHtml = loans.length ? `
+      <div style="height:2px;background:rgba(255,255,255,.04);margin:4px 0"></div>
+      ${loans.map(l => `<div class="eco-stat-row"><span class="eco-stat-key">💳 Prêt — ${l.label||'en cours'}</span><span class="eco-stat-v" style="color:#ff6b6b">−${fmt(l.amount_raw||l.amount||0)} $</span></div>`).join('')}` : '';
+    body.innerHTML = accsHtml + loanHtml + `<button class="eco-acc-btn" style="background:rgba(85,239,196,.08);color:#55efc4;border:1px solid rgba(85,239,196,.2)" onclick="ecoGo('bank')">Gérer la banque →</button>`;
+  } catch(e) { if(body) body.innerHTML = `<button class="eco-acc-btn" style="background:rgba(85,239,196,.08);color:#55efc4;border:1px solid rgba(85,239,196,.2)" onclick="ecoGo('bank')">Voir la banque →</button>`; }
 }
 
-async function loadHubMarket() {
-  const el = document.getElementById('hub-market-cards');
-  if (!el) return;
+// ── MARCHÉ ───────────────────────────────────
+async function ecoLoadAccMarket() {
+  const body = document.getElementById('eco-acc-market-body');
+  const sub  = document.getElementById('eco-acc-market-sub');
+  const val  = document.getElementById('eco-acc-market-val');
+  const pnlEl = document.getElementById('eco-acc-market-pnl');
+  const splitPortfolio = document.getElementById('hub-split-portfolio');
+  if (!body) return;
   try {
     const d = await apiFetch('/portfolio');
     const positions = d?.positions || [];
+    const totalVal = d?.total_current ?? positions.reduce((s,p) => s+(p.cur_total_raw||0),0);
+    const totalPnl = d?.total_pnl ?? 0;
+    if (val) val.textContent = fmt(totalVal) + ' $';
+    if (splitPortfolio) splitPortfolio.textContent = fmt(totalVal) + ' $';
+    if (pnlEl) { pnlEl.textContent = (totalPnl>=0?'+':'')+fmt(totalPnl)+' $'; pnlEl.style.color = totalPnl>=0?'#55efc4':'#ff6b6b'; }
+    if (sub) sub.textContent = positions.length ? `${positions.length} position${positions.length>1?'s':''}` : 'Aucune position';
     if (!positions.length) {
-      el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('market')">
-        <div class="add-icon">📈</div>
-        <div class="add-label">Explorer le marché financier</div>
+      body.innerHTML = `<div style="padding:14px 0;text-align:center">
+        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">Portfolio vide</div>
+        <button class="eco-acc-btn" style="background:rgba(116,185,255,.08);color:#74b9ff;border:1px solid rgba(116,185,255,.2)" onclick="ecoGo('market')">Explorer le marché →</button>
       </div>`;
       return;
     }
-    el.innerHTML = positions.slice(0,4).map(p => {
-      const pnlColor = p.pnl_positive ? 'var(--success)' : '#ff6b6b';
-      return `<div class="hub-card market-accent" onclick="ecoGo('market')">
-        <div class="hub-card-accent"></div>
-        <div class="hub-card-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
-        <div class="hub-card-name">${p.name||'Asset'}</div>
-        <div class="hub-card-val">${p.cur_total_fmt||'—'} $</div>
-        <div class="hub-card-sub" style="color:${pnlColor}">${p.pnl_fmt||'—'}</div>
+    body.innerHTML = positions.slice(0,5).map(p => {
+      const pnlPos = p.pnl_positive ?? (p.pnl_raw>=0);
+      return `<div class="eco-mini-item">
+        <div>
+          <div style="font-size:12px;font-weight:900;color:#f0f0f0">${p.name||'Asset'}</div>
+          <div class="eco-mini-tag">${p.category||''}${p.quantity?' · '+p.quantity+' u':''}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="eco-mini-val" style="color:#74b9ff">${p.cur_total_fmt||fmt(p.cur_total_raw||0)} $</div>
+          <div style="font-size:10px;font-weight:800;color:${pnlPos?'#55efc4':'#ff6b6b'}">${p.pnl_fmt||(p.pnl_raw>=0?'+':'')+fmt(p.pnl_raw||0)+' $'}</div>
+        </div>
       </div>`;
-    }).join('') + `<div class="hub-card add-card" onclick="ecoGo('market')">
-      <div class="add-icon">+</div>
-      <div class="add-label">Voir tout le portfolio</div>
-    </div>`;
-  } catch(e) { el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('market')"><div class="add-icon">📈</div><div class="add-label">Marché</div></div>`; }
+    }).join('') + `<button class="eco-acc-btn" style="background:rgba(116,185,255,.08);color:#74b9ff;border:1px solid rgba(116,185,255,.2)" onclick="ecoGo('market')">Voir le catalogue →</button>`;
+  } catch(e) { if(body) body.innerHTML = `<button class="eco-acc-btn" style="background:rgba(116,185,255,.08);color:#74b9ff;border:1px solid rgba(116,185,255,.2)" onclick="ecoGo('market')">Marché →</button>`; }
 }
 
-async function loadHubCompany() {
-  const el = document.getElementById('hub-company-area');
-  if (!el) return;
+// ── ENTREPRISE(S) ─────────────────────────────
+async function ecoLoadAccCompany() {
+  const area = document.getElementById('hub-company-area');
+  if (!area) return;
   try {
     const d = await apiFetch('/company');
-    const co = d?.company;
-    if (!co) {
-      el.innerHTML = `<div class="hub-card add-card" style="width:100%;min-height:90px" onclick="ecoGo('company')">
-        <div class="add-icon">🏗️</div>
-        <div class="add-label">Postuler dans une entreprise ou en créer une</div>
+    const companies = d?.companies || (d?.company ? [d.company] : []);
+    if (!companies.length) {
+      area.innerHTML = `<div class="eco-acc-item" style="border-style:dashed;border-color:rgba(255,255,255,.1)" onclick="ecoGo('company')">
+        <div class="eco-acc-head" style="cursor:pointer">
+          <div class="eco-acc-icon" style="background:rgba(247,201,72,.08);border:1px solid rgba(247,201,72,.15)">🏗️</div>
+          <div class="eco-acc-info">
+            <div class="eco-acc-name" style="color:rgba(240,240,240,.5)">Pas encore d'entreprise</div>
+            <div class="eco-acc-sub">Postuler ou créer la tienne</div>
+          </div>
+        </div>
       </div>`;
       return;
     }
-    const roleMap = { pdg:'👑 PDG', directeur:'🎯 Directeur', employe:'👤 Employé' };
-    const role = co.is_pdg ? '👑 PDG' : roleMap[co.my_role] || '👤 Employé';
-    const emoji = co.sector_emoji || '🏢';
-    el.innerHTML = `<div class="hub-company-card" onclick="ecoGo('company')">
-      <div class="hub-company-accent"></div>
-      <div class="hub-company-glow"></div>
-      <div class="hub-company-row">
-        <div class="hub-company-logo">${emoji}</div>
-        <div>
-          <div class="hub-company-name">${co.name||'—'}</div>
-          <div class="hub-company-role">${role}</div>
+    const roleMap = { pdg:'👑 PDG', directeur:'🎯 Directeur', manager:'📊 Manager', employe:'👤 Employé', stagiaire:'🎓 Stagiaire' };
+    area.innerHTML = companies.map((co, idx) => {
+      const isPdg = co.is_pdg || co.my_role === 'pdg';
+      const role = isPdg ? '👑 PDG' : roleMap[co.my_role] || '👤 Employé';
+      const emoji = co.sector_emoji || '🏢';
+      const hasTax = co.tax_debt && co.tax_debt > 0;
+      const accId = `eco-acc-co-${idx}`;
+      const accentColor = isPdg ? '#f7c948' : '#a29bfe';
+      const accentBg = isPdg ? 'rgba(247,201,72,.1)' : 'rgba(162,155,254,.1)';
+      const accentBorder = isPdg ? 'rgba(247,201,72,.2)' : 'rgba(162,155,254,.2)';
+      const stripeGrad = isPdg
+        ? 'linear-gradient(90deg,#f7c948,#e17055,#f7c948);background-size:200%;animation:shimmer 3s linear infinite'
+        : 'linear-gradient(90deg,#6c5ce7,#a29bfe)';
+      const bodyHtml = `<div class="eco-acc-inner">
+        ${isPdg ? `<div class="eco-metrics-grid">
+          <div class="eco-metric-cell"><div class="eco-metric-v">${fmt(co.treasury_raw||co.treasury||0)} $</div><div class="eco-metric-l">Tréso</div></div>
+          <div class="eco-metric-cell"><div class="eco-metric-v">${co.nb_employees||0}</div><div class="eco-metric-l">Équipe</div></div>
+          <div class="eco-metric-cell"><div class="eco-metric-v">${'★'.repeat(Math.min(5,co.reputation||0))}</div><div class="eco-metric-l">Réputation</div></div>
         </div>
-      </div>
-      <div class="hub-company-stats">
-        <div class="hub-company-stat">
-          <div class="hub-company-stat-val">${fmt(co.treasury_raw)}</div>
-          <div class="hub-company-stat-label">Trésorerie</div>
+        ${co.contracts_auto_count ? `<div class="eco-stat-row"><span class="eco-stat-key">Contrats auto</span><span class="eco-stat-v" style="color:#fdcb6e">${co.contracts_auto_count}</span></div>` : ''}
+        ${co.pending_applications ? `<div class="eco-stat-row"><span class="eco-stat-key">Candidatures</span><span class="eco-stat-v" style="color:#f7c948">${co.pending_applications}</span></div>` : ''}` :
+        `<div class="eco-stat-row"><span class="eco-stat-key">Salaire hebdo</span><span class="eco-stat-v" style="color:${accentColor}">${fmt(co.salary_raw||co.salary||0)} $</span></div>`}
+        ${hasTax ? `<div class="eco-stat-row"><span class="eco-stat-key">Impôts dus</span><span class="eco-stat-v" style="color:#ff6b6b">−${fmt(co.tax_debt)} $</span></div>` : ''}
+        <div class="eco-badge-row">
+          ${!hasTax ? `<div class="eco-ebadge" style="background:rgba(85,239,196,.1);border:1px solid rgba(85,239,196,.25);color:#55efc4">✓ Fiscal OK</div>` : ''}
+          ${co.level ? `<div class="eco-ebadge" style="background:${accentBg};border:1px solid ${accentBorder};color:${accentColor}">Niv. ${co.level}</div>` : ''}
         </div>
-        <div class="hub-company-stat">
-          <div class="hub-company-stat-val">${fmt(co.value_raw)}</div>
-          <div class="hub-company-stat-label">Valeur</div>
+        <button class="eco-acc-btn" style="background:${accentBg};color:${accentColor};border:1px solid ${accentBorder}" onclick="ecoGo('company')">${isPdg?'Gérer l\'entreprise':'Voir mon poste'} →</button>
+      </div>`;
+      return `<div class="eco-acc-item" id="${accId}">
+        <div class="eco-acc-head" onclick="ecoAccToggle('${accId}')">
+          <div class="eco-acc-icon" style="background:${accentBg};border:1px solid ${accentBorder};position:relative">
+            ${emoji}
+            <div style="position:absolute;top:0;left:0;right:0;height:2px;border-radius:12px 12px 0 0;background:${stripeGrad}"></div>
+          </div>
+          <div class="eco-acc-info">
+            <div class="eco-acc-name">${co.name||'—'}</div>
+            <div class="eco-acc-sub" style="color:${accentColor}80">${role}</div>
+          </div>
+          <div class="eco-acc-right">
+            <div class="eco-acc-val" style="color:${accentColor}">${fmt(co.value_raw||co.value||0)} $</div>
+            ${hasTax ? `<div style="font-size:9px;color:#ff6b6b;font-weight:800">Impôts dus</div>` : `<div style="font-size:9px;color:#55efc4;font-weight:800">Fiscal OK</div>`}
+          </div>
+          <div class="eco-acc-chevron">⌄</div>
         </div>
-        <div class="hub-company-stat">
-          <div class="hub-company-stat-val">${co.nb_employees||0}</div>
-          <div class="hub-company-stat-label">Équipe</div>
-        </div>
-      </div>
-    </div>`;
-  } catch(e) { el.innerHTML = `<div class="hub-card add-card" style="width:100%" onclick="ecoGo('company')"><div class="add-icon">🏢</div><div class="add-label">Entreprise</div></div>`; }
+        <div class="eco-acc-body"><div>${bodyHtml}</div></div>
+      </div>`;
+    }).join('');
+  } catch(e) { if(area) area.innerHTML = ''; }
 }
 
-async function loadHubParts() {
-  const el = document.getElementById('hub-parts-cards');
-  if (!el) return;
+// ── PARTS ─────────────────────────────────────
+async function ecoLoadAccParts() {
+  const body = document.getElementById('eco-acc-parts-body');
+  const sub  = document.getElementById('eco-acc-parts-sub');
+  const val  = document.getElementById('eco-acc-parts-val');
+  if (!body) return;
   try {
     const d = await apiFetch('/parts');
     const parts = d?.parts || [];
+    if (val) val.textContent = parts.length ? parts.length + ' entreprise' + (parts.length>1?'s':'') : '—';
+    if (sub) sub.textContent = parts.length ? `${parts.length} entreprise${parts.length>1?'s':''} · investisseur` : 'Aucune part détenue';
     if (!parts.length) {
-      el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('parts')">
-        <div class="add-icon">📜</div>
-        <div class="add-label">Acheter des parts d'entreprise</div>
+      body.innerHTML = `<div style="padding:14px 0;text-align:center">
+        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">Aucune part</div>
+        <button class="eco-acc-btn" style="background:rgba(0,206,201,.08);color:#00cec9;border:1px solid rgba(0,206,201,.2)" onclick="ecoGo('parts')">Acheter des parts →</button>
       </div>`;
       return;
     }
-    el.innerHTML = parts.slice(0,4).map(p => `
-      <div class="hub-card parts-accent" onclick="ecoGo('parts')">
-        <div class="hub-card-accent"></div>
-        <div class="hub-card-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="16 8 8 8 8 16"/><line x1="16" y1="16" x2="8" y2="8"/></svg></div>
-        <div class="hub-card-name">${p.company||'—'}</div>
-        <div class="hub-card-val">${p.quantity||0} parts</div>
-        <div class="hub-card-sub">${p.price_per||'—'} $/part</div>
-      </div>`
-    ).join('') + `<div class="hub-card add-card" onclick="ecoGo('parts')">
-      <div class="add-icon">+</div><div class="add-label">Toutes mes parts</div>
-    </div>`;
-  } catch(e) { el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('parts')"><div class="add-icon">📜</div><div class="add-label">Parts</div></div>`; }
+    body.innerHTML = parts.map(p => `
+      <div class="eco-mini-item">
+        <div>
+          <div style="font-size:12px;font-weight:900;color:#f0f0f0">${p.company||'—'}</div>
+          <div class="eco-mini-tag">${p.quantity||0} parts${p.pct_ownership?' · '+p.pct_ownership+'%':''}</div>
+        </div>
+        <div class="eco-mini-val" style="color:#00cec9">${p.price_per||'—'} $/u</div>
+      </div>`).join('') +
+      `<button class="eco-acc-btn" style="background:rgba(0,206,201,.08);color:#00cec9;border:1px solid rgba(0,206,201,.2)" onclick="ecoGo('parts')">Acheter / vendre →</button>`;
+  } catch(e) { if(body) body.innerHTML = `<button class="eco-acc-btn" style="background:rgba(0,206,201,.08);color:#00cec9;border:1px solid rgba(0,206,201,.2)" onclick="ecoGo('parts')">Parts →</button>`; }
 }
 
-async function loadHubContrats() {
-  const el = document.getElementById('hub-contrats-cards');
-  if (!el) return;
+// ── CONTRATS BC ───────────────────────────────
+async function ecoLoadAccContrats() {
+  const body   = document.getElementById('eco-acc-contrats-body');
+  const sub    = document.getElementById('eco-acc-contrats-sub');
+  const right  = document.getElementById('eco-acc-contrats-right');
+  if (!body) return;
   try {
     const d = await apiFetch('/contrats/bc');
     const contrats = d?.contrats || [];
+    const claimable = contrats.filter(c => c.status==='completed' || c.pct>=100).length;
+    if (sub) sub.textContent = contrats.length ? `${contrats.length} actif${contrats.length>1?'s':''} · ${claimable} réclamable${claimable>1?'s':''}` : 'Aucun contrat';
+    if (right) right.innerHTML = claimable ? `<div class="eco-acc-notif">${claimable} !</div>` : `<div class="eco-acc-val" style="color:#fdcb6e">${contrats.length}</div>`;
     if (!contrats.length) {
-      el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('contrats')">
-        <div class="add-icon">📋</div>
-        <div class="add-label">Aucun contrat actif</div>
+      body.innerHTML = `<div style="padding:14px 0;text-align:center">
+        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">Aucun contrat actif</div>
+        <button class="eco-acc-btn" style="background:rgba(253,203,110,.08);color:#fdcb6e;border:1px solid rgba(253,203,110,.2)" onclick="ecoGo('contrats')">Voir les contrats →</button>
       </div>`;
       return;
     }
-    el.innerHTML = contrats.slice(0,4).map(c => {
-      const canClaim = c.status === 'completed' || c.pct >= 100;
-      return `<div class="hub-card contrat-accent" onclick="ecoGo('contrats')">
-        <div class="hub-card-accent"></div>
-        <div class="hub-card-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
-        ${canClaim ? `<div class="hub-card-badge">!</div>` : ''}
-        <span class="hub-card-icon">📋</span>
-        <div class="hub-card-name" style="font-size:11px;white-space:normal;line-height:1.3">${(c.title||'Contrat').slice(0,28)}</div>
-        <div class="hub-card-val" style="font-size:13px">${c.reward||'—'}</div>
-        <div class="hub-card-sub" style="${canClaim?'color:var(--success)':''}">
-          ${canClaim ? '✅ Réclamable !' : `${c.pct||0}% — ${c.days_left||0}j restants`}
+    body.innerHTML = contrats.slice(0,5).map(c => {
+      const canClaim = c.status==='completed' || c.pct>=100;
+      return `<div class="eco-contrat-item">
+        <div class="eco-contrat-title">${(c.title||'Contrat').slice(0,40)}</div>
+        <div class="eco-contrat-row">
+          <span class="eco-contrat-pct">${canClaim ? '✓ Terminé' : `${c.pct||0}% · ${c.days_left||0}j restants`}</span>
+          ${canClaim ? `<span class="eco-claim-badge">Réclamer</span>` : `<span class="eco-contrat-reward">${c.reward||'—'}</span>`}
         </div>
+        ${!canClaim && (c.pct||0)>0 ? `<div class="eco-prog-bar"><div class="eco-prog-fill" style="width:${Math.min(100,c.pct||0)}%;background:#fdcb6e"></div></div>` : ''}
       </div>`;
-    }).join('') + `<div class="hub-card add-card" onclick="ecoGo('contrats')">
-      <div class="add-icon">+</div><div class="add-label">Tous les contrats</div>
-    </div>`;
-  } catch(e) { el.innerHTML = `<div class="hub-card add-card" onclick="ecoGo('contrats')"><div class="add-icon">📋</div><div class="add-label">Contrats</div></div>`; }
+    }).join('') +
+    `<button class="eco-acc-btn" style="background:rgba(253,203,110,.08);color:#fdcb6e;border:1px solid rgba(253,203,110,.2)" onclick="ecoGo('contrats')">Tous les contrats →</button>`;
+  } catch(e) { if(body) body.innerHTML = `<button class="eco-acc-btn" style="background:rgba(253,203,110,.08);color:#fdcb6e;border:1px solid rgba(253,203,110,.2)" onclick="ecoGo('contrats')">Contrats →</button>`; }
 }
+
+// ── LEGACY STUBS (compat) ─────────────────────
+async function loadHubBank(p) { ecoLoadAccBank(p); }
+async function loadHubMarket() { ecoLoadAccMarket(); }
+async function loadHubCompany() { ecoLoadAccCompany(); }
+async function loadHubParts() { ecoLoadAccParts(); }
+async function loadHubContrats() { ecoLoadAccContrats(); }
 
 // ── NOTIFICATIONS ECO ──────────────────────
 let _ecoNotifInterval = null;

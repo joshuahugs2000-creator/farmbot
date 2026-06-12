@@ -1798,6 +1798,168 @@ async def webapp_skipattente(request: web.Request) -> web.Response:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+#  NOTIFICATIONS — cloche principale (/notifications/all)
+# ═════════════════════════════════════════════════════════════════════════════
+
+async def webapp_notifications_all(request: web.Request) -> web.Response:
+    """GET /api/webapp/notifications/all?user_id=xxx
+    Agrège les notifications actionnables :
+    - Candidatures reçues (PDG/Directeur)
+    - Invitations reçues en attente
+    - Contre-propositions de contrat en attente
+    """
+    uid = _parse_uid(request)
+    if not _auth(uid):
+        return _err("unauthorized", 403)
+
+    notifs = []
+
+    async with AsyncSessionLocal() as session:
+        # 1. Candidatures reçues (si PDG ou Directeur)
+        company, emp = await _get_user_company(session, uid)
+        if company and emp and emp.role in DIRECTION_ROLES and not company.is_bot_company:
+            apps = (await session.execute(
+                select(CompanyApplication).where(
+                    CompanyApplication.company_id == company.id,
+                    CompanyApplication.status == "pending",
+                )
+            )).scalars().all()
+            for a in apps:
+                applicant = await session.get(User, a.user_id)
+                name = applicant.first_name if applicant else "Un joueur"
+                notifs.append({
+                    "icon": "📩",
+                    "title": "Nouvelle candidature",
+                    "text": f"{name} postule dans {company.name}",
+                    "time": a.created_at.strftime("%d/%m %H:%M") if a.created_at else "",
+                    "unread": True,
+                    "type": "application",
+                })
+
+        # 2. Invitations reçues en attente
+        invites = (await session.execute(
+            select(CompanyInvite).where(
+                CompanyInvite.target_id == uid,
+                CompanyInvite.status == "pending",
+                CompanyInvite.expires_at > datetime.utcnow(),
+            )
+        )).scalars().all()
+        for inv in invites:
+            co = await session.get(Company, inv.company_id)
+            parts = inv.role.split("|")
+            real_role = parts[0]
+            notifs.append({
+                "icon": ROLE_EMOJI.get(real_role, "👤"),
+                "title": f"Invitation — {co.name if co else '?'}",
+                "text": f"Poste proposé : {real_role.capitalize()}",
+                "time": inv.expires_at.strftime("Expire le %d/%m") if inv.expires_at else "",
+                "unread": True,
+                "type": "invite",
+            })
+
+        # 3. Contre-propositions de contrat en attente (PDG doit répondre)
+        if company and emp and emp.role == "pdg":
+            counter_emps = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.left_at == None,
+                    CompanyEmployee.contract_status == "pending_pdg",
+                )
+            )).scalars().all()
+            for ce in counter_emps:
+                eu = await session.get(User, ce.user_id)
+                name = eu.first_name if eu else "Un employé"
+                notifs.append({
+                    "icon": "💬",
+                    "title": "Contre-proposition",
+                    "text": f"{name} demande {_fmt(ce.pending_salary or 0)} $/jour",
+                    "time": "",
+                    "unread": True,
+                    "type": "counter",
+                })
+
+        # 4. Propositions de contrat en attente (employé doit répondre)
+        if emp and emp.role not in ("pdg",) and emp.contract_status == "pending_employee":
+            if company:
+                notifs.append({
+                    "icon": "📄",
+                    "title": "Proposition de contrat",
+                    "text": f"{company.name} te propose {_fmt(emp.pending_salary or 0)} $/jour",
+                    "time": "",
+                    "unread": True,
+                    "type": "contract",
+                })
+
+        # 5. Offres de parts en attente (PDG)
+        if company and emp and emp.role == "pdg":
+            pending_offers = (await session.execute(
+                select(CompanyShareOffer).where(
+                    CompanyShareOffer.company_id == company.id,
+                    CompanyShareOffer.status == "pending",
+                    CompanyShareOffer.expires_at > datetime.utcnow(),
+                )
+            )).scalars().all()
+            for offer in pending_offers:
+                buyer = await session.get(User, offer.buyer_id)
+                name = buyer.first_name if buyer else "Un joueur"
+                notifs.append({
+                    "icon": "💼",
+                    "title": "Offre d'achat de parts",
+                    "text": f"{name} veut {offer.quantity} parts pour {_fmt(offer.total_price)} $",
+                    "time": offer.expires_at.strftime("Expire le %d/%m") if offer.expires_at else "",
+                    "unread": True,
+                    "type": "share_offer",
+                })
+
+    return web.json_response({"notifications": notifs, "count": len(notifs)})
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  NOTIFICATIONS — badge onglet Éco (/notifications/eco)
+# ═════════════════════════════════════════════════════════════════════════════
+
+async def webapp_notifications_eco(request: web.Request) -> web.Response:
+    """GET /api/webapp/notifications/eco?user_id=xxx
+    Retourne un compte rapide pour le badge de l'onglet Éco :
+    - Contrats claimables (BureauContrat statut 'completed' non réclamés)
+    - Offres de parts en attente pour le PDG
+    """
+    uid = _parse_uid(request)
+    if not _auth(uid):
+        return _err("unauthorized", 403)
+
+    count = 0
+    claimable = 0
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+
+        if company:
+            # Contrats bureau complétés non réclamés
+            done_contrats = (await session.execute(
+                select(func.count()).where(
+                    BureauContrat.company_id == company.id,
+                    BureauContrat.status == "completed",
+                )
+            )).scalar() or 0
+            claimable = int(done_contrats)
+            count += claimable
+
+            # Offres de parts en attente (PDG)
+            if emp and emp.role == "pdg":
+                pending_shares = (await session.execute(
+                    select(func.count()).where(
+                        CompanyShareOffer.company_id == company.id,
+                        CompanyShareOffer.status == "pending",
+                        CompanyShareOffer.expires_at > datetime.utcnow(),
+                    )
+                )).scalar() or 0
+                count += int(pending_shares)
+
+    return web.json_response({"count": count, "claimable": claimable})
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  ENREGISTREMENT DES ROUTES
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1845,3 +2007,7 @@ def setup_actions_routes(app: web.Application):
 
     # Misc
     app.router.add_post("/api/webapp/skipattente",         webapp_skipattente)
+
+    # Notifications
+    app.router.add_get("/api/webapp/notifications/all",    webapp_notifications_all)
+    app.router.add_get("/api/webapp/notifications/eco",    webapp_notifications_eco)

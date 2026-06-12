@@ -1137,120 +1137,97 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     </div>
   </div>
 
-  <!-- ══ PAGE FAMILLE ══ -->
   <!-- ══ PAGE SOCIAL HUB ══ -->
   <div class="page" id="page-social-hub">
 
-    <!-- Hero -->
-    <div class="eco-hero" style="background:linear-gradient(135deg,#0a0a1a 0%,#0d1b2a 40%,#0a1628 100%);border-radius:20px;margin-bottom:14px;overflow:hidden;position:relative;">
-      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#a29bfe,#74b9ff,#00cec9,#a29bfe);background-size:200%;animation:gradShift 3s linear infinite;z-index:3;"></div>
-      <div class="eco-hero-bg" style="opacity:.05;font-size:130px;top:-10px;">👥</div>
-      <div class="eco-hero-content" style="padding:20px 20px 18px;">
-        <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#a29bfe;font-weight:800;margin-bottom:6px;">COMMUNAUTÉ</div>
-        <div style="font-size:26px;font-weight:900;color:#fff;letter-spacing:-0.5px;line-height:1.1;" id="sh-greeting">Bonjour 👋</div>
-        <div style="font-size:12px;color:rgba(255,255,255,.45);margin-top:5px;" id="sh-sub">Connecte-toi, monte dans le classement, développe ton réseau.</div>
-        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
-          <div style="background:rgba(162,155,254,.12);border:1px solid rgba(162,155,254,.25);border-radius:20px;padding:5px 12px;font-size:11px;color:#a29bfe;font-weight:800;" id="sh-rank-badge">🏆 Rang —</div>
-          <div style="background:rgba(116,185,255,.1);border:1px solid rgba(116,185,255,.2);border-radius:20px;padding:5px 12px;font-size:11px;color:#74b9ff;font-weight:800;" id="sh-fam-badge">👨‍👩‍👧 Famille —</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Bento stats rapides -->
-    <div class="eco-bento" style="margin-bottom:14px;">
-      <div class="eco-bento-cell" data-icon="💰" onclick="subTab('ranking','loadRanking')" style="cursor:pointer;">
-        <div class="eco-bento-label">Ma fortune</div>
-        <div class="eco-bento-val gold" id="sh-coins">—</div>
-      </div>
-      <div class="eco-bento-cell" data-icon="🏆" onclick="subTab('ranking','loadRanking')" style="cursor:pointer;">
-        <div class="eco-bento-label">Mon rang</div>
-        <div class="eco-bento-val" id="sh-rank-val" style="color:#a29bfe;">—</div>
-      </div>
-      <div class="eco-bento-cell" data-icon="👨‍👩‍👧" onclick="subTab('famille','loadFamille')" style="cursor:pointer;">
-        <div class="eco-bento-label">Famille</div>
-        <div class="eco-bento-val" id="sh-fam-val" style="color:#74b9ff;">—</div>
-      </div>
-      <div class="eco-bento-cell" data-icon="📬" onclick="subTab('invitations','loadInvitations')" style="cursor:pointer;">
-        <div class="eco-bento-label">Invitations</div>
-        <div class="eco-bento-val" id="sh-inv-val" style="color:#fd79a8;">—</div>
-      </div>
-    </div>
-
-    <!-- Section titre -->
-    <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text2);margin:0 2px 10px;display:flex;align-items:center;gap:8px;">
-      SECTIONS
-      <span style="flex:1;height:1px;background:rgba(255,255,255,.06);display:block;"></span>
-    </div>
-
-    <!-- Cards sections -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-
-      <!-- Famille -->
-      <div onclick="subTab('famille','loadFamille')" style="background:linear-gradient(135deg,rgba(116,185,255,.08),rgba(116,185,255,.03));border:1px solid rgba(116,185,255,.18);border-radius:16px;padding:16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s;">
-        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#74b9ff,#0984e3);"></div>
-        <div style="font-size:28px;margin-bottom:8px;">👨‍👩‍👧</div>
-        <div style="font-weight:900;font-size:13px;color:#74b9ff;">Famille</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">Conjoint·e, parents, enfants, amis</div>
-      </div>
-
-      <!-- Classement -->
-      <div onclick="subTab('ranking','loadRanking')" style="background:linear-gradient(135deg,rgba(247,201,72,.08),rgba(247,201,72,.03));border:1px solid rgba(247,201,72,.18);border-radius:16px;padding:16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s;">
-        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#f7c948,#e17055);"></div>
-        <div style="font-size:28px;margin-bottom:8px;">🏆</div>
-        <div style="font-weight:900;font-size:13px;color:#f7c948;">Classement</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">Fortune · Famille · Entreprise</div>
-      </div>
-
-      <!-- Entreprises -->
-      <div onclick="subTab('entreprises','loadEntreprises')" style="background:linear-gradient(135deg,rgba(0,206,201,.08),rgba(0,206,201,.03));border:1px solid rgba(0,206,201,.18);border-radius:16px;padding:16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s;">
-        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#00cec9,#00b894);"></div>
-        <div style="font-size:28px;margin-bottom:8px;">🏢</div>
-        <div style="font-weight:900;font-size:13px;color:#00cec9;">Entreprises</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">Toutes les boîtes · Postuler</div>
-      </div>
-
-      <!-- Invitations -->
-      <div onclick="subTab('invitations','loadInvitations')" style="background:linear-gradient(135deg,rgba(253,121,168,.08),rgba(253,121,168,.03));border:1px solid rgba(253,121,168,.18);border-radius:16px;padding:16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s;">
-        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#fd79a8,#e84393);"></div>
-        <div style="font-size:28px;margin-bottom:8px;">📬</div>
-        <div style="font-weight:900;font-size:13px;color:#fd79a8;">Invitations</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:3px;line-height:1.4;">Offres d'emploi reçues</div>
-      </div>
-
-    </div>
-
-    <!-- Cards secondaires en row -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-
-      <!-- Présences -->
-      <div onclick="subTab('presences','loadPresences')" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px;cursor:pointer;display:flex;align-items:center;gap:12px;">
-        <div style="font-size:24px;">📊</div>
+    <!-- ── HERO ── -->
+    <div class="sh2-hero">
+      <div class="sh2-hero-orb sh2-orb1"></div>
+      <div class="sh2-hero-orb sh2-orb2"></div>
+      <div class="sh2-hero-orb sh2-orb3"></div>
+      <div class="sh2-hero-top">
         <div>
-          <div style="font-weight:900;font-size:12px;color:var(--text);">Présences</div>
-          <div style="font-size:11px;color:var(--text2);">Activité équipe</div>
+          <div class="sh2-hero-eyebrow">COMMUNAUTÉ</div>
+          <div class="sh2-hero-name" id="sh-greeting">Bonjour 👋</div>
+        </div>
+        <div class="sh2-hero-pills">
+          <div class="sh2-hero-pill sh2-pill-purple" id="sh-rank-badge">🏆 —</div>
+          <div class="sh2-hero-pill sh2-pill-blue" id="sh-fam-badge">👨‍👩‍👧 —</div>
         </div>
       </div>
+      <!-- 4 stats inline -->
+      <div class="sh2-stats-row">
+        <div class="sh2-stat" onclick="subTab('ranking','loadRanking')">
+          <div class="sh2-stat-val gold" id="sh-coins">—</div>
+          <div class="sh2-stat-lbl">Fortune</div>
+        </div>
+        <div class="sh2-stat-sep"></div>
+        <div class="sh2-stat" onclick="subTab('ranking','loadRanking')">
+          <div class="sh2-stat-val" style="color:#a29bfe" id="sh-rank-val">—</div>
+          <div class="sh2-stat-lbl">Rang</div>
+        </div>
+        <div class="sh2-stat-sep"></div>
+        <div class="sh2-stat" onclick="subTab('famille','loadFamille')">
+          <div class="sh2-stat-val" style="color:#74b9ff" id="sh-fam-val">—</div>
+          <div class="sh2-stat-lbl">Famille</div>
+        </div>
+        <div class="sh2-stat-sep"></div>
+        <div class="sh2-stat" onclick="subTab('invitations','loadInvitations')">
+          <div class="sh2-stat-val" style="color:#fd79a8" id="sh-inv-val">—</div>
+          <div class="sh2-stat-lbl">Invitations</div>
+        </div>
+      </div>
+    </div>
 
-      <!-- Recruter -->
-      <div onclick="subTab('recruter','loadRecruter')" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px;cursor:pointer;display:flex;align-items:center;gap:12px;">
-        <div style="font-size:24px;">👥</div>
+    <!-- ── PODIUM ── -->
+    <div class="sh2-section-label">TOP FORTUNE <span class="sh2-label-line"></span></div>
+    <div class="sh2-podium" id="sh-top3">
+      <div class="sh2-podium-loading">Chargement…</div>
+    </div>
+
+    <!-- ── RÉSEAU ── -->
+    <div class="sh2-section-label" style="margin-top:18px">RÉSEAU <span class="sh2-label-line"></span></div>
+
+    <div class="sh2-card-wide sh2-c-blue" onclick="subTab('famille','loadFamille')">
+      <div class="sh2-card-wide-glow" style="background:#74b9ff"></div>
+      <div class="sh2-card-wide-left">
+        <div class="sh2-card-wide-icon" style="background:rgba(116,185,255,.15);border-color:rgba(116,185,255,.3)">👨‍👩‍👧</div>
         <div>
-          <div style="font-weight:900;font-size:12px;color:var(--text);">Recruter</div>
-          <div style="font-size:11px;color:var(--text2);">Gérer l'équipe</div>
+          <div class="sh2-card-wide-name" style="color:#74b9ff">Famille</div>
+          <div class="sh2-card-wide-sub">Conjoint·e · Parents · Enfants · Amis</div>
         </div>
       </div>
-
+      <div class="sh2-card-wide-arrow">›</div>
     </div>
 
-    <!-- Top 3 rapide -->
-    <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text2);margin:0 2px 10px;display:flex;align-items:center;gap:8px;">
-      TOP FORTUNE
-      <span style="flex:1;height:1px;background:rgba(255,255,255,.06);display:block;"></span>
-    </div>
-    <div id="sh-top3" style="display:flex;gap:8px;justify-content:center;margin-bottom:14px;">
-      <div style="color:var(--text2);font-size:12px;padding:20px 0;">Chargement…</div>
+    <div class="sh2-card-wide sh2-c-gold" onclick="subTab('ranking','loadRanking')">
+      <div class="sh2-card-wide-glow" style="background:#f7c948"></div>
+      <div class="sh2-card-wide-left">
+        <div class="sh2-card-wide-icon" style="background:rgba(247,201,72,.15);border-color:rgba(247,201,72,.3)">🏆</div>
+        <div>
+          <div class="sh2-card-wide-name" style="color:#f7c948">Classement</div>
+          <div class="sh2-card-wide-sub">Fortune · Famille · Entreprise</div>
+        </div>
+      </div>
+      <div class="sh2-card-wide-arrow">›</div>
     </div>
 
+    <!-- ── EMPLOI ── -->
+    <div class="sh2-section-label" style="margin-top:6px">EMPLOI <span class="sh2-label-line"></span></div>
+
+    <div class="sh2-card-wide sh2-c-teal" onclick="subTab('entreprises','loadEntreprises')">
+      <div class="sh2-card-wide-glow" style="background:#00cec9"></div>
+      <div class="sh2-card-wide-left">
+        <div class="sh2-card-wide-icon" style="background:rgba(0,206,201,.15);border-color:rgba(0,206,201,.3)">🏢</div>
+        <div>
+          <div class="sh2-card-wide-name" style="color:#00cec9">Entreprises</div>
+          <div class="sh2-card-wide-sub">Toutes les boîtes · Postuler · Recruter</div>
+        </div>
+      </div>
+      <div class="sh2-card-wide-arrow">›</div>
+    </div>
+
+  </div>
   </div>
 
   <!-- ══ PAGE FAMILLE ══ -->
@@ -4187,7 +4164,7 @@ const MAIN_TABS = {
   moi:    { subs:[{l:'👤 Profil',p:'profile'},{l:'🎨 Avatar',p:'avatar'},{l:'💰 Gains',p:'gains',fn:'loadGains'},{l:'🎓 Diplômes',p:'diplomes',fn:'loadDiplomes'}], def:'profile' },
   eco:    { subs:[], def:'eco-hub' },
   jeux:   { subs:[], def:'games' },
-  social: { subs:[{l:'🏠 Hub',p:'social-hub',fn:'loadSocialHub'},{l:'👨‍👩‍👧 Famille',p:'famille',fn:'loadFamille'},{l:'🏆 Classement',p:'ranking',fn:'loadRanking'},{l:'🏢 Entreprises',p:'entreprises',fn:'loadEntreprises'},{l:'📬 Invitations',p:'invitations',fn:'loadInvitations'},{l:'📊 Présences',p:'presences',fn:'loadPresences'},{l:'👥 Recruter',p:'recruter',fn:'loadRecruter'}], def:'social-hub' },
+  social: { subs:[], def:'social-hub' },
   plus:   { subs:[{l:'📖 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'},{l:'🔨 Enchères',p:'encheres',fn:'loadEncheres'}], def:'journal' },
 };
 let _curMain = 'moi';
@@ -5086,14 +5063,302 @@ function _shFillRanking(d) {
   const podiumMedals  = [medals[1],  medals[0],  medals[2]];
 
   top3El.innerHTML = podiumOrder.map((p, i) => `
-    <div style="flex:1;text-align:center;display:flex;flex-direction:column;align-items:center;">
-      <div style="font-size:${i===1?'44px':'34px'};line-height:1;margin-bottom:4px;">${podiumMedals[i]}</div>
-      <div style="font-size:${i===1?'13px':'11px'};font-weight:900;color:${podiumColors[i]};max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.name||p.username||'?'}</div>
-      <div style="font-size:10px;color:var(--text2);margin-top:2px;">${Number(p.value).toLocaleString('fr-FR')} $</div>
-      <div style="width:100%;border-radius:8px 8px 0 0;margin-top:8px;background:${podiumColors[i]}22;border:1px solid ${podiumColors[i]}44;height:${podiumHeights[i]};"></div>
+    <div class="sh2-podium-slot">
+      <div class="sh2-podium-medal${i===1?' big':''}">${podiumMedals[i]}</div>
+      <div class="sh2-podium-username" style="color:${podiumColors[i]}">${p.name||p.username||'?'}</div>
+      <div class="sh2-podium-amount">${Number(p.value).toLocaleString('fr-FR')} $</div>
+      <div class="sh2-podium-bar" style="height:${podiumHeights[i]};background:${podiumColors[i]}20;border-color:${podiumColors[i]}40;"></div>
     </div>
   `).join('');
 }
+
+(function injectSocialHubCSS() {
+  if (document.getElementById('sh2-css')) return;
+  const s = document.createElement('style');
+  s.id = 'sh2-css';
+  s.textContent = `
+    /* ══ SOCIAL HUB v2 ══ */
+
+    #page-social-hub {
+      padding: 14px 14px 30px;
+      overflow-y: auto;
+    }
+
+    /* ── HERO ── */
+    .sh2-hero {
+      position: relative;
+      background: linear-gradient(145deg, #0d0d2b 0%, #0d1a3a 50%, #0a1628 100%);
+      border: 1px solid rgba(162,155,254,.2);
+      border-radius: 22px;
+      padding: 20px 18px 16px;
+      margin-bottom: 18px;
+      overflow: hidden;
+    }
+    .sh2-hero::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #a29bfe, #74b9ff, #00cec9, #fd79a8, #a29bfe);
+      background-size: 300%;
+      animation: gradShift 4s linear infinite;
+    }
+    .sh2-hero-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(50px);
+      pointer-events: none;
+    }
+    .sh2-orb1 { width:120px;height:120px;background:rgba(162,155,254,.18);top:-30px;right:-20px; }
+    .sh2-orb2 { width:80px;height:80px;background:rgba(116,185,255,.12);bottom:-10px;left:20px; }
+    .sh2-orb3 { width:60px;height:60px;background:rgba(253,121,168,.1);top:30px;left:-10px; }
+
+    .sh2-hero-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      position: relative;
+      z-index: 1;
+    }
+    .sh2-hero-eyebrow {
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #a29bfe;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .sh2-hero-name {
+      font-size: 22px;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: -0.5px;
+      line-height: 1.1;
+    }
+    .sh2-hero-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      align-items: flex-end;
+    }
+    .sh2-hero-pill {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .sh2-pill-purple { background:rgba(162,155,254,.15);border:1px solid rgba(162,155,254,.3);color:#a29bfe; }
+    .sh2-pill-blue   { background:rgba(116,185,255,.12);border:1px solid rgba(116,185,255,.25);color:#74b9ff; }
+
+    /* Stats row */
+    .sh2-stats-row {
+      display: flex;
+      align-items: center;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 14px;
+      padding: 10px 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .sh2-stat {
+      flex: 1;
+      text-align: center;
+      cursor: pointer;
+    }
+    .sh2-stat:active { opacity: .7; }
+    .sh2-stat-val {
+      font-size: 13px;
+      font-weight: 900;
+      color: var(--text);
+      line-height: 1;
+    }
+    .sh2-stat-lbl {
+      font-size: 9px;
+      color: var(--text2);
+      margin-top: 3px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 700;
+    }
+    .sh2-stat-sep {
+      width: 1px;
+      height: 28px;
+      background: rgba(255,255,255,.08);
+      flex-shrink: 0;
+    }
+    .gold { color: var(--accent) !important; }
+
+    /* Section labels */
+    .sh2-section-label {
+      font-size: 9.5px;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: var(--text2);
+      font-weight: 800;
+      margin: 0 2px 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .sh2-label-line {
+      flex: 1;
+      height: 1px;
+      background: rgba(255,255,255,.06);
+      display: block;
+    }
+
+    /* ── PODIUM ── */
+    .sh2-podium {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 4px;
+      min-height: 120px;
+      padding: 0 4px;
+    }
+    .sh2-podium-loading {
+      color: var(--text2);
+      font-size: 12px;
+      padding: 20px 0;
+      align-self: center;
+    }
+    .sh2-podium-slot {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    .sh2-podium-medal { font-size: 28px; line-height: 1; margin-bottom: 5px; }
+    .sh2-podium-medal.big { font-size: 36px; }
+    .sh2-podium-username {
+      font-size: 11px;
+      font-weight: 900;
+      max-width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: center;
+      margin-bottom: 3px;
+    }
+    .sh2-podium-amount {
+      font-size: 9.5px;
+      color: var(--text2);
+      margin-bottom: 6px;
+      text-align: center;
+    }
+    .sh2-podium-bar {
+      width: 100%;
+      border-radius: 8px 8px 0 0;
+      border-width: 1px;
+      border-style: solid;
+    }
+
+    /* ── CARD WIDE (Famille / Classement) ── */
+    .sh2-card-wide {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      padding: 14px 16px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform .12s, border-color .15s;
+    }
+    .sh2-card-wide:active { transform: scale(.97); }
+    .sh2-card-wide-glow {
+      position: absolute;
+      left: -20px; top: 50%;
+      transform: translateY(-50%);
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      filter: blur(35px);
+      opacity: .12;
+      pointer-events: none;
+    }
+    .sh2-c-blue:hover, .sh2-c-blue:active { border-color:rgba(116,185,255,.3); }
+    .sh2-c-gold:hover, .sh2-c-gold:active  { border-color:rgba(247,201,72,.3); }
+    .sh2-c-teal:hover, .sh2-c-teal:active  { border-color:rgba(0,206,201,.3); }
+    .sh2-card-wide-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      position: relative;
+      z-index: 1;
+    }
+    .sh2-card-wide-icon {
+      width: 46px; height: 46px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+    .sh2-card-wide-name {
+      font-size: 15px;
+      font-weight: 900;
+      line-height: 1.1;
+    }
+    .sh2-card-wide-sub {
+      font-size: 11px;
+      color: var(--text2);
+      margin-top: 3px;
+    }
+    .sh2-card-wide-arrow {
+      font-size: 22px;
+      color: var(--text2);
+      position: relative;
+      z-index: 1;
+      flex-shrink: 0;
+    }
+
+    /* ── GRID 2 TILES (Emploi) ── */
+    .sh2-grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+    .sh2-tile {
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 16px;
+      padding: 14px 14px 14px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform .12s, border-color .15s;
+    }
+    .sh2-tile:active { transform: scale(.96); }
+    .sh2-tile-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2.5px;
+      border-radius: 0;
+    }
+    .sh2-tile-icon { font-size: 26px; margin-bottom: 8px; margin-top: 4px; line-height: 1; }
+    .sh2-tile-name {
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1.1;
+      margin-bottom: 3px;
+    }
+    .sh2-tile-sub {
+      font-size: 10px;
+      color: var(--text2);
+      line-height: 1.4;
+    }
+  `;
+  document.head.appendChild(s);
+})();
 
 (function injectSocialCSS() {
   if (document.getElementById('social-css')) return;

@@ -39,6 +39,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   color: var(--accent); line-height: 1;
 }
 #top-bar-right { display: flex; align-items: center; gap: 8px; }
+#settings-btn {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .2s;
+}
+#settings-btn:active { background: rgba(255,255,255,0.12); }
 #notif-bell-btn {
   position: relative; width: 38px; height: 38px; border-radius: 50%;
   background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
@@ -109,10 +116,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 /* ── CARDS ── */
 .card {
-  background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04); border-radius: 20px; border: 1px solid rgba(255,255,255,0.07);
   padding: 16px; margin-bottom: 12px;
 }
-.card-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text2); margin-bottom: 12px; }
+.card-title { font-size: 12px; font-weight: 900; letter-spacing: .3px; color: var(--text); margin-bottom: 12px; }
 
 /* ── STAT ROW ── */
 .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
@@ -642,40 +649,40 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     gap: 10px; padding: 0 14px 10px;
   }
   .pf-stat-card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 12px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px;
+    padding: 14px;
     position: relative; overflow: hidden;
   }
   .pf-stat-card::before {
     content: ''; position: absolute;
-    top: 0; left: 0; right: 0; height: 2px;
+    top: 0; left: 20%; right: 20%; height: 2px;
     background: var(--pf-accent, var(--accent));
-    opacity: .6;
+    border-radius: 0 0 4px 4px;
+    opacity: .8;
   }
-  .pf-stat-icon { font-size: 18px; margin-bottom: 4px; }
+  .pf-stat-icon { font-size: 20px; margin-bottom: 6px; }
   .pf-stat-label { font-size: 10px; color: var(--text2); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
-  .pf-stat-value { font-size: 15px; font-weight: 900; color: var(--text); margin-top: 2px; }
+  .pf-stat-value { font-size: 16px; font-weight: 900; color: var(--text); margin-top: 3px; }
   .pf-stat-sub   { font-size: 10px; color: var(--text2); margin-top: 1px; }
   .pf-section {
     margin: 0 14px 12px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 20px;
     overflow: hidden;
   }
   .pf-section-header {
-    padding: 10px 14px;
-    font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;
-    color: var(--text2);
-    border-bottom: 1px solid var(--border);
-    background: var(--card2);
+    padding: 12px 16px;
+    font-size: 12px; font-weight: 900; letter-spacing: .3px;
+    color: var(--text);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
   .pf-section-row {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
+    padding: 11px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
     font-size: 13px;
   }
   .pf-section-row:last-child { border-bottom: none; }
@@ -687,8 +694,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   .pf-section-val.purple { color: var(--accent4); }
   .pf-company-banner {
     margin: 0 14px 12px;
-    border-radius: 14px; overflow: hidden;
-    background: linear-gradient(135deg, #1a2a1a, #0f1f0f);
+    border-radius: 20px; overflow: hidden;
+    background: rgba(85,239,196,0.06);
     border: 1px solid rgba(85,239,196,.2);
     padding: 14px;
     display: flex; align-items: center; gap: 12px;
@@ -717,10 +724,44 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <div class="page active" id="page-profile">
 
     <!-- ── SLIDES ZONE ── -->
-    <div id="home-slides" style="margin: -16px -16px 16px; overflow: hidden; position: relative; height: 0; display: none;">
-      <!-- Les slides seront ajoutées ici dynamiquement -->
-      <div class="slides-track" id="slides-track"></div>
-      <div class="slides-dots" id="slides-dots"></div>
+    <div id="home-slides" class="visible" style="margin: -16px -16px 16px; overflow: hidden; position: relative;">
+      <div class="slides-track" id="slides-track">
+        <!-- Slide 1 -->
+        <div class="slide-item">
+          <div class="slide-item-bg" style="background: linear-gradient(135deg, #0d1b3e 0%, #1a237e 50%, #311b92 100%)"></div>
+          <div class="slide-item-overlay"></div>
+          <div class="slide-item-content">
+            <div class="slide-item-label">✨ Nouveauté</div>
+            <div class="slide-item-title">Cockfight Arena</div>
+            <div class="slide-item-sub">Nouveau jeu PvP disponible !</div>
+          </div>
+        </div>
+        <!-- Slide 2 -->
+        <div class="slide-item">
+          <div class="slide-item-bg" style="background: linear-gradient(135deg, #1b0000 0%, #7b1818 50%, #b71c1c 100%)"></div>
+          <div class="slide-item-overlay"></div>
+          <div class="slide-item-content">
+            <div class="slide-item-label">🎰 Casino</div>
+            <div class="slide-item-title">Jackpot x50</div>
+            <div class="slide-item-sub">Tente ta chance ce weekend</div>
+          </div>
+        </div>
+        <!-- Slide 3 -->
+        <div class="slide-item">
+          <div class="slide-item-bg" style="background: linear-gradient(135deg, #0a2e1a 0%, #1b5e20 50%, #2e7d32 100%)"></div>
+          <div class="slide-item-overlay"></div>
+          <div class="slide-item-content">
+            <div class="slide-item-label">💼 Économie</div>
+            <div class="slide-item-title">Marché ouvert</div>
+            <div class="slide-item-sub">Investi dans les assets du moment</div>
+          </div>
+        </div>
+      </div>
+      <div class="slides-dots" id="slides-dots">
+        <div class="slides-dot active"></div>
+        <div class="slides-dot"></div>
+        <div class="slides-dot"></div>
+      </div>
     </div>
 
     <!-- Cover + Avatar -->
@@ -848,9 +889,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <!-- ══ PAGE GAINS ══ -->
   <style>
     .gains-card {
-      background: linear-gradient(135deg, #0d1117 0%, #141925 100%);
-      border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 20px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px;
       padding: 20px;
       margin-bottom: 14px;
       position: relative;
@@ -859,11 +900,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     .gains-card::before {
       content: '';
       position: absolute;
-      top: 0; left: 0; right: 0;
+      top: 0; left: 20%; right: 20%;
       height: 2px;
+      border-radius: 0 0 4px 4px;
     }
-    .gains-card.daily::before { background: linear-gradient(90deg, #f7c948, #ffb347, #f7c948); }
-    .gains-card.work::before  { background: linear-gradient(90deg, #6c63ff, #a78bfa, #6c63ff); }
+    .gains-card.daily::before { background: linear-gradient(90deg, #f7c948, #ffb347); }
+    .gains-card.work::before  { background: linear-gradient(90deg, #6c63ff, #a78bfa); }
 
     .gains-icon-wrap {
       width: 54px; height: 54px;
@@ -910,26 +952,27 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     .gains-action-btn {
       width: 100%;
       margin-top: 14px;
-      padding: 14px;
-      border-radius: 14px;
+      padding: 15px;
+      border-radius: 28px;
       border: none;
-      font-family: 'Bangers', cursive;
-      font-size: 19px;
-      letter-spacing: 1.5px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: .3px;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.2s cubic-bezier(.4,0,.2,1);
       position: relative;
       overflow: hidden;
     }
     .gains-action-btn.daily-active {
-      background: linear-gradient(135deg, #f7c948, #ffb347);
+      background: var(--accent);
       color: #000;
-      box-shadow: 0 4px 20px rgba(247,201,72,0.35);
+      box-shadow: 0 2px 16px rgba(247,201,72,0.35);
     }
     .gains-action-btn.work-active {
-      background: linear-gradient(135deg, #6c63ff, #a78bfa);
+      background: #6c63ff;
       color: #fff;
-      box-shadow: 0 4px 20px rgba(108,99,255,0.35);
+      box-shadow: 0 2px 16px rgba(108,99,255,0.35);
     }
     .gains-action-btn:disabled {
       background: rgba(255,255,255,0.06) !important;
@@ -937,8 +980,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       box-shadow: none !important;
       cursor: not-allowed;
     }
-    .gains-action-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.08); }
-    .gains-action-btn:not(:disabled):active { transform: translateY(0); }
+    .gains-action-btn:not(:disabled):active { transform: scale(.96); box-shadow: none !important; }
 
     .gains-result-box {
       margin-top: 10px;
@@ -1708,7 +1750,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   .hub-wallet-sub { font-size: 11px; color: rgba(255,255,255,.35); margin-top: 4px; }
   .hub-wallet-actions { display: flex; gap: 10px; margin-top: 20px; }
   .hub-wallet-btn {
-    flex: 1; padding: 13px 8px; border-radius: 16px; border: none;
+    flex: 1; padding: 13px 8px; border-radius: 28px; border: none;
     font-size: 12px; font-weight: 800; cursor: pointer;
     display: flex; align-items: center; justify-content: center; gap: 8px;
     transition: transform .15s, opacity .15s;
@@ -1716,13 +1758,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   }
   .hub-wallet-btn:active { transform: scale(.96); opacity: .85; }
   .hub-wallet-btn.wsend {
-    background: linear-gradient(135deg, #00b894, #00cec9);
-    color: #0d1117; box-shadow: 0 4px 20px rgba(0,184,148,.35);
+    background: #00b894;
+    color: #fff; box-shadow: 0 2px 12px rgba(0,184,148,.3);
   }
   .hub-wallet-btn.whist {
     background: rgba(255,255,255,.07); color: rgba(255,255,255,.75);
-    border: 1px solid rgba(255,255,255,.1);
-    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,.12);
   }
 
   /* ── HUB SECTION ── */
@@ -2839,6 +2880,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 <div id="top-bar">
   <div id="top-bar-title">🌾 FarmBot</div>
   <div id="top-bar-right">
+    <button id="settings-btn" onclick="mainTab('settings',null)" title="Paramètres">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;color:rgba(255,255,255,.75)">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
     <button id="notif-bell-btn" onclick="openNotifications()" title="Notifications">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:rgba(255,255,255,.75)">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -8063,17 +8110,17 @@ function _loadProfileCustomization(d) {
 #home-slides {
   margin: -16px -16px 16px;
   position: relative;
-  border-radius: 0 0 24px 24px;
+  border-radius: 0 0 28px 28px;
   overflow: hidden;
 }
 #home-slides.visible { display: block !important; height: auto !important; }
 .slides-track {
   display: flex;
-  transition: transform .35s cubic-bezier(.4,0,.2,1);
+  transition: transform .4s cubic-bezier(.4,0,.2,1);
 }
 .slide-item {
   min-width: 100%; position: relative;
-  height: 160px; overflow: hidden; flex-shrink: 0;
+  height: 170px; overflow: hidden; flex-shrink: 0;
   cursor: pointer;
 }
 .slide-item-bg {
@@ -8082,28 +8129,31 @@ function _loadProfileCustomization(d) {
 }
 .slide-item-overlay {
   position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,.7) 100%);
+  background: linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.75) 100%);
 }
 .slide-item-content {
-  position: absolute; bottom: 16px; left: 16px; right: 16px;
+  position: absolute; bottom: 20px; left: 20px; right: 60px;
 }
 .slide-item-label {
-  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px;
-  color: rgba(255,255,255,.6); margin-bottom: 4px;
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;
+  color: rgba(255,255,255,.65); margin-bottom: 5px;
 }
 .slide-item-title {
-  font-family: 'Bangers', cursive; font-size: 22px; letter-spacing: 1px; color: #fff;
-  text-shadow: 0 2px 8px rgba(0,0,0,.5);
+  font-family: 'Bangers', cursive; font-size: 26px; letter-spacing: 1.5px; color: #fff;
+  text-shadow: 0 2px 12px rgba(0,0,0,.6); line-height: 1; margin-bottom: 4px;
+}
+.slide-item-sub {
+  font-size: 12px; color: rgba(255,255,255,.65); font-weight: 600;
 }
 .slides-dots {
-  position: absolute; bottom: 10px; right: 14px;
+  position: absolute; bottom: 12px; right: 16px;
   display: flex; gap: 5px; align-items: center;
 }
 .slides-dot {
   width: 6px; height: 6px; border-radius: 3px;
-  background: rgba(255,255,255,.35); transition: all .25s;
+  background: rgba(255,255,255,.35); transition: all .3s cubic-bezier(.4,0,.2,1);
 }
-.slides-dot.active { width: 18px; background: #fff; }
+.slides-dot.active { width: 20px; background: rgba(255,255,255,.9); border-radius: 3px; }
 
 /* ── NOTIFICATION PANEL ── */
 #notif-panel {
@@ -8250,7 +8300,7 @@ function initSlides(slidesData) {
   const zone = document.getElementById('home-slides');
   const track = document.getElementById('slides-track');
   const dots = document.getElementById('slides-dots');
-  if (!slidesData || slidesData.length === 0) { zone.style.display = 'none'; return; }
+  if (!slidesData || slidesData.length === 0) { if(zone) zone.style.display = 'none'; return; }
   zone.classList.add('visible');
   track.innerHTML = slidesData.map(s => `
     <div class="slide-item" onclick="${s.action || ''}">
@@ -8259,25 +8309,40 @@ function initSlides(slidesData) {
       <div class="slide-item-content">
         ${s.label ? `<div class="slide-item-label">${s.label}</div>` : ''}
         <div class="slide-item-title">${s.title}</div>
+        ${s.sub ? `<div class="slide-item-sub">${s.sub}</div>` : ''}
       </div>
     </div>
   `).join('');
   dots.innerHTML = slidesData.map((_,i) => `<div class="slides-dot${i===0?' active':''}"></div>`).join('');
   _slideCurrent = 0;
-  if (_slideTimer) clearInterval(_slideTimer);
-  if (slidesData.length > 1) _slideTimer = setInterval(slideNext, 4000);
+  _startSlideTimer(slidesData.length);
 }
-function slideNext() {
-  _slideCurrent = (_slideCurrent + 1) % _slides.length;
-  _slideGoTo(_slideCurrent);
+function _startSlideTimer(count) {
+  if (_slideTimer) clearInterval(_slideTimer);
+  if (count > 1) _slideTimer = setInterval(() => {
+    _slideCurrent = (_slideCurrent + 1) % count;
+    _slideGoTo(_slideCurrent);
+  }, 4000);
 }
 function _slideGoTo(i) {
-  document.getElementById('slides-track').style.transform = `translateX(-${i * 100}%)`;
-  document.querySelectorAll('.slides-dot').forEach((d, idx) => d.classList.toggle('active', idx === i));
+  const track = document.getElementById('slides-track');
+  const dots = document.querySelectorAll('.slides-dot');
+  if (track) track.style.transform = `translateX(-${i * 100}%)`;
+  dots.forEach((d, idx) => d.classList.toggle('active', idx === i));
 }
 
 // Close notif panel on backdrop click
 document.addEventListener('DOMContentLoaded', () => {
+  // Auto-start static slides
+  const staticSlides = document.querySelectorAll('#slides-track .slide-item');
+  if (staticSlides.length > 1) {
+    _slides = Array.from(staticSlides);
+    _startSlideTimer(staticSlides.length);
+    document.querySelectorAll('.slides-dot').forEach((dot, i) => {
+      dot.addEventListener('click', () => { _slideCurrent = i; _slideGoTo(i); });
+    });
+  }
+
   const panel = document.getElementById('notif-panel');
   if (panel) {
     panel.addEventListener('click', e => { if (e.target === panel) closeNotifications(); });

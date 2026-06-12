@@ -221,46 +221,72 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .casino-balance-chip-label { font-size: 10px; color: rgba(255,255,255,.4); font-weight: 700; letter-spacing: 1px; }
 
 .casino-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  padding: 20px 16px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  padding: 14px 14px 24px;
 }
-.casino-grid .full-width { grid-column: 1 / -1; }
 
+/* ── GAME CARD — miniature uniforme ── */
 .game-card {
-  border-radius: 22px; cursor: pointer; position: relative; overflow: hidden;
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.08);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 2px 16px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.07);
-  transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s, border-color .2s;
-  padding: 0;
+  border-radius: 16px; cursor: pointer; position: relative; overflow: hidden;
+  background: rgba(12,12,20,.9);
+  border: 1px solid rgba(255,255,255,.09);
+  box-shadow: 0 3px 14px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05);
+  transition: transform .16s cubic-bezier(.34,1.56,.64,1), box-shadow .16s;
+  padding: 0; display: flex; flex-direction: column;
+  /* hauteur fixe identique pour toutes */
+  min-height: 0;
 }
-.game-card:active { transform: translateY(-4px) scale(1.02); box-shadow: 0 12px 32px rgba(0,0,0,.6); }
-.game-card-inner { padding: 18px 16px 16px; position: relative; z-index: 1; }
-.game-card-glow {
-  position: absolute; top: -30px; right: -20px; width: 120px; height: 120px;
-  border-radius: 50%; pointer-events: none; opacity: .6;
-  filter: blur(30px);
+.game-card:active { transform: scale(0.96); }
+
+/* Barre néon haut */
+.game-card-top-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  border-radius: 16px 16px 0 0; z-index: 4;
 }
-.game-card-top-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 22px 22px 0 0; }
-.game-card-icon-bg {
-  width: 52px; height: 52px; border-radius: 16px;
+
+/* Badge étiquette (VEDETTE, PvP, HOT…) */
+.game-badge {
+  position: absolute; top: 8px; left: 8px; z-index: 5;
+  font-size: 8px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 20px;
+  backdrop-filter: blur(6px);
+}
+.badge-vedette { background: linear-gradient(90deg,#ff6b6b,#f7c948); color: #000; }
+.badge-pvp     { background: rgba(0,180,216,.25); color: #00d4f5; border: 1px solid rgba(0,180,216,.4); }
+.badge-hot     { background: rgba(255,107,53,.25); color: #ff6b35; border: 1px solid rgba(255,107,53,.4); }
+.badge-chance  { background: rgba(162,155,254,.2); color: #c0b8ff; border: 1px solid rgba(162,155,254,.35); }
+.badge-strategie { background: rgba(85,239,196,.18); color: #55efc4; border: 1px solid rgba(85,239,196,.3); }
+.badge-gold    { background: rgba(247,201,72,.2); color: #f7c948; border: 1px solid rgba(247,201,72,.35); }
+
+/* Zone artwork SVG — hauteur fixe */
+.game-card-art {
+  width: 100%; height: 90px; overflow: hidden; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  margin-bottom: 14px; flex-shrink: 0;
+  position: relative;
 }
-.game-card-icon-bg svg { width: 28px; height: 28px; }
-.game-card-label {
-  font-size: 9px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
-  margin-bottom: 4px; opacity: .6;
+.game-card-art svg { display: block; }
+
+/* Zone infos */
+.game-card-info {
+  padding: 8px 11px 10px;
+  position: relative; z-index: 2;
+  border-top: 1px solid rgba(255,255,255,.05);
+  display: flex; flex-direction: column; gap: 2px;
 }
-.game-card-name { font-family: 'Bangers', cursive; font-size: 22px; letter-spacing: 2px; line-height: 1; margin-bottom: 6px; }
-.game-card-desc { font-size: 11px; color: rgba(255,255,255,.4); line-height: 1.4; }
-.game-card-meta {
-  display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap;
+.game-card-name {
+  font-family: 'Bangers', cursive; font-size: 17px; letter-spacing: 2px; line-height: 1;
 }
+.game-card-desc { font-size: 9.5px; color: rgba(255,255,255,.35); line-height: 1.3; margin-top: 1px; }
+.game-card-meta { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
 .game-card-tag {
-  font-size: 9px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
-  padding: 3px 8px; border-radius: 20px;
+  font-size: 8.5px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 20px;
+}
+
+/* Glow fond */
+.game-card-glow {
+  position: absolute; top: -15px; right: -15px; width: 80px; height: 80px;
+  border-radius: 50%; pointer-events: none; opacity: .4; filter: blur(22px); z-index: 0;
 }
 
 /* Per-game themes */
@@ -2336,26 +2362,44 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <div id="games-selection">
       <div class="casino-grid">
 
-        <!-- CRASH — full width -->
-        <div class="game-card game-crash full-width" onclick="openGame('crash')">
+        <!-- CRASH -->
+        <div class="game-card game-crash" onclick="openGame('crash')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
-          <div class="game-card-inner" style="display:flex;align-items:center;gap:16px">
-            <div class="game-card-icon-bg">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#ff9f43" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-              </svg>
+          <span class="game-badge badge-vedette">⭐ Vedette</span>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#1a0a0a 0%,#2d1010 100%);">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="cg1" x1="0" y1="1" x2="1" y2="0"><stop offset="0%" stop-color="#ff6b6b" stop-opacity="0"/><stop offset="100%" stop-color="#ff9f43" stop-opacity=".7"/></linearGradient>
+                <linearGradient id="cg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ff6b6b" stop-opacity=".3"/><stop offset="100%" stop-color="#ff6b6b" stop-opacity="0"/></linearGradient>
+              </defs>
+              <line x1="0" y1="70" x2="160" y2="70" stroke="rgba(255,107,107,.1)" stroke-width="1"/>
+              <line x1="0" y1="45" x2="160" y2="45" stroke="rgba(255,107,107,.06)" stroke-width="1"/>
+              <line x1="53" y1="0" x2="53" y2="90" stroke="rgba(255,107,107,.06)" stroke-width="1"/>
+              <line x1="106" y1="0" x2="106" y2="90" stroke="rgba(255,107,107,.06)" stroke-width="1"/>
+              <path d="M 10 72 Q 50 70 90 52 Q 120 36 130 14 L 130 72 Z" fill="url(#cg2)" opacity=".7"/>
+              <path d="M 10 72 Q 50 70 90 52 Q 120 36 130 14" fill="none" stroke="url(#cg1)" stroke-width="2.5" stroke-linecap="round"/>
+              <g transform="translate(122,18) rotate(-35)">
+                <ellipse cx="0" cy="0" rx="10" ry="4" fill="#f7c948"/>
+                <polygon points="10,0 15,0 10,-2.5" fill="#ffe066"/>
+                <polygon points="-5,-3.5 -11,-9 -10,-3.5 -11,2 -5,2" fill="#fff" opacity=".85"/>
+                <polygon points="-5,2 -11,7 -10,2 -11,-2 -5,-2" fill="#ccc" opacity=".7"/>
+                <polygon points="-11,0 -17,-4 -13,0 -17,4" fill="#ffe066"/>
+                <circle cx="2" cy="-1" r="1.5" fill="#00c8ff" opacity=".85"/>
+                <ellipse cx="-14" cy="0" rx="4" ry="2" fill="#ff6b1a" opacity=".9"/>
+              </g>
+              <text x="138" y="28" font-family="'Bangers',cursive" font-size="18" fill="#ff9f43" opacity=".18" letter-spacing="1">×2.4</text>
+              <circle cx="130" cy="14" r="3.5" fill="#ff4444" opacity=".9"/>
+              <circle cx="130" cy="14" r="7" fill="#ff4444" opacity=".18"/>
+            </svg>
+          </div>
+          <div class="game-card-info">
+            <div class="game-card-name">CRASH</div>
+            <div class="game-card-desc">Cash out avant le crash !</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">∞× max</span>
+              <span class="game-card-tag">Min 1k$</span>
             </div>
-            <div style="flex:1">
-              <div class="game-card-label">Crash</div>
-              <div class="game-card-name">CRASH</div>
-              <div class="game-card-desc">Cash out avant que ça crash !</div>
-              <div class="game-card-meta">
-                <span class="game-card-tag">∞× max</span>
-                <span class="game-card-tag">Mise min 1 000 $</span>
-              </div>
-            </div>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
           </div>
         </div>
 
@@ -2363,17 +2407,49 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-roue" onclick="openGame('roue')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
-          <div class="game-card-inner">
-            <div class="game-card-icon-bg">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#a29bfe" stroke-width="2" stroke-linecap="round">
-                <circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
-              </svg>
-            </div>
-            <div class="game-card-label">Roue</div>
+          <span class="game-badge badge-chance">🍀 Chance</span>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#0d0a1f 0%,#1a1235 100%);">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <defs><clipPath id="wc"><circle cx="80" cy="47" r="36"/></clipPath></defs>
+              <g clip-path="url(#wc)">
+                <path d="M80 47 L116 47 A36 36 0 0 0 105.4 21.6 Z" fill="#fd79a8" opacity=".9"/>
+                <path d="M80 47 L105.4 21.6 A36 36 0 0 0 80 11 Z" fill="#a29bfe" opacity=".9"/>
+                <path d="M80 47 L80 11 A36 36 0 0 0 54.6 21.6 Z" fill="#55efc4" opacity=".9"/>
+                <path d="M80 47 L54.6 21.6 A36 36 0 0 0 44 47 Z" fill="#f7c948" opacity=".9"/>
+                <path d="M80 47 L44 47 A36 36 0 0 0 54.6 72.4 Z" fill="#ff6b6b" opacity=".9"/>
+                <path d="M80 47 L54.6 72.4 A36 36 0 0 0 80 83 Z" fill="#00b4d8" opacity=".9"/>
+                <path d="M80 47 L80 83 A36 36 0 0 0 105.4 72.4 Z" fill="#6bcb77" opacity=".9"/>
+                <path d="M80 47 L105.4 72.4 A36 36 0 0 0 116 47 Z" fill="#e17055" opacity=".9"/>
+              </g>
+              <g stroke="rgba(0,0,0,.45)" stroke-width="1.2">
+                <line x1="80" y1="47" x2="116" y2="47"/>
+                <line x1="80" y1="47" x2="105.4" y2="21.6"/>
+                <line x1="80" y1="47" x2="80" y2="11"/>
+                <line x1="80" y1="47" x2="54.6" y2="21.6"/>
+                <line x1="80" y1="47" x2="44" y2="47"/>
+                <line x1="80" y1="47" x2="54.6" y2="72.4"/>
+                <line x1="80" y1="47" x2="80" y2="83"/>
+                <line x1="80" y1="47" x2="105.4" y2="72.4"/>
+              </g>
+              <text x="100" y="44" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×3</text>
+              <text x="93" y="30" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×5</text>
+              <text x="68" y="26" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×2</text>
+              <text x="55" y="44" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×0</text>
+              <text x="56" y="64" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×1</text>
+              <text x="68" y="76" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×1</text>
+              <text x="92" y="76" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×2</text>
+              <text x="103" y="64" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×4</text>
+              <circle cx="80" cy="47" r="36" fill="none" stroke="#a29bfe" stroke-width="2.5" opacity=".7"/>
+              <circle cx="80" cy="47" r="8" fill="#1a1235" stroke="#a29bfe" stroke-width="1.8"/>
+              <circle cx="80" cy="47" r="4" fill="#a29bfe"/>
+              <polygon points="80,7 76,0 84,0" fill="#f7c948"/>
+            </svg>
+          </div>
+          <div class="game-card-info">
             <div class="game-card-name">ROUE</div>
             <div class="game-card-desc">Tente ta chance</div>
             <div class="game-card-meta">
-              <span class="game-card-tag">x0 – x5</span>
+              <span class="game-card-tag">×0 – ×5</span>
             </div>
           </div>
         </div>
@@ -2382,13 +2458,46 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-mines" onclick="openGame('mines')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
-          <div class="game-card-inner">
-            <div class="game-card-icon-bg">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#55efc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><path d="M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M19.07 4.93l-2.83 2.83M7.76 16.24l-2.83 2.83"/>
-              </svg>
-            </div>
-            <div class="game-card-label">Mines</div>
+          <span class="game-badge badge-strategie">🧠 Stratégie</span>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#061a12 0%,#0b2a1c 100%);">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <!-- grille 5×3 -->
+              <g opacity=".9">
+                <rect x="12" y="10" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+                <rect x="40" y="10" width="24" height="20" rx="4" fill="#1a5c3a" stroke="#55efc4" stroke-width="1.4" stroke-opacity=".8"/>
+                <rect x="68" y="10" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+                <rect x="96" y="10" width="24" height="20" rx="4" fill="#3d0a0a" stroke="#ff4444" stroke-width="1.4" stroke-opacity=".8"/>
+                <rect x="124" y="10" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+
+                <rect x="12" y="35" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+                <rect x="40" y="35" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+                <rect x="68" y="35" width="24" height="20" rx="4" fill="#1a5c3a" stroke="#55efc4" stroke-width="1.4" stroke-opacity=".8"/>
+                <rect x="96" y="35" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+                <rect x="124" y="35" width="24" height="20" rx="4" fill="#1a5c3a" stroke="#55efc4" stroke-width="1.4" stroke-opacity=".8"/>
+
+                <rect x="12" y="60" width="24" height="20" rx="4" fill="#1a5c3a" stroke="#55efc4" stroke-width="1.4" stroke-opacity=".8"/>
+                <rect x="40" y="60" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+                <rect x="68" y="60" width="24" height="20" rx="4" fill="#3d0a0a" stroke="#ff4444" stroke-width="1.4" stroke-opacity=".8"/>
+                <rect x="96" y="60" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+                <rect x="124" y="60" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
+              </g>
+              <!-- Gemmes -->
+              <polygon points="52,19 55,22 52,25 49,22" fill="#55efc4" opacity=".95"/>
+              <polygon points="80,44 83,47 80,50 77,47" fill="#55efc4" opacity=".95"/>
+              <polygon points="136,44 139,47 136,50 133,47" fill="#55efc4" opacity=".95"/>
+              <polygon points="24,69 27,72 24,75 21,72" fill="#55efc4" opacity=".95"/>
+              <!-- Bombes -->
+              <circle cx="108" cy="20" r="5.5" fill="#444"/>
+              <circle cx="108" cy="20" r="4" fill="#666"/>
+              <line x1="108" y1="10" x2="108" y2="14.5" stroke="#888" stroke-width="1.5"/>
+              <circle cx="108" cy="9" r="1.8" fill="#ff6b1a" opacity=".95"/>
+              <circle cx="80" cy="70" r="5.5" fill="#444"/>
+              <circle cx="80" cy="70" r="4" fill="#666"/>
+              <line x1="80" y1="60" x2="80" y2="64.5" stroke="#888" stroke-width="1.5"/>
+              <circle cx="80" cy="59" r="1.8" fill="#ff6b1a" opacity=".95"/>
+            </svg>
+          </div>
+          <div class="game-card-info">
             <div class="game-card-name">MINES</div>
             <div class="game-card-desc">Évite les bombes</div>
             <div class="game-card-meta">
@@ -2401,13 +2510,26 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-apple" onclick="openGame('apple')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
-          <div class="game-card-inner">
-            <div class="game-card-icon-bg">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#6bcb77" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06z"/><path d="M10 2c1 .5 2 2 2 5"/>
-              </svg>
-            </div>
-            <div class="game-card-label">Apple</div>
+          <span class="game-badge badge-strategie">🎮 Arcade</span>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#091a0a 0%,#112b14 100%);">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <rect x="48" y="5" width="64" height="10" rx="3" fill="#1f5227" stroke="#6bcb77" stroke-width="1.4" stroke-opacity=".9"/>
+              <text x="80" y="13" font-family="'Bangers',cursive" font-size="8" fill="#6bcb77" text-anchor="middle">×10 🍎</text>
+              <rect x="40" y="19" width="80" height="10" rx="3" fill="#163d1a" stroke="#6bcb77" stroke-width=".8" stroke-opacity=".5"/>
+              <text x="80" y="27" font-family="'Bangers',cursive" font-size="7" fill="#4a9454" text-anchor="middle">×8</text>
+              <rect x="32" y="33" width="96" height="10" rx="3" fill="#133519" stroke="#6bcb77" stroke-width=".8" stroke-opacity=".4"/>
+              <text x="80" y="41" font-family="'Bangers',cursive" font-size="7" fill="#3f7d43" text-anchor="middle">×6</text>
+              <rect x="22" y="47" width="116" height="13" rx="3" fill="#1f5227" stroke="#6bcb77" stroke-width="1.6" stroke-opacity=".95"/>
+              <text x="72" y="57" font-family="'Bangers',cursive" font-size="9" fill="#6bcb77" text-anchor="middle">×4</text>
+              <circle cx="118" cy="51" r="4" fill="#6bcb77" opacity=".9"/>
+              <rect x="115" y="55" width="6" height="5" rx="1" fill="#6bcb77" opacity=".7"/>
+              <rect x="14" y="64" width="132" height="10" rx="3" fill="#112d14" stroke="#6bcb77" stroke-width=".6" stroke-opacity=".3"/>
+              <text x="80" y="72" font-family="'Bangers',cursive" font-size="7" fill="#2e5c33" text-anchor="middle">×3</text>
+              <rect x="10" y="78" width="140" height="10" rx="3" fill="#0c2010" stroke="#6bcb77" stroke-width=".4" stroke-opacity=".2"/>
+              <text x="80" y="86" font-family="'Bangers',cursive" font-size="7" fill="#1e3d21" text-anchor="middle">×1</text>
+            </svg>
+          </div>
+          <div class="game-card-info">
             <div class="game-card-name">APPLE</div>
             <div class="game-card-desc">Gravis 10 niveaux</div>
             <div class="game-card-meta">
@@ -2420,16 +2542,48 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-cockfight" onclick="openGame('cockfight')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
-          <div class="game-card-inner">
-            <div class="game-card-icon-bg">
-              <span style="font-size:26px;">🐔</span>
-            </div>
-            <div class="game-card-label">PvP</div>
+          <span class="game-badge badge-pvp">⚔️ PvP</span>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#1a0900 0%,#2d1200 100%);">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="80" cy="80" rx="55" ry="8" fill="rgba(255,107,53,.06)" stroke="rgba(255,107,53,.18)" stroke-width="1"/>
+              <!-- Coq gauche rouge -->
+              <g transform="translate(34,38)">
+                <ellipse cx="0" cy="10" rx="13" ry="9" fill="#c0392b"/>
+                <circle cx="11" cy="1" r="6.5" fill="#c0392b"/>
+                <polygon points="11,-6 9,-13 13,-11 15,-16 17,-10 14,-7" fill="#e74c3c"/>
+                <circle cx="14" cy="0" r="1.8" fill="#fff"/><circle cx="14.5" cy="0" r=".9" fill="#111"/>
+                <polygon points="18,1 23,0 18,3" fill="#f39c12"/>
+                <path d="M -5 6 Q -14 0 -13 9 Q -9 15 0 13" fill="#922b21"/>
+                <line x1="-3" y1="19" x2="-5" y2="29" stroke="#e67e22" stroke-width="2" stroke-linecap="round"/>
+                <line x1="3" y1="19" x2="5" y2="29" stroke="#e67e22" stroke-width="2" stroke-linecap="round"/>
+                <path d="M -13 7 Q -22 0 -20 -7 Q -16 -4 -13 5" fill="#e74c3c"/>
+              </g>
+              <!-- VS -->
+              <text x="80" y="50" font-family="'Bangers',cursive" font-size="18" fill="#ff6b35" text-anchor="middle" opacity=".9">VS</text>
+              <line x1="80" y1="40" x2="75" y2="33" stroke="#f7c948" stroke-width="1.5" opacity=".7"/>
+              <line x1="80" y1="40" x2="85" y2="33" stroke="#f7c948" stroke-width="1.5" opacity=".7"/>
+              <!-- Coq droit bot -->
+              <g transform="translate(126,38) scale(-1,1)">
+                <ellipse cx="0" cy="10" rx="13" ry="9" fill="#7f8c8d"/>
+                <circle cx="11" cy="1" r="6.5" fill="#7f8c8d"/>
+                <polygon points="11,-6 9,-13 13,-11 15,-16 17,-10 14,-7" fill="#95a5a6"/>
+                <circle cx="14" cy="0" r="1.8" fill="#fff"/><circle cx="14.5" cy="0" r=".9" fill="#111"/>
+                <polygon points="18,1 23,0 18,3" fill="#e67e22"/>
+                <path d="M -5 6 Q -14 0 -13 9 Q -9 15 0 13" fill="#6c7a7d"/>
+                <line x1="-3" y1="19" x2="-5" y2="29" stroke="#7f8c8d" stroke-width="2" stroke-linecap="round"/>
+                <line x1="3" y1="19" x2="5" y2="29" stroke="#7f8c8d" stroke-width="2" stroke-linecap="round"/>
+                <path d="M -13 7 Q -22 0 -20 -7 Q -16 -4 -13 5" fill="#95a5a6"/>
+              </g>
+              <rect x="108" y="14" width="22" height="11" rx="3" fill="rgba(127,140,141,.25)" stroke="#7f8c8d" stroke-width=".7"/>
+              <text x="119" y="22.5" font-family="'Nunito',sans-serif" font-size="7.5" fill="#95a5a6" text-anchor="middle" font-weight="800">BOT</text>
+            </svg>
+          </div>
+          <div class="game-card-info">
             <div class="game-card-name">COCKFIGHT</div>
-            <div class="game-card-desc">Mise sur ton coq et bats le bot !</div>
+            <div class="game-card-desc">Mise sur ton coq !</div>
             <div class="game-card-meta">
-              <span class="game-card-tag">x1.8</span>
-              <span class="game-card-tag">Min 1 000 $</span>
+              <span class="game-card-tag">×1.8</span>
+              <span class="game-card-tag">Min 1k$</span>
             </div>
           </div>
         </div>
@@ -2438,66 +2592,153 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-ppc" onclick="openGame('ppc')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
-          <div class="game-card-inner">
-            <div class="game-card-icon-bg">
-              <span style="font-size:26px;">✂️</span>
-            </div>
-            <div class="game-card-label">PvP</div>
+          <span class="game-badge badge-pvp">⚔️ PvP</span>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#00090f 0%,#001a26 100%);">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <!-- Pierre (gauche) -->
+              <circle cx="30" cy="45" r="22" fill="rgba(0,180,216,.1)" stroke="#00b4d8" stroke-width="1.3" stroke-opacity=".6"/>
+              <ellipse cx="30" cy="47" rx="11" ry="9" fill="#00b4d8" opacity=".85"/>
+              <rect x="21" y="39" width="18" height="8" rx="3.5" fill="#00b4d8" opacity=".85"/>
+              <rect x="22" y="36" width="4.5" height="5.5" rx="1.8" fill="#0096b4" opacity=".9"/>
+              <rect x="28" y="36" width="4.5" height="5.5" rx="1.8" fill="#0096b4" opacity=".9"/>
+              <rect x="34" y="37" width="3.5" height="4.5" rx="1.5" fill="#0096b4" opacity=".9"/>
+              <text x="30" y="74" font-family="'Nunito',sans-serif" font-size="7" fill="#00b4d8" text-anchor="middle" font-weight="900" opacity=".7">PIERRE</text>
+              <!-- Papier (haut) -->
+              <circle cx="80" cy="22" r="22" fill="rgba(162,155,254,.1)" stroke="#a29bfe" stroke-width="1.3" stroke-opacity=".6"/>
+              <rect x="68" y="17" width="22" height="14" rx="2.5" fill="#a29bfe" opacity=".8"/>
+              <line x1="72" y1="17" x2="70" y2="12" stroke="#a29bfe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
+              <line x1="76" y1="17" x2="75" y2="11" stroke="#a29bfe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
+              <line x1="80" y1="17" x2="80" y2="10" stroke="#a29bfe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
+              <line x1="84" y1="17" x2="85" y2="11" stroke="#a29bfe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
+              <text x="80" y="50" font-family="'Nunito',sans-serif" font-size="7" fill="#a29bfe" text-anchor="middle" font-weight="900" opacity=".7">PAPIER</text>
+              <!-- Ciseaux (droite) -->
+              <circle cx="130" cy="45" r="22" fill="rgba(253,121,168,.1)" stroke="#fd79a8" stroke-width="1.3" stroke-opacity=".6"/>
+              <line x1="122" y1="37" x2="138" y2="53" stroke="#fd79a8" stroke-width="3.5" stroke-linecap="round" opacity=".85"/>
+              <line x1="138" y1="37" x2="122" y2="53" stroke="#fd79a8" stroke-width="3.5" stroke-linecap="round" opacity=".85"/>
+              <circle cx="130" cy="45" r="4.5" fill="#001220" stroke="#fd79a8" stroke-width="1.4"/>
+              <line x1="123" y1="37" x2="118" y2="31" stroke="#fd79a8" stroke-width="2.5" stroke-linecap="round" opacity=".6"/>
+              <line x1="137" y1="37" x2="142" y2="31" stroke="#fd79a8" stroke-width="2.5" stroke-linecap="round" opacity=".6"/>
+              <text x="130" y="74" font-family="'Nunito',sans-serif" font-size="7" fill="#fd79a8" text-anchor="middle" font-weight="900" opacity=".7">CISEAUX</text>
+            </svg>
+          </div>
+          <div class="game-card-info">
             <div class="game-card-name">P·P·C</div>
-            <div class="game-card-desc">Pierre Papier Ciseaux vs le bot</div>
+            <div class="game-card-desc">Pierre Papier Ciseaux</div>
             <div class="game-card-meta">
-              <span class="game-card-tag">x1.9</span>
-              <span class="game-card-tag">Min 1 000 $</span>
+              <span class="game-card-tag">×1.9</span>
+              <span class="game-card-tag">Min 1k$</span>
             </div>
           </div>
         </div>
 
-        <!-- LANCER DE DÉS — full width -->
-        <div class="game-card game-lancer full-width" onclick="openGame('lancer')">
+        <!-- LANCER DE DÉS -->
+        <div class="game-card game-lancer" onclick="openGame('lancer')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
-          <div class="game-card-inner" style="display:flex;align-items:center;gap:16px">
-            <div class="game-card-icon-bg">
-              <span style="font-size:30px;">🎲</span>
+          <span class="game-badge badge-pvp">🎲 Duel</span>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#0d0a1f 0%,#1a1235 100%);">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <!-- Dé gauche bleu -->
+              <g transform="translate(42,48)">
+                <rect x="-26" y="-26" width="42" height="42" rx="7" fill="#1a1650" stroke="#a29bfe" stroke-width="1.8"/>
+                <polygon points="-26,-26 -18,-36 26,-36 18,-26" fill="#252060" stroke="#a29bfe" stroke-width="1.3"/>
+                <polygon points="16,-26 26,-36 26,6 16,16" fill="#131040" stroke="#a29bfe" stroke-width="1.3"/>
+                <circle cx="-14" cy="-14" r="3.5" fill="#a29bfe" opacity=".95"/>
+                <circle cx="0"   cy="-14" r="3.5" fill="#a29bfe" opacity=".95"/>
+                <circle cx="6"   cy="-14" r="3.5" fill="#a29bfe" opacity=".95"/>
+                <circle cx="-14" cy="2"   r="3.5" fill="#a29bfe" opacity=".95"/>
+                <circle cx="0"   cy="2"   r="3.5" fill="#a29bfe" opacity=".95"/>
+                <circle cx="6"   cy="2"   r="3.5" fill="#a29bfe" opacity=".95"/>
+                <circle cx="-2"  cy="-33" r="2.5" fill="#c0b4ff" opacity=".65"/>
+                <text x="-4" y="28" font-family="'Bangers',cursive" font-size="13" fill="#a29bfe" text-anchor="middle">6</text>
+              </g>
+              <text x="80" y="52" font-family="'Bangers',cursive" font-size="18" fill="#f7c948" text-anchor="middle" opacity=".8">VS</text>
+              <!-- Dé droit rouge -->
+              <g transform="translate(118,48)">
+                <rect x="-26" y="-26" width="42" height="42" rx="7" fill="#2a0a0a" stroke="#ff6b6b" stroke-width="1.8"/>
+                <polygon points="-26,-26 -18,-36 26,-36 18,-26" fill="#3d1010" stroke="#ff6b6b" stroke-width="1.3"/>
+                <polygon points="16,-26 26,-36 26,6 16,16" fill="#220a0a" stroke="#ff6b6b" stroke-width="1.3"/>
+                <circle cx="-14" cy="-12" r="3.5" fill="#ff6b6b" opacity=".95"/>
+                <circle cx="4"   cy="-12" r="3.5" fill="#ff6b6b" opacity=".95"/>
+                <circle cx="-14" cy="4"   r="3.5" fill="#ff6b6b" opacity=".95"/>
+                <circle cx="4"   cy="4"   r="3.5" fill="#ff6b6b" opacity=".95"/>
+                <circle cx="-5"  cy="-33" r="2.5" fill="#ff9090" opacity=".65"/>
+                <circle cx="5"   cy="-33" r="2.5" fill="#ff9090" opacity=".65"/>
+                <text x="-4" y="28" font-family="'Bangers',cursive" font-size="13" fill="#ff6b6b" text-anchor="middle">4</text>
+              </g>
+              <line x1="72" y1="24" x2="82" y2="24" stroke="#a29bfe" stroke-width="1.2" stroke-dasharray="3,2" opacity=".4"/>
+              <line x1="96" y1="24" x2="106" y2="24" stroke="#ff6b6b" stroke-width="1.2" stroke-dasharray="3,2" opacity=".4"/>
+            </svg>
+          </div>
+          <div class="game-card-info">
+            <div class="game-card-name">LANCER DE DÉS</div>
+            <div class="game-card-desc">Le plus haut total gagne</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">×1.9</span>
+              <span class="game-card-tag">Min 1k$</span>
             </div>
-            <div style="flex:1">
-              <div class="game-card-label">Duel de dés</div>
-              <div class="game-card-name">LANCER DE DÉS</div>
-              <div class="game-card-desc">Lance les dés — le plus haut total gagne !</div>
-              <div class="game-card-meta">
-                <span class="game-card-tag">x1.9</span>
-                <span class="game-card-tag">Min 1 000 $</span>
-              </div>
-            </div>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
           </div>
         </div>
 
-        <!-- REBET — full width -->
-        <div class="game-card game-rebet full-width" onclick="openGame('rebet')">
+        <!-- REBET -->
+        <div class="game-card game-rebet" onclick="openGame('rebet')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
-          <div class="game-card-inner" style="display:flex;align-items:center;gap:16px">
-            <div class="game-card-icon-bg">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#f7c948" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="2" width="20" height="20" rx="4"/><path d="M8 8h.01M16 8h.01M8 16h.01M16 16h.01M12 12h.01"/>
-              </svg>
+          <span class="game-badge badge-gold">💰 Gold</span>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#1a1000 0%,#2d1e00 100%);">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <!-- Stack gauche (5 pièces) -->
+              <g transform="translate(42,72)">
+                <ellipse cx="0" cy="0" rx="22" ry="7" fill="#f7c948"/>
+                <rect x="-22" y="-7" width="44" height="7" fill="#d4a800"/>
+                <ellipse cx="0" cy="-7" rx="22" ry="7" fill="#ffe566"/>
+                <rect x="-22" y="-17" width="44" height="10" fill="#c09600"/>
+                <ellipse cx="0" cy="-17" rx="22" ry="7" fill="#f7c948"/>
+                <rect x="-22" y="-27" width="44" height="10" fill="#b08600"/>
+                <ellipse cx="0" cy="-27" rx="22" ry="7" fill="#ffe566"/>
+                <rect x="-22" y="-37" width="44" height="10" fill="#a07600"/>
+                <ellipse cx="0" cy="-37" rx="22" ry="7" fill="#f7c948"/>
+                <rect x="-22" y="-47" width="44" height="10" fill="#907000"/>
+                <ellipse cx="0" cy="-47" rx="22" ry="7" fill="#ffe566"/>
+                <text x="0" y="-44" font-family="'Bangers',cursive" font-size="10" fill="#7a5a00" text-anchor="middle" opacity=".7">$</text>
+              </g>
+              <!-- Cercle ×2 -->
+              <circle cx="80" cy="48" r="18" fill="rgba(247,201,72,.1)" stroke="#f7c948" stroke-width="1.8" stroke-opacity=".6"/>
+              <text x="80" y="55" font-family="'Bangers',cursive" font-size="16" fill="#f7c948" text-anchor="middle">×2</text>
+              <!-- Stack droite (7 pièces) -->
+              <g transform="translate(118,72)">
+                <ellipse cx="0" cy="0" rx="25" ry="8" fill="#f7c948"/>
+                <rect x="-25" y="-8" width="50" height="8" fill="#d4a800"/>
+                <ellipse cx="0" cy="-8" rx="25" ry="8" fill="#ffe566"/>
+                <rect x="-25" y="-19" width="50" height="11" fill="#c09600"/>
+                <ellipse cx="0" cy="-19" rx="25" ry="8" fill="#f7c948"/>
+                <rect x="-25" y="-30" width="50" height="11" fill="#b08600"/>
+                <ellipse cx="0" cy="-30" rx="25" ry="8" fill="#ffe566"/>
+                <rect x="-25" y="-41" width="50" height="11" fill="#a07600"/>
+                <ellipse cx="0" cy="-41" rx="25" ry="8" fill="#f7c948"/>
+                <rect x="-25" y="-52" width="50" height="11" fill="#907000"/>
+                <ellipse cx="0" cy="-52" rx="25" ry="8" fill="#ffe566"/>
+                <rect x="-25" y="-63" width="50" height="11" fill="#806000"/>
+                <ellipse cx="0" cy="-63" rx="25" ry="8" fill="#f7c948"/>
+                <rect x="-25" y="-74" width="50" height="11" fill="#706000"/>
+                <ellipse cx="0" cy="-74" rx="25" ry="8" fill="#ffe566"/>
+                <text x="0" y="-71" font-family="'Bangers',cursive" font-size="10" fill="#7a5a00" text-anchor="middle" opacity=".7">$$</text>
+              </g>
+            </svg>
+          </div>
+          <div class="game-card-info">
+            <div class="game-card-name">REBET</div>
+            <div class="game-card-desc">Quitte ou double !</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">×2 / tour</span>
+              <span class="game-card-tag">Min 5k$</span>
             </div>
-            <div style="flex:1">
-              <div class="game-card-label">Rebet</div>
-              <div class="game-card-name">REBET</div>
-              <div class="game-card-desc">Quitte ou double — récupère ou remise !</div>
-              <div class="game-card-meta">
-                <span class="game-card-tag">x2 par tour</span>
-                <span class="game-card-tag">Mise min 5 000 $</span>
-              </div>
-            </div>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
           </div>
         </div>
 
       </div>
     </div>
+
 
     <!-- VUE JEU (cachée par défaut) -->
     <div id="game-view" style="display:none;padding:16px 16px 0;">

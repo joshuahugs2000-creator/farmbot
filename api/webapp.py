@@ -209,8 +209,9 @@ async def webapp_user(request: web.Request) -> web.Response:
 
 
 async def webapp_photo_proxy(request: web.Request) -> web.Response:
-    """GET /api/webapp/photo?user_id=xxx — Proxy vers la photo de profil Telegram."""
+    """GET /api/webapp/photo?user_id=xxx — Proxy vers la photo de profil Telegram ou photo custom."""
     import aiohttp as _aiohttp
+    import base64 as _b64
     user_id = request.rel_url.query.get('user_id')
     if not user_id:
         return web.Response(status=404)
@@ -227,6 +228,19 @@ async def webapp_photo_proxy(request: web.Request) -> web.Response:
 
     if not user or not user.photo_file_id:
         return web.Response(status=404)
+
+    # ── Photo custom (upload depuis la galerie) ──
+    if user.photo_file_type == 'custom_b64':
+        try:
+            avatar_obj = json.loads(user.avatar_data or '{}') if user.avatar_data else {}
+            b64data = avatar_obj.get('_custom_photo', '')
+            if not b64data:
+                return web.Response(status=404)
+            img_bytes = _b64.b64decode(b64data)
+            return web.Response(body=img_bytes, content_type='image/jpeg',
+                                headers={'Cache-Control': 'public, max-age=300'})
+        except Exception:
+            return web.Response(status=500)
 
     try:
         async with _aiohttp.ClientSession() as s:
@@ -1070,6 +1084,63 @@ async def webapp_profile_badge_buy(request: web.Request) -> web.Response:
     return web.json_response({'ok': True, 'badges_owned': owned})
 
 
+async def webapp_profile_photo(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/photo — Sauvegarder une photo de profil personnalisée (base64).
+    Stocke le contenu en tant que données brutes dans un champ dédié, servi ensuite
+    par /api/webapp/photo comme fallback si photo_file_id Telegram est absent.
+    """
+    import base64 as _b64
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid          = int(body.get('user_id', 0))
+    photo_b64    = body.get('photo_base64', '')  # data:image/jpeg;base64,XXXX
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not photo_b64:
+        return web.json_response({'error': 'photo_base64 manquant'})
+
+    # Extraire le contenu brut
+    try:
+        if ',' in photo_b64:
+            header, data = photo_b64.split(',', 1)
+        else:
+            data = photo_b64
+        img_bytes = _b64.b64decode(data)
+    except Exception:
+        return web.json_response({'error': 'Image invalide'})
+
+    # Limite 5 Mo
+    if len(img_bytes) > 5 * 1024 * 1024:
+        return web.json_response({'error': 'Image trop lourde (max 5 Mo)'})
+
+    # Stocker en base : on réutilise photo_file_id avec un préfixe spécial
+    # "custom:<base64>" — le proxy /photo détecte ce préfixe et renvoie les bytes directement
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'Utilisateur introuvable'}, status=404)
+
+        # Stocker le base64 encodé dans photo_file_id avec préfixe custom:
+        user.photo_file_id   = 'custom:' + data[:2000]  # tronqué pour la clé
+        user.photo_file_type = 'custom_b64'
+        # Stocker le base64 complet dans avatar_data.photo si possible (champ Text)
+        try:
+            existing = json.loads(user.avatar_data or '{}') if user.avatar_data else {}
+        except Exception:
+            existing = {}
+        existing['_custom_photo'] = data  # base64 complet
+        user.avatar_data = json.dumps(existing)
+        await session.commit()
+
+    return web.json_response({'ok': True})
+
+
 def setup_webapp_routes(app: web.Application):
     """Enregistre les routes de la Mini App."""
     app.router.add_get('/',                       webapp_index)
@@ -1077,6 +1148,7 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/load',       webapp_load_app)
     app.router.add_post('/api/webapp/profile/customize',   webapp_profile_customize)
     app.router.add_post('/api/webapp/profile/badge/buy',   webapp_profile_badge_buy)
+    app.router.add_post('/api/webapp/profile/photo',       webapp_profile_photo)
     app.router.add_get('/api/webapp/user',        webapp_user)
     app.router.add_get('/api/webapp/photo',       webapp_photo_proxy)
     app.router.add_post('/api/webapp/avatar',     webapp_save_avatar)

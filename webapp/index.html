@@ -1231,6 +1231,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE FAMILLE ══ -->
   <div class="page" id="page-famille">
+    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="subTab('social-hub','')">← Social</button></div>
     <div class="page-title">👨‍👩‍👧 Famille</div>
     <div id="fam-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
     <div id="fam-content" style="display:none">
@@ -1244,6 +1245,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE CLASSEMENT ══ -->
   <div class="page" id="page-ranking">
+    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="subTab('social-hub','')">← Social</button></div>
     <div class="page-title">🏆 Classement</div>
     <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px" id="rank-tabs">
       <button class="rank-tab-btn active" onclick="rankTab('coins',this)">💰 Fortune</button>
@@ -3017,6 +3019,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   <!-- ══ PAGE ENTREPRISES ══ -->
   <div class="page" id="page-entreprises">
+    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="subTab('social-hub','')">← Social</button></div>
     <div class="page-title">🏢 Entreprises</div>
     <input id="co-search-input" type="text" placeholder="🔍 Rechercher une entreprise…"
       oninput="searchCompanies(this.value)"
@@ -3156,26 +3159,70 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     </div>
   </div>
 
-  <!-- ══ PAGE JOURNAL ══ -->
-  <div class="page" id="page-journal">
-    <div class="page-title">📖 Journal</div>
-    <div id="journal-list"><div class="plus-loader">⏳ Chargement…</div></div>
+  <!-- ══ PAGE PLUS HUB ══ -->
+  <div class="page" id="page-plus-hub">
+    <div class="plus-hub-hero">
+      <div class="plus-hub-orbs">
+        <div class="plus-hub-orb plus-hub-orb1"></div>
+        <div class="plus-hub-orb plus-hub-orb2"></div>
+      </div>
+      <div class="plus-hub-hero-inner">
+        <div class="plus-hub-hero-label">FARMBOT</div>
+        <div class="plus-hub-hero-title">Extras</div>
+        <div class="plus-hub-hero-sub">Événements · Enchères · Boutique</div>
+      </div>
+    </div>
+    <div class="plus-hub-cards">
+      <div class="plus-hub-card plus-hub-c-purple" onclick="plusGo('events')">
+        <div class="plus-hub-card-icon">🗓️</div>
+        <div class="plus-hub-card-body">
+          <div class="plus-hub-card-title">Événements</div>
+          <div class="plus-hub-card-sub">Actualités · Annonces · News du serveur</div>
+        </div>
+        <div class="plus-hub-card-arrow">›</div>
+      </div>
+      <div class="plus-hub-card plus-hub-c-gold" onclick="plusGo('encheres')">
+        <div class="plus-hub-card-icon">🔨</div>
+        <div class="plus-hub-card-body">
+          <div class="plus-hub-card-title">Enchères</div>
+          <div class="plus-hub-card-sub">En cours · Salle VIP · Inventaire</div>
+        </div>
+        <div class="plus-hub-card-arrow">›</div>
+        <div id="plus-enc-badge" style="display:none;position:absolute;top:12px;right:38px;background:#ef4444;color:#fff;font-size:10px;font-weight:900;border-radius:10px;padding:2px 7px"></div>
+      </div>
+      <div class="plus-hub-card plus-hub-c-teal" onclick="plusGo('boutique')">
+        <div class="plus-hub-card-icon">🛒</div>
+        <div class="plus-hub-card-body">
+          <div class="plus-hub-card-title">Boutique</div>
+          <div class="plus-hub-card-sub">Packs · Étoiles · Avantages premium</div>
+        </div>
+        <div class="plus-hub-card-arrow">›</div>
+        <div class="plus-hub-card-badge">Bientôt</div>
+      </div>
+    </div>
   </div>
 
-  <!-- ══ PAGE EVENEMENTS ══ -->
+  <!-- ══ PAGE ÉVÉNEMENTS ══ -->
   <div class="page" id="page-events">
+    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
     <div class="page-title">🗓️ Événements</div>
     <div id="events-list"><div class="plus-loader">⏳ Chargement…</div></div>
   </div>
 
-  <!-- ══ PAGE ANNONCES ══ -->
-  <div class="page" id="page-annonces">
-    <div class="page-title">📢 Annonces</div>
-    <div id="annonces-list"><div class="plus-loader">⏳ Chargement…</div></div>
+  <!-- ══ PAGE BOUTIQUE ══ -->
+  <div class="page" id="page-boutique">
+    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
+    <div class="page-title">🛒 Boutique</div>
+    <div class="plus-coming-soon">
+      <div style="font-size:48px;margin-bottom:16px">🚧</div>
+      <div style="font-size:18px;font-weight:900;margin-bottom:8px">En construction</div>
+      <div style="font-size:13px;color:var(--text2);max-width:260px;text-align:center;line-height:1.5">La boutique arrive bientôt — packs, étoiles et avantages premium pour les meilleurs joueurs.</div>
+    </div>
   </div>
 
   <!-- ══ PAGE ENCHERES ══ -->
   <div class="page" id="page-encheres">
+    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
     <div class="page-title">🔨 Enchères</div>
 
     <!-- Tabs: En cours / La Salle / Mon inventaire -->
@@ -4164,7 +4211,7 @@ const MAIN_TABS = {
   eco:    { subs:[], def:'eco-hub' },
   jeux:   { subs:[], def:'games' },
   social: { subs:[], def:'social-hub' },
-  plus:   { subs:[{l:'📖 Journal',p:'journal',fn:'loadJournal'},{l:'🗓️ Événements',p:'events',fn:'loadEvents'},{l:'📢 Annonces',p:'annonces',fn:'loadAnnonces'},{l:'🔨 Enchères',p:'encheres',fn:'loadEncheres'}], def:'journal' },
+  plus:   { subs:[], def:'plus-hub' },
 };
 let _curMain = 'moi';
 let _curSub  = 'profile';
@@ -4211,6 +4258,31 @@ function ecoBack() {
   document.getElementById('subnav').style.display = 'none';
   document.getElementById('app').style.paddingBottom = '70px';
   loadEcoHub();
+}
+// ─────────────────────────────────────────
+
+// ── PLUS PUSH NAVIGATION ─────────────────
+const PLUS_PAGES = {
+  events:   { fn: 'loadEvents'  },
+  encheres: { fn: 'loadEncheres'},
+  boutique: { fn: null          },
+};
+function plusGo(key) {
+  if (key === 'hub') {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const hub = document.getElementById('page-plus-hub');
+    if (hub) hub.classList.add('active');
+    document.getElementById('subnav').style.display = 'none';
+    return;
+  }
+  const cfg = PLUS_PAGES[key];
+  if (!cfg) return;
+  const pageEl = document.getElementById('page-' + key);
+  if (!pageEl) return;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  pageEl.classList.add('active');
+  document.getElementById('subnav').style.display = 'none';
+  if (cfg.fn && window[cfg.fn]) window[cfg.fn]();
 }
 // ─────────────────────────────────────────
 
@@ -7476,6 +7548,35 @@ async function _gardenHarvest(gardenId) {
   s.id = 'plus-css';
   s.textContent = `
     .plus-loader { text-align:center; color:var(--text2); padding:40px 0; font-size:14px; }
+
+    /* ── BACK BUTTON (social + plus) ── */
+    .sh2-back-bar { padding:10px 0 2px; }
+    .sh2-back-btn { background:none; border:none; color:var(--accent); font-size:13px; font-weight:800; cursor:pointer; letter-spacing:.5px; padding:4px 0; }
+    .sh2-back-btn:hover { opacity:.75; }
+
+    /* ── PLUS HUB ── */
+    .plus-hub-hero { position:relative; overflow:hidden; border-radius:20px; padding:28px 20px 22px; background:linear-gradient(135deg,#0d0a1f 0%,#1a1035 60%,#0a0d20 100%); margin-bottom:16px; }
+    .plus-hub-orbs { position:absolute; inset:0; pointer-events:none; }
+    .plus-hub-orb { position:absolute; border-radius:50%; filter:blur(50px); opacity:.45; }
+    .plus-hub-orb1 { width:160px; height:160px; background:#7c3aed; top:-40px; right:-30px; }
+    .plus-hub-orb2 { width:120px; height:120px; background:#0891b2; bottom:-20px; left:10px; }
+    .plus-hub-hero-inner { position:relative; z-index:1; }
+    .plus-hub-hero-label { font-size:10px; letter-spacing:3px; text-transform:uppercase; color:#a78bfa; margin-bottom:4px; }
+    .plus-hub-hero-title { font-family:'Bangers',cursive; font-size:36px; color:#fff; letter-spacing:2px; line-height:1; margin-bottom:4px; }
+    .plus-hub-hero-sub { font-size:11px; color:#94a3b8; letter-spacing:1px; }
+    .plus-hub-cards { display:flex; flex-direction:column; gap:12px; }
+    .plus-hub-card { display:flex; align-items:center; gap:14px; padding:16px 18px; border-radius:16px; cursor:pointer; position:relative; border-left:4px solid transparent; transition:transform .12s; background:var(--card); }
+    .plus-hub-card:active { transform:scale(.97); }
+    .plus-hub-c-purple { border-left-color:#7c3aed; }
+    .plus-hub-c-gold    { border-left-color:#f59e0b; }
+    .plus-hub-c-teal    { border-left-color:#0891b2; }
+    .plus-hub-card-icon { font-size:26px; min-width:36px; text-align:center; }
+    .plus-hub-card-body { flex:1; min-width:0; }
+    .plus-hub-card-title { font-size:15px; font-weight:900; color:var(--text); }
+    .plus-hub-card-sub { font-size:11px; color:var(--text2); margin-top:2px; }
+    .plus-hub-card-arrow { font-size:22px; color:var(--text2); font-weight:300; }
+    .plus-hub-card-badge { position:absolute; top:10px; right:38px; font-size:9px; font-weight:900; background:#0891b2; color:#fff; border-radius:8px; padding:2px 7px; letter-spacing:.5px; text-transform:uppercase; }
+    .plus-coming-soon { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; }
 
     /* ── JOURNAL ── */
     .journal-entry {

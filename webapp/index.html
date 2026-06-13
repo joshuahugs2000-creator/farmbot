@@ -570,82 +570,209 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     border-radius: 6px; white-space: nowrap; pointer-events: none;
     z-index: 99;
   }
-  /* ── Modal Personnalisation ── */
+  /* ══ MODAL PERSONNALISATION — REDESIGN PREMIUM ══ */
   #modal-customize {
     display: none; position: fixed; inset: 0; z-index: 9999;
-    background: rgba(0,0,0,.7); backdrop-filter: blur(4px);
+    background: rgba(0,0,0,.75); backdrop-filter: blur(8px);
     align-items: flex-end; justify-content: center;
   }
-  .cust-tab {
-    padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border);
-    background: var(--card2); color: var(--text2);
-    font-size: 12px; font-weight: 700; cursor: pointer;
-    white-space: nowrap; transition: all .15s; flex-shrink: 0;
-  }
-  .cust-tab.active { background: var(--accent); color: #000; border-color: var(--accent); }
   .customize-sheet {
-    background: var(--card);
-    border-radius: 20px 20px 0 0;
+    background: linear-gradient(160deg, #1c1c35 0%, #111128 100%);
+    border-top: 1px solid rgba(247,201,72,.25);
+    border-left: 1px solid rgba(255,255,255,.06);
+    border-right: 1px solid rgba(255,255,255,.06);
+    border-radius: 24px 24px 0 0;
     width: 100%; max-width: 480px;
-    padding: 20px 18px 32px;
-    max-height: 90vh; overflow-y: auto;
+    padding: 8px 18px 36px;
+    max-height: 92vh; overflow-y: auto;
   }
-  .customize-title {
-    font-size: 16px; font-weight: 900; color: var(--text);
-    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  .customize-sheet::-webkit-scrollbar { display: none; }
+  /* Drag handle */
+  .cust-handle {
+    width: 40px; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,.15); margin: 12px auto 16px;
   }
-  .customize-section-label {
+  /* Header */
+  .cust-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; padding-bottom: 14px;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+  }
+  .cust-header-left { display: flex; align-items: center; gap: 10px; }
+  .cust-header-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, rgba(247,201,72,.2), rgba(247,201,72,.05));
+    border: 1px solid rgba(247,201,72,.3);
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+  }
+  .cust-header-title { font-size: 16px; font-weight: 900; color: var(--text); }
+  .cust-header-sub { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .cust-close-btn {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.1);
+    background: rgba(255,255,255,.06);
+    color: var(--text2); font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s;
+  }
+  .cust-close-btn:hover { background: rgba(255,255,255,.12); color: var(--text); }
+  /* Onglets pill */
+  .cust-tabs {
+    display: flex; gap: 6px; margin-bottom: 20px;
+    overflow-x: auto; padding-bottom: 2px;
+  }
+  .cust-tabs::-webkit-scrollbar { display: none; }
+  .cust-tab {
+    display: flex; align-items: center; gap: 5px;
+    padding: 8px 14px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.08);
+    background: rgba(255,255,255,.04); color: var(--text2);
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    white-space: nowrap; transition: all .2s; flex-shrink: 0;
+  }
+  .cust-tab .tab-icon { font-size: 14px; }
+  .cust-tab.active {
+    background: rgba(247,201,72,.15);
+    border-color: rgba(247,201,72,.5);
+    color: var(--accent);
+    box-shadow: 0 0 12px rgba(247,201,72,.15);
+  }
+  /* Section label */
+  .cust-label {
     font-size: 10px; font-weight: 800; text-transform: uppercase;
-    letter-spacing: 1px; color: var(--text2); margin: 14px 0 8px;
+    letter-spacing: 1.2px; color: rgba(160,160,176,.6);
+    margin: 0 0 10px; display: flex; align-items: center; gap: 6px;
   }
-  /* Grille couleurs cover */
+  .cust-label::after { content:''; flex:1; height:1px; background:rgba(255,255,255,.05); }
+  /* ── COULEURS ── */
   .cover-colors {
     display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+    margin-bottom: 4px;
   }
   .cover-color-btn {
-    height: 36px; border-radius: 10px; border: 2px solid transparent;
-    cursor: pointer; transition: border .15s, transform .15s;
+    height: 44px; border-radius: 12px; border: 2px solid transparent;
+    cursor: pointer; transition: all .2s; position: relative;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
   }
-  .cover-color-btn.selected, .cover-color-btn:hover {
-    border-color: #fff; transform: scale(1.08);
+  .cover-color-btn.selected {
+    border-color: #fff;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.4), 0 4px 16px rgba(0,0,0,.4);
+    transform: scale(1.05);
   }
-  /* Effets cover */
-  .cover-effects {
-    display: flex; gap: 8px; flex-wrap: wrap;
+  .cover-color-btn.selected::after {
+    content: '✓'; position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 900; color: rgba(255,255,255,.9);
+    text-shadow: 0 1px 4px rgba(0,0,0,.5);
   }
+  .cover-color-btn:hover:not(.selected) { transform: scale(1.04); border-color: rgba(255,255,255,.4); }
+  /* ── EFFETS ── */
+  .cover-effects { display: flex; gap: 8px; flex-wrap: wrap; }
   .fx-btn {
-    padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border);
-    background: var(--card2); color: var(--text2);
-    font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s;
+    padding: 9px 15px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.08);
+    background: rgba(255,255,255,.04); color: var(--text2);
+    font-size: 12px; font-weight: 700; cursor: pointer; transition: all .2s;
   }
-  .fx-btn.selected { background: var(--accent); color: #000; border-color: var(--accent); }
-  /* Shop badges */
-  .badge-shop-grid {
-    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+  .fx-btn.selected {
+    background: rgba(162,155,254,.15); border-color: rgba(162,155,254,.5);
+    color: var(--accent4); box-shadow: 0 0 10px rgba(162,155,254,.2);
   }
+  .fx-btn:hover:not(.selected) { background: rgba(255,255,255,.08); color: var(--text); }
+  /* ── BADGES ── */
+  .badge-shop-grid { display: flex; flex-direction: column; gap: 8px; }
   .badge-shop-item {
-    background: var(--card2); border: 1px solid var(--border);
-    border-radius: 14px; padding: 12px 14px;
-    display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 16px; padding: 12px 14px;
+    display: flex; align-items: center; gap: 12px;
+    transition: border-color .2s;
   }
-  .badge-shop-item.owned { border-color: rgba(85,239,196,.4); }
-  .badge-emoji { font-size: 26px; }
-  .badge-info { flex: 1; }
+  .badge-shop-item.owned {
+    background: rgba(85,239,196,.04);
+    border-color: rgba(85,239,196,.2);
+  }
+  .badge-emoji-wrap {
+    width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.08);
+    display: flex; align-items: center; justify-content: center; font-size: 26px;
+  }
+  .badge-shop-item.owned .badge-emoji-wrap {
+    background: rgba(85,239,196,.08); border-color: rgba(85,239,196,.2);
+  }
+  .badge-info { flex: 1; min-width: 0; }
   .badge-name { font-size: 13px; font-weight: 800; color: var(--text); }
-  .badge-price { font-size: 11px; color: var(--accent); margin-top: 2px; }
+  .badge-desc { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .badge-price-tag {
+    font-size: 12px; font-weight: 800; color: var(--accent);
+    margin-top: 3px; display: flex; align-items: center; gap: 3px;
+  }
+  .badge-price-tag.owned-tag { color: var(--success); font-size: 11px; }
   .badge-buy-btn {
-    background: var(--accent); color: #000; border: none;
-    padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 900;
-    cursor: pointer;
+    border: none; border-radius: 10px;
+    padding: 7px 12px; font-size: 11px; font-weight: 900;
+    cursor: pointer; white-space: nowrap; transition: all .2s; flex-shrink: 0;
   }
-  .badge-buy-btn:disabled { background: var(--card); color: var(--text2); cursor: default; }
-  .customize-save-btn {
-    width: 100%; margin-top: 18px;
-    padding: 14px; border-radius: 14px;
+  .badge-buy-btn.btn-buy {
     background: linear-gradient(135deg, var(--accent), #e6a800);
-    color: #000; font-size: 15px; font-weight: 900;
-    border: none; cursor: pointer;
+    color: #000; box-shadow: 0 2px 8px rgba(247,201,72,.3);
   }
+  .badge-buy-btn.btn-buy:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(247,201,72,.4); }
+  .badge-buy-btn.btn-equip {
+    background: rgba(85,239,196,.15); color: var(--success);
+    border: 1px solid rgba(85,239,196,.3);
+  }
+  .badge-buy-btn.btn-unequip {
+    background: rgba(162,155,254,.12); color: var(--accent4);
+    border: 1px solid rgba(162,155,254,.3);
+  }
+  .badge-buy-btn:disabled { background: rgba(255,255,255,.05); color: var(--text2); cursor: default; box-shadow: none; }
+  /* ── PHOTO ── */
+  .cust-photo-zone {
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  .cust-photo-ring {
+    width: 96px; height: 96px; border-radius: 50%;
+    padding: 3px;
+    background: linear-gradient(135deg, var(--accent), var(--accent3));
+    box-shadow: 0 0 20px rgba(247,201,72,.25);
+  }
+  .cust-photo-inner {
+    width: 100%; height: 100%; border-radius: 50%;
+    overflow: hidden; background: var(--card2);
+    display: flex; align-items: center; justify-content: center; font-size: 38px;
+  }
+  #cust-photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+  .cust-photo-infos { text-align: center; }
+  .cust-photo-title { font-size: 14px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+  .cust-photo-sub { font-size: 11px; color: var(--text2); line-height: 1.6; }
+  .cust-photo-btn {
+    width: 100%; padding: 12px; border-radius: 14px;
+    border: 1.5px dashed rgba(255,255,255,.15);
+    background: rgba(255,255,255,.03); color: var(--text2);
+    font-size: 13px; font-weight: 700; cursor: pointer; transition: all .2s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .cust-photo-btn:hover {
+    border-color: rgba(247,201,72,.4); color: var(--accent);
+    background: rgba(247,201,72,.05);
+  }
+  #cust-photo-status {
+    text-align: center; font-size: 12px; color: var(--text2);
+    min-height: 18px; padding: 0 4px;
+  }
+  /* ── BOUTON SAVE ── */
+  .cust-save-btn {
+    width: 100%; margin-top: 22px; padding: 15px;
+    border-radius: 16px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #f7c948 0%, #e8a000 100%);
+    color: #000; font-size: 15px; font-weight: 900; letter-spacing: .5px;
+    box-shadow: 0 4px 20px rgba(247,201,72,.35);
+    transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .cust-save-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(247,201,72,.45); }
+  .cust-save-btn:disabled { background: var(--card2); color: var(--text2); box-shadow: none; transform: none; }
   .pf-identity {
     padding: 12px 14px 4px;
   }
@@ -917,31 +1044,40 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <!-- ══ MODAL PERSONNALISATION ══ -->
   <div id="modal-customize">
     <div class="customize-sheet">
+      <!-- Drag handle -->
+      <div class="cust-handle"></div>
+
       <!-- Header -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-        <div class="customize-title">✏️ Personnaliser mon profil</div>
-        <button id="btn-customize-cancel" style="width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">×</button>
+      <div class="cust-header">
+        <div class="cust-header-left">
+          <div class="cust-header-icon">✏️</div>
+          <div>
+            <div class="cust-header-title">Personnaliser</div>
+            <div class="cust-header-sub">Cover · Effets · Badges · Photo</div>
+          </div>
+        </div>
+        <button id="btn-customize-cancel" class="cust-close-btn">×</button>
       </div>
 
-      <!-- Onglets internes -->
-      <div style="display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding-bottom:2px">
-        <button class="cust-tab active" data-tab="colors">🎨 Couleurs</button>
-        <button class="cust-tab" data-tab="fx">✨ Effets</button>
-        <button class="cust-tab" data-tab="badges">🏅 Badges</button>
-        <button class="cust-tab" data-tab="photo">📸 Photo</button>
+      <!-- Onglets pill -->
+      <div class="cust-tabs">
+        <button class="cust-tab active" data-tab="colors"><span class="tab-icon">🎨</span>Couleurs</button>
+        <button class="cust-tab" data-tab="fx"><span class="tab-icon">✨</span>Effets</button>
+        <button class="cust-tab" data-tab="badges"><span class="tab-icon">🏅</span>Badges</button>
+        <button class="cust-tab" data-tab="photo"><span class="tab-icon">📸</span>Photo</button>
       </div>
 
       <!-- Panneau Couleurs -->
       <div class="cust-panel" id="cust-panel-colors">
-        <div class="customize-section-label">Couleur du cover</div>
+        <div class="cust-label">Thème du cover</div>
         <div class="cover-colors" id="cover-colors-grid"></div>
       </div>
 
       <!-- Panneau Effets -->
       <div class="cust-panel" id="cust-panel-fx" style="display:none">
-        <div class="customize-section-label">Effet visuel</div>
+        <div class="cust-label">Effet animé</div>
         <div class="cover-effects" id="cover-effects-btns">
-          <button class="fx-btn" data-fx="">Aucun</button>
+          <button class="fx-btn selected" data-fx="">⬜ Aucun</button>
           <button class="fx-btn" data-fx="particles">✦ Particules</button>
           <button class="fx-btn" data-fx="rain">🌧 Pluie</button>
           <button class="fx-btn" data-fx="snow">❄️ Neige</button>
@@ -952,27 +1088,33 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
       <!-- Panneau Badges -->
       <div class="cust-panel" id="cust-panel-badges" style="display:none">
-        <div class="customize-section-label">Badges de profil</div>
+        <div class="cust-label">Boutique badges</div>
         <div class="badge-shop-grid" id="badge-shop-grid"></div>
       </div>
 
       <!-- Panneau Photo -->
       <div class="cust-panel" id="cust-panel-photo" style="display:none">
-        <div class="customize-section-label">Photo de profil</div>
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
-          <div id="cust-photo-preview" style="width:72px;height:72px;border-radius:50%;background:var(--card2);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:32px">👤</div>
-          <div>
-            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px">Photo personnalisée</div>
-            <div style="font-size:11px;color:var(--text2);line-height:1.5">Remplace ta photo Telegram<br>sur la mini app uniquement.</div>
+        <div class="cust-label">Photo de profil</div>
+        <div class="cust-photo-zone">
+          <div class="cust-photo-ring">
+            <div class="cust-photo-inner" id="cust-photo-preview">👤</div>
           </div>
+          <div class="cust-photo-infos">
+            <div class="cust-photo-title">Photo personnalisée</div>
+            <div class="cust-photo-sub">Remplace ta photo Telegram<br>uniquement dans la mini app.</div>
+          </div>
+          <input type="file" id="cust-photo-input" accept="image/*" style="display:none" onchange="onCustPhotoSelected(this)">
+          <button class="cust-photo-btn" onclick="document.getElementById('cust-photo-input').click()">
+            🖼️ Choisir une photo
+          </button>
+          <div id="cust-photo-status"></div>
         </div>
-        <input type="file" id="cust-photo-input" accept="image/*" style="display:none" onchange="onCustPhotoSelected(this)">
-        <button onclick="document.getElementById('cust-photo-input').click()" style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">🖼️ Choisir une photo</button>
-        <div id="cust-photo-status" style="text-align:center;font-size:12px;color:var(--text2);min-height:16px"></div>
       </div>
 
-      <!-- Bouton Enregistrer tout -->
-      <button id="btn-customize-save" style="margin-top:20px;width:100%;padding:14px;border-radius:14px;border:none;background:var(--accent);color:#000;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px">💾 Enregistrer</button>
+      <!-- Bouton Enregistrer -->
+      <button id="btn-customize-save" class="cust-save-btn">
+        💾 Enregistrer les modifications
+      </button>
     </div>
   </div>
 
@@ -9011,109 +9153,316 @@ async function submitBid(isSalle) {
 //  PERSONNALISATION PROFIL
 // ════════════════════════════════════════
 
+/* ═══════════════════════════════════════════════
+   CUSTOMIZE — catalogue + état + fonctions
+   ═══════════════════════════════════════════════ */
 const COVER_THEMES = [
   { id:'purple',  label:'Violet',      swatch:'#6c5ce7', bg:'linear-gradient(135deg,#1a1a3e,#0f0f2a,#1a0a2e)', overlay:'linear-gradient(135deg,rgba(162,155,254,.25),rgba(78,205,196,.12))' },
   { id:'gold',    label:'Or',          swatch:'#f9ca24', bg:'linear-gradient(135deg,#2a1a00,#1a1000,#2a1500)', overlay:'linear-gradient(135deg,rgba(247,201,72,.3),rgba(255,180,0,.18))' },
   { id:'teal',    label:'Vert',        swatch:'#00b894', bg:'linear-gradient(135deg,#0a2a2a,#051515,#0a2015)', overlay:'linear-gradient(135deg,rgba(85,239,196,.25),rgba(0,200,150,.15))' },
-  { id:'red',     label:'Rouge',       swatch:'#e17055', bg:'linear-gradient(135deg,#2a0a0a,#1a0505,#2a0505)', overlay:'linear-gradient(135deg,rgba(255,107,107,.25),rgba(200,0,0,.15))' },
+  { id:'red',     label:'Rouge',       swatch:'#e84040', bg:'linear-gradient(135deg,#2a0a0a,#1a0505,#2a0505)', overlay:'linear-gradient(135deg,rgba(255,107,107,.25),rgba(200,0,0,.15))' },
   { id:'blue',    label:'Bleu',        swatch:'#0984e3', bg:'linear-gradient(135deg,#0a1a2e,#050f1f,#0a1528)', overlay:'linear-gradient(135deg,rgba(100,180,255,.25),rgba(0,100,255,.15))' },
   { id:'pink',    label:'Rose',        swatch:'#fd79a8', bg:'linear-gradient(135deg,#2a0a1e,#1a0512,#2a0520)', overlay:'linear-gradient(135deg,rgba(253,121,168,.28),rgba(200,0,100,.15))' },
   { id:'orange',  label:'Orange',      swatch:'#e17055', bg:'linear-gradient(135deg,#2a1500,#1a0c00,#221000)', overlay:'linear-gradient(135deg,rgba(255,160,0,.25),rgba(255,100,0,.15))' },
   { id:'black',   label:'Noir',        swatch:'#636e72', bg:'linear-gradient(135deg,#0a0a0a,#050505,#0f0f0f)', overlay:'linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.02))' },
   { id:'silver',  label:'Argent',      swatch:'#b2bec3', bg:'linear-gradient(135deg,#1a1a22,#0f0f18,#16161e)', overlay:'linear-gradient(135deg,rgba(200,200,255,.18),rgba(180,180,255,.1))' },
-  { id:'rainbow', label:'Arc-en-ciel', swatch:'linear-gradient(90deg,#e84393,#f9ca24,#00b894,#0984e3)', bg:'linear-gradient(135deg,#1a0a2e,#0a1a2e,#0a2a1e)', overlay:'linear-gradient(90deg,rgba(255,107,107,.18),rgba(247,201,72,.18),rgba(85,239,196,.18))' },
+  { id:'rainbow', label:'Arc-en-ciel', swatch:null,      bg:'linear-gradient(135deg,#1a0a2e,#0a1a2e,#0a2a1e)', overlay:'linear-gradient(90deg,rgba(255,107,107,.18),rgba(247,201,72,.18),rgba(85,239,196,.18))' },
 ];
 
 const BADGE_CATALOG = [
-  { id:'gold_star',   emoji:'🌟', name:'Étoile d\'Or',    price:500_000,  desc:'Joueur fortuné' },
-  { id:'diamond',     emoji:'💎', name:'Diamant',         price:2_000_000, desc:'Élite du bot' },
-  { id:'fire',        emoji:'🔥', name:'Enflammé',        price:300_000,  desc:'Actif en jeu' },
-  { id:'crown',       emoji:'👑', name:'Couronne',        price:5_000_000, desc:'Roi de la fortune' },
-  { id:'rocket',      emoji:'🚀', name:'Fusée',           price:1_000_000, desc:'Investisseur fou' },
-  { id:'skull',       emoji:'💀', name:'Skull',           price:800_000,  desc:'Parieur extrême' },
-  { id:'trophy',      emoji:'🏆', name:'Trophée',         price:1_500_000, desc:'Champion' },
-  { id:'unicorn',     emoji:'🦄', name:'Licorne',         price:3_000_000, desc:'Rarissime' },
+  { id:'gold_star',  emoji:'\u{1F31F}', name:'Étoile d\'Or',    price:500000,   desc:'Joueur fortuné' },
+  { id:'diamond',    emoji:'\u{1F48E}', name:'Diamant',          price:2000000,  desc:'Élite du bot' },
+  { id:'fire',       emoji:'\u{1F525}', name:'Enflammé',         price:300000,   desc:'Actif en jeu' },
+  { id:'crown',      emoji:'\u{1F451}', name:'Couronne',         price:5000000,  desc:'Roi de la fortune' },
+  { id:'rocket',     emoji:'\u{1F680}', name:'Fusée',            price:1000000,  desc:'Investisseur fou' },
+  { id:'skull',      emoji:'\u{1F480}', name:'Skull',            price:800000,   desc:'Parieur extrême' },
+  { id:'trophy',     emoji:'\u{1F3C6}', name:'Trophée',          price:1500000,  desc:'Champion' },
+  { id:'unicorn',    emoji:'\u{1F984}', name:'Licorne',          price:3000000,  desc:'Rarissime' },
 ];
 
-let _pfCustom = {
-  cover_theme: 'purple',
-  cover_fx: '',
-  badges_owned: [],
-  badges_equipped: [],
-};
-let _pfCoins = 0;
+let _pfCustom = { cover_theme:'purple', cover_fx:'', badges_owned:[], badges_equipped:[] };
+let _pfCoins  = 0;
+let _custPhotoBase64 = null;
 
+/* ── Ouvrir le modal ── */
 function openCustomize() {
-  _pfCoins = parseInt(document.getElementById('pf-cash')?.textContent?.replace(/[^0-9]/g,'')) || 0;
+  const cashRaw = document.getElementById('pf-cash')?.textContent || '0';
+  _pfCoins = parseInt(cashRaw.replace(/\s/g,'').replace(/[^0-9]/g,'')) || 0;
+
   const modal = document.getElementById('modal-customize');
   if (!modal) return;
   modal.style.display = 'flex';
-  // Reset sur onglet couleurs
-  custTab('colors');
+  _custPhotoBase64 = null;
+  const statusEl = document.getElementById('cust-photo-status');
+  if (statusEl) { statusEl.textContent = ''; statusEl.style.color = ''; }
+
+  _custSwitchTab('colors');
   _renderCoverColors();
   _renderFxButtons();
   _renderBadgeShop();
-  // Sync preview photo
+
   const avatar = document.querySelector('#pf-avatar-wrap img');
-  const prev = document.getElementById('cust-photo-preview');
-  if (prev && avatar) {
-    prev.innerHTML = '';
-    const img = document.createElement('img');
-    img.src = avatar.src;
-    img.style.cssText = 'width:100%;height:100%;object-fit:cover';
-    prev.appendChild(img);
+  const prev   = document.getElementById('cust-photo-preview');
+  if (prev) {
+    prev.innerHTML = (avatar && avatar.src)
+      ? `<img src="${avatar.src}" style="width:100%;height:100%;object-fit:cover">`
+      : '👤';
   }
 }
+
+/* ── Fermer ── */
 function closeCustomize() {
   const modal = document.getElementById('modal-customize');
   if (modal) modal.style.display = 'none';
 }
-function custTab(name) {
-  document.querySelectorAll('.cust-tab').forEach(function(b) {
-    b.classList.toggle('active', b.dataset.tab === name);
-  });
-  document.querySelectorAll('.cust-panel').forEach(function(p) {
-    p.style.display = p.id === 'cust-panel-' + name ? '' : 'none';
-  });
+
+/* ── Switch onglet ── */
+function _custSwitchTab(name) {
+  document.querySelectorAll('.cust-tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === name)
+  );
+  document.querySelectorAll('.cust-panel').forEach(p =>
+    p.style.display = (p.id === 'cust-panel-' + name) ? '' : 'none'
+  );
 }
 
-let _custPhotoBase64 = null;
+/* ── Couleurs cover ── */
+function _renderCoverColors() {
+  const grid = document.getElementById('cover-colors-grid');
+  if (!grid) return;
+  grid.innerHTML = COVER_THEMES.map(t => {
+    const bgStyle = t.swatch
+      ? `background:${t.swatch}`
+      : 'background:linear-gradient(90deg,#e84393,#f9ca24,#00b894,#0984e3)';
+    return `<div class="cover-color-btn ${t.id===_pfCustom.cover_theme?'selected':''}"
+      style="${bgStyle}" title="${t.label}" data-theme="${t.id}"></div>`;
+  }).join('');
+  grid.querySelectorAll('.cover-color-btn').forEach(btn =>
+    btn.addEventListener('click', () => _selectTheme(btn.dataset.theme))
+  );
+}
+function _selectTheme(id) {
+  _pfCustom.cover_theme = id;
+  _applyCustomToCover();
+  _renderCoverColors();
+}
+
+/* ── Effets FX ── */
+function _renderFxButtons() {
+  document.querySelectorAll('.fx-btn').forEach(b =>
+    b.classList.toggle('selected', b.dataset.fx === _pfCustom.cover_fx)
+  );
+}
+function _selectFx(fx) {
+  _pfCustom.cover_fx = fx;
+  _applyCustomToCover();
+  _renderFxButtons();
+}
+
+/* ── Appliquer au cover ── */
+function _applyCustomToCover() {
+  const cover = document.getElementById('pf-cover');
+  const blur  = document.getElementById('pf-cover-blur');
+  const theme = COVER_THEMES.find(t => t.id === _pfCustom.cover_theme) || COVER_THEMES[0];
+  if (cover) {
+    cover.style.background = theme.bg;
+    cover.className = 'pf-cover' + (_pfCustom.cover_fx ? ' fx-' + _pfCustom.cover_fx : '');
+  }
+  if (blur) blur.style.background = theme.overlay;
+}
+
+/* ── Boutique badges ── */
+function _renderBadgeShop() {
+  const owned    = _pfCustom.badges_owned    || [];
+  const equipped = _pfCustom.badges_equipped || [];
+  const grid     = document.getElementById('badge-shop-grid');
+  if (!grid) return;
+
+  grid.innerHTML = BADGE_CATALOG.map(b => {
+    const isOwned    = owned.includes(b.id);
+    const isEquipped = equipped.includes(b.id);
+    const canAfford  = _pfCoins >= b.price;
+
+    let priceHtml, btnHtml;
+    if (isOwned) {
+      priceHtml = `<div class="badge-price-tag owned-tag">${isEquipped ? '✅ Équipé' : '✔ Possédé'}</div>`;
+      btnHtml   = isEquipped
+        ? `<button class="badge-buy-btn btn-unequip badge-action" data-action="unequip" data-badge="${b.id}">Retirer</button>`
+        : `<button class="badge-buy-btn btn-equip badge-action" data-action="equip" data-badge="${b.id}">Équiper</button>`;
+    } else {
+      priceHtml = `<div class="badge-price-tag">💰 ${fmt(b.price)} $</div>`;
+      btnHtml   = canAfford
+        ? `<button class="badge-buy-btn btn-buy badge-action" data-action="buy" data-badge="${b.id}" data-price="${b.price}">Acheter</button>`
+        : `<button class="badge-buy-btn" disabled title="Fonds insuffisants">🔒</button>`;
+    }
+
+    return `<div class="badge-shop-item ${isOwned ? 'owned' : ''}">
+      <div class="badge-emoji-wrap">${b.emoji}</div>
+      <div class="badge-info">
+        <div class="badge-name">${b.name}</div>
+        <div class="badge-desc">${b.desc}</div>
+        ${priceHtml}
+      </div>
+      ${btnHtml}
+    </div>`;
+  }).join('');
+}
+
+/* ── Équiper / Déséquiper ── */
+function _toggleBadge(id, action) {
+  const eq  = _pfCustom.badges_equipped || [];
+  const idx = eq.indexOf(id);
+  if (action === 'unequip') {
+    if (idx >= 0) eq.splice(idx, 1);
+  } else {
+    if (idx < 0) {
+      if (eq.length >= 5) { showToast('Max 5 badges équipés'); return; }
+      eq.push(id);
+    }
+  }
+  _pfCustom.badges_equipped = eq;
+  _renderBadgeShop();
+  _renderProfileBadges();
+}
+
+/* ── Acheter un badge ── */
+async function buyBadge(id, price) {
+  if (!uid) return;
+  document.querySelectorAll('.badge-action').forEach(b => { b.disabled = true; });
+  try {
+    const r = await fetchT('/api/webapp/profile/badge/buy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: uid, badge_id: id, price })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      _pfCustom.badges_owned = d.badges_owned || [];
+      _pfCoins -= price;
+      showToast('✅ Badge acheté !');
+    } else {
+      showToast('❌ ' + (d.error || 'Erreur achat'));
+    }
+  } catch(e) {
+    showToast('❌ Erreur réseau');
+  } finally {
+    _renderBadgeShop();
+  }
+}
+
+/* ── Sélection photo locale ── */
 function onCustPhotoSelected(input) {
   const file = input.files[0];
   if (!file) return;
+  const statusEl = document.getElementById('cust-photo-status');
   if (file.size > 5 * 1024 * 1024) {
-    document.getElementById('cust-photo-status').textContent = '⚠️ Image trop lourde (max 5 Mo)';
+    if (statusEl) { statusEl.textContent = '⚠️ Image trop lourde (max 5 Mo)'; statusEl.style.color = 'var(--accent2)'; }
     return;
   }
   const reader = new FileReader();
   reader.onload = function(e) {
     _custPhotoBase64 = e.target.result;
     const prev = document.getElementById('cust-photo-preview');
-    if (prev) {
-      prev.innerHTML = `<img src="${_custPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
-    }
-    document.getElementById('cust-photo-status').textContent = '✅ Photo prête — clique sur Enregistrer';
+    if (prev) prev.innerHTML = `<img src="${_custPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
+    if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
   };
   reader.readAsDataURL(file);
+  input.value = '';
 }
-function _attachCustomizeListeners() {
+
+/* ── Enregistrer tout ── */
+async function saveCustomize() {
+  if (!uid) return;
+  const btn = document.getElementById('btn-customize-save');
+  const setBtn = (txt, dis) => { if (btn) { btn.disabled = dis; btn.innerHTML = txt; } };
+
+  setBtn('⏳ Enregistrement…', true);
+  try {
+    const r = await fetchT('/api/webapp/profile/customize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id:         uid,
+        cover_theme:     _pfCustom.cover_theme,
+        cover_fx:        _pfCustom.cover_fx,
+        badges_equipped: _pfCustom.badges_equipped
+      })
+    });
+    const d = await r.json();
+    if (!d.ok) { showToast('❌ ' + (d.error || 'Erreur')); return; }
+
+    if (_custPhotoBase64) {
+      const statusEl = document.getElementById('cust-photo-status');
+      if (statusEl) { statusEl.textContent = '📤 Upload en cours…'; statusEl.style.color = 'var(--text2)'; }
+      const rp = await fetchT('/api/webapp/profile/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: uid, photo_b64: _custPhotoBase64 })
+      });
+      const dp = await rp.json();
+      if (dp.ok) {
+        _custPhotoBase64 = null;
+        const ts  = Date.now();
+        const url = `/api/webapp/photo?user_id=${uid}&t=${ts}`;
+        const wrap = document.getElementById('pf-avatar-wrap');
+        if (wrap) wrap.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.parentNode.innerHTML='👤'">`;
+        const custPrev = document.getElementById('cust-photo-preview');
+        if (custPrev) custPrev.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover">`;
+        if (statusEl) { statusEl.textContent = '✅ Photo mise à jour !'; statusEl.style.color = 'var(--success)'; }
+      } else {
+        showToast('❌ ' + (dp.error || 'Erreur photo'));
+        return;
+      }
+    }
+
+    showToast('✅ Profil sauvegardé !');
+    setTimeout(closeCustomize, 600);
+  } catch(e) {
+    showToast('❌ Erreur réseau');
+  } finally {
+    setBtn('💾 Enregistrer les modifications', false);
+  }
+}
+
+/* ── Badges page profil ── */
+function _renderProfileBadges() {
+  const row = document.getElementById('pf-badges-row');
+  if (!row) return;
+  const equipped = _pfCustom.badges_equipped || [];
+  const owned    = _pfCustom.badges_owned    || [];
+  row.innerHTML = equipped
+    .filter(id => owned.includes(id))
+    .map(id => {
+      const b = BADGE_CATALOG.find(x => x.id === id);
+      return b ? `<div class="pf-badge" title="${b.name}">${b.emoji}</div>` : '';
+    }).join('');
+}
+
+/* ── Chargement initial ── */
+function _loadProfileCustomization(d) {
+  if (!d.customization) return;
+  try {
+    const c = typeof d.customization === 'string' ? JSON.parse(d.customization) : d.customization;
+    _pfCustom.cover_theme     = c.cover_theme     || 'purple';
+    _pfCustom.cover_fx        = c.cover_fx        || '';
+    _pfCustom.badges_owned    = Array.isArray(c.badges_owned)    ? c.badges_owned    : [];
+    _pfCustom.badges_equipped = Array.isArray(c.badges_equipped) ? c.badges_equipped : [];
+    _applyCustomToCover();
+    _renderProfileBadges();
+  } catch(e) { console.warn('customization parse error', e); }
+}
+
+/* ── Délégation d'événements globale (une seule fois) ── */
+(function _attachCustomizeListeners() {
   document.addEventListener('click', function(e) {
     const t = e.target;
-    // Crayon cover
-    if (t.id === 'btn-cover-edit' || t.closest('#btn-cover-edit')) { openCustomize(); return; }
-    // Sauvegarder
-    if (t.id === 'btn-customize-save' || t.closest('#btn-customize-save')) { saveCustomize(); return; }
-    // Annuler / fermer ×
-    if (t.id === 'btn-customize-cancel' || t.closest('#btn-customize-cancel')) { closeCustomize(); return; }
-    // Fermer en cliquant le fond du modal
-    if (t.id === 'modal-customize') { closeCustomize(); return; }
-    // Onglets internes cust-tab
+    if (t.closest('#btn-cover-edit'))      { openCustomize();  return; }
+    if (t.closest('#btn-customize-save'))  { saveCustomize();  return; }
+    if (t.closest('#btn-customize-cancel') || t.id === 'modal-customize') { closeCustomize(); return; }
     const tab = t.closest('.cust-tab');
-    if (tab && tab.dataset.tab) { custTab(tab.dataset.tab); return; }
-    // Boutons FX
+    if (tab && tab.dataset.tab)            { _custSwitchTab(tab.dataset.tab); return; }
     const fxBtn = t.closest('.fx-btn');
-    if (fxBtn && fxBtn.closest('#cover-effects-btns')) { selectFx(fxBtn, fxBtn.dataset.fx); return; }
-    // Boutons badges (délégation — fonctionne même après innerHTML)
+    if (fxBtn && fxBtn.closest('#cover-effects-btns')) { _selectFx(fxBtn.dataset.fx); return; }
     const badgeBtn = t.closest('.badge-action');
     if (badgeBtn) {
       e.stopPropagation();
@@ -9121,163 +9470,10 @@ function _attachCustomizeListeners() {
       const badgeId = badgeBtn.dataset.badge;
       const price   = parseInt(badgeBtn.dataset.price || '0');
       if (action === 'buy') buyBadge(badgeId, price);
-      else toggleBadge(badgeId);
-      return;
+      else _toggleBadge(badgeId, action);
     }
   });
-}
-_attachCustomizeListeners();
-function _renderCoverColors() {
-  const grid = document.getElementById('cover-colors-grid');
-  grid.innerHTML = COVER_THEMES.map(t => `
-    <div class="cover-color-btn ${t.id===_pfCustom.cover_theme?'selected':''}"
-         style="background:${t.swatch}"
-         title="${t.label}"
-         data-theme="${t.id}"></div>
-  `).join('');
-  grid.querySelectorAll('.cover-color-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() { selectTheme(btn.dataset.theme); });
-  });
-}
-function selectTheme(id) {
-  _pfCustom.cover_theme = id;
-  _applyCustomToCover();
-  _renderCoverColors();
-}
-function selectFx(btn, fx) {
-  _pfCustom.cover_fx = fx;
-  _applyCustomToCover();
-  document.querySelectorAll('.fx-btn').forEach(b => b.classList.remove('selected'));
-  btn.classList.add('selected');
-}
-function _applyCustomToCover() {
-  const cover = document.getElementById('pf-cover');
-  const blur  = document.getElementById('pf-cover-blur');
-  const theme = COVER_THEMES.find(t => t.id === _pfCustom.cover_theme) || COVER_THEMES[0];
-  cover.style.background = theme.bg;
-  if (blur) blur.style.background = theme.overlay;
-  cover.className = 'pf-cover' + (_pfCustom.cover_fx ? ' fx-'+_pfCustom.cover_fx : '');
-}
-function _renderFxButtons() {
-  document.querySelectorAll('.fx-btn').forEach(b => {
-    b.classList.toggle('selected', b.dataset.fx === _pfCustom.cover_fx);
-  });
-}
-function _renderBadgeShop() {
-  const owned    = _pfCustom.badges_owned || [];
-  const equipped = _pfCustom.badges_equipped || [];
-  const grid = document.getElementById('badge-shop-grid');
-  if (!grid) return;
-  grid.innerHTML = BADGE_CATALOG.map(b => {
-    const isOwned    = owned.includes(b.id);
-    const isEquipped = equipped.includes(b.id);
-    return `<div class="badge-shop-item ${isOwned?'owned':''}" data-badge-id="${b.id}">
-      <div class="badge-emoji">${b.emoji}</div>
-      <div class="badge-info">
-        <div class="badge-name">${b.name}</div>
-        <div class="badge-price" id="badge-price-${b.id}">${isOwned ? (isEquipped?'✅ Équipé':'✔ Possédé') : fmt(b.price)+' $'}</div>
-      </div>
-      ${isOwned
-        ? `<button class="badge-buy-btn badge-action" data-action="${isEquipped?'unequip':'equip'}" data-badge="${b.id}" data-price="0" style="background:${isEquipped?'var(--accent2)':'var(--success)'}">${isEquipped?'Retirer':'Équiper'}</button>`
-        : `<button class="badge-buy-btn badge-action" data-action="buy" data-badge="${b.id}" data-price="${b.price}">Acheter</button>`
-      }
-    </div>`;
-  }).join('');
-}
-function toggleBadge(id) {
-  const eq = _pfCustom.badges_equipped || [];
-  const idx = eq.indexOf(id);
-  if (idx >= 0) eq.splice(idx,1); else { if (eq.length < 5) eq.push(id); else { showToast('Max 5 badges équipés'); return; } }
-  _pfCustom.badges_equipped = eq;
-  _renderBadgeShop();
-  _renderProfileBadges();
-}
-async function buyBadge(id, price) {
-  if (!uid) return;
-  try {
-    const r = await fetchT('/api/webapp/profile/badge/buy', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, badge_id: id, price })
-    });
-    const d = await r.json();
-    if (d.ok) {
-      _pfCustom.badges_owned = d.badges_owned;
-      showToast('✅ Badge acheté !');
-      _renderBadgeShop();
-    } else { showToast(d.error || 'Erreur'); }
-  } catch(e) { showToast('Erreur réseau'); }
-}
-async function saveCustomize() {
-  if (!uid) return;
-  const btn = document.getElementById('btn-customize-save');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Enregistrement…'; }
-  try {
-    // 1. Sauvegarder couleurs/effets/badges
-    const r = await fetchT('/api/webapp/profile/customize', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, cover_theme: _pfCustom.cover_theme, cover_fx: _pfCustom.cover_fx, badges_equipped: _pfCustom.badges_equipped })
-    });
-    const d = await r.json();
-    if (!d.ok) { showToast(d.error || 'Erreur'); return; }
-
-    // 2. Sauvegarder photo si modifiée
-    if (_custPhotoBase64) {
-      const status = document.getElementById('cust-photo-status');
-      if (status) status.textContent = '📤 Upload photo…';
-      const rp = await fetchT('/api/webapp/profile/photo', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ user_id: uid, photo_b64: _custPhotoBase64 })
-      });
-      const dp = await rp.json();
-      if (dp.ok) {
-        _custPhotoBase64 = null;
-        // Recharger la photo depuis le serveur (cache-bust)
-        const ts = Date.now();
-        const wrap = document.getElementById('pf-avatar-wrap');
-        if (wrap) wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${ts}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
-        const custPrev = document.getElementById('cust-photo-preview');
-        if (custPrev) custPrev.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${ts}" style="width:100%;height:100%;object-fit:cover">`;
-        document.getElementById('cust-photo-status').textContent = '✅ Photo enregistrée !';
-      } else {
-        showToast(dp.error || 'Erreur photo');
-      }
-    }
-
-    showToast('✅ Profil sauvegardé !');
-    closeCustomize();
-  } catch(e) { showToast('Erreur réseau'); }
-  finally {
-    if (btn) { btn.disabled = false; btn.textContent = '💾 Enregistrer'; }
-  }
-}
-function _renderProfileBadges() {
-  const row = document.getElementById('pf-badges-row');
-  if (!row) return;
-  const equipped = _pfCustom.badges_equipped || [];
-  const owned    = _pfCustom.badges_owned || [];
-  row.innerHTML = equipped
-    .filter(id => owned.includes(id))
-    .map(id => {
-      const b = BADGE_CATALOG.find(x => x.id===id);
-      return b ? `<div class="pf-badge" title="${b.name}">${b.emoji}</div>` : '';
-    }).join('');
-}
-function _loadProfileCustomization(d) {
-  if (!d.customization) return;
-  try {
-    const c = typeof d.customization === 'string' ? JSON.parse(d.customization) : d.customization;
-    _pfCustom.cover_theme    = c.cover_theme    || 'purple';
-    _pfCustom.cover_fx       = c.cover_fx       || '';
-    _pfCustom.badges_owned   = c.badges_owned   || [];
-    _pfCustom.badges_equipped = c.badges_equipped || [];
-    _applyCustomToCover();
-    _renderProfileBadges();
-  } catch(e) {}
-}
-
+})();
 </script>
 
 <!-- ── SLIDES + NOTIFICATIONS STYLES & JS ── -->

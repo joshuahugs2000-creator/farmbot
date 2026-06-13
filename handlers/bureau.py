@@ -570,7 +570,7 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             treasury_now = int(row[1] or 0)
 
             contracts_rows = (await s.execute(
-                text("SELECT id, title, cmds_done, objective_cmds, reward, ends_at "
+                text("SELECT id, title, cmds_done, objective_cmds, reward, ends_at, cmds_at_start "
                      "FROM bureau_contrats WHERE company_id=:cid AND status='active'"),
                 {"cid": company_id}
             )).fetchall()
@@ -586,11 +586,13 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # ── Phase 2 : calcul hors DB ──────────────────────────────────────────
         to_claim = []   # (id, title, cmds_done, obj, reward)
         for r in contracts_rows:
-            cid, title, cmds_done, obj, reward, ends_at = r
-            cmds_done = int(cmds_done or 0)
-            obj       = int(obj or 1)
-            reward    = int(reward or 0)
-            if cmds_done >= obj:
+            cid, title, cmds_done, obj, reward, ends_at, cmds_at_start = r
+            cmds_done     = int(cmds_done or 0)
+            cmds_at_start = int(cmds_at_start or 0)
+            obj           = int(obj or 1)
+            reward        = int(reward or 0)
+            progression   = cmds_done - cmds_at_start
+            if progression >= obj:
                 time_saved = ""
                 if ends_at and now < ends_at:
                     diff = ends_at - now
@@ -599,19 +601,19 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     time_saved = f"⚡ Réclamé <b>{h}h{m:02d}</b> avant la deadline !\n\n"
                 messages.append(
                     f"🎉 <b>{title}</b>\n"
-                    f"✅ {cmds_done:,} / {obj:,} commandes\n"
+                    f"✅ {progression:,} / {obj:,} commandes\n"
                     f"{time_saved}"
                     f"💰 <b>+{_fmt(reward)} $</b> crédités en trésorerie"
                 )
                 to_claim.append((cid, title, cmds_done, obj, reward))
                 claimed_any = True
             else:
-                pct = min(100, int(cmds_done / obj * 100))
+                pct = min(100, int(progression / obj * 100)) if obj > 0 else 0
                 bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
                 messages.append(
                     f"⏳ <b>{title}</b>\n"
-                    f"[{bar}] {cmds_done:,}/{obj:,} cmds ({pct}%)\n"
-                    f"Il manque encore <b>{obj - cmds_done:,} commandes</b>"
+                    f"[{bar}] {progression:,}/{obj:,} cmds ({pct}%)\n"
+                    f"Il manque encore <b>{obj - progression:,} commandes</b>"
                 )
 
         # ── Phase 3 : écriture atomique ───────────────────────────────────────
@@ -683,11 +685,13 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             total_now = await _get_employee_total_cmds(session, contract.company_id)
-            cmds_done = int(contract.cmds_done or 0)
-            obj = contract.objective_cmds or 1
+            cmds_done     = int(contract.cmds_done or 0)
+            cmds_at_start = int(contract.cmds_at_start or 0)
+            obj           = contract.objective_cmds or 1
+            progression   = cmds_done - cmds_at_start
 
             # Contrat réussi — objectif atteint
-            if cmds_done >= obj:
+            if progression >= obj:
                 contract.status = "completed"
                 company.treasury += contract.reward
                 company.value = company.treasury
@@ -713,7 +717,7 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                                 f"🎉 <b>Contrat Bureau accompli !</b>\n\n"
                                 f"🏢 <b>{company.name}</b>\n"
                                 f"📄 <b>{contract.title}</b>\n"
-                                f"✅ Objectif atteint : <b>{cmds_done:,} / {obj:,} commandes</b>\n"
+                                f"✅ Objectif atteint : <b>{progression:,} / {obj:,} commandes</b>\n"
                                 f"💰 <b>+{_fmt(contract.reward)} $</b> versés en trésorerie !\n\n"
                                 f"🏦 Trésorerie : <b>{_fmt(company.treasury)} $</b>\n\n"
                                 f"Tu peux soumettre un nouveau dossier : <code>/soumettredossier</code>"

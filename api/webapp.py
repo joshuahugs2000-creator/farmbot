@@ -1020,15 +1020,16 @@ async def webapp_profile_customize(request: web.Request) -> web.Response:
         if not user:
             return web.json_response({'error': 'user not found'}, status=404)
 
-        # Lire la customisation actuelle
+        # Lire la customisation actuelle — PRÉSERVER badges_owned
         try:
-            current = json.loads(user.profile_color or '{}') if user.profile_color and user.profile_color.startswith('{') else {}
+            current = json.loads(user.profile_color) if user.profile_color and user.profile_color.startswith('{') else {}
         except Exception:
             current = {}
 
         current['cover_theme']     = cover_theme
         current['cover_fx']        = cover_fx
         current['badges_equipped'] = badges_equipped
+        # badges_owned est préservé tel quel — on ne l'écrase jamais ici
 
         user.profile_color = json.dumps(current)
         await session.commit()
@@ -1096,12 +1097,12 @@ async def webapp_profile_photo(request: web.Request) -> web.Response:
         return web.json_response({'error': 'invalid json'}, status=400)
 
     uid          = int(body.get('user_id', 0))
-    photo_b64    = body.get('photo_base64', '')  # data:image/jpeg;base64,XXXX
+    photo_b64    = body.get('photo_b64', '') or body.get('photo_base64', '')  # les deux clés acceptées
 
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
     if not photo_b64:
-        return web.json_response({'error': 'photo_base64 manquant'})
+        return web.json_response({'error': 'Photo manquante'})
 
     # Extraire le contenu brut
     try:

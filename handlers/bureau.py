@@ -512,7 +512,7 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 # Progression commandes
                 total_now = await _get_employee_total_cmds(session, company.id)
-                done = max(0, int(c.cmds_done or 0) - int(c.cmds_at_start or 0))
+                done = int(c.cmds_done or 0)
                 obj = c.objective_cmds or 1
                 pct = min(100, int(done / obj * 100))
                 bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
@@ -591,7 +591,7 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             cmds_at_start = int(cmds_at_start or 0)
             obj           = int(obj or 1)
             reward        = int(reward or 0)
-            progression   = cmds_done - cmds_at_start
+            progression   = cmds_done
             if progression >= obj:
                 time_saved = ""
                 if ends_at and now < ends_at:
@@ -688,7 +688,7 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
             cmds_done     = int(contract.cmds_done or 0)
             cmds_at_start = int(contract.cmds_at_start or 0)
             obj           = contract.objective_cmds or 1
-            progression   = cmds_done - cmds_at_start
+            progression   = cmds_done
 
             # Contrat réussi — objectif atteint
             if progression >= obj:

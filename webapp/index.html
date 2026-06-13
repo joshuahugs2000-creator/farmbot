@@ -890,24 +890,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
-    <!-- ── PHOTO DE PROFIL ── -->
-    <div class="pf-section">
-      <div class="pf-section-header">📸 Photo de profil</div>
-      <div style="padding:14px 16px">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
-          <div id="pf-photo-preview" style="width:64px;height:64px;border-radius:50%;background:var(--card2);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:28px">👤</div>
-          <div>
-            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px">Photo personnalisée</div>
-            <div style="font-size:11px;color:var(--text2);line-height:1.5">Choisir une image depuis ta galerie.<br>Elle remplacera ta photo Telegram sur la mini app.</div>
-          </div>
-        </div>
-        <input type="file" id="pf-photo-input" accept="image/*" style="display:none" onchange="onPhotoSelected(this)">
-        <button onclick="document.getElementById('pf-photo-input').click()" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px">🖼️ Choisir une photo</button>
-        <button id="pf-photo-save-btn" onclick="saveProfilePhoto()" style="display:none;width:100%;padding:12px;border-radius:12px;border:none;background:var(--accent);color:#000;font-size:14px;font-weight:900;cursor:pointer">💾 Enregistrer</button>
-        <div id="pf-photo-status" style="text-align:center;font-size:12px;font-weight:700;min-height:16px;margin-top:4px"></div>
-      </div>
-    </div>
-
     <!-- ── DIPLÔMES ── -->
     <div class="pf-section">
       <div class="pf-section-header">🎓 Diplômes</div>

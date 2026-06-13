@@ -512,7 +512,7 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 # Progression commandes
                 total_now = await _get_employee_total_cmds(session, company.id)
-                done = int(c.cmds_done or 0)
+                done = max(0, int(c.cmds_done or 0) - int(c.cmds_at_start or 0))
                 obj = c.objective_cmds or 1
                 pct = min(100, int(done / obj * 100))
                 bar = "█" * (pct // 10) + "░" * (10 - pct // 10)

@@ -239,7 +239,7 @@ async def webapp_photo_proxy(request: web.Request) -> web.Response:
                 return web.Response(status=404)
             img_bytes = _b64.b64decode(b64data)
             return web.Response(body=img_bytes, content_type='image/jpeg',
-                                headers={'Cache-Control': 'public, max-age=300'})
+                                headers={'Cache-Control': 'no-store, no-cache, must-revalidate'})
         except Exception:
             return web.Response(status=500)
 
@@ -1033,6 +1033,7 @@ async def webapp_profile_customize(request: web.Request) -> web.Response:
         # badges_owned est préservé tel quel — on ne l'écrase jamais ici
 
         user.profile_color = json.dumps(current)
+        session.add(user)
         await session.commit()
 
     return web.json_response({'ok': True})
@@ -1051,7 +1052,7 @@ async def webapp_profile_badge_buy(request: web.Request) -> web.Response:
 
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
-    if not badge_id or price <= 0:
+    if not badge_id or price < 0:
         return web.json_response({'error': 'Paramètres invalides'}, status=400)
 
     VALID_BADGES = {'gold_star','diamond','fire','crown','rocket','skull','trophy','unicorn'}
@@ -1081,6 +1082,7 @@ async def webapp_profile_badge_buy(request: web.Request) -> web.Response:
         owned.append(badge_id)
         current['badges_owned'] = owned
         user.profile_color = json.dumps(current)
+        session.add(user)
         await session.commit()
 
     return web.json_response({'ok': True, 'badges_owned': owned})
@@ -1138,6 +1140,7 @@ async def webapp_profile_photo(request: web.Request) -> web.Response:
             existing = {}
         existing['_custom_photo'] = data  # base64 complet
         user.avatar_data = json.dumps(existing)
+        session.add(user)
         await session.commit()
 
     return web.json_response({'ok': True})

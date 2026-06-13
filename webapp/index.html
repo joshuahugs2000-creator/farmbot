@@ -9231,11 +9231,13 @@ async function saveCustomize() {
       const dp = await rp.json();
       if (dp.ok) {
         _custPhotoBase64 = null;
-        // Mettre à jour l'avatar affiché
+        // Recharger la photo depuis le serveur (cache-bust)
+        const ts = Date.now();
         const wrap = document.getElementById('pf-avatar-wrap');
-        if (wrap) {
-          wrap.innerHTML = `<img src="${document.getElementById('cust-photo-preview')?.querySelector('img')?.src || ''}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
-        }
+        if (wrap) wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${ts}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
+        const custPrev = document.getElementById('cust-photo-preview');
+        if (custPrev) custPrev.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${ts}" style="width:100%;height:100%;object-fit:cover">`;
+        document.getElementById('cust-photo-status').textContent = '✅ Photo enregistrée !';
       } else {
         showToast(dp.error || 'Erreur photo');
       }

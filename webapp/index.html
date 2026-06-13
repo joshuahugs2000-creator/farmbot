@@ -4830,8 +4830,8 @@ function fillProfile(d) {
 
   // ── Photo de profil Telegram ──
   const wrap = document.getElementById('pf-avatar-wrap');
-  if (wrap && d.photo_file_id) {
-    wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}" alt="" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
+  if (wrap && (d.photo_file_id || d.photo_file_type === 'custom_b64')) {
+    wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${Date.now()}" alt="" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
   }
 
   // ── Avatar SVG (pour la page avatar séparée) ──
@@ -9113,6 +9113,17 @@ function _attachCustomizeListeners() {
     // Boutons FX
     const fxBtn = t.closest('.fx-btn');
     if (fxBtn && fxBtn.closest('#cover-effects-btns')) { selectFx(fxBtn, fxBtn.dataset.fx); return; }
+    // Boutons badges (délégation — fonctionne même après innerHTML)
+    const badgeBtn = t.closest('.badge-action');
+    if (badgeBtn) {
+      e.stopPropagation();
+      const action  = badgeBtn.dataset.action;
+      const badgeId = badgeBtn.dataset.badge;
+      const price   = parseInt(badgeBtn.dataset.price || '0');
+      if (action === 'buy') buyBadge(badgeId, price);
+      else toggleBadge(badgeId);
+      return;
+    }
   });
 }
 _attachCustomizeListeners();
@@ -9156,30 +9167,22 @@ function _renderBadgeShop() {
   const owned    = _pfCustom.badges_owned || [];
   const equipped = _pfCustom.badges_equipped || [];
   const grid = document.getElementById('badge-shop-grid');
+  if (!grid) return;
   grid.innerHTML = BADGE_CATALOG.map(b => {
     const isOwned    = owned.includes(b.id);
     const isEquipped = equipped.includes(b.id);
-    return `<div class="badge-shop-item ${isOwned?'owned':''}" data-badge-id="${b.id}" data-badge-price="${b.price}">
+    return `<div class="badge-shop-item ${isOwned?'owned':''}" data-badge-id="${b.id}">
       <div class="badge-emoji">${b.emoji}</div>
       <div class="badge-info">
         <div class="badge-name">${b.name}</div>
         <div class="badge-price" id="badge-price-${b.id}">${isOwned ? (isEquipped?'✅ Équipé':'✔ Possédé') : fmt(b.price)+' $'}</div>
       </div>
       ${isOwned
-        ? `<button class="badge-buy-btn badge-action" data-action="${isEquipped?'unequip':'equip'}" data-badge="${b.id}" style="background:${isEquipped?'var(--accent2)':'var(--success)'}">${isEquipped?'Retirer':'Équiper'}</button>`
+        ? `<button class="badge-buy-btn badge-action" data-action="${isEquipped?'unequip':'equip'}" data-badge="${b.id}" data-price="0" style="background:${isEquipped?'var(--accent2)':'var(--success)'}">${isEquipped?'Retirer':'Équiper'}</button>`
         : `<button class="badge-buy-btn badge-action" data-action="buy" data-badge="${b.id}" data-price="${b.price}">Acheter</button>`
       }
     </div>`;
   }).join('');
-  // Attacher les listeners sur les boutons badge
-  grid.querySelectorAll('.badge-action').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      const action = btn.dataset.action;
-      const badgeId = btn.dataset.badge;
-      if (action === 'buy') buyBadge(badgeId, parseInt(btn.dataset.price));
-      else toggleBadge(badgeId);
-    });
-  });
 }
 function toggleBadge(id) {
   const eq = _pfCustom.badges_equipped || [];

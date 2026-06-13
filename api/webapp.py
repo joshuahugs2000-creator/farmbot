@@ -196,6 +196,7 @@ async def webapp_user(request: web.Request) -> web.Response:
             'diplomes':      diplomes_str,
             'avatar_data':   user.avatar_data or None,
             'photo_file_id': user.photo_file_id or None,
+            'photo_file_type': user.photo_file_type or None,
             'customization': user.profile_color or None,
             'portfolio': {
                 'invested': _fmt(invested),

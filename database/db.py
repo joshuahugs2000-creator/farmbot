@@ -113,6 +113,7 @@ async def init_db():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS diplome_domain   VARCHAR(50) DEFAULT NULL",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS exam_cooldown    TIMESTAMP DEFAULT NULL",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data      TEXT DEFAULT NULL",
+        "ALTER TABLE users ALTER COLUMN profile_color TYPE TEXT USING profile_color::TEXT",
         "UPDATE users SET coins = 10000 WHERE coins IS NULL OR coins < 10000",
         # karma & harvest
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS karma         INTEGER DEFAULT 0",

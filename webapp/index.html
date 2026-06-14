@@ -3689,20 +3689,6 @@ const CURRENCY = '$';
 let uid = userId;
 
 // ── Accès restreint ──────────────────────────────────────────────────────────
-const WEBAPP_WHITELIST = [6227863810, 8278388042,1782278519];
-if (userId && !WEBAPP_WHITELIST.includes(userId)) {
-  document.getElementById('loading').innerHTML = `
-    <div style="text-align:center;padding:40px 24px">
-      <div style="font-size:64px">🚧</div>
-      <div style="font-family:'Bangers',cursive;font-size:34px;color:#f7c948;margin-top:16px;letter-spacing:3px">BIENTÔT DISPONIBLE</div>
-      <div style="color:#a0a0b0;font-size:14px;margin-top:14px;line-height:1.8">
-        La Mini App <b style="color:#f0f0f0">Family Bot</b> est en cours de développement.<br>
-        Elle sera disponible pour tout le monde très bientôt ! 🎮
-      </div>
-    </div>`;
-  // stop tout le reste du script
-  throw new Error('not allowed');
-}
 // ────────────────────────────────────────────────────────────────────────────
 
 // ════════════════════════════════════════
@@ -4998,7 +4984,7 @@ function fillProfile(d) {
   _set('pf-username', d.username ? '@' + d.username : '');
   _set('pf-coins',   fmt(d.fortune_totale));
   _set('pf-cash',    fmt(d.coins));
-  _pfCoinsRaw = parseInt(d.coins) || 0;   // stocker la valeur brute pour la boutique badges
+  _pfCoinsRaw = (d.coins_raw !== undefined) ? d.coins_raw : (parseInt(d.coins) || 0);  // valeur brute pour la boutique badges
   _set('pf-bank',    fmt(d.bank_total));
   _set('pf-debt',    fmt(d.loans_total));
   _set('pf-total',   fmt(d.fortune_totale));
@@ -9282,7 +9268,7 @@ function _renderBadgeShop() {
   grid.innerHTML = BADGE_CATALOG.map(b => {
     const isOwned    = owned.includes(b.id);
     const isEquipped = equipped.includes(b.id);
-    const canAfford  = _pfCoins >= b.price;
+    const canAfford  = _pfCoinsRaw >= b.price;
 
     let priceHtml, btnHtml;
     if (isOwned) {

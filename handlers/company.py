@@ -3496,6 +3496,25 @@ async def dissoudreboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
+        # ── ANTI-EXPLOIT : bloquer dissolution si prêts actifs ──────────────
+        from database.models import CompanyLoan
+        active_loans = (await session.execute(
+            select(CompanyLoan).where(
+                CompanyLoan.company_id == company.id,
+                CompanyLoan.status == "active",
+            )
+        )).scalars().all()
+        if active_loans:
+            total_debt = sum(l.remaining for l in active_loans)
+            await update.message.reply_text(
+                f"❌ <b>Dissolution impossible.</b>\n\n"
+                f"L'entreprise a <b>{len(active_loans)} prêt(s) actif(s)</b> non remboursé(s).\n"
+                f"💸 Dette totale restante : <b>{_fmt(total_debt)} $</b>\n\n"
+                f"Rembourse d'abord tes prêts avec <code>/rembourserpret</code>.",
+                parse_mode="HTML"
+            )
+            return
+
         # Récupérer les actionnaires
         shares_list = (await session.execute(
             select(CompanyShare).where(

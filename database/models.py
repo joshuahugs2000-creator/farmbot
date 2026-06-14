@@ -31,7 +31,7 @@ class User(Base):
     first_name    = Column(String(255), nullable=False)
     photo_file_id   = Column(String(512), nullable=True)
     photo_file_type = Column(String(10), nullable=True, default='photo')  # 'photo' ou 'sticker'
-    profile_color = Column(String(20), default="blue")
+    profile_color = Column(Text, default="blue")
     coins         = Column(BigInteger, default=10_000)
     karma         = Column(Integer, default=0)
     family_name   = Column(String(100), nullable=True)

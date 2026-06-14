@@ -154,6 +154,14 @@ async def bilan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── COMMANDE : /emprunterboite [montant] ────────────────────────────────────
 
 async def emprunterboite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """[DÉSACTIVÉ] Prêts entreprise désactivés."""
+    await update.message.reply_text(
+        "❌ <b>Les prêts entreprise sont temporairement désactivés.</b>",
+        parse_mode="HTML"
+    )
+    return
+
+async def emprunterboite_cmd_DISABLED(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """PDG contracte un prêt bancaire pour son entreprise."""
     user = update.effective_user
     if not context.args:

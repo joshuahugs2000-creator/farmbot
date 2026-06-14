@@ -187,6 +187,7 @@ async def webapp_user(request: web.Request) -> web.Response:
             'username':      user.username or '',
             'title':         titre,
             'coins':         _fmt(user.coins),
+            'coins_raw':     int(user.coins or 0),
             'bank_total':    _fmt(bank_total),
             'loans_total':   _fmt(loans_total),
             'fortune_totale':_fmt(fortune_totale),

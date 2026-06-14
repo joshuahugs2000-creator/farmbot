@@ -947,8 +947,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
     <!-- Bande identité : avatar à gauche + infos à droite -->
     <div class="pf-identity-row">
-      <div class="pf-avatar-wrap" id="pf-avatar-wrap">
+      <div class="pf-avatar-wrap" id="pf-avatar-wrap" onclick="openCustomize('photo')" title="Modifier la photo" style="cursor:pointer;position:relative">
         <div class="pf-avatar-placeholder">👤</div>
+        <div style="position:absolute;bottom:2px;right:2px;width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.5)">✏️</div>
       </div>
       <div class="pf-identity-info">
         <div class="pf-name-row">
@@ -4959,7 +4960,7 @@ function fillProfile(d) {
   // ── Photo de profil Telegram ──
   const wrap = document.getElementById('pf-avatar-wrap');
   if (wrap && (d.photo_file_id || d.photo_file_type === 'custom_b64')) {
-    wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${Date.now()}" alt="" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
+    wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${Date.now()}" alt="" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>' " style="width:100%;height:100%;object-fit:cover;border-radius:50%"><div style="position:absolute;bottom:2px;right:2px;width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.5)">✏️</div>`;
   }
 
   // ── Avatar SVG (pour la page avatar séparée) ──
@@ -9173,7 +9174,7 @@ let _pfCoinsRaw = 0;   // valeur brute (non formatée) mise à jour par fillProf
 let _custPhotoBase64 = null;
 
 /* ── Ouvrir le modal ── */
-function openCustomize() {
+function openCustomize(tab) {
   _pfCoins = _pfCoinsRaw;  // utiliser la valeur brute stockée au chargement du profil
 
   const modal = document.getElementById('modal-customize');
@@ -9183,7 +9184,7 @@ function openCustomize() {
   const statusEl = document.getElementById('cust-photo-status');
   if (statusEl) { statusEl.textContent = ''; statusEl.style.color = ''; }
 
-  _custSwitchTab('colors');
+  _custSwitchTab(tab || 'colors');
   _renderCoverColors();
   _renderFxButtons();
   _renderBadgeShop();
@@ -9396,7 +9397,9 @@ async function saveCustomize() {
         const ts  = Date.now();
         const url = `/api/webapp/photo?user_id=${uid}&t=${ts}`;
         const wrap = document.getElementById('pf-avatar-wrap');
-        if (wrap) wrap.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.parentNode.innerHTML='👤'">`;
+        if (wrap) {
+          wrap.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.parentNode.innerHTML='👤'"><div style="position:absolute;bottom:2px;right:2px;width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.5)">✏️</div>`;
+        }
         const custPrev = document.getElementById('cust-photo-preview');
         if (custPrev) custPrev.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover">`;
         if (statusEl) { statusEl.textContent = '✅ Photo mise à jour !'; statusEl.style.color = 'var(--success)'; }

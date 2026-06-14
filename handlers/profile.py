@@ -214,6 +214,15 @@ async def setpic(update: Update, context: ContextTypes.DEFAULT_TYPE):
             u.photo_file_id = file_id
             if hasattr(u, 'photo_file_type'):
                 u.photo_file_type = file_type
+            # Effacer la photo custom mini-app si elle existait
+            try:
+                import json as _json
+                avatar_obj = _json.loads(u.avatar_data or '{}') if u.avatar_data else {}
+                if '_custom_photo' in avatar_obj:
+                    del avatar_obj['_custom_photo']
+                    u.avatar_data = _json.dumps(avatar_obj)
+            except Exception:
+                pass
             await session.commit()
 
     await update.message.reply_text("✅ Photo de profil mise à jour !")

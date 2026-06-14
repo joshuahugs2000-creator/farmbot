@@ -4845,10 +4845,12 @@ async function _updateEcoNotifBadge() {
 //  TOAST
 // ════════════════════════════════════════
 function showToast(msg) {
-  const t = document.getElementById('toast');
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id='toast'; document.body.appendChild(t); }
+  t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:99999;transition:opacity .3s;background:var(--success);color:#fff;opacity:1;';
   t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2500);
+  clearTimeout(t._hideTimer);
+  t._hideTimer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
 }
 
 // ════════════════════════════════════════
@@ -6362,14 +6364,15 @@ function showToast(msg, isErr = false) {
   if (!t) {
     t = document.createElement('div');
     t.id = 'toast';
-    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:999;transition:opacity .3s;';
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:99999;transition:opacity .3s;';
     document.body.appendChild(t);
   }
   t.style.background = isErr ? 'var(--accent2)' : 'var(--success)';
   t.style.color = '#fff';
   t.textContent = msg;
   t.style.opacity = '1';
-  setTimeout(() => { t.style.opacity = '0'; }, 2500);
+  clearTimeout(t._hideTimer);
+  t._hideTimer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
 }
 
 function fmtNum(n) {
@@ -9296,8 +9299,8 @@ function _renderBadgeShop() {
   }).join('');
 }
 
-/* ── Équiper / Déséquiper ── */
-function _toggleBadge(id, action) {
+/* ── Équiper / Déséquiper (auto-save) ── */
+async function _toggleBadge(id, action) {
   const eq  = _pfCustom.badges_equipped || [];
   const idx = eq.indexOf(id);
   if (action === 'unequip') {
@@ -9311,6 +9314,28 @@ function _toggleBadge(id, action) {
   _pfCustom.badges_equipped = eq;
   _renderBadgeShop();
   _renderProfileBadges();
+
+  // Auto-save en base
+  try {
+    const r = await fetchT('/api/webapp/profile/customize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id:         uid,
+        cover_theme:     _pfCustom.cover_theme,
+        cover_fx:        _pfCustom.cover_fx,
+        badges_equipped: _pfCustom.badges_equipped
+      })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showToast(action === 'equip' ? '✅ Badge équipé !' : '✅ Badge retiré !');
+    } else {
+      showToast('❌ ' + (d.error || 'Erreur'));
+    }
+  } catch(e) {
+    showToast('❌ Erreur réseau');
+  }
 }
 
 /* ── Acheter un badge ── */
@@ -9381,7 +9406,7 @@ async function saveCustomize() {
       })
     });
     const d = await r.json();
-    if (!d.ok) { showToast('❌ ' + (d.error || 'Erreur')); return; }
+    if (!d.ok) { showToast('❌ ' + (d.error || 'Erreur')); setBtn('💾 Enregistrer les modifications', false); return; }
 
     if (_custPhotoBase64) {
       const statusEl = document.getElementById('cust-photo-status');
@@ -9405,15 +9430,15 @@ async function saveCustomize() {
         if (statusEl) { statusEl.textContent = '✅ Photo mise à jour !'; statusEl.style.color = 'var(--success)'; }
       } else {
         showToast('❌ ' + (dp.error || 'Erreur photo'));
+        setBtn('💾 Enregistrer les modifications', false);
         return;
       }
     }
 
-    showToast('✅ Profil sauvegardé !');
-    setTimeout(closeCustomize, 600);
+    setBtn('✅ Sauvegardé !', true);
+    setTimeout(() => { closeCustomize(); setBtn('💾 Enregistrer les modifications', false); }, 1200);
   } catch(e) {
     showToast('❌ Erreur réseau');
-  } finally {
     setBtn('💾 Enregistrer les modifications', false);
   }
 }

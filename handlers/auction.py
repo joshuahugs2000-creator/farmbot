@@ -292,6 +292,27 @@ async def _close_auction(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Erreur clôture enchère: {e}")
 
+    # ── Relance automatique : nouvelle enchère dans 30s ──────────────────────
+    try:
+        context.job_queue.run_once(
+            _relaunch_auction,
+            when=timedelta(seconds=30),
+            data={"group_id": group_id},
+            name=f"relaunch_auction_{group_id}"
+        )
+    except Exception as e:
+        logger.error(f"Erreur programmation relance: {e}")
+
+# ─── RELANCE AUTOMATIQUE ──────────────────────────────────────────────────────
+
+async def _relaunch_auction(context: ContextTypes.DEFAULT_TYPE):
+    """Lance une nouvelle enchère 30s après la clôture — cycle infini."""
+    group_id = context.job.data["group_id"]
+    try:
+        await _launch_auction(context, group_id)
+    except Exception as e:
+        logger.error(f"Erreur relance enchère groupe {group_id}: {e}")
+
 # ─── JOB AUTOMATIQUE ──────────────────────────────────────────────────────────
 
 async def _auction_job(context: ContextTypes.DEFAULT_TYPE):

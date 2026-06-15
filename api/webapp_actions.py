@@ -2039,7 +2039,7 @@ async def webapp_item_sell_expert(request: web.Request) -> web.Response:
 
     async with AsyncSessionLocal() as session:
         r = await session.execute(
-            text("SELECT id, item_name, item_emoji, true_value, for_sale FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
+            sa_text("SELECT id, item_name, item_emoji, true_value, for_sale FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
             {"iid": item_id, "uid": uid}
         )
         row = r.fetchone()
@@ -2050,11 +2050,11 @@ async def webapp_item_sell_expert(request: web.Request) -> web.Response:
 
         gain = max(1, int((row[3] or 0) * 0.50))
         await session.execute(
-            text("DELETE FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
+            sa_text("DELETE FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
             {"iid": item_id, "uid": uid}
         )
         await session.execute(
-            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:g AS BIGINT) WHERE user_id = :uid"),
+            sa_text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:g AS BIGINT) WHERE user_id = :uid"),
             {"g": gain, "uid": uid}
         )
         await session.commit()
@@ -2077,7 +2077,7 @@ async def webapp_item_put_market(request: web.Request) -> web.Response:
 
     async with AsyncSessionLocal() as session:
         r = await session.execute(
-            text("SELECT id, item_name, item_emoji, true_value FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
+            sa_text("SELECT id, item_name, item_emoji, true_value FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
             {"iid": item_id, "uid": uid}
         )
         row = r.fetchone()
@@ -2085,7 +2085,7 @@ async def webapp_item_put_market(request: web.Request) -> web.Response:
             return _err("Objet introuvable")
 
         await session.execute(
-            text("UPDATE auction_inventory SET for_sale = TRUE, sale_price = :price WHERE id = :iid AND user_id = :uid"),
+            sa_text("UPDATE auction_inventory SET for_sale = TRUE, sale_price = :price WHERE id = :iid AND user_id = :uid"),
             {"price": price, "iid": item_id, "uid": uid}
         )
         await session.commit()
@@ -2103,7 +2103,7 @@ async def webapp_item_remove_market(request: web.Request) -> web.Response:
 
     async with AsyncSessionLocal() as session:
         await session.execute(
-            text("UPDATE auction_inventory SET for_sale = FALSE, sale_price = NULL WHERE id = :iid AND user_id = :uid"),
+            sa_text("UPDATE auction_inventory SET for_sale = FALSE, sale_price = NULL WHERE id = :iid AND user_id = :uid"),
             {"iid": item_id, "uid": uid}
         )
         await session.commit()
@@ -2159,7 +2159,7 @@ async def webapp_item_buy(request: web.Request) -> web.Response:
 
     async with AsyncSessionLocal() as session:
         r = await session.execute(
-            text("SELECT id, user_id, item_name, item_emoji, rarity, true_value, sale_price FROM auction_inventory WHERE id = :iid AND for_sale = TRUE"),
+            sa_text("SELECT id, user_id, item_name, item_emoji, rarity, true_value, sale_price FROM auction_inventory WHERE id = :iid AND for_sale = TRUE"),
             {"iid": item_id}
         )
         row = r.fetchone()
@@ -2177,17 +2177,17 @@ async def webapp_item_buy(request: web.Request) -> web.Response:
         seller_id = row[1]
         # Débiter acheteur
         await session.execute(
-            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:p AS BIGINT) WHERE user_id = :uid"),
+            sa_text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:p AS BIGINT) WHERE user_id = :uid"),
             {"p": price, "uid": uid}
         )
         # Créditer vendeur
         await session.execute(
-            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:p AS BIGINT) WHERE user_id = :uid"),
+            sa_text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:p AS BIGINT) WHERE user_id = :uid"),
             {"p": price, "uid": seller_id}
         )
         # Transférer l'objet
         await session.execute(
-            text("UPDATE auction_inventory SET user_id = :buyer, for_sale = FALSE, sale_price = NULL WHERE id = :iid"),
+            sa_text("UPDATE auction_inventory SET user_id = :buyer, for_sale = FALSE, sale_price = NULL WHERE id = :iid"),
             {"buyer": uid, "iid": item_id}
         )
         await session.commit()

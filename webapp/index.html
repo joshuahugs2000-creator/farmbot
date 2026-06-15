@@ -1456,6 +1456,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <div class="sh2-podium-loading">Chargement…</div>
     </div>
 
+    <!-- ── EN LIGNE ── -->
+    <div class="sh2-section-label" style="margin-top:18px">EN LIGNE <span class="sh2-label-line"></span></div>
+    <div id="sh-online-list" style="display:flex;flex-wrap:wrap;gap:12px;padding:4px 0 6px;">
+      <div style="color:var(--text2);font-size:12px;padding:10px 0;">Chargement…</div>
+    </div>
+
     <!-- ── RÉSEAU ── -->
     <div class="sh2-section-label" style="margin-top:18px">RÉSEAU <span class="sh2-label-line"></span></div>
 
@@ -3398,7 +3404,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         </div>
       </div>
 
-    </div><!-- /#game-view -->\n  </div>
+    </div><!-- /#game-view -->
+  </div>
 
   <!-- ══ PAGE PAY ══ -->
   <div class="page" id="page-pay">
@@ -4715,6 +4722,7 @@ function subTab(page, fn) {
     el.classList.add('active');
     if (page === 'eco-hub') loadEcoHub();
     if (page === 'games') loadCasinoBalance();
+    if (page === 'social-hub') { _shLoaded = false; loadSocialHub(); }
   }
   const resolvedFn = fn || (tab && tab.subs.find(s=>s.p===page)?.fn) || '';
   if (resolvedFn && window[resolvedFn]) window[resolvedFn]();
@@ -5796,6 +5804,7 @@ async function loadSocialHub() {
   } catch(e) {}
 
   _shLoaded = true;
+  loadOnlineUsers();
 }
 
 function _shFillRanking(d) {
@@ -10387,3 +10396,156 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
   </div>
 </div>
+
+<!-- ── MODAL PROFIL UTILISATEUR EN LIGNE ── -->
+<div id="online-user-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);align-items:flex-end;justify-content:center;" onclick="if(event.target===this)closeOnlineModal()">
+  <div style="width:100%;max-width:480px;background:#1a1a2e;border-radius:24px 24px 0 0;padding:24px 20px 36px;border-top:1px solid rgba(255,255,255,.08);transform:translateY(100%);transition:transform .35s cubic-bezier(.4,0,.2,1);" id="online-modal-sheet">
+    <!-- Handle -->
+    <div style="width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.15);margin:0 auto 20px;"></div>
+    <!-- Photo + infos -->
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+      <div id="om-photo-wrap" style="width:72px;height:72px;border-radius:50%;overflow:hidden;background:#2a2a4a;border:2px solid rgba(255,255,255,.1);flex-shrink:0;">
+        <img id="om-photo" src="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';document.getElementById('om-photo-fallback').style.display='flex'">
+        <div id="om-photo-fallback" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:32px;">👤</div>
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div id="om-name" style="font-family:'Bangers',cursive;font-size:22px;color:#f0f0f0;line-height:1.1;"></div>
+        <div id="om-username" style="font-size:12px;color:var(--text2);margin-top:2px;"></div>
+        <div id="om-relation-badge" style="display:inline-block;margin-top:6px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:900;"></div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:10px;color:rgba(255,255,255,.35);margin-bottom:2px;">FORTUNE</div>
+        <div id="om-coins" style="font-family:'Bangers',cursive;font-size:16px;color:#f7c948;"></div>
+      </div>
+    </div>
+    <!-- Status en ligne -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;padding:10px 14px;background:rgba(85,239,196,.06);border-radius:10px;border:1px solid rgba(85,239,196,.15);">
+      <div style="width:8px;height:8px;border-radius:50%;background:#55efc4;box-shadow:0 0 6px #55efc4;flex-shrink:0;"></div>
+      <span id="om-lastseen" style="font-size:12px;color:rgba(255,255,255,.5);">En ligne récemment</span>
+    </div>
+    <!-- Actions -->
+    <div id="om-actions" style="display:flex;flex-direction:column;gap:10px;"></div>
+  </div>
+</div>
+
+<script>
+// ── ONLINE USERS ────────────────────────────────────────────────────────────
+let _onlineUsers = [];
+
+async function loadOnlineUsers() {
+  try {
+    const r = await fetchT(`/api/webapp/online?user_id=${uid}`, {}, 10000);
+    const d = await r.json();
+    if (d.error) return;
+    _onlineUsers = d.users || [];
+    renderOnlineUsers();
+  } catch(e) {}
+}
+
+function renderOnlineUsers() {
+  const el = document.getElementById('sh-online-list');
+  if (!el) return;
+  if (!_onlineUsers.length) {
+    el.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:10px 0;">Aucun utilisateur en ligne récemment.</div>';
+    return;
+  }
+  el.innerHTML = _onlineUsers.map(u => {
+    const photoUrl = `/api/webapp/photo?user_id=${u.user_id}`;
+    const relIcon = u.relation === 'spouse' ? '💍' : u.relation === 'friend' ? '🤝' : '';
+    return `
+      <div onclick="openOnlineModal(${u.user_id})" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-width:64px;max-width:72px;">
+        <div style="position:relative;width:56px;height:56px;">
+          <div style="width:56px;height:56px;border-radius:50%;overflow:hidden;background:#2a2a4a;border:2px solid rgba(255,255,255,.1);">
+            <img src="${photoUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='<div style=\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px;background:#2a2a4a;border-radius:50%;\\'>👤</div>'">
+          </div>
+          <div style="position:absolute;bottom:1px;right:1px;width:12px;height:12px;border-radius:50%;background:#55efc4;border:2px solid #0f0f1a;"></div>
+          ${relIcon ? `<div style="position:absolute;top:-2px;left:-2px;font-size:14px;">${relIcon}</div>` : ''}
+        </div>
+        <div style="font-size:11px;font-weight:700;color:var(--text);text-align:center;max-width:64px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.name}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openOnlineModal(userId) {
+  const u = _onlineUsers.find(x => x.user_id === userId);
+  if (!u) return;
+
+  const photoUrl = `/api/webapp/photo?user_id=${userId}`;
+  const imgEl = document.getElementById('om-photo');
+  const fallback = document.getElementById('om-photo-fallback');
+  imgEl.style.display = 'block';
+  fallback.style.display = 'none';
+  imgEl.src = photoUrl;
+  imgEl.onerror = () => { imgEl.style.display='none'; fallback.style.display='flex'; };
+
+  document.getElementById('om-name').textContent = u.name;
+  document.getElementById('om-username').textContent = u.username ? `@${u.username}` : '';
+  document.getElementById('om-coins').textContent = Number(u.coins).toLocaleString('fr-FR') + ' $';
+
+  // Badge relation
+  const badge = document.getElementById('om-relation-badge');
+  if (u.relation === 'spouse') {
+    badge.style.display = 'inline-block';
+    badge.style.background = 'rgba(253,121,168,.15)';
+    badge.style.color = '#fd79a8';
+    badge.style.border = '1px solid rgba(253,121,168,.3)';
+    badge.textContent = '💍 Marié(e)';
+  } else if (u.relation === 'friend') {
+    badge.style.display = 'inline-block';
+    badge.style.background = 'rgba(116,185,255,.15)';
+    badge.style.color = '#74b9ff';
+    badge.style.border = '1px solid rgba(116,185,255,.3)';
+    badge.textContent = '🤝 Ami(e)';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  // Last seen
+  const lsEl = document.getElementById('om-lastseen');
+  if (u.last_seen) {
+    const diff = Math.floor((Date.now() - new Date(u.last_seen+'Z').getTime()) / 60000);
+    lsEl.textContent = diff < 2 ? '🟢 En ligne maintenant' : `🟡 Vu il y a ${diff} min`;
+  }
+
+  // Actions
+  const actions = document.getElementById('om-actions');
+  const hasRel = u.relation === 'spouse' || u.relation === 'friend';
+
+  let btns = '';
+  if (!hasRel) {
+    btns += `
+      <button onclick="sendSocialCmd('/ami @${u.username || u.user_id}')" style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#74b9ff,#0077b6);color:#fff;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">🤝 Demande d'ami</button>
+      <button onclick="sendSocialCmd('/mariage @${u.username || u.user_id}')" style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#fd79a8,#e84393);color:#fff;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💍 Proposer le mariage</button>
+    `;
+  } else if (u.relation === 'friend') {
+    btns += `<div style="text-align:center;padding:12px;background:rgba(116,185,255,.08);border-radius:10px;border:1px solid rgba(116,185,255,.2);font-size:13px;color:#74b9ff;">🤝 Vous êtes déjà amis</div>`;
+    btns += `<button onclick="sendSocialCmd('/mariage @${u.username || u.user_id}')" style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#fd79a8,#e84393);color:#fff;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💍 Proposer le mariage</button>`;
+  } else {
+    btns += `<div style="text-align:center;padding:12px;background:rgba(253,121,168,.08);border-radius:10px;border:1px solid rgba(253,121,168,.2);font-size:13px;color:#fd79a8;">💍 Vous êtes mariés</div>`;
+  }
+  btns += `<button onclick="closeOnlineModal()" style="padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:none;color:var(--text2);font-size:14px;cursor:pointer;">Fermer</button>`;
+  actions.innerHTML = btns;
+
+  // Show modal
+  const modal = document.getElementById('online-user-modal');
+  modal.style.display = 'flex';
+  requestAnimationFrame(() => {
+    document.getElementById('online-modal-sheet').style.transform = 'translateY(0)';
+  });
+}
+
+function closeOnlineModal() {
+  const sheet = document.getElementById('online-modal-sheet');
+  sheet.style.transform = 'translateY(100%)';
+  setTimeout(() => { document.getElementById('online-user-modal').style.display = 'none'; }, 350);
+}
+
+function sendSocialCmd(cmd) {
+  closeOnlineModal();
+  showToast(`💬 Envoie la commande dans le bot :\n${cmd}`, false, 4000);
+  if (tg && tg.switchInlineQuery) {
+    try { tg.close(); } catch(e) {}
+  }
+}
+</script>

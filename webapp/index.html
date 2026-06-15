@@ -5374,25 +5374,63 @@ function _fmtCooldown(mins) {
 }
 
 async function claimDailyFromProfile() {
-  const btn = document.querySelector('#pf-gains-inner button');
-  if (btn) btn.disabled = true;
+  const btns = document.querySelectorAll('#pf-gains-inner button');
+  const btn = Array.from(btns).find(b => b.textContent.includes('Récupérer'));
+  if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
+  const res = document.getElementById('pf-daily-result');
   try {
-    const r = await fetchT('/api/webapp/daily', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
+    const r = await fetchT('/api/webapp/gains/daily', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
     const d = await r.json();
-    const res = document.getElementById('pf-daily-result');
-    if (res) res.textContent = d.ok ? `✅ ${d.msg}` : `❌ ${d.error}`;
-    if (d.ok) setTimeout(() => _loadProfileGains(), 1200);
-  } catch(e) {}
+    if (d.error) throw new Error(d.error);
+    if (res) {
+      if (d.status === 'already') {
+        res.textContent = '⏳ Déjà récupéré aujourd\'hui !';
+        res.style.color = 'var(--text2)';
+      } else {
+        res.textContent = `🎁 +${fmt(d.amount)} $ gagné !`;
+        res.style.color = 'var(--success)';
+        setTimeout(() => _loadProfileGains(), 1200);
+      }
+    }
+  } catch(e) {
+    if (res) { res.textContent = `❌ ${e.message}`; res.style.color = 'var(--accent2)'; }
+    if (btn) { btn.disabled = false; btn.textContent = '🎁 Récupérer'; }
+  }
 }
 
 async function claimWorkFromProfile() {
+  const btns = document.querySelectorAll('#pf-gains-inner button');
+  const btn = Array.from(btns).find(b => b.textContent.includes('Travailler'));
+  if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
+  const res = document.getElementById('pf-work-result');
+  const JOBS = [
+    '👨‍🌾 Tu as travaillé aux champs','🚗 Tu as conduit un taxi',
+    '👨‍💻 Tu as codé toute la nuit','🏗️ Tu as construit des maisons',
+    '🎤 Tu as animé une soirée','🍳 Tu as cuisiné au restaurant',
+    '📦 Tu as livré des colis','🎨 Tu as vendu tes tableaux',
+  ];
   try {
-    const r = await fetchT('/api/webapp/work', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
+    const r = await fetchT('/api/webapp/gains/work', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
     const d = await r.json();
-    const res = document.getElementById('pf-work-result');
-    if (res) res.textContent = d.ok ? `✅ ${d.msg}` : `❌ ${d.error}`;
-    if (d.ok) setTimeout(() => _loadProfileGains(), 1200);
-  } catch(e) {}
+    if (d.error) throw new Error(d.error);
+    if (res) {
+      if (d.status === 'cooldown') {
+        const h = Math.floor(d.wait_min / 60);
+        const m = d.wait_min % 60;
+        const dur = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
+        res.textContent = `😴 Reviens dans ${dur}`;
+        res.style.color = 'var(--text2)';
+      } else {
+        const job = JOBS[Math.floor(Math.random() * JOBS.length)];
+        res.textContent = `${job} — +${fmt(d.amount)} $ !`;
+        res.style.color = 'var(--success)';
+        setTimeout(() => _loadProfileGains(), 1500);
+      }
+    }
+  } catch(e) {
+    if (res) { res.textContent = `❌ ${e.message}`; res.style.color = 'var(--accent2)'; }
+    if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
+  }
 }
 
 // ════════════════════════════════════════

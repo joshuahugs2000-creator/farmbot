@@ -2,6 +2,7 @@
 api/webapp.py — Routes API pour la Mini App Telegram
 """
 import hmac, hashlib, json
+from datetime import datetime, timedelta
 from aiohttp import web
 from sqlalchemy import select, text, func
 from database.db import AsyncSessionLocal
@@ -1195,6 +1196,11 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/company/payerimpots', webapp_company_payerimpots)
     app.router.add_post('/api/webapp/company/accepter',    webapp_company_accepter)
     app.router.add_post('/api/webapp/company/refuser',     webapp_company_refuser)
+    app.router.add_post('/api/webapp/company/licencier',   webapp_company_licencier)
+    app.router.add_post('/api/webapp/company/nommer',      webapp_company_nommer)
+    app.router.add_post('/api/webapp/company/demissionner',webapp_company_demissionner)
+    app.router.add_post('/api/webapp/company/acheterparts',webapp_company_acheter_parts)
+    app.router.add_post('/api/webapp/company/gereroffre',  webapp_company_gerer_offre)
 
     app.router.add_get('/api/webapp/gains',        webapp_gains)
     app.router.add_post('/api/webapp/gains/daily', webapp_gains_daily)
@@ -2928,6 +2934,311 @@ async def webapp_company_refuser(request: web.Request) -> web.Response:
 
         name = candidate.first_name if candidate else str(target_id)
         return web.json_response({'ok': True, 'msg': f'❌ Candidature de {name} refusée.'})
+
+
+async def webapp_company_licencier(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/licencier"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        if company.is_bot_company:
+            return web.json_response({'error': 'Impossible dans une entreprise officielle'})
+
+        if target_id == uid:
+            return web.json_response({'error': 'Utilise Démissionner pour quitter toi-même'})
+
+        target = await session.get(User, target_id)
+        if not target:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        target_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target_id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar_one_or_none()
+        if not target_emp:
+            return web.json_response({'error': f'{target.first_name} ne fait pas partie de cette entreprise'})
+
+        ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg"]
+        if emp.role == 'directeur' and target_emp.role in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Tu ne peux pas licencier quelqu\'un de rang égal ou supérieur'})
+
+        target_emp.left_at = datetime.utcnow()
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company.id, 'licenciement',
+                      f'{target.first_name} a été licencié')
+        await session.commit()
+
+        try:
+            import aiohttp as _aiohttp
+            from config import BOT_TOKEN as _BT
+            async with _aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f'https://api.telegram.org/bot{_BT}/sendMessage',
+                    json={'chat_id': target.user_id,
+                          'text': f'🚨 Tu as été licencié de <b>{company.name}</b> par la direction.',
+                          'parse_mode': 'HTML'},
+                    timeout=_aiohttp.ClientTimeout(total=5)
+                )
+        except Exception:
+            pass
+
+        return web.json_response({'ok': True, 'msg': f'✅ {target.first_name} a été licencié.'})
+
+
+async def webapp_company_nommer(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/nommer"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    new_role  = str(body.get('role', '')).lower()
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg"]
+    MANAGEMENT_ROLES = ("pdg", "directeur", "manager")
+    ROLE_DIPLOMA = {"secretaire": "brevet", "employe": "brevet",
+                    "manager": "licence", "directeur": "master"}
+
+    if new_role not in ROLES_ORDER or new_role in ('pdg', 'stagiaire'):
+        return web.json_response({'error': 'Poste invalide. Choix : secretaire | employe | manager | directeur'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in MANAGEMENT_ROLES:
+            return web.json_response({'error': 'Tu dois être au moins Manager'})
+
+        if ROLES_ORDER.index(new_role) >= ROLES_ORDER.index(emp.role):
+            return web.json_response({'error': 'Tu ne peux pas nommer quelqu\'un à un rang égal ou supérieur au tien'})
+
+        target = await session.get(User, target_id)
+        if not target:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        target_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target_id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar_one_or_none()
+        if not target_emp:
+            return web.json_response({'error': f'{target.first_name} ne fait pas partie de cette entreprise'})
+
+        from handlers.company import _has_diploma as _hd, _add_log as _co_log
+        required = ROLE_DIPLOMA.get(new_role)
+        if required and not _hd(target, required):
+            return web.json_response({'error': f'{target.first_name} n\'a pas le diplôme requis ({required}) pour ce poste'})
+
+        old_role = target_emp.role
+        target_emp.role = new_role
+        await _co_log(session, company.id, 'promotion',
+                      f'{target.first_name} : {old_role} → {new_role}')
+        await session.commit()
+
+        ROLE_EMOJI = {"pdg":"👑","directeur":"🎯","manager":"📊","employe":"💼",
+                      "secretaire":"📋","stagiaire":"🌱"}
+        emoji = ROLE_EMOJI.get(new_role, '👤')
+        return web.json_response({'ok': True, 'msg': f'✅ {target.first_name} est désormais {emoji} {new_role.capitalize()} !'})
+
+
+async def webapp_company_demissionner(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/demissionner"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or not emp:
+            return web.json_response({'error': 'Tu ne fais partie d\'aucune entreprise'})
+
+        if emp.role == 'pdg':
+            director = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.role == 'directeur',
+                    CompanyEmployee.left_at == None,
+                ).limit(1)
+            )).scalar_one_or_none()
+            if not director:
+                return web.json_response({'error': 'En tant que PDG, nomme un Directeur avant de partir'})
+
+        emp.left_at = datetime.utcnow()
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company.id, 'demission',
+                      f'Un employé a démissionné')
+        await session.commit()
+
+        return web.json_response({'ok': True, 'msg': f'✅ Tu as quitté {company.name}.'})
+
+
+async def webapp_company_acheter_parts(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/acheterparts — soumet une offre d'achat de parts"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    company_id = int(body.get('company_id', 0))
+    qty        = int(body.get('quantity', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if qty <= 0:
+        return web.json_response({'error': 'Quantité invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = await session.get(Company, company_id)
+        if not company or not company.is_active:
+            return web.json_response({'error': 'Entreprise introuvable'})
+        if company.is_bot_company:
+            return web.json_response({'error': 'Les parts de cette entreprise ne sont pas cessibles'})
+        available = company.owner_shares or 0
+        if available <= 0:
+            return web.json_response({'error': 'Aucune part disponible à l\'achat'})
+        if qty > available:
+            return web.json_response({'error': f'Seulement {available} parts disponibles'})
+
+        price_per = company.treasury // company.total_shares if (company.total_shares or 0) > 0 else 1
+        total = qty * price_per
+
+        buyer = await session.get(User, uid)
+        if not buyer:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+        if buyer.coins < total:
+            return web.json_response({'error': f'Solde insuffisant. Coût total : {total:,} $'})
+
+        # Vérifier offre en attente existante
+        existing = (await session.execute(
+            select(CompanyShareOffer).where(
+                CompanyShareOffer.company_id == company_id,
+                CompanyShareOffer.buyer_id == uid,
+                CompanyShareOffer.status == 'pending',
+            )
+        )).scalar_one_or_none()
+        if existing:
+            return web.json_response({'error': 'Tu as déjà une offre en attente sur cette entreprise (48h)'})
+
+        buyer.coins -= total
+        offer = CompanyShareOffer(
+            company_id=company_id, buyer_id=uid,
+            quantity=qty, price_each=price_per, total_price=total,
+            status='pending',
+            expires_at=datetime.utcnow() + timedelta(hours=48),
+        )
+        session.add(offer)
+        await session.flush()
+
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company_id, 'offre_parts',
+                      f'{buyer.first_name} soumet une offre pour {qty} parts', amount=total)
+        await session.commit()
+
+        try:
+            import aiohttp as _aiohttp
+            from config import BOT_TOKEN as _BT
+            async with _aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f'https://api.telegram.org/bot{_BT}/sendMessage',
+                    json={'chat_id': company.owner_id,
+                          'text': f'💼 <b>Offre d\'achat de parts !</b>\n👤 {buyer.first_name} veut acheter <b>{qty} parts</b> de <b>{company.name}</b>\n💰 Offre : <b>{total:,} $</b>\n\nAccepter : <code>/accepteroffre {offer.id}</code>\nRefuser : <code>/refuseroffre {offer.id}</code>',
+                          'parse_mode': 'HTML'},
+                    timeout=_aiohttp.ClientTimeout(total=5)
+                )
+        except Exception:
+            pass
+
+        return web.json_response({'ok': True, 'msg': f'📩 Offre envoyée ! {total:,} $ bloqués (remboursés si refus).'})
+
+
+async def webapp_company_gerer_offre(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/gereroffre — PDG accepte ou refuse une offre"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid      = int(body.get('user_id', 0))
+    offer_id = int(body.get('offer_id', 0))
+    action   = str(body.get('action', ''))  # 'accept' ou 'refuse'
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        offer = await session.get(CompanyShareOffer, offer_id)
+        if not offer or offer.status != 'pending':
+            return web.json_response({'error': 'Offre introuvable ou déjà traitée'})
+
+        company = await session.get(Company, offer.company_id)
+        if not company or company.owner_id != uid:
+            return web.json_response({'error': 'Seul le PDG peut gérer cette offre'})
+
+        buyer = await session.get(User, offer.buyer_id)
+
+        if action == 'accept':
+            if datetime.utcnow() > offer.expires_at:
+                offer.status = 'expired'
+                if buyer: buyer.coins += offer.total_price
+                await session.commit()
+                return web.json_response({'error': 'Offre expirée — acheteur remboursé'})
+            available = company.owner_shares or 0
+            if offer.quantity > available:
+                offer.status = 'rejected'
+                if buyer: buyer.coins += offer.total_price
+                await session.commit()
+                return web.json_response({'error': 'Plus assez de parts disponibles — acheteur remboursé'})
+            company.treasury += offer.total_price
+            company.owner_shares -= offer.quantity
+            # Mettre à jour ou créer la ligne actionnaire
+            existing_shares = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.user_id == offer.buyer_id,
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar_one_or_none()
+            if existing_shares:
+                existing_shares.shares = (existing_shares.shares or 0) + offer.quantity
+            offer.status = 'accepted'
+            from handlers.company import _add_log as _co_log
+            await _co_log(session, company.id, 'vente_parts',
+                          f'Offre #{offer_id} acceptée — {offer.quantity} parts', amount=offer.total_price)
+            await session.commit()
+            return web.json_response({'ok': True, 'msg': f'✅ Offre acceptée ! {offer.total_price:,} $ reçus en trésorerie.'})
+        else:
+            offer.status = 'rejected'
+            if buyer: buyer.coins += offer.total_price
+            from handlers.company import _add_log as _co_log
+            await _co_log(session, company.id, 'refus_offre',
+                          f'Offre #{offer_id} refusée')
+            await session.commit()
+            return web.json_response({'ok': True, 'msg': f'❌ Offre refusée. Acheteur remboursé.'})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

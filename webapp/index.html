@@ -9339,9 +9339,9 @@ async function _toggleBadge(id, action) {
 }
 
 /* ── Acheter un badge ── */
-async function buyBadge(id, price) {
+async function buyBadge(id, price, clickedBtn) {
   if (!uid) return;
-  document.querySelectorAll('.badge-action').forEach(b => { b.disabled = true; });
+  if (clickedBtn) { clickedBtn.disabled = true; clickedBtn.textContent = '⏳'; }
   try {
     const r = await fetchT('/api/webapp/profile/badge/buy', {
       method: 'POST',
@@ -9376,27 +9376,51 @@ function onCustPhotoSelected(input) {
     if (statusEl) { statusEl.textContent = '⚠️ Image trop lourde (max 10 Mo)'; statusEl.style.color = 'var(--accent2)'; }
     return;
   }
-  if (statusEl) { statusEl.textContent = '⏳ Traitement…'; statusEl.style.color = 'var(--text2)'; }
+  if (statusEl) { statusEl.textContent = '⏳ Chargement…'; statusEl.style.color = 'var(--text2)'; }
   const reader = new FileReader();
+  reader.onerror = function() {
+    if (statusEl) { statusEl.textContent = '❌ Erreur lecture fichier'; statusEl.style.color = 'var(--accent2)'; }
+  };
   reader.onload = function(e) {
-    // Compression via canvas — max 800x800, qualité 0.85
-    const img = new Image();
-    img.onload = function() {
-      const MAX = 800;
-      let w = img.width, h = img.height;
-      if (w > MAX || h > MAX) {
-        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
-        else       { w = Math.round(w * MAX / h); h = MAX; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      _custPhotoBase64 = canvas.toDataURL('image/jpeg', 0.85);
-      const prev = document.getElementById('cust-photo-preview');
-      if (prev) prev.innerHTML = `<img src="${_custPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
+    const originalB64 = e.target.result;
+    // Afficher preview immédiatement avec l'original
+    const prev = document.getElementById('cust-photo-preview');
+    if (prev) prev.innerHTML = `<img src="${originalB64}" style="width:100%;height:100%;object-fit:cover">`;
+    if (statusEl) { statusEl.textContent = '⏳ Compression…'; statusEl.style.color = 'var(--text2)'; }
+
+    // Tenter compression via canvas
+    try {
+      const img = new Image();
+      img.onerror = function() {
+        // Canvas a échoué, utiliser l'original directement
+        _custPhotoBase64 = originalB64;
+        if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
+      };
+      img.onload = function() {
+        try {
+          const MAX = 800;
+          let w = img.width, h = img.height;
+          if (w > MAX || h > MAX) {
+            if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+            else       { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          const compressed = canvas.toDataURL('image/jpeg', 0.82);
+          _custPhotoBase64 = compressed || originalB64;
+          if (prev) prev.innerHTML = `<img src="${_custPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
+          if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
+        } catch(err) {
+          _custPhotoBase64 = originalB64;
+          if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
+        }
+      };
+      img.src = originalB64;
+    } catch(err) {
+      _custPhotoBase64 = originalB64;
       if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
-    };
-    img.src = e.target.result;
+    }
   };
   reader.readAsDataURL(file);
   input.value = '';
@@ -9503,7 +9527,7 @@ function _loadProfileCustomization(d) {
       const action  = badgeBtn.dataset.action;
       const badgeId = badgeBtn.dataset.badge;
       const price   = parseInt(badgeBtn.dataset.price || '0');
-      if (action === 'buy') buyBadge(badgeId, price);
+      if (action === 'buy') buyBadge(badgeId, price, badgeBtn);
       else _toggleBadge(badgeId, action);
     }
   });

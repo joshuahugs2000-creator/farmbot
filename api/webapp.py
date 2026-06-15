@@ -1535,27 +1535,53 @@ async def webapp_auctions_live(request: web.Request) -> web.Response:
     auctions = []
     async with AsyncSessionLocal() as session:
         try:
+            from datetime import datetime as _dt_now
+            _now = _dt_now.utcnow()
+
+            # Auto-clôturer les enchères expirées (bot restart peut rater les run_once jobs)
+            await session.execute(text("""
+                UPDATE auction_sessions
+                SET status = 'closed'
+                WHERE status = 'active' AND ends_at <= NOW()
+            """))
+            await session.commit()
+
             r = await session.execute(text("""
                 SELECT id, item_id, item_name, item_emoji, rarity, true_value,
                        start_price, current_bid, leader_id, leader_name, ends_at
                 FROM auction_sessions
-                WHERE status = 'active'
+                WHERE status = 'active' AND ends_at > NOW()
                 ORDER BY ends_at ASC
                 LIMIT 20
             """))
             for row in r.fetchall():
+                ends_at_val = row[10]
+                # Toujours sérialiser proprement sans timezone
+                if ends_at_val is not None:
+                    if hasattr(ends_at_val, 'strftime'):
+                        ends_at_str = ends_at_val.strftime('%Y-%m-%dT%H:%M:%S')
+                    else:
+                        # string de Neon — normaliser
+                        s = str(ends_at_val).replace(' ', 'T')
+                        # Retirer offset +00:00 ou -HH:MM
+                        import re as _re
+                        s = _re.sub(r'[+-]\d{2}:\d{2}$', '', s)
+                        s = s.rstrip('Z')
+                        ends_at_str = s[:19]
+                else:
+                    ends_at_str = None
+
                 auctions.append({
                     'id':          row[0],
                     'item_id':     row[1],
                     'item_name':   row[2],
                     'item_emoji':  row[3],
                     'rarity':      row[4],
-                    # true_value intentionnellement absent — valeur cachée pendant l'enchère
                     'start_price': row[6],
                     'current_bid': row[7],
                     'leader_id':   row[8],
                     'leader_name': row[9],
-                    'ends_at':     row[10].strftime('%Y-%m-%d %H:%M:%S') if row[10] else None,
+                    'ends_at':     ends_at_str,
                 })
         except Exception as e:
             return web.json_response({'auctions': [], 'error': str(e)})
@@ -3371,33 +3397,50 @@ async def webapp_salle_status(request: web.Request) -> web.Response:
 
 async def _ensure_salle_tables():
     """Crée les tables Salle si elles n'existent pas (idempotent)."""
-    async with AsyncSessionLocal() as session:
-        await session.execute(text("""
-            CREATE TABLE IF NOT EXISTS salle_auctions (
-                id           SERIAL PRIMARY KEY,
-                item_id      VARCHAR(50)  NOT NULL,
-                item_name    VARCHAR(100) NOT NULL,
-                item_emoji   VARCHAR(10)  NOT NULL,
-                rarity       VARCHAR(20)  NOT NULL,
-                true_value   BIGINT       NOT NULL,
-                start_price  BIGINT       NOT NULL,
-                current_bid  BIGINT       NOT NULL,
-                leader_id    BIGINT,
-                leader_name  VARCHAR(255),
-                custom_desc  TEXT,
-                status       VARCHAR(20)  DEFAULT 'active',
-                started_at   TIMESTAMP    DEFAULT NOW(),
-                ends_at      TIMESTAMP    NOT NULL
-            )
-        """))
-        await session.execute(text("""
-            CREATE TABLE IF NOT EXISTS salle_vip_access (
-                user_id    BIGINT PRIMARY KEY,
-                expires_at TIMESTAMP NOT NULL,
-                paid_at    TIMESTAMP DEFAULT NOW()
-            )
-        """))
-        await session.commit()
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS salle_auctions (
+                    id           SERIAL PRIMARY KEY,
+                    item_id      VARCHAR(50)  NOT NULL,
+                    item_name    VARCHAR(100) NOT NULL,
+                    item_emoji   VARCHAR(10)  NOT NULL,
+                    rarity       VARCHAR(20)  NOT NULL,
+                    true_value   BIGINT       NOT NULL,
+                    start_price  BIGINT       NOT NULL,
+                    current_bid  BIGINT       NOT NULL,
+                    leader_id    BIGINT,
+                    leader_name  VARCHAR(255),
+                    custom_desc  TEXT,
+                    status       VARCHAR(20)  DEFAULT 'active',
+                    started_at   TIMESTAMP    DEFAULT NOW(),
+                    ends_at      TIMESTAMP    NOT NULL
+                )
+            """))
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS salle_vip_access (
+                    user_id    BIGINT,
+                    expires_at TIMESTAMP NOT NULL,
+                    paid_at    TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            # Ajouter la PK si elle manque (migration safe)
+            await session.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid = 'salle_vip_access'::regclass
+                        AND contype = 'p'
+                    ) THEN
+                        ALTER TABLE salle_vip_access ADD PRIMARY KEY (user_id);
+                    END IF;
+                END$$
+            """))
+            await session.commit()
+    except Exception as _ste:
+        import logging as _stlog
+        _stlog.getLogger(__name__).error(f"_ensure_salle_tables error: {_ste}", exc_info=True)
 
 async def _webapp_salle_status_inner(request: web.Request) -> web.Response:
     uid = int(request.rel_url.query.get('user_id', 0))
@@ -3470,52 +3513,69 @@ async def _webapp_salle_status_inner(request: web.Request) -> web.Response:
 
 async def webapp_salle_pay(request: web.Request) -> web.Response:
     """POST /api/webapp/salle/pay — acheter l'accès 24h"""
+    import logging as _paylog
+    _logger = _paylog.getLogger(__name__)
     try:
         body = await request.json()
-    except Exception:
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay json parse error: {e}")
         return web.json_response({'error': 'invalid json'}, status=400)
 
     uid = int(body.get('user_id', 0))
     if not _is_allowed(uid):
         return web.json_response({'error': 'unauthorized'}, status=403)
 
-    await _ensure_salle_tables()
+    try:
+        await _ensure_salle_tables()
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay ensure_tables error: {e}", exc_info=True)
 
     from datetime import datetime as _dt3, timedelta as _td
     now = _dt3.utcnow()
 
-    async with AsyncSessionLocal() as session:
-        wallet_r = await session.execute(text(
-            "SELECT coins FROM users WHERE user_id = :uid"
-        ), {"uid": uid})
-        wallet_row = wallet_r.fetchone()
-        if not wallet_row or wallet_row[0] < SALLE_ACCESS_PRICE:
-            return web.json_response({'ok': False, 'error': f'Fonds insuffisants (besoin de {_fmt(SALLE_ACCESS_PRICE)} $)'})
+    try:
+        async with AsyncSessionLocal() as session:
+            wallet_r = await session.execute(text(
+                "SELECT coins FROM users WHERE user_id = :uid"
+            ), {"uid": uid})
+            wallet_row = wallet_r.fetchone()
+            if not wallet_row or int(wallet_row[0]) < SALLE_ACCESS_PRICE:
+                return web.json_response({'ok': False, 'error': f'Fonds insuffisants (besoin de {_fmt(SALLE_ACCESS_PRICE)} $)'})
 
-        await session.execute(text(
-            "UPDATE users SET coins = coins - :amt WHERE user_id = :uid"
-        ), {"amt": SALLE_ACCESS_PRICE, "uid": uid})
+            await session.execute(text(
+                "UPDATE users SET coins = CAST(coins AS BIGINT) - :amt WHERE user_id = :uid"
+            ), {"amt": SALLE_ACCESS_PRICE, "uid": uid})
 
-        # Renouveler ou créer
-        existing = await session.execute(text(
-            "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
-        ), {"uid": uid})
-        ex = existing.fetchone()
-        base = ex[0] if (ex and ex[0] > now) else now
-        new_exp = base + _td(hours=24)
+            # Renouveler ou créer
+            existing = await session.execute(text(
+                "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+            ), {"uid": uid})
+            ex = existing.fetchone()
+            ex0 = ex[0] if ex else None
+            if isinstance(ex0, str):
+                from datetime import datetime as _dtp
+                ex0 = _dtp.fromisoformat(ex0.replace('+00:00',''))
+            base = ex0 if (ex0 and ex0 > now) else now
+            new_exp = base + _td(hours=24)
 
-        await session.execute(text("""
-            INSERT INTO salle_vip_access (user_id, expires_at)
-            VALUES (:uid, :exp)
-            ON CONFLICT (user_id) DO UPDATE SET expires_at = :exp, paid_at = NOW()
-        """), {"uid": uid, "exp": new_exp})
-        await session.commit()
+            # ON CONFLICT fiable même si la contrainte PK n'existe pas encore en DB
+            upd = await session.execute(text(
+                "UPDATE salle_vip_access SET expires_at = :exp, paid_at = NOW() WHERE user_id = :uid"
+            ), {"uid": uid, "exp": new_exp})
+            if upd.rowcount == 0:
+                await session.execute(text(
+                    "INSERT INTO salle_vip_access (user_id, expires_at) VALUES (:uid, :exp)"
+                ), {"uid": uid, "exp": new_exp})
+            await session.commit()
 
-    return web.json_response({
-        'ok': True,
-        'expires_at': str(new_exp)[:16],
-        'msg': f"🏛️ Accès à La Salle accordé jusqu'au {new_exp.strftime('%d/%m à %H:%M')} !"
-    })
+        return web.json_response({
+            'ok': True,
+            'expires_at': str(new_exp)[:16],
+            'msg': f"🏛️ Accès à La Salle accordé jusqu'au {new_exp.strftime('%d/%m à %H:%M')} !"
+        })
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay DB error: {e}", exc_info=True)
+        return web.json_response({'ok': False, 'error': f'Erreur serveur: {str(e)}'}, status=500)
 
 
 async def webapp_salle_bid(request: web.Request) -> web.Response:

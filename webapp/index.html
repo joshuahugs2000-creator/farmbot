@@ -1937,7 +1937,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   /* ── HUB LAYOUT ── */
   /* ══ ECO HUB REDESIGN ══ */
-  #page-eco-hub { padding: 14px 14px 30px; overflow-y: auto; }
+  #page-eco-hub-legacy { display: none; }
 
   /* HERO */
   .eco-hero-card {
@@ -2014,7 +2014,64 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   .eco-contrat-reward { font-family:'Courier New',monospace;font-size:11px;font-weight:900;color:#fdcb6e; }
   .eco-claim-badge { background:rgba(85,239,196,.1);border:1px solid rgba(85,239,196,.25);color:#55efc4;font-size:9px;font-weight:900;padding:2px 7px;border-radius:20px; }
 
+  /* ── ECO HUB HERO ── */
+  #page-eco-hub { padding: 0 0 30px; overflow-y: auto; background: var(--bg); }
+  .ehub-hero {
+    background: linear-gradient(160deg, #060d1a 0%, #0c1829 45%, #071220 100%);
+    padding: 22px 18px 18px;
+    border-bottom: 1px solid rgba(0,212,212,.12);
+    position: relative; overflow: hidden;
+  }
+  .ehub-hero::before {
+    content: ''; position: absolute; top: -60px; right: -40px;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(0,212,212,.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .ehub-hero-grid { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+  .ehub-hero-label { font-size: 10px; font-weight: 900; color: rgba(0,212,212,.6); letter-spacing: 2.5px; text-transform: uppercase; margin-bottom: 6px; }
+  .ehub-hero-amount {
+    font-family: 'Courier New', monospace; font-size: 38px; font-weight: 900;
+    color: #f0f0f0; letter-spacing: -1.5px; line-height: 1;
+  }
+  .ehub-hero-amount sup { font-size: 16px; color: rgba(240,240,240,.3); margin-left: 3px; font-family: 'Nunito', sans-serif; font-weight: 700; }
+  .ehub-hero-sub { font-size: 10px; color: rgba(240,240,240,.25); margin-top: 5px; font-weight: 700; letter-spacing: .5px; }
+  .ehub-hero-pulse {
+    width: 10px; height: 10px; border-radius: 50%; background: #00d4d4; flex-shrink: 0; margin-top: 6px;
+    box-shadow: 0 0 0 0 rgba(0,212,212,.5);
+    animation: ehubPulse 2s infinite;
+  }
+  @keyframes ehubPulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,212,212,.5)} 50%{box-shadow:0 0 0 8px rgba(0,212,212,0)} }
+  /* Splits */
+  .ehub-splits { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .ehub-split-item { display: flex; flex-direction: column; gap: 5px; }
+  .ehub-split-bar-wrap { height: 3px; background: rgba(255,255,255,.06); border-radius: 99px; overflow: hidden; }
+  .ehub-split-bar { height: 100%; border-radius: 99px; transition: width .8s cubic-bezier(.4,0,.2,1); }
+  .ehub-split-lbl { font-size: 9px; font-weight: 800; color: rgba(240,240,240,.3); text-transform: uppercase; letter-spacing: 1px; }
+  .ehub-split-val { font-family: 'Courier New', monospace; font-size: 11px; font-weight: 900; }
+  /* Quick actions */
+  .ehub-qgrid {
+    display: grid; grid-template-columns: repeat(5,1fr); gap: 8px;
+    padding: 14px 14px 0;
+  }
+  .ehub-qbtn {
+    background: none; border: none; padding: 0; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ehub-qbtn:active .ehub-qicon { transform: scale(.88); opacity: .7; }
+  .ehub-qicon {
+    width: 46px; height: 46px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; transition: transform .12s, opacity .12s;
+    backdrop-filter: blur(10px);
+  }
+  .ehub-qlbl { font-size: 9px; font-weight: 800; color: rgba(240,240,240,.35); letter-spacing: .3px; text-align: center; }
+  /* Accordéons */
+  .eco-acc-list { display: flex; flex-direction: column; gap: 8px; padding: 14px 14px 0; }
+
   /* keep nav badge */
+
   .hub-wallet-card { display:none; }
   .nav-notif-badge {
     position: absolute; top: 2px; right: 2px;
@@ -2235,49 +2292,61 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <!-- ══ PAGE HUB ÉCONOMIE ══ -->
   <div class="page" id="page-eco-hub">
 
-    <!-- HERO FORTUNE -->
-    <div class="eco-hero-card">
-      <div class="eco-hero-eyebrow">Fortune nette</div>
-      <div class="eco-hero-amount" id="hub-wallet-amount">—<sup>$</sup></div>
-      <div class="eco-hero-sub-lbl">Poche · Banque · Portfolio</div>
-      <svg class="eco-sparkline" id="eco-sparkline-svg" viewBox="0 0 340 36" preserveAspectRatio="none">
-        <defs><linearGradient id="ecoSparkGrad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#00d4d4" stop-opacity=".25"/><stop offset="100%" stop-color="#00d4d4" stop-opacity="0"/></linearGradient></defs>
-        <path d="M0,28 C40,26 80,22 120,16 S200,8 260,5 S310,3 340,2" fill="none" stroke="#00d4d4" stroke-width="1.5" stroke-linecap="round" opacity=".7"/>
-        <path d="M0,28 C40,26 80,22 120,16 S200,8 260,5 S310,3 340,2 L340,36 L0,36 Z" fill="url(#ecoSparkGrad)"/>
-      </svg>
-      <div class="eco-splits">
-        <div class="eco-split">
-          <div class="eco-split-lbl">Poche</div>
-          <div class="eco-split-val" style="color:#00d4d4" id="hub-split-pocket">—</div>
+    <!-- ══ HERO TERMINAL ══ -->
+    <div class="ehub-hero">
+      <div class="ehub-hero-grid">
+        <div>
+          <div class="ehub-hero-label">Fortune nette</div>
+          <div class="ehub-hero-amount" id="hub-wallet-amount">—<sup>$</sup></div>
+          <div class="ehub-hero-sub" id="ehub-hero-sub">Poche · Banque · Portfolio</div>
         </div>
-        <div class="eco-split">
-          <div class="eco-split-lbl">Banque</div>
-          <div class="eco-split-val" style="color:#55efc4" id="hub-split-bank">—</div>
+        <div class="ehub-hero-pulse" id="ehub-pulse-dot"></div>
+      </div>
+      <!-- Barres de répartition -->
+      <div class="ehub-splits">
+        <div class="ehub-split-item">
+          <div class="ehub-split-bar-wrap"><div class="ehub-split-bar" id="ehub-bar-pocket" style="background:#00d4d4;width:0%"></div></div>
+          <div class="ehub-split-lbl">Poche</div>
+          <div class="ehub-split-val" style="color:#00d4d4" id="hub-split-pocket">—</div>
         </div>
-        <div class="eco-split">
-          <div class="eco-split-lbl">Portfolio</div>
-          <div class="eco-split-val" style="color:#74b9ff" id="hub-split-portfolio">—</div>
+        <div class="ehub-split-item">
+          <div class="ehub-split-bar-wrap"><div class="ehub-split-bar" id="ehub-bar-bank" style="background:#55efc4;width:0%"></div></div>
+          <div class="ehub-split-lbl">Banque</div>
+          <div class="ehub-split-val" style="color:#55efc4" id="hub-split-bank">—</div>
+        </div>
+        <div class="ehub-split-item">
+          <div class="ehub-split-bar-wrap"><div class="ehub-split-bar" id="ehub-bar-portfolio" style="background:#74b9ff;width:0%"></div></div>
+          <div class="ehub-split-lbl">Portfolio</div>
+          <div class="ehub-split-val" style="color:#74b9ff" id="hub-split-portfolio">—</div>
         </div>
       </div>
     </div>
 
-    <!-- QUICK ACTIONS -->
-    <div class="eco-qactions">
-      <div class="eco-qbtn" onclick="ecoGo('pay')">
-        <div class="eco-qbtn-icon" style="background:rgba(0,212,212,.12);border:1px solid rgba(0,212,212,.2)">➤</div>
-        <div class="eco-qbtn-lbl">Envoyer</div>
-      </div>
-      <div class="eco-qbtn" onclick="ecoGo('bank')">
-        <div class="eco-qbtn-icon" style="background:rgba(85,239,196,.12);border:1px solid rgba(85,239,196,.2)">↓</div>
-        <div class="eco-qbtn-lbl">Déposer</div>
-      </div>
-      <div class="eco-qbtn" onclick="ecoGo('market')">
-        <div class="eco-qbtn-icon" style="background:rgba(116,185,255,.12);border:1px solid rgba(116,185,255,.2)">★</div>
-        <div class="eco-qbtn-lbl">Investir</div>
-      </div>
+    <!-- ══ QUICK ACTIONS 5 boutons ══ -->
+    <div class="ehub-qgrid">
+      <button class="ehub-qbtn" onclick="ecoGo('pay')">
+        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(0,212,212,.15),rgba(0,212,212,.05));border:1px solid rgba(0,212,212,.25)">💸</div>
+        <div class="ehub-qlbl">Envoyer</div>
+      </button>
+      <button class="ehub-qbtn" onclick="ecoGo('bank')">
+        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(85,239,196,.15),rgba(85,239,196,.05));border:1px solid rgba(85,239,196,.25)">🏦</div>
+        <div class="ehub-qlbl">Banque</div>
+      </button>
+      <button class="ehub-qbtn" onclick="ecoGo('market')">
+        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(116,185,255,.15),rgba(116,185,255,.05));border:1px solid rgba(116,185,255,.25)">📈</div>
+        <div class="ehub-qlbl">Marché</div>
+      </button>
+      <button class="ehub-qbtn" onclick="ecoGo('company')">
+        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(247,201,72,.15),rgba(247,201,72,.05));border:1px solid rgba(247,201,72,.25)">🏢</div>
+        <div class="ehub-qlbl">Entreprise</div>
+      </button>
+      <button class="ehub-qbtn" onclick="ecoGo('parts')">
+        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(162,155,254,.15),rgba(162,155,254,.05));border:1px solid rgba(162,155,254,.25)">📜</div>
+        <div class="ehub-qlbl">Parts</div>
+      </button>
     </div>
 
-    <!-- ACCORDÉONS -->
+    <!-- ══ ACCORDÉONS ══ -->
     <div class="eco-acc-list">
 
       <!-- BANQUE -->
@@ -2305,7 +2374,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-market')">
           <div class="eco-acc-icon" style="background:rgba(116,185,255,.1);border:1px solid rgba(116,185,255,.18)">📈</div>
           <div class="eco-acc-info">
-            <div class="eco-acc-name">Marché</div>
+            <div class="eco-acc-name">Marché · Portfolio</div>
             <div class="eco-acc-sub" id="eco-acc-market-sub">Chargement…</div>
           </div>
           <div class="eco-acc-right">
@@ -2323,7 +2392,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
       <!-- ENTREPRISE(S) -->
       <div id="hub-company-area">
-        <div style="color:var(--text2);font-size:12px;padding:10px 0">Chargement…</div>
+        <div class="eco-acc-item" style="opacity:.5">
+          <div class="eco-acc-head">
+            <div class="eco-acc-icon" style="background:rgba(247,201,72,.08)">🏢</div>
+            <div class="eco-acc-info"><div class="eco-acc-name">Entreprise</div><div class="eco-acc-sub">Chargement…</div></div>
+          </div>
+        </div>
       </div>
 
       <!-- PARTS -->
@@ -2331,7 +2405,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-parts')">
           <div class="eco-acc-icon" style="background:rgba(0,206,201,.1);border:1px solid rgba(0,206,201,.18)">📜</div>
           <div class="eco-acc-info">
-            <div class="eco-acc-name">Parts</div>
+            <div class="eco-acc-name">Parts détenues</div>
             <div class="eco-acc-sub" id="eco-acc-parts-sub">Chargement…</div>
           </div>
           <div class="eco-acc-right">
@@ -2366,7 +2440,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
     </div><!-- /acc-list -->
 
-    <!-- Legacy hidden containers (JS compat) -->
+    <!-- Padding bas -->
+    <div style="height:24px"></div>
+
+    <!-- Legacy compat -->
     <div id="hub-bank-cards" style="display:none"></div>
     <div id="hub-market-cards" style="display:none"></div>
     <div id="hub-parts-cards" style="display:none"></div>
@@ -4553,21 +4630,52 @@ function ecoAccToggle(id) {
 async function loadEcoHub() {
   if (!uid) return;
   try {
-    const pd = await apiFetch('/bank');
-    // wallet amount (poche)
-    const wallet = pd?.wallet_raw ?? pd?.wallet ?? 0;
-    const amtEl = document.getElementById('hub-wallet-amount');
-    if (amtEl) amtEl.innerHTML = fmt(wallet) + '<sup>$</sup>';
-    const splitPocket = document.getElementById('hub-split-pocket');
-    if (splitPocket) splitPocket.textContent = fmt(wallet) + ' $';
+    // Charger bank + portfolio + company en parallèle
+    const [bankData, portfolioData] = await Promise.all([
+      fetchT(`/api/webapp/bank?user_id=${uid}`).then(r=>r.json()).catch(()=>null),
+      fetchT(`/api/webapp/portfolio?user_id=${uid}`).then(r=>r.json()).catch(()=>null),
+    ]);
 
-    ecoLoadAccBank(pd);
-    ecoLoadAccMarket();
+    const pocket = bankData?.wallet_raw ?? 0;
+    const bank = (bankData?.accounts||[]).reduce((s,a)=>s+(a.balance_raw||0), 0);
+    const portfolio = portfolioData?.total_current ?? 0;
+    const total = pocket + bank + portfolio;
+
+    // Hero amount
+    const amtEl = document.getElementById('hub-wallet-amount');
+    if (amtEl) amtEl.innerHTML = fmt(total) + '<sup>$</sup>';
+
+    // Splits values
+    const sp = document.getElementById('hub-split-pocket');
+    const sb = document.getElementById('hub-split-bank');
+    const spo = document.getElementById('hub-split-portfolio');
+    if (sp) sp.textContent = fmt(pocket) + ' $';
+    if (sb) sb.textContent = fmt(bank) + ' $';
+    if (spo) spo.textContent = fmt(portfolio) + ' $';
+
+    // Barres proportionnelles animées
+    const totalForBars = total || 1;
+    setTimeout(() => {
+      const bp = document.getElementById('ehub-bar-pocket');
+      const bb = document.getElementById('ehub-bar-bank');
+      const bpo = document.getElementById('ehub-bar-portfolio');
+      if (bp)  bp.style.width  = Math.round(pocket/totalForBars*100)+'%';
+      if (bb)  bb.style.width  = Math.round(bank/totalForBars*100)+'%';
+      if (bpo) bpo.style.width = Math.round(portfolio/totalForBars*100)+'%';
+    }, 120);
+
+    // Hero sub
+    const sub = document.getElementById('ehub-hero-sub');
+    if (sub) sub.textContent = `Poche · Banque · Portfolio`;
+
+    // Sections accordéon
+    ecoLoadAccBank(bankData);
+    ecoLoadAccMarket(portfolioData);
     ecoLoadAccCompany();
     ecoLoadAccParts();
     ecoLoadAccContrats();
     pollEcoNotifs();
-  } catch(e) {}
+  } catch(e) { console.error('loadEcoHub', e); }
 }
 
 // ── BANQUE ───────────────────────────────────
@@ -4615,7 +4723,7 @@ async function ecoLoadAccBank(prefetched) {
 }
 
 // ── MARCHÉ ───────────────────────────────────
-async function ecoLoadAccMarket() {
+async function ecoLoadAccMarket(prefetched) {
   const body = document.getElementById('eco-acc-market-body');
   const sub  = document.getElementById('eco-acc-market-sub');
   const val  = document.getElementById('eco-acc-market-val');
@@ -4623,7 +4731,7 @@ async function ecoLoadAccMarket() {
   const splitPortfolio = document.getElementById('hub-split-portfolio');
   if (!body) return;
   try {
-    const d = await apiFetch('/portfolio');
+    const d = prefetched || await apiFetch('/portfolio');
     const positions = d?.positions || [];
     const totalVal = d?.total_current ?? positions.reduce((s,p) => s+(p.cur_total_raw||0),0);
     const totalPnl = d?.total_pnl ?? 0;
@@ -4790,7 +4898,7 @@ async function ecoLoadAccContrats() {
 
 // ── LEGACY STUBS (compat) ─────────────────────
 async function loadHubBank(p) { ecoLoadAccBank(p); }
-async function loadHubMarket() { ecoLoadAccMarket(); }
+async function loadHubMarket(p) { ecoLoadAccMarket(p); }
 async function loadHubCompany() { ecoLoadAccCompany(); }
 async function loadHubParts() { ecoLoadAccParts(); }
 async function loadHubContrats() { ecoLoadAccContrats(); }
@@ -6196,7 +6304,7 @@ async function loadMarket() {
   _mktLoadedUid = uid;
   if (!uid) { document.getElementById('mkt-assets-list').innerHTML = '<p style="color:var(--text2);text-align:center;">Connexion requise</p>'; return; }
   try {
-    const r = await fetch(`/api/webapp/market?user_id=${uid}`);
+    const r = await fetchT(`/api/webapp/market?user_id=${uid}`);
     if (!r.ok) throw new Error('HTTP '+r.status);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
@@ -6317,7 +6425,7 @@ async function confirmBuy() {
   btn.disabled = true;
   btn.textContent = '⏳ En cours…';
   try {
-    const r = await fetch('/api/webapp/market/action', {
+    const r = await fetchT('/api/webapp/market/action', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ user_id: uid, action: 'buy', asset_id: _mktModalAsset.id, quantity: qty })
@@ -6346,7 +6454,7 @@ async function loadPortfolio() {
   if (!uid) { list.innerHTML = '<p style="color:var(--accent2);text-align:center;">Connexion requise</p>'; return; }
   list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Chargement…</p>';
   try {
-    const r = await fetch(`/api/webapp/portfolio?user_id=${uid}`);
+    const r = await fetchT(`/api/webapp/portfolio?user_id=${uid}`);
     if (!r.ok) {
       const errData = await r.json().catch(() => ({}));
       list.innerHTML = '<p style="color:var(--accent2);text-align:center;font-size:11px;word-break:break-all;">'+r.status+': '+(errData.error||'?')+'<br>'+(errData.trace||'').substring(0,300)+'</p>';
@@ -6399,7 +6507,7 @@ async function sellPosition(invId) {
   const ok = await showConfirmModal('Vendre cette position ?', 'La vente sera immédiate au prix actuel du marché.', '💸 Vendre', 'var(--accent2)');
   if (!ok) return;
   try {
-    const r = await fetch('/api/webapp/market/action', {
+    const r = await fetchT('/api/webapp/market/action', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ user_id: uid, action: 'sell', inv_id: invId })
@@ -7440,7 +7548,7 @@ let _bankState = { action: null, bank_id: null, max: 0 };
 
 async function loadBank() {
   try {
-    const r = await fetch(`/api/webapp/bank?user_id=${uid}`);
+    const r = await fetchT(`/api/webapp/bank?user_id=${uid}`);
     const d = await r.json();
     if (d.error) { showToast(d.error, true); return; }
 
@@ -7563,7 +7671,7 @@ async function confirmBankAction() {
 
 async function bankOpenAccount(bank_id) {
   try {
-    const r = await fetch('/api/webapp/bank/open', {
+    const r = await fetchT('/api/webapp/bank/open', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ user_id: uid, bank_id })
     });
@@ -7615,7 +7723,7 @@ function _coRepStars(rep) {
 
 async function loadCompany() {
   try {
-    const r = await fetch(`/api/webapp/company?user_id=${uid}`);
+    const r = await fetchT(`/api/webapp/company?user_id=${uid}`);
     const d = await r.json();
     const co = d.company;
     if (!co) {
@@ -7821,7 +7929,7 @@ async function coAccepterCand(targetId) {
   const actEl = document.getElementById(`cand-actions-${targetId}`);
   if (msgEl) msgEl.textContent = '⏳ En cours...';
   try {
-    const r = await fetch('/api/webapp/company/accepter', {
+    const r = await fetchT('/api/webapp/company/accepter', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({user_id: uid, target_id: targetId})
     });
@@ -7841,7 +7949,7 @@ async function coRefuserCand(targetId) {
   const actEl = document.getElementById(`cand-actions-${targetId}`);
   if (msgEl) msgEl.textContent = '⏳ En cours...';
   try {
-    const r = await fetch('/api/webapp/company/refuser', {
+    const r = await fetchT('/api/webapp/company/refuser', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({user_id: uid, target_id: targetId})
     });
@@ -7868,7 +7976,7 @@ async function coConfirmDepot() {
   const amount = parseInt(document.getElementById('co-depot-amount').value)||0;
   if (!amount) return;
   try {
-    const r = await fetch('/api/webapp/company/depot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
+    const r = await fetchT('/api/webapp/company/depot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
     const d = await r.json();
     if (d.error) { document.getElementById('co-depot-msg').textContent = d.error; return; }
     showToast(d.msg); coCloseDepot(); loadCompany();
@@ -7887,7 +7995,7 @@ async function coConfirmRetrait() {
   const amount = parseInt(document.getElementById('co-retrait-amount').value)||0;
   if (!amount) return;
   try {
-    const r = await fetch('/api/webapp/company/retrait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
+    const r = await fetchT('/api/webapp/company/retrait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
     const d = await r.json();
     if (d.error) { document.getElementById('co-retrait-msg').textContent = d.error; return; }
     showToast(d.msg); coCloseRetrait(); loadCompany();
@@ -7900,7 +8008,7 @@ async function coPayerImpots() {
   const msgEl = document.getElementById('co-tax-msg');
   msgEl.textContent = '⏳ En cours...';
   try {
-    const r = await fetch('/api/webapp/company/payerimpots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
+    const r = await fetchT('/api/webapp/company/payerimpots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
     const d = await r.json();
     if (d.error) { msgEl.textContent = d.error; return; }
     showToast(d.msg); msgEl.textContent = ''; loadCompany();

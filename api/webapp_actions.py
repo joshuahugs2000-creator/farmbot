@@ -45,7 +45,7 @@ import logging
 from datetime import datetime, timedelta
 
 from aiohttp import web
-from sqlalchemy import select, func, text as sa_text
+from sqlalchemy import select, func, or_, text as sa_text
 
 from config import BOT_TOKEN
 from database.db import AsyncSessionLocal
@@ -247,17 +247,20 @@ async def webapp_players_search(request: web.Request) -> web.Response:
     async with AsyncSessionLocal() as session:
         users = (await session.execute(
             select(User).where(
-                User.username.ilike(f"%{q}%"),
+                or_(
+                    User.username.ilike(f"%{q}%"),
+                    User.first_name.ilike(f"%{q}%"),
+                ),
                 User.user_id != uid,
                 User.is_banned == False,
             ).limit(10)
         )).scalars().all()
 
-        results = []
+        players = []
         for u in users:
             # Entreprise actuelle
             _c, _e = await _get_user_company(session, u.user_id)
-            results.append({
+            players.append({
                 "user_id":  u.user_id,
                 "name":     u.first_name or "—",
                 "username": u.username or "",
@@ -267,7 +270,7 @@ async def webapp_players_search(request: web.Request) -> web.Response:
                             "Licence" if u.diplome_licence else "Bac" if u.diplome_bac else "—",
             })
 
-    return web.json_response({"results": results})
+    return web.json_response({"players": players})
 
 
 # ═════════════════════════════════════════════════════════════════════════════

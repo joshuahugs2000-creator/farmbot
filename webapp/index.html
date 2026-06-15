@@ -3646,6 +3646,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <button class="enc-tab-btn active" onclick="encTab('live',this)">🔴 En cours</button>
       <button class="enc-tab-btn" onclick="encTab('salle',this)">🏛️ La Salle</button>
       <button class="enc-tab-btn" onclick="encTab('inventory',this)">🎒 Inventaire</button>
+      <button class="enc-tab-btn" onclick="encTab('market',this)">🏪 Marché</button>
     </div>
 
     <!-- TAB: En cours -->
@@ -3661,6 +3662,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     <!-- TAB: Inventaire -->
     <div id="enc-inventory" style="display:none">
       <div id="enc-inv-list"><div class="plus-loader">⏳ Chargement…</div></div>
+    </div>
+
+    <!-- TAB: Marché des objets -->
+    <div id="enc-market" style="display:none">
+      <div id="enc-market-list"><div class="plus-loader">⏳ Chargement…</div></div>
     </div>
 
     <!-- Modal mise publique -->
@@ -8915,9 +8921,11 @@ function encTab(tab, btn) {
   document.getElementById('enc-live').style.display      = tab === 'live'      ? '' : 'none';
   document.getElementById('enc-salle').style.display     = tab === 'salle'     ? '' : 'none';
   document.getElementById('enc-inventory').style.display = tab === 'inventory' ? '' : 'none';
+  document.getElementById('enc-market').style.display    = tab === 'market'    ? '' : 'none';
   if (tab === 'live')      _loadAuctionLive();
   if (tab === 'salle')     _loadSalle();
   if (tab === 'inventory') _loadAuctionInventory();
+  if (tab === 'market')    _loadItemMarket();
 }
 
 function _rarityClass(r) {
@@ -9165,15 +9173,137 @@ async function _loadAuctionInventory() {
     const d = await r.json();
     const items = d.items || [];
     if (!items.length) {
-      el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🎒</div><div style="font-size:15px;font-weight:700">Inventaire vide</div><div style="font-size:12px;margin-top:6px">Remporte des enchères pour collecter des objets</div></div>';
+      el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🎒</div><div style="font-size:15px;font-weight:700">Inventaire vide</div><div style="font-size:12px;margin-top:6px">Remporte des enchères pour collecter des objets</div></div>`;
       return;
     }
     el.innerHTML = items.map(function(it, i) {
       const rarLow = (it.rarity||'').toLowerCase();
       const isVip = rarLow === 'mythique' || rarLow === 'divin';
-      return '<div class="inv-card" style="animation-delay:'+i*0.05+'s;'+(isVip?'border:1px solid #7c3aed;background:linear-gradient(145deg,#1a1130,var(--card))':'')+'"><div class="inv-emoji" style="'+(isVip?'filter:drop-shadow(0 0 8px #8b5cf6)':'')+'">'+it.item_emoji+'</div><div style="flex:1"><div class="inv-name">'+it.item_name+'</div><div class="inv-val">💰 '+fmt(it.true_value)+' $</div><div class="inv-date">📅 '+(it.acquired_at||'').slice(0,10)+'</div></div><span class="auction-rarity '+_rarityClass(it.rarity)+'">'+_rarityLabel(it.rarity)+'</span></div>';
+      const expertGain = Math.max(1, Math.floor((it.true_value||0) * 0.50));
+      return `<div class="inv-card" style="animation-delay:${i*0.05}s;${isVip?'border:1px solid #7c3aed;background:linear-gradient(145deg,#1a1130,var(--card))':''}">
+        <div class="inv-emoji" style="${isVip?'filter:drop-shadow(0 0 8px #8b5cf6)':''}">${it.item_emoji}</div>
+        <div style="flex:1">
+          <div class="inv-name">${it.item_name}</div>
+          <div class="inv-val">💰 ${fmt(it.true_value)} $</div>
+          <div class="inv-date">📅 ${(it.acquired_at||'').slice(0,10)}</div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button onclick="invSellExpert(${it.id},'${it.item_name.replace(/'/g,"\\'")}','${it.item_emoji}',${expertGain})"
+              style="padding:6px 12px;border-radius:8px;border:none;background:#e17055;color:#fff;font-weight:800;font-size:11px;cursor:pointer">
+              🧑‍💼 Expert (${fmt(expertGain)} $)
+            </button>
+            <button onclick="invPutMarket(${it.id},'${it.item_name.replace(/'/g,"\\'")}','${it.item_emoji}',${it.true_value})"
+              style="padding:6px 12px;border-radius:8px;border:none;background:#00b894;color:#fff;font-weight:800;font-size:11px;cursor:pointer">
+              🏪 Vendre
+            </button>
+          </div>
+        </div>
+        <span class="auction-rarity ${_rarityClass(it.rarity)}">${_rarityLabel(it.rarity)}</span>
+      </div>`;
     }).join('');
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+
+async function invSellExpert(itemId, name, emoji, gain) {
+  const ok = await showConfirmModal(
+    `Vendre à l'expert ?`,
+    `${emoji} <b>${name}</b><br>Tu recevras <b>${fmt(gain)} $</b> (50% de la valeur). L'objet sera définitivement supprimé.`,
+    '🧑‍💼 Confirmer', '#e17055'
+  );
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/webapp/items/sell_expert', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
+    const d = await r.json();
+    if (d.ok) { showToast(d.msg); _loadAuctionInventory(); refreshCoins && refreshCoins(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+function invPutMarket(itemId, name, emoji, trueValue) {
+  const suggested = Math.floor(trueValue * 0.80);
+  const price = prompt(`🏪 Prix de vente pour ${emoji} ${name}\nValeur estimée : ${fmt(trueValue)} $\nPrix suggéré : ${fmt(suggested)} $\n\nEntrer votre prix :`, suggested);
+  if (!price || isNaN(parseInt(price)) || parseInt(price) < 1) return;
+  _doInvPutMarket(itemId, name, emoji, parseInt(price));
+}
+async function _doInvPutMarket(itemId, name, emoji, price) {
+  try {
+    const r = await fetch('/api/webapp/items/put_market', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId,price}) });
+    const d = await r.json();
+    if (d.ok) { showToast(d.msg); _loadAuctionInventory(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+// ── MARCHÉ DES OBJETS ────────────────────────────────────────────────────────
+async function _loadItemMarket() {
+  const el = document.getElementById('enc-market-list');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetch('/api/webapp/items/market?user_id='+uid);
+    const d = await r.json();
+    const items = d.items || [];
+    if (!items.length) {
+      el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)">
+        <div style="font-size:48px;margin-bottom:12px">🏪</div>
+        <div style="font-size:15px;font-weight:700">Marché vide</div>
+        <div style="font-size:12px;margin-top:6px">Aucun objet en vente pour l'instant<br>Mets tes objets en vente depuis l'onglet Inventaire !</div>
+      </div>`;
+      return;
+    }
+    el.innerHTML = `<div style="margin-bottom:12px;font-size:12px;color:var(--text2);font-weight:700">${items.length} objet(s) disponible(s)</div>` +
+    items.map(function(it, i) {
+      const rarLow = (it.rarity||'').toLowerCase();
+      const isVip = rarLow === 'mythique' || rarLow === 'divin';
+      const isMine = it.is_mine;
+      const discount = it.true_value > 0 ? Math.round((1 - it.sale_price/it.true_value)*100) : 0;
+      return `<div style="background:var(--card);border-radius:16px;border:1px solid ${isVip?'#7c3aed':'var(--border)'};padding:14px;margin-bottom:10px;display:flex;align-items:flex-start;gap:12px;${isVip?'background:linear-gradient(145deg,#1a1130,var(--card))':''}">
+        <div style="font-size:36px;line-height:1;${isVip?'filter:drop-shadow(0 0 8px #8b5cf6)':''}">${it.item_emoji}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:900;font-size:14px;color:var(--text1)">${it.item_name}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">Valeur estimée : ${fmt(it.true_value)} $</div>
+          <div style="margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:16px;font-weight:900;color:var(--accent)">${fmt(it.sale_price)} $</span>
+            ${discount > 0 ? `<span style="background:#00b894;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:8px">-${discount}%</span>` : ''}
+          </div>
+          <div style="font-size:11px;color:var(--text2);margin-top:3px">Vendeur : ${it.seller_name}${it.seller_username?' (@'+it.seller_username+')':''}</div>
+          <div style="margin-top:10px">
+            ${isMine
+              ? `<button onclick="itemRemoveMarket(${it.id})" style="padding:7px 16px;border-radius:9px;border:1px solid var(--accent2);background:var(--card2);color:var(--accent2);font-weight:800;font-size:12px;cursor:pointer">❌ Retirer</button>`
+              : `<button onclick="itemBuy(${it.id},'${(it.item_name||'').replace(/'/g,"\\'")}','${it.item_emoji}',${it.sale_price})"
+                  style="padding:7px 16px;border-radius:9px;border:none;background:linear-gradient(135deg,#f7c948,#e6b800);color:#000;font-weight:900;font-size:12px;cursor:pointer">
+                  🛒 Acheter ${fmt(it.sale_price)} $
+                </button>`
+            }
+          </div>
+        </div>
+        <span class="auction-rarity ${_rarityClass(it.rarity)}">${_rarityLabel(it.rarity)}</span>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+
+async function itemRemoveMarket(itemId) {
+  try {
+    const r = await fetch('/api/webapp/items/remove_market', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
+    const d = await r.json();
+    if (d.ok) { showToast(d.msg); _loadItemMarket(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+async function itemBuy(itemId, name, emoji, price) {
+  const ok = await showConfirmModal(
+    "Confirmer l'achat ?",
+    `${emoji} <b>${name}</b><br>Prix : <b>${fmt(price)} $</b><br>L'objet sera ajouté à ton inventaire immédiatement.`,
+    '🛒 Acheter', 'var(--accent)'
+  );
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/webapp/items/buy', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
+    const d = await r.json();
+    if (d.ok) { showToast(d.msg); _loadItemMarket(); refreshCoins && refreshCoins(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
 }
 
 // ══════════════════════════════════════════════════
@@ -9685,6 +9815,7 @@ async function loadEncheres() {
   document.getElementById('enc-live').style.display = '';
   document.getElementById('enc-salle').style.display = 'none';
   document.getElementById('enc-inventory').style.display = 'none';
+  document.getElementById('enc-market').style.display = 'none';
   _loadAuctionLive();
 }
 

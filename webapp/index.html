@@ -3163,15 +3163,33 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
       <!-- ROUE -->
       <div id="game-roue" class="game-panel" style="display:none;">
-        <div class="card" style="padding:16px 0;overflow:hidden;display:flex;justify-content:center;align-items:center;background:#070714;">
-          <div style="position:relative;">
-            <canvas id="roue-canvas" width="300" height="300"></canvas>
-            <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);z-index:10;">
-              <svg width="24" height="28" viewBox="0 0 24 28"><polygon points="12,28 0,0 24,0" fill="#f7c948" filter="url(#glow)"/><defs><filter id="glow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs></svg>
+
+        <!-- Arena roue premium -->
+        <div style="position:relative;background:radial-gradient(ellipse at 50% 30%,#120d2a 0%,#07070f 100%);border-radius:18px;padding:20px 0 8px;overflow:hidden;display:flex;flex-direction:column;align-items:center;gap:0;">
+
+          <!-- Titre neon -->
+          <div style="font-family:'Bangers',cursive;font-size:22px;letter-spacing:4px;color:#f7c948;text-shadow:0 0 14px #f7c948,0 0 40px #f7c94866;margin-bottom:10px;text-align:center;">WHEEL OF FORTUNE</div>
+
+          <!-- Wrapper roue + flèche -->
+          <div style="position:relative;display:inline-block;">
+            <!-- Halo glow derrière la roue -->
+            <div id="roue-halo" style="position:absolute;inset:-18px;border-radius:50%;background:radial-gradient(circle,rgba(247,201,72,0.18) 0%,transparent 70%);pointer-events:none;transition:opacity .3s;"></div>
+            <canvas id="roue-canvas" width="320" height="320" style="display:block;position:relative;z-index:1;"></canvas>
+            <!-- Flèche indicatrice -->
+            <div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);z-index:10;filter:drop-shadow(0 2px 6px #f7c948);">
+              <svg width="28" height="36" viewBox="0 0 28 36"><defs><linearGradient id="arrowG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff7cc"/><stop offset="100%" stop-color="#c8940a"/></linearGradient></defs><polygon points="14,36 0,0 28,0" fill="url(#arrowG)" stroke="#0d0a1f" stroke-width="1"/></svg>
             </div>
           </div>
+
+          <!-- Particules victoire -->
+          <canvas id="roue-particles" style="position:absolute;inset:0;pointer-events:none;z-index:20;border-radius:18px;opacity:0;transition:opacity .3s;" width="360" height="400"></canvas>
         </div>
+
+        <!-- Contrôles -->
         <div class="card" style="margin-top:10px;">
+          <!-- Dernier résultat badge -->
+          <div id="roue-last-seg" style="display:none;text-align:center;margin-bottom:10px;"></div>
+
           <div style="display:flex;gap:8px;margin-bottom:10px;">
             <input id="roue-mise" type="number" placeholder="Mise ($)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
             <div style="display:flex;flex-direction:column;gap:4px;">
@@ -3179,11 +3197,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
               <button onclick="document.getElementById('roue-mise').value=Math.min((+document.getElementById('roue-mise').value||0)*2,6600000)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">x2</button>
             </div>
           </div>
-          <button id="roue-spin-btn" onclick="spinRoue()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#f7c948,#ff6b6b);color:#000;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🎡 TOURNER !</button>
-          <div id="roue-result" style="margin-top:12px;text-align:center;font-weight:700;min-height:22px;font-size:15px;"></div>
+          <button id="roue-spin-btn" onclick="spinRoue()" style="width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#f7c948 0%,#ff9f43 50%,#ff6b6b 100%);color:#000;font-family:'Bangers',cursive;font-size:22px;letter-spacing:3px;cursor:pointer;box-shadow:0 4px 20px rgba(247,201,72,0.4);transition:transform .1s,box-shadow .1s;" onmousedown="this.style.transform='scale(.97)'" onmouseup="this.style.transform='scale(1)'">🎡 TOURNER !</button>
+          <div id="roue-result" style="margin-top:12px;text-align:center;font-weight:700;min-height:24px;font-size:15px;"></div>
         </div>
       </div>
-
       <!-- MINES -->
       <div id="game-mines" class="game-panel" style="display:none;">
         <div class="card">
@@ -7013,33 +7030,26 @@ async function crashCashOut() {
 
 // ─── ROUE ────────────────────────────────────────────────────────────────────
 const ROUE_SEGS = [
-  {label:'💀 Ruine',     color:'#c0392b'},
-  {label:'☠️ x0.1',     color:'#e74c3c'},
-  {label:'😭 x0.2',     color:'#e67e22'},
-  {label:'😞 x0.3',     color:'#d35400'},
-  {label:'💸 x0.4',     color:'#e67e22'},
-  {label:'😐 x0.5',     color:'#f39c12'},
-  {label:'🔄 IDEM',     color:'#2980b9'},
-  {label:'🙂 x0.8',     color:'#16a085'},
-  {label:'💵 +50K',     color:'#27ae60'},
-  {label:'💰 x1.2',     color:'#2ecc71'},
-  {label:'💵 +200K',    color:'#1abc9c'},
-  {label:'💰 x1.5',     color:'#16a085'},
-  {label:'🎁 +500K',    color:'#8e44ad'},
-  {label:'🤑 x2.0',     color:'#9b59b6'},
-  {label:'🎯 x3.0',     color:'#2c3e50'},
-  {label:'💵 +1M',      color:'#3498db'},
-  {label:'⭐ x5.0',     color:'#f1c40f'},
-  {label:'🔥 x10.0',   color:'#e74c3c'},
-  {label:'🌟 x15.0',   color:'#a29bfe'},
-  {label:'💎 x25.0',   color:'#00cec9'},
-];
-
-const ROUE_ACCENT = [
-  '#e74c3c','#c0392b','#d35400','#e67e22','#f39c12',
-  '#f1c40f','#3498db','#1abc9c','#2ecc71','#27ae60',
-  '#16a085','#1abc9c','#8e44ad','#9b59b6','#34495e',
-  '#2980b9','#f7c948','#ff4757','#a29bfe','#00cec9'
+  {label:'💀 Ruine',   color:'#6b0f0f', light:'#ff4444'},
+  {label:'☠️ x0.1',   color:'#7a1a0a', light:'#ff5722'},
+  {label:'😭 x0.2',   color:'#7a3b00', light:'#ff8c00'},
+  {label:'😞 x0.3',   color:'#6b4400', light:'#ffa726'},
+  {label:'💸 x0.4',   color:'#5c4200', light:'#ffb300'},
+  {label:'😐 x0.5',   color:'#3d3d00', light:'#ffd600'},
+  {label:'🔄 IDEM',   color:'#003366', light:'#29b6f6'},
+  {label:'🙂 x0.8',   color:'#004d3d', light:'#26c6a0'},
+  {label:'💵 +50K',   color:'#1a4726', light:'#43e97b'},
+  {label:'💰 x1.2',   color:'#0d5c23', light:'#66bb6a'},
+  {label:'💵 +200K',  color:'#0d4d35', light:'#1de9b6'},
+  {label:'💰 x1.5',   color:'#0a4a2e', light:'#00e676'},
+  {label:'🎁 +500K',  color:'#3b0d5c', light:'#ce93d8'},
+  {label:'🤑 x2.0',   color:'#4a0d7a', light:'#ba68c8'},
+  {label:'🎯 x3.0',   color:'#00336b', light:'#42a5f5'},
+  {label:'💵 +1M',    color:'#004080', light:'#64b5f6'},
+  {label:'⭐ x5.0',   color:'#5a4700', light:'#ffd54f'},
+  {label:'🔥 x10.0',  color:'#6b0d00', light:'#ff7043'},
+  {label:'🌟 x15.0',  color:'#2d1b6b', light:'#b39ddb'},
+  {label:'💎 x25.0',  color:'#004d4d', light:'#80deea'},
 ];
 
 let roueSpin = false;
@@ -7048,99 +7058,169 @@ let roueAngle = 0;
 function initRoueCanvas() {
   const c = document.getElementById('roue-canvas');
   if (!c) return;
+  const dw = c.clientWidth || 320;
+  c.width = dw; c.height = dw;
   drawRoue(c.getContext('2d'), c, roueAngle);
 }
 
 function drawRoue(ctx, c, angle) {
-  const cx = c.width / 2, cy = c.height / 2, r = cx - 12;
+  const cx = c.width / 2, cy = c.height / 2;
+  const R = cx - 16;  // rayon des segments
   const N = ROUE_SEGS.length;
   const step = (Math.PI * 2) / N;
   ctx.clearRect(0, 0, c.width, c.height);
 
-  // Dark background circle
-  ctx.beginPath();
-  ctx.arc(cx, cy, r + 14, 0, Math.PI * 2);
-  ctx.fillStyle = '#0d0d20';
-  ctx.fill();
+  // ── Fond sombre sous la roue ──────────────────────────────────────────────
+  ctx.beginPath(); ctx.arc(cx, cy, R + 15, 0, Math.PI * 2);
+  ctx.fillStyle = '#080818'; ctx.fill();
 
-  // Segments
+  // ── Anneau extérieur décoratif (biseauté doré) ────────────────────────────
+  const outerRing = ctx.createLinearGradient(cx - R, cy, cx + R, cy);
+  outerRing.addColorStop(0,   '#3a2a00');
+  outerRing.addColorStop(0.25,'#f7c948');
+  outerRing.addColorStop(0.5, '#ffe066');
+  outerRing.addColorStop(0.75,'#c8940a');
+  outerRing.addColorStop(1,   '#3a2a00');
+  ctx.beginPath(); ctx.arc(cx, cy, R + 14, 0, Math.PI * 2);
+  ctx.strokeStyle = outerRing; ctx.lineWidth = 6; ctx.stroke();
+
+  // ── Perles décoratives sur l'anneau ───────────────────────────────────────
+  for (let i = 0; i < N; i++) {
+    const a = angle + i * step + step / 2;
+    const bx = cx + Math.cos(a) * (R + 9);
+    const by = cy + Math.sin(a) * (R + 9);
+    ctx.beginPath(); ctx.arc(bx, by, 4.5, 0, Math.PI * 2);
+    const isPremium = [16,17,18,19].includes(i);
+    ctx.fillStyle = isPremium ? '#f7c948' : '#ffffff22';
+    ctx.shadowColor = isPremium ? '#f7c948' : 'transparent';
+    ctx.shadowBlur = isPremium ? 8 : 0;
+    ctx.fill(); ctx.shadowBlur = 0;
+  }
+
+  // ── Segments ──────────────────────────────────────────────────────────────
   for (let i = 0; i < N; i++) {
     const a0 = angle + i * step;
     const a1 = a0 + step;
     const midA = a0 + step / 2;
+    const seg = ROUE_SEGS[i];
 
+    // Fill avec dégradé radial "relief"
+    const gx = cx + Math.cos(midA) * R * 0.55;
+    const gy = cy + Math.sin(midA) * R * 0.55;
+    const grad = ctx.createRadialGradient(gx, gy, 0, cx, cy, R);
+    grad.addColorStop(0,   seg.light + 'ee');
+    grad.addColorStop(0.55, seg.color + 'ff');
+    grad.addColorStop(1,   '#05050f');
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, R, a0, a1); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+
+    // Séparateur entre segments
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, R, a0, a1); ctx.closePath();
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Highlight lumineux sur le bord extérieur de chaque segment
     ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, a0, a1);
-    ctx.closePath();
+    ctx.arc(cx, cy, R - 1.5, a0 + 0.03, a1 - 0.03);
+    ctx.strokeStyle = seg.light + '55'; ctx.lineWidth = 3; ctx.stroke();
 
-    // Radial gradient per segment
-    const gx = cx + Math.cos(midA) * r * 0.5;
-    const gy = cy + Math.sin(midA) * r * 0.5;
-    const grad = ctx.createRadialGradient(gx, gy, 0, cx, cy, r);
-    grad.addColorStop(0, ROUE_ACCENT[i] + 'ff');
-    grad.addColorStop(1, ROUE_SEGS[i].color + 'cc');
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // Text
+    // Texte du segment
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(a0 + step / 2);
-    ctx.translate(r * 0.64, 0);
+    ctx.rotate(midA);
+    ctx.translate(R * 0.63, 0);
     ctx.rotate(Math.PI / 2);
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = 'rgba(0,0,0,0.8)';
-    ctx.shadowBlur = 4;
-    ctx.font = 'bold 10px Nunito, sans-serif';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 5;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 9.5px Nunito, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(ROUE_SEGS[i].label, 0, 4);
+    ctx.fillText(seg.label, 0, 3.5);
     ctx.shadowBlur = 0;
     ctx.restore();
   }
 
-  // Outer decorative ring
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(247,201,72,0.7)';
-  ctx.lineWidth = 4;
-  ctx.shadowColor = '#f7c948';
-  ctx.shadowBlur = 12;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  // ── Anneau intérieur doré (bord interne des segments) ─────────────────────
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(247,201,72,0.5)'; ctx.lineWidth = 2; ctx.stroke();
 
-  // Tick marks
-  for (let i = 0; i < N; i++) {
-    const a = angle + i * step;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(a) * (r - 8), cy + Math.sin(a) * (r - 8));
-    ctx.lineTo(cx + Math.cos(a) * (r + 4), cy + Math.sin(a) * (r + 4));
-    ctx.strokeStyle = 'rgba(247,201,72,0.9)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+  // ── Anneau interne décoratif ───────────────────────────────────────────────
+  ctx.beginPath(); ctx.arc(cx, cy, R * 0.28, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(247,201,72,0.25)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // ── Hub central (boulon doré 3D) ───────────────────────────────────────────
+  // Ombre portée
+  ctx.beginPath(); ctx.arc(cx + 3, cy + 4, 26, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
+
+  // Corps principal
+  const hubGrad = ctx.createRadialGradient(cx - 8, cy - 8, 2, cx, cy, 26);
+  hubGrad.addColorStop(0,   '#fffae0');
+  hubGrad.addColorStop(0.3, '#f7c948');
+  hubGrad.addColorStop(0.7, '#b8860b');
+  hubGrad.addColorStop(1,   '#4a3500');
+  ctx.beginPath(); ctx.arc(cx, cy, 26, 0, Math.PI * 2);
+  ctx.fillStyle = hubGrad; ctx.fill();
+
+  // Bord du hub
+  ctx.beginPath(); ctx.arc(cx, cy, 26, 0, Math.PI * 2);
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 2.5; ctx.stroke();
+
+  // Reflet
+  ctx.beginPath(); ctx.arc(cx - 7, cy - 7, 8, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fill();
+
+  // Vis centrale
+  ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+  ctx.fillStyle = '#0d0a1f'; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+  ctx.fillStyle = '#f7c948'; ctx.fill();
+}
+
+// ── Particules victoire ────────────────────────────────────────────────────
+function _roueParticles(isPremium) {
+  const pc = document.getElementById('roue-particles');
+  if (!pc) return;
+  pc.width = pc.offsetWidth || 360;
+  pc.height = pc.offsetHeight || 400;
+  const ctx = pc.getContext('2d');
+  pc.style.opacity = '1';
+  const colors = isPremium
+    ? ['#f7c948','#ffe066','#ff6b6b','#a29bfe','#fff']
+    : ['#f7c948','#ffe066','#43e97b'];
+  const count = isPremium ? 80 : 40;
+  const particles = Array.from({length: count}, () => ({
+    x: pc.width * (0.2 + Math.random() * 0.6),
+    y: pc.height * 0.55,
+    vx: (Math.random() - 0.5) * 6,
+    vy: -(2 + Math.random() * 7),
+    r: 2 + Math.random() * (isPremium ? 5 : 3),
+    color: colors[Math.floor(Math.random() * colors.length)],
+    life: 1, decay: 0.015 + Math.random() * 0.02,
+    shape: Math.random() > 0.5 ? 'circle' : 'rect',
+  }));
+
+  let frame;
+  function tick() {
+    ctx.clearRect(0, 0, pc.width, pc.height);
+    let alive = false;
+    for (const p of particles) {
+      if (p.life <= 0) continue;
+      alive = true;
+      p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= p.decay;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      if (p.shape === 'circle') {
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillRect(p.x - p.r, p.y - p.r, p.r * 2, p.r * 1.4);
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (alive) frame = requestAnimationFrame(tick);
+    else { pc.style.opacity = '0'; }
   }
-
-  // Center hub
-  const hubGrad = ctx.createRadialGradient(cx - 6, cy - 6, 2, cx, cy, 24);
-  hubGrad.addColorStop(0, '#ffffff');
-  hubGrad.addColorStop(0.4, '#f7c948');
-  hubGrad.addColorStop(1, '#a0740a');
-  ctx.beginPath();
-  ctx.arc(cx, cy, 24, 0, Math.PI * 2);
-  ctx.fillStyle = hubGrad;
-  ctx.fill();
-  ctx.strokeStyle = '#0d0d20';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  ctx.fillStyle = '#000';
-  ctx.font = 'bold 13px Bangers, cursive';
-  ctx.textAlign = 'center';
-  ctx.fillText('🎡', cx, cy + 5);
-  ctx.textAlign = 'left';
+  frame = requestAnimationFrame(tick);
 }
 
 async function spinRoue() {
@@ -7150,56 +7230,82 @@ async function spinRoue() {
   if (mise > 6600000) return showToast('Mise maximum 6 600 000 $', true);
 
   const btn = document.getElementById('roue-spin-btn');
-  btn.disabled = true;
+  btn.disabled = true; btn.style.opacity = '.6';
   document.getElementById('roue-result').textContent = '';
+  const lastSeg = document.getElementById('roue-last-seg');
+  if (lastSeg) lastSeg.style.display = 'none';
   roueSpin = true;
+
+  // Halo pulsant
+  const halo = document.getElementById('roue-halo');
+  if (halo) halo.style.opacity = '1';
 
   const d = await gamePost({game:'roue', mise});
   if (!d.ok) {
-    roueSpin = false;
-    btn.disabled = false;
+    roueSpin = false; btn.disabled = false; btn.style.opacity = '1';
+    if (halo) halo.style.opacity = '';
     return showToast(d.error || 'Erreur', true);
   }
 
-  // Animate to the target segment
   const N = ROUE_SEGS.length;
   const step = (Math.PI * 2) / N;
   const targetIdx = d.seg_index;
-  // We want targetIdx to land at top (= -PI/2 offset from arrow which is at top)
   const targetAngle = -Math.PI / 2 - (targetIdx * step + step / 2);
-  const spins = 5 + Math.random() * 3;
-  const finalAngle = roueAngle + spins * Math.PI * 2 + (targetAngle - roueAngle % (Math.PI * 2));
+  const spins = 6 + Math.floor(Math.random() * 4);
+  const normalizedCurrent = ((roueAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const normalizedTarget = ((targetAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  let delta = normalizedTarget - normalizedCurrent;
+  if (delta <= 0) delta += Math.PI * 2;
+  const finalAngle = roueAngle + spins * Math.PI * 2 + delta;
 
   const c = document.getElementById('roue-canvas');
   const ctx = c.getContext('2d');
-  const duration = 4500;
+  const duration = 5500;
   const start = Date.now();
   const startAngle = roueAngle;
 
-  function ease(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; }
+  // Easing : accélération rapide, décélération longue (style casino)
+  function ease(t) {
+    if (t < 0.1) return t * t * 50 * 0.1; // acc rapide
+    const t2 = (t - 0.1) / 0.9;
+    return 0.1 + 0.9 * (1 - Math.pow(1 - t2, 4));
+  }
 
   function animFrame() {
     const elapsed = Date.now() - start;
     const t = Math.min(elapsed / duration, 1);
     roueAngle = startAngle + (finalAngle - startAngle) * ease(t);
     drawRoue(ctx, c, roueAngle);
+
     if (t < 1) {
       requestAnimationFrame(animFrame);
     } else {
       roueSpin = false;
-      btn.disabled = false;
-      // Show result
+      btn.disabled = false; btn.style.opacity = '1';
+      if (halo) halo.style.opacity = '';
+
+      const isPremium = d.profit > 0 && (d.label.includes('x5') || d.label.includes('x10') || d.label.includes('x15') || d.label.includes('x25') || d.label.includes('+1M') || d.label.includes('+500K'));
+      _roueParticles(isPremium);
+
       const profit = d.profit;
       const sign = profit >= 0 ? '+' : '';
-      const color = profit >= 0 ? 'var(--success)' : 'var(--accent2)';
+      const color = profit > 0 ? 'var(--success)' : profit === 0 ? 'var(--accent)' : '#ff4444';
+
+      // Badge segment animé
+      if (lastSeg) {
+        lastSeg.style.display = 'block';
+        lastSeg.innerHTML = '<span style="display:inline-block;padding:6px 18px;border-radius:20px;background:' + (profit>0?'rgba(67,233,123,0.15)':'rgba(255,68,68,0.1)') + ';border:1px solid ' + color + '44;font-family:\'Bangers\',cursive;font-size:18px;letter-spacing:2px;color:' + color + ';">' + d.label + '</span>';
+      }
+
       const el = document.getElementById('roue-result');
       el.style.color = color;
-      el.textContent = `${d.label} — Gain: ${d.gain.toLocaleString('fr-FR')} $ (${sign}${profit.toLocaleString('fr-FR')} $)`;
+      el.textContent = sign + profit.toLocaleString('fr-FR') + ' $ (' + (sign||'') + d.gain.toLocaleString('fr-FR') + ' $ récupérés)';
       loadData();
     }
   }
   requestAnimationFrame(animFrame);
 }
+
 
 // ─── MINES ────────────────────────────────────────────────────────────────────
 let minesActive = false;

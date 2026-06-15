@@ -8981,18 +8981,24 @@ function _rarityLabel(r) {
 }
 function _timeLeft(endsAt) {
   if (!endsAt) return '—';
-  // Normalise: "2026-06-15 22:30:00" ou "2026-06-15 22:30:00+00:00"
-  let str = endsAt.replace(' ','T');
-  // Retire le timezone offset s'il y en a un (+00:00, -05:00...) puis force UTC
-  str = str.replace(/([+-]\d{2}:\d{2}|Z)$/, '');
-  const d = new Date(str + 'Z');
-  const diff = d - Date.now();
-  if (diff <= 0) return 'Terminé';
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  const s = Math.floor((diff % 60000) / 1000);
-  if (h > 0) return h+"h "+m+"min";
-  return m > 0 ? m+"min "+s+"s" : s+"s";
+  try {
+    // Normalise tous les formats possibles de Neon/PG :
+    // "2026-06-15 22:30:00"  "2026-06-15 22:30:00+00:00"  "2026-06-15T22:30:00Z"
+    let str = String(endsAt).trim();
+    str = str.replace(' ', 'T');                    // espace → T
+    str = str.replace(/([+-]\d{2}:\d{2})$/, '');  // retire +00:00
+    str = str.replace(/Z$/, '');                    // retire Z final
+    // On a maintenant "2026-06-15T22:30:00" → on force UTC
+    const d = new Date(str + 'Z');
+    if (isNaN(d.getTime())) return '?';
+    const diff = d.getTime() - Date.now();
+    if (diff <= 0) return 'Terminé';
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    if (h > 0) return h+'h '+String(m).padStart(2,'0')+'min';
+    return m > 0 ? m+'min '+String(s).padStart(2,'0')+'s' : s+'s';
+  } catch(e) { return '?'; }
 }
 
 // ── EN COURS ──────────────────────────────────────────────────────────────────
@@ -9049,31 +9055,38 @@ async function _loadAuctionLive() {
       </div>`;
     }).join('');
 
-    // Timer + auto-refresh prix toutes les 20s
-    let _liveRefreshCountdown = 20;
+    // Timer ticker (1s) + refresh données toutes les 15s
+    let _liveRefreshCountdown = 15;
+    // Copie locale mutable des enchères pour que les timers se mettent à jour
+    let _liveData = auctions.slice();
     _liveTimerInterval = setInterval(async function() {
-      // Tick timers
-      auctions.forEach(function(a) {
+      // Tick timers sur données locales
+      _liveData.forEach(function(a) {
         const t = document.getElementById('enc-timer-'+a.id);
         if (t) t.textContent = '⏱ ' + _timeLeft(a.ends_at);
       });
-      // Refresh prix/meneur toutes les 20s
+      // Refresh prix/meneur toutes les 15s via fetchT
       _liveRefreshCountdown--;
       if (_liveRefreshCountdown <= 0) {
-        _liveRefreshCountdown = 20;
+        _liveRefreshCountdown = 15;
         try {
-          const rr = await fetch('/api/webapp/auctions/live?user_id='+uid);
-          const dd = await rr.json();
-          (dd.auctions || []).forEach(function(a) {
+          const rr = await fetchT('/api/webapp/auctions/live?user_id='+uid, {}, 10000);
+          if (!rr.ok) return;
+          let dd; try { dd = await rr.json(); } catch(e) { return; }
+          const fresh = dd.auctions || [];
+          _liveData = fresh; // maj locale pour que les timers aient les bonnes dates
+          fresh.forEach(function(a) {
             const bidEl = document.getElementById('enc-bid-val-'+a.id);
             const leaderEl = document.getElementById('enc-leader-'+a.id);
             const btnEl = document.getElementById('enc-btn-'+a.id);
+            const timerEl = document.getElementById('enc-timer-'+a.id);
             const isL = String(a.leader_id) === String(uid);
             if (bidEl) bidEl.textContent = '⚡ ' + fmt(a.current_bid) + ' $';
             if (leaderEl) leaderEl.textContent = isL ? '👑 Toi' : (a.leader_name || '💤 Aucun');
+            if (timerEl) timerEl.textContent = '⏱ ' + _timeLeft(a.ends_at);
             if (btnEl) {
-              if (isL) { btnEl.disabled = true; btnEl.className = 'bid-btn bid-btn-leading'; btnEl.textContent = '✅ Tu mènes'; }
-              else { btnEl.disabled = false; btnEl.className = 'bid-btn'; btnEl.textContent = '⚡ Enchérir'; btnEl.onclick = function(){ openBidModal(a.id, a.current_bid, false); }; }
+              if (isL) { btnEl.disabled = true; btnEl.className = 'bid-btn bid-btn-leading'; btnEl.textContent = '✅ Tu mènes'; btnEl.onclick = null; }
+              else { btnEl.disabled = false; btnEl.className = 'bid-btn'; btnEl.textContent = '⚡ Enchérir'; (function(aid,abid){ btnEl.onclick = function(){ openBidModal(aid, abid, false); }; })(a.id, a.current_bid); }
             }
             _auctionCache[a.id] = {name:a.item_name, emoji:a.item_emoji, rarity:a.rarity};
           });
@@ -9454,19 +9467,40 @@ function _ipmOnInput() {
 function _ipmClose() {
   document.getElementById('inv-price-modal').style.display = 'none';
   _ipmData = null;
+  const btn = document.getElementById('ipm-confirm');
+  if (btn) { btn._pending = false; btn.disabled = false; btn.textContent = '🏪 Mettre en vente'; }
 }
 async function _ipmConfirm() {
   if (!_ipmData) return;
   const price = parseInt(document.getElementById('ipm-input').value)||0;
   if (price < 1) { showToast('❌ Prix invalide'); return; }
   const btn = document.getElementById('ipm-confirm');
+  // Empêche double-clic
+  if (btn._pending) return;
+  btn._pending = true;
   btn.disabled = true; btn.textContent = '⏳ En cours…';
+  const savedData = _ipmData;
   try {
-    const r = await fetchT('/api/webapp/items/put_market', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid, item_id:_ipmData.itemId, price}) });
-    let d; try { d = await r.json(); } catch(e) { showToast('Erreur serveur ('+r.status+')'); btn.disabled=false; btn.textContent='🏪 Mettre en vente'; return; }
-    if (d.ok) { _ipmClose(); showToast(d.msg||'✅ Mis en vente !'); _loadAuctionInventory(); _loadItemMarket && _loadItemMarket(); }
-    else { showToast('❌ '+(d.error||'Erreur')); btn.disabled=false; btn.textContent='🏪 Mettre en vente'; }
-  } catch(e) { showToast('❌ '+e.message); btn.disabled=false; btn.textContent='🏪 Mettre en vente'; }
+    const r = await fetchT('/api/webapp/items/put_market', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({user_id:uid, item_id:savedData.itemId, price})
+    }, 15000);
+    let d;
+    try { d = await r.json(); }
+    catch(e) { showToast('❌ Erreur serveur ('+r.status+')'); btn._pending=false; btn.disabled=false; btn.textContent='🏪 Mettre en vente'; return; }
+    if (d.ok) {
+      _ipmClose();
+      showToast(d.msg||'✅ Mis en vente !');
+      _loadAuctionInventory();
+      if (typeof _loadItemMarket === 'function') _loadItemMarket();
+    } else {
+      showToast('❌ '+(d.error||'Erreur'));
+      btn._pending=false; btn.disabled=false; btn.textContent='🏪 Mettre en vente';
+    }
+  } catch(e) {
+    showToast('❌ '+e.message);
+    btn._pending=false; btn.disabled=false; btn.textContent='🏪 Mettre en vente';
+  }
 }
 // Alias legacy
 function invPutMarket(itemId, name, emoji, trueValue) {
@@ -10088,35 +10122,41 @@ function closeBidModal() { document.getElementById('enc-bid-modal').style.displa
 function closeSalleBidModal() { document.getElementById('salle-bid-modal').style.display = 'none'; _encBidAuctionId = null; }
 async function submitBid(isSalle) {
   const inputId = isSalle ? 'salle-bid-input' : 'enc-bid-input';
-  const amount = parseInt(document.getElementById(inputId).value);
-  if (!amount || amount <= 0) { showToast('Montant invalide'); return; }
-  const btnId = isSalle ? null : 'enc-bid-submit-btn';
-  const btn = btnId ? document.getElementById(btnId) : null;
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  const amount = parseInt(document.getElementById(inputId).value)||0;
+  if (amount <= 0) { showToast('❌ Montant invalide'); return; }
+  if (!_encBidAuctionId) { showToast('❌ Enchère introuvable'); return; }
+  const btn = document.getElementById(isSalle ? null : 'enc-bid-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  const endpoint = isSalle ? '/api/webapp/salle/bid' : '/api/webapp/auctions/bid';
+  const savedId = _encBidAuctionId;
   try {
-    const endpoint = isSalle ? '/api/webapp/salle/bid' : '/api/webapp/auctions/bid';
-    const r = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, auction_id: _encBidAuctionId, amount }) });
-    const d = await r.json();
+    const r = await fetchT(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, auction_id: savedId, amount })
+    }, 15000);
+    let d;
+    try { d = await r.json(); }
+    catch(e) { showToast('❌ Erreur serveur ('+r.status+')'); if (btn) { btn.disabled=false; btn.textContent='⚡ Confirmer'; } return; }
     if (d.ok) {
       showToast('⚡ Mise de ' + fmt(amount) + ' $ placée !');
       if (isSalle) { closeSalleBidModal(); _loadSalle(); }
       else {
         closeBidModal();
-        // Mise à jour immédiate du DOM sans recharger tout
-        const bidEl = document.getElementById('enc-bid-val-' + _encBidAuctionId);
-        const leaderEl = document.getElementById('enc-leader-' + _encBidAuctionId);
-        const btnEl = document.getElementById('enc-btn-' + _encBidAuctionId);
+        const bidEl = document.getElementById('enc-bid-val-' + savedId);
+        const leaderEl = document.getElementById('enc-leader-' + savedId);
+        const btnEl = document.getElementById('enc-btn-' + savedId);
         if (bidEl) bidEl.textContent = '⚡ ' + fmt(amount) + ' $';
         if (leaderEl) leaderEl.textContent = '👑 Toi';
-        if (btnEl) { btnEl.disabled = true; btnEl.className = 'bid-btn bid-btn-leading'; btnEl.textContent = '✅ Tu mènes'; }
+        if (btnEl) { btnEl.disabled = true; btnEl.className = 'bid-btn bid-btn-leading'; btnEl.textContent = '✅ Tu mènes'; btnEl.onclick = null; }
         refreshCoins && refreshCoins();
       }
     } else {
-      showToast(d.error || 'Erreur');
+      showToast('❌ ' + (d.error || 'Erreur'));
       if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmer'; }
     }
   } catch(e) {
-    showToast('Erreur réseau');
+    showToast('❌ ' + e.message);
     if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmer'; }
   }
 }

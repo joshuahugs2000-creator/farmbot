@@ -683,39 +683,59 @@ async def webapp_game(request: web.Request) -> web.Response:
             })
 
         # ── CRASH ─────────────────────────────────────────────────────────────
+        if game == 'crash_state':
+            # Polling public — pas besoin d'auth mais on l'a déjà
+            _crash_tick_lobby()
+            return web.json_response(_crash_lobby_public())
+
         if game == 'crash_start':
+            _crash_tick_lobby()
+            if _CRASH_LOBBY['phase'] != 'waiting':
+                return web.json_response({'error': 'Mises fermées — round en cours'})
+            if uid in _CRASH_LOBBY['players']:
+                return web.json_response({'error': 'Tu as déjà misé ce round'})
             if mise < 1000:
                 return web.json_response({'error': 'Mise minimum 1 000 $'})
             if user.coins < mise:
-                return web.json_response({'error': f'Fonds insuffisants'})
-
-            # Générer le crash point côté serveur, le cacher
-            r = _random_game.random()
-            if r < 0.05:
-                crash_point = 1.0
-            else:
-                crash_point = round(min(0.99 / (1 - r * 0.95), 100.0), 2)
+                return web.json_response({'error': 'Fonds insuffisants'})
 
             user.coins -= mise
             await session.commit()
 
-            # Stocker en mémoire (clé = uid)
-            _CRASH_SESSIONS[uid] = {'mise': mise, 'crash_point': crash_point}
-
-            return web.json_response({'ok': True, 'crash_point': crash_point})
+            display_name = (user.first_name or user.username or f'User{uid}')[:20]
+            avatar = getattr(user, 'avatar_emoji', '👤') or '👤'
+            _CRASH_LOBBY['players'][uid] = {
+                'name': display_name,
+                'avatar': avatar,
+                'mise': mise,
+                'cashed_out': False,
+                'cashout_mult': None,
+            }
+            return web.json_response({'ok': True, **_crash_lobby_public()})
 
         if game == 'crash_cashout':
-            mult = float(body.get('mult', 1.0))
-            sess = _CRASH_SESSIONS.pop(uid, None)
-            if not sess:
-                return web.json_response({'error': 'Aucune partie en cours'})
-            if mult >= sess['crash_point']:
-                return web.json_response({'error': 'Trop tard — crash déjà survenu !', 'crashed': True})
+            _crash_tick_lobby()
+            lobby = _CRASH_LOBBY
+            p = lobby['players'].get(uid)
+            if not p:
+                return web.json_response({'error': 'Tu n\'as pas misé ce round'})
+            if p['cashed_out']:
+                return web.json_response({'error': 'Déjà cash out'})
+            if lobby['phase'] != 'flying':
+                return web.json_response({'error': 'Pas en vol actuellement', 'crashed': lobby['phase'] == 'crashed'})
 
-            gain = int(sess['mise'] * mult)
+            now = _time_mod.time()
+            elapsed = now - lobby['phase_start']
+            mult = _crash_compute_mult(elapsed)
+            if mult >= lobby['crash_point']:
+                return web.json_response({'error': 'Trop tard — crash !', 'crashed': True})
+
+            p['cashed_out'] = True
+            p['cashout_mult'] = round(mult, 2)
+            gain = int(p['mise'] * mult)
             user.coins += gain
             await session.commit()
-            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise']})
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - p['mise'], 'mult': round(mult, 2)})
 
         # ── MINES ─────────────────────────────────────────────────────────────
         if game == 'mines_start':
@@ -978,10 +998,100 @@ async def webapp_game(request: web.Request) -> web.Response:
     return web.json_response({'error': 'Jeu inconnu'}, status=400)
 
 
-_CRASH_SESSIONS: dict = {}
+_CRASH_SESSIONS: dict = {}   # legacy, kept for compat
 _MINES_SESSIONS: dict = {}
 _APPLE_SESSIONS: dict = {}
 _REBET_SESSIONS: dict = {}
+
+# ── Crash Multijoueur ─────────────────────────────────────────────────────────
+import time as _time_mod
+
+_CRASH_LOBBY: dict = {
+    # phase: 'waiting' | 'flying' | 'crashed'
+    'phase': 'waiting',
+    'round_id': 0,
+    'phase_start': 0.0,      # timestamp début de la phase courante
+    'betting_duration': 10.0, # secondes d'ouverture des mises
+    'crash_point': 1.0,
+    'players': {},  # uid -> {name, avatar, mise, cashed_out, cashout_mult}
+}
+_CRASH_LOBBY_HISTORY: list = []  # derniers rounds [{round_id, crash_point, ts}]
+
+def _crash_compute_mult(elapsed: float) -> float:
+    """Même formule que le front : 1 + t*0.12 + t^1.5*0.04"""
+    return round(1.0 + elapsed * 0.12 + (elapsed ** 1.5) * 0.04, 2)
+
+def _crash_tick_lobby() -> None:
+    """Avancer le lobby selon l'heure. Appelé avant chaque lecture/écriture."""
+    lobby = _CRASH_LOBBY
+    now = _time_mod.time()
+    elapsed = now - lobby['phase_start']
+
+    if lobby['phase'] == 'waiting':
+        if elapsed >= lobby['betting_duration']:
+            # Lancer le vol
+            r = _random_game.random()
+            if r < 0.05:
+                cp = 1.0
+            else:
+                cp = round(min(0.99 / (1 - r * 0.95), 100.0), 2)
+            lobby['crash_point'] = cp
+            lobby['phase'] = 'flying'
+            lobby['phase_start'] = now
+
+    elif lobby['phase'] == 'flying':
+        mult = _crash_compute_mult(elapsed)
+        if mult >= lobby['crash_point']:
+            # Crash !
+            lobby['phase'] = 'crashed'
+            lobby['phase_start'] = now
+            # Ajouter à l'historique
+            _CRASH_LOBBY_HISTORY.append({
+                'round_id': lobby['round_id'],
+                'crash_point': lobby['crash_point'],
+                'ts': now,
+            })
+            if len(_CRASH_LOBBY_HISTORY) > 20:
+                _CRASH_LOBBY_HISTORY.pop(0)
+
+    elif lobby['phase'] == 'crashed':
+        if elapsed >= 5.0:
+            # Nouveau round
+            lobby['round_id'] += 1
+            lobby['phase'] = 'waiting'
+            lobby['phase_start'] = now
+            lobby['crash_point'] = 1.0
+            lobby['players'] = {}
+
+def _crash_lobby_public() -> dict:
+    """Renvoie l'état public du lobby (sans crash_point si flying)."""
+    lobby = _CRASH_LOBBY
+    now = _time_mod.time()
+    elapsed = now - lobby['phase_start']
+    mult = _crash_compute_mult(elapsed) if lobby['phase'] == 'flying' else 1.0
+
+    players_list = []
+    for uid, p in lobby['players'].items():
+        players_list.append({
+            'name': p['name'],
+            'avatar': p['avatar'],
+            'mise': p['mise'],
+            'cashed_out': p['cashed_out'],
+            'cashout_mult': p.get('cashout_mult'),
+        })
+
+    result = {
+        'phase': lobby['phase'],
+        'round_id': lobby['round_id'],
+        'elapsed': round(elapsed, 2),
+        'mult': round(mult, 2),
+        'betting_remaining': max(0.0, round(lobby['betting_duration'] - elapsed, 1)) if lobby['phase'] == 'waiting' else 0.0,
+        'players': players_list,
+        'history': _CRASH_LOBBY_HISTORY[-10:],
+    }
+    if lobby['phase'] == 'crashed':
+        result['crash_point'] = lobby['crash_point']
+    return result
 
 # ── Apple of Fortune constants ────────────────────────────────────────────────
 _APPLE_MULTS = {1:1.50,2:2.10,3:3.20,4:4.80,5:7.00,6:12.00,7:22.00,8:45.00,9:100.00,10:500.00}

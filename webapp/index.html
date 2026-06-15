@@ -3701,6 +3701,42 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 </div>
 
+
+    <!-- Modal saisie prix inventaire -->
+    <div id="inv-price-modal" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.8);align-items:flex-end;justify-content:center">
+      <div style="background:var(--card);border-radius:24px 24px 0 0;padding:28px 22px 36px;width:100%;max-width:480px;border-top:1px solid var(--border);box-shadow:0 -8px 40px rgba(0,0,0,.5)">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+          <div id="ipm-emoji" style="font-size:48px;line-height:1"></div>
+          <div style="flex:1">
+            <div id="ipm-name" style="font-size:16px;font-weight:900;color:var(--text)"></div>
+            <div id="ipm-rarity" style="font-size:11px;margin-top:2px"></div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">Valeur estimée : <span id="ipm-value" style="color:var(--accent);font-weight:800"></span></div>
+          </div>
+        </div>
+        <div style="margin-bottom:14px">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Suggestions rapides</div>
+          <div style="display:flex;gap:8px">
+            <button onclick="_ipmSetPct(0.5)" style="flex:1;padding:9px 4px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-size:11px;font-weight:700;cursor:pointer">50%<br><span id="ipm-lbl-50" style="color:var(--accent);font-size:10px"></span></button>
+            <button onclick="_ipmSetPct(0.7)" style="flex:1;padding:9px 4px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-size:11px;font-weight:700;cursor:pointer">70%<br><span id="ipm-lbl-70" style="color:var(--accent);font-size:10px"></span></button>
+            <button onclick="_ipmSetPct(0.8)" style="flex:1;padding:9px 4px;border-radius:12px;border:2px solid #f7c948;background:rgba(247,201,72,.12);color:#f7c948;font-size:11px;font-weight:800;cursor:pointer">80% ⭐<br><span id="ipm-lbl-80" style="color:#f7c948;font-size:10px"></span></button>
+            <button onclick="_ipmSetPct(1.0)" style="flex:1;padding:9px 4px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-size:11px;font-weight:700;cursor:pointer">100%<br><span id="ipm-lbl-100" style="color:var(--accent);font-size:10px"></span></button>
+          </div>
+        </div>
+        <div style="position:relative;margin-bottom:6px">
+          <input id="ipm-input" type="number" min="1" inputmode="numeric"
+            oninput="_ipmOnInput()"
+            style="width:100%;padding:16px 52px 16px 16px;border-radius:16px;border:2px solid var(--border);background:var(--card2);color:var(--text);font-size:22px;font-weight:900;box-sizing:border-box;text-align:center;transition:border-color .2s"
+            placeholder="0"/>
+          <span style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:16px;font-weight:900;color:var(--text2);pointer-events:none">$</span>
+        </div>
+        <div id="ipm-hint" style="text-align:center;font-size:11px;color:var(--text2);margin-bottom:18px;min-height:16px"></div>
+        <div style="display:flex;gap:10px">
+          <button onclick="_ipmClose()" style="flex:1;padding:14px;border-radius:14px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-weight:700;font-size:14px;cursor:pointer">Annuler</button>
+          <button id="ipm-confirm" onclick="_ipmConfirm()" style="flex:2;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;font-weight:900;font-size:15px;cursor:pointer">🏪 Mettre en vente</button>
+        </div>
+      </div>
+    </div>
+
 <!-- ── TOP BAR ── -->
 <div id="top-bar">
   <div id="top-bar-title">🌾 FarmBot</div>
@@ -9270,30 +9306,84 @@ async function _loadAuctionInventory() {
       el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🎒</div><div style="font-size:15px;font-weight:700">Inventaire vide</div><div style="font-size:12px;margin-top:6px">Remporte des enchères pour collecter des objets</div></div>`;
       return;
     }
-    el.innerHTML = items.map(function(it, i) {
+    const frag = document.createDocumentFragment();
+    items.forEach(function(it, i) {
       const rarLow = (it.rarity||'').toLowerCase();
       const isVip = rarLow === 'mythique' || rarLow === 'divin';
       const expertGain = Math.max(1, Math.floor((it.true_value||0) * 0.50));
-      return `<div class="inv-card" style="animation-delay:${i*0.05}s;${isVip?'border:1px solid #7c3aed;background:linear-gradient(145deg,#1a1130,var(--card))':''}">
-        <div class="inv-emoji" style="${isVip?'filter:drop-shadow(0 0 8px #8b5cf6)':''}">${it.item_emoji}</div>
-        <div style="flex:1">
-          <div class="inv-name">${it.item_name}</div>
-          <div class="inv-val">💰 ${fmt(it.true_value)} $</div>
-          <div class="inv-date">📅 ${(it.acquired_at||'').slice(0,10)}</div>
-          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-            <button onclick="invSellExpert(${it.id},'${it.item_name.replace(/'/g,"\\'")}','${it.item_emoji}',${expertGain})"
-              style="padding:6px 12px;border-radius:8px;border:none;background:#e17055;color:#fff;font-weight:800;font-size:11px;cursor:pointer">
-              🧑‍💼 Expert (${fmt(expertGain)} $)
-            </button>
-            <button onclick="invPutMarket(${it.id},'${it.item_name.replace(/'/g,"\\'")}','${it.item_emoji}',${it.true_value})"
-              style="padding:6px 12px;border-radius:8px;border:none;background:#00b894;color:#fff;font-weight:800;font-size:11px;cursor:pointer">
-              🏪 Vendre
-            </button>
-          </div>
-        </div>
-        <span class="auction-rarity ${_rarityClass(it.rarity)}">${_rarityLabel(it.rarity)}</span>
-      </div>`;
-    }).join('');
+      const itemId = it.id;
+
+      const card = document.createElement('div');
+      card.className = 'inv-card';
+      card.style.animationDelay = (i*0.05)+'s';
+      if (isVip) { card.style.border = '1px solid #7c3aed'; card.style.background = 'linear-gradient(145deg,#1a1130,var(--card))'; }
+
+      const emojiDiv = document.createElement('div');
+      emojiDiv.className = 'inv-emoji';
+      emojiDiv.textContent = it.item_emoji||'📦';
+      if (isVip) emojiDiv.style.filter = 'drop-shadow(0 0 8px #8b5cf6)';
+
+      const body = document.createElement('div');
+      body.style.flex = '1';
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'inv-name';
+      nameDiv.textContent = it.item_name||'';
+
+      const valDiv = document.createElement('div');
+      valDiv.className = 'inv-val';
+      valDiv.textContent = '💰 '+fmt(it.true_value)+' $';
+
+      const dateDiv = document.createElement('div');
+      dateDiv.className = 'inv-date';
+      dateDiv.textContent = '📅 '+(it.acquired_at||'').slice(0,10);
+
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;flex-wrap:wrap';
+
+      if (it.for_sale) {
+        // Déjà en vente — bouton retirer
+        const saleInfo = document.createElement('div');
+        saleInfo.style.cssText = 'font-size:11px;color:#00b894;font-weight:700;margin-bottom:4px;width:100%';
+        saleInfo.textContent = '🏷️ En vente : '+fmt(it.sale_price)+' $';
+        btnRow.appendChild(saleInfo);
+
+        const btnRemove = document.createElement('button');
+        btnRemove.style.cssText = 'padding:6px 12px;border-radius:8px;border:1px solid #e17055;background:transparent;color:#e17055;font-weight:800;font-size:11px;cursor:pointer';
+        btnRemove.textContent = '❌ Retirer du marché';
+        btnRemove.onclick = function() { itemRemoveMarket(itemId); };
+        btnRow.appendChild(btnRemove);
+      } else {
+        const btnExpert = document.createElement('button');
+        btnExpert.style.cssText = 'padding:6px 12px;border-radius:8px;border:none;background:#e17055;color:#fff;font-weight:800;font-size:11px;cursor:pointer';
+        btnExpert.textContent = '🧑‍💼 Expert ('+fmt(expertGain)+' $)';
+        btnExpert.onclick = function() { invSellExpert(itemId, it.item_name, it.item_emoji, expertGain); };
+
+        const btnMarket = document.createElement('button');
+        btnMarket.style.cssText = 'padding:6px 12px;border-radius:8px;border:none;background:#00b894;color:#fff;font-weight:800;font-size:11px;cursor:pointer';
+        btnMarket.textContent = '🏪 Vendre';
+        btnMarket.onclick = function() { invOpenPriceModal(itemId, it.item_name, it.item_emoji, it.rarity, it.true_value); };
+
+        btnRow.appendChild(btnExpert);
+        btnRow.appendChild(btnMarket);
+      }
+
+      body.appendChild(nameDiv);
+      body.appendChild(valDiv);
+      body.appendChild(dateDiv);
+      body.appendChild(btnRow);
+
+      const rarBadge = document.createElement('span');
+      rarBadge.className = 'auction-rarity '+_rarityClass(it.rarity);
+      rarBadge.textContent = _rarityLabel(it.rarity);
+
+      card.appendChild(emojiDiv);
+      card.appendChild(body);
+      card.appendChild(rarBadge);
+      frag.appendChild(card);
+    });
+    el.innerHTML = '';
+    el.appendChild(frag);
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
 }
 
@@ -9312,20 +9402,75 @@ async function invSellExpert(itemId, name, emoji, gain) {
   } catch(e) { showToast('Erreur réseau'); }
 }
 
-function invPutMarket(itemId, name, emoji, trueValue) {
-  const suggested = Math.floor(trueValue * 0.80);
-  const price = prompt(`🏪 Prix de vente pour ${emoji} ${name}\nValeur estimée : ${fmt(trueValue)} $\nPrix suggéré : ${fmt(suggested)} $\n\nEntrer votre prix :`, suggested);
-  if (!price || isNaN(parseInt(price)) || parseInt(price) < 1) return;
-  _doInvPutMarket(itemId, name, emoji, parseInt(price));
+// ── Modal prix inventaire ────────────────────────────────────────────────────
+let _ipmData = null;
+function invOpenPriceModal(itemId, name, emoji, rarity, trueValue) {
+  _ipmData = { itemId, name, emoji, trueValue };
+  const modal = document.getElementById('inv-price-modal');
+  document.getElementById('ipm-emoji').textContent = emoji||'📦';
+  document.getElementById('ipm-name').textContent = name||'';
+  document.getElementById('ipm-value').textContent = fmt(trueValue)+' $';
+  // Rarity badge
+  const rarEl = document.getElementById('ipm-rarity');
+  rarEl.textContent = _rarityLabel(rarity)||'';
+  rarEl.style.color = rarity&&rarity.toLowerCase()==='mythique'?'#f59e0b':rarity&&rarity.toLowerCase()==='divin'?'#8b5cf6':rarity&&rarity.toLowerCase()==='rare'?'#3b82f6':'var(--text2)';
+  // Suggestion labels
+  [0.5,0.7,0.8,1.0].forEach(function(pct) {
+    const lbl = document.getElementById('ipm-lbl-'+Math.round(pct*100));
+    if (lbl) lbl.textContent = fmt(Math.floor(trueValue*pct))+' $';
+  });
+  // Valeur par défaut = 80%
+  const input = document.getElementById('ipm-input');
+  input.value = Math.floor(trueValue * 0.80);
+  _ipmOnInput();
+  modal.style.display = 'flex';
+  setTimeout(function(){ input.focus(); }, 100);
 }
-async function _doInvPutMarket(itemId, name, emoji, price) {
+function _ipmSetPct(pct) {
+  if (!_ipmData) return;
+  document.getElementById('ipm-input').value = Math.floor(_ipmData.trueValue * pct);
+  _ipmOnInput();
+}
+function _ipmOnInput() {
+  if (!_ipmData) return;
+  const val = parseInt(document.getElementById('ipm-input').value)||0;
+  const hint = document.getElementById('ipm-hint');
+  const input = document.getElementById('ipm-input');
+  const btn = document.getElementById('ipm-confirm');
+  if (val < 1) {
+    hint.textContent = '❌ Prix invalide';
+    hint.style.color = '#e17055';
+    input.style.borderColor = '#e17055';
+    btn.disabled = true; btn.style.opacity = '.5';
+  } else {
+    const pct = Math.round(val / _ipmData.trueValue * 100);
+    const discount = 100 - pct;
+    hint.textContent = discount > 0 ? '📉 -'+discount+'% de la valeur estimée' : discount < 0 ? '📈 +'+ (-discount)+'% au-dessus de la valeur' : '✅ Au prix estimé';
+    hint.style.color = discount > 40 ? '#e17055' : discount > 0 ? 'var(--text2)' : '#00b894';
+    input.style.borderColor = val < 1 ? '#e17055' : 'var(--accent)';
+    btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+function _ipmClose() {
+  document.getElementById('inv-price-modal').style.display = 'none';
+  _ipmData = null;
+}
+async function _ipmConfirm() {
+  if (!_ipmData) return;
+  const price = parseInt(document.getElementById('ipm-input').value)||0;
+  if (price < 1) { showToast('❌ Prix invalide'); return; }
+  const btn = document.getElementById('ipm-confirm');
+  btn.disabled = true; btn.textContent = '⏳ En cours…';
   try {
-    const r = await fetchT('/api/webapp/items/put_market', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId,price}) });
-    let d;
-    try { d = await r.json(); } catch(e) { showToast('Erreur serveur ('+r.status+')'); return; }
-    if (d.ok) { showToast(d.msg||'✅ Mis en vente !'); _loadAuctionInventory(); _loadItemMarket && _loadItemMarket(); }
-    else showToast('❌ '+(d.error||'Erreur'));
-  } catch(e) { showToast('❌ Erreur : '+e.message); }
+    const r = await fetchT('/api/webapp/items/put_market', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid, item_id:_ipmData.itemId, price}) });
+    let d; try { d = await r.json(); } catch(e) { showToast('Erreur serveur ('+r.status+')'); btn.disabled=false; btn.textContent='🏪 Mettre en vente'; return; }
+    if (d.ok) { _ipmClose(); showToast(d.msg||'✅ Mis en vente !'); _loadAuctionInventory(); _loadItemMarket && _loadItemMarket(); }
+    else { showToast('❌ '+(d.error||'Erreur')); btn.disabled=false; btn.textContent='🏪 Mettre en vente'; }
+  } catch(e) { showToast('❌ '+e.message); btn.disabled=false; btn.textContent='🏪 Mettre en vente'; }
+}
+// Alias legacy
+function invPutMarket(itemId, name, emoji, trueValue) {
+  invOpenPriceModal(itemId, name, emoji, '', trueValue);
 }
 
 // ── MARCHÉ DES OBJETS ────────────────────────────────────────────────────────

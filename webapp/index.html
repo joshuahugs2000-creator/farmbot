@@ -9148,8 +9148,9 @@ async function _loadSalle() {
         if (_salleRefreshCd <= 0) {
           _salleRefreshCd = 15;
           try {
-            const rp = await fetch('/api/webapp/salle/status?user_id='+uid);
-            const dp = await rp.json();
+            const rp = await fetchT('/api/webapp/salle/status?user_id='+uid, {}, 8000);
+            if (!rp.ok) return;
+            let dp; try { dp = await rp.json(); } catch(e) { return; }
             const na = dp.auction;
             if (na) {
               const bidEl = document.getElementById('salle-stat-bid');
@@ -9298,8 +9299,8 @@ async function _loadSalleHistory() {
 
 async function _paySalleAccess() {
   try {
-    const r = await fetch('/api/webapp/salle/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid }) });
-    const d = await r.json();
+    const r = await fetchT('/api/webapp/salle/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid }) }, 10000);
+    let d; try { d = await r.json(); } catch(e) { showToast('❌ Erreur serveur'); return; }
     if (d.ok) { showToast('🏛️ Accès à La Salle accordé !'); _loadSalle(); }
     else showToast(d.error || 'Erreur');
   } catch(e) { showToast('Erreur réseau'); }
@@ -9513,8 +9514,8 @@ async function _loadItemMarket() {
   if (!el) return;
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetch('/api/webapp/items/market?user_id='+uid);
-    const d = await r.json();
+    const r = await fetchT('/api/webapp/items/market?user_id='+uid, {}, 12000);
+    let d; try { d = await r.json(); } catch(e) { el.innerHTML='<div class="plus-loader">❌ Erreur serveur</div>'; return; }
     const items = d.items || [];
     if (!items.length) {
       el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)">
@@ -9553,7 +9554,7 @@ async function _loadItemMarket() {
         <span class="auction-rarity ${_rarityClass(it.rarity)}">${_rarityLabel(it.rarity)}</span>
       </div>`;
     }).join('');
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+  } catch(e) { el.innerHTML = '<div class="plus-loader">❌ '+e.message+'</div>'; }
 }
 
 async function itemRemoveMarket(itemId) {

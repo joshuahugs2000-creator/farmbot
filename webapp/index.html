@@ -3104,32 +3104,39 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
       <!-- CRASH -->
       <div id="game-crash" class="game-panel" style="display:none;">
-        <div id="crash-arena" class="card" style="padding:0;">
-          <canvas id="crash-canvas" width="360" height="220" style="width:100%;display:block;"></canvas>
+
+        <!-- Canvas Arena -->
+        <div id="crash-arena" class="card" style="padding:0;position:relative;overflow:hidden;background:#070714;">
+          <canvas id="crash-canvas" width="360" height="200" style="width:100%;display:block;"></canvas>
+
           <svg id="crash-plane-svg" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"
-            style="position:absolute;width:60px;height:40px;pointer-events:none;transition:none;left:20px;bottom:20px;">
-            <!-- Fuselage -->
+            style="position:absolute;width:60px;height:40px;pointer-events:none;display:none;left:20px;bottom:20px;">
             <ellipse cx="30" cy="20" rx="22" ry="7" fill="#f7c948"/>
-            <!-- Nez -->
             <polygon points="52,20 60,20 52,16" fill="#ffe066"/>
-            <!-- Aile supérieure -->
             <polygon points="22,18 10,6 8,13 22,20" fill="#fff"/>
-            <!-- Aile inférieure -->
             <polygon points="22,22 10,34 8,27 22,20" fill="#ccc"/>
-            <!-- Queue -->
             <polygon points="8,20 0,10 6,20 0,30" fill="#ffe066"/>
-            <!-- Hublot -->
             <circle cx="32" cy="18" r="3" fill="#0af" opacity=".8"/>
-            <!-- Flamme -->
             <ellipse id="plane-flame" cx="6" cy="20" rx="6" ry="3" fill="#ff6b1a" opacity=".85"/>
           </svg>
-          <!-- Explosion overlay -->
-          <div id="crash-explosion" style="display:none;position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:80px;">💥</div>
+          <div id="crash-explosion" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;font-size:80px;pointer-events:none;">💥</div>
+
+          <!-- Overlay phase d'attente -->
+          <div id="crash-waiting-overlay" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(7,7,20,0.85);gap:4px;">
+            <span style="font-family:'Bangers',cursive;font-size:16px;color:var(--text2);letter-spacing:2px;">PROCHAIN ROUND DANS</span>
+            <span id="crash-countdown" style="font-family:'Bangers',cursive;font-size:56px;color:var(--accent);letter-spacing:4px;text-shadow:0 0 24px var(--accent);">10s</span>
+            <span style="font-size:12px;color:var(--text2);">Placez vos mises maintenant !</span>
+          </div>
         </div>
-        <div class="card" style="margin-top:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <span style="font-family:'Bangers',cursive;font-size:28px;color:var(--accent);letter-spacing:2px;" id="crash-mult-display">x1.00</span>
-            <span id="crash-status-badge" style="font-size:12px;padding:4px 10px;border-radius:20px;background:var(--card2);color:var(--text2);">En attente</span>
+
+        <!-- Barre historique -->
+        <div id="crash-history-bar" style="display:flex;gap:6px;padding:8px 4px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;"></div>
+
+        <!-- Contrôles -->
+        <div class="card" style="margin-top:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <span style="font-family:'Bangers',cursive;font-size:36px;color:var(--accent);letter-spacing:2px;text-shadow:0 0 20px currentColor;" id="crash-mult-display">x1.00</span>
+            <span id="crash-status-badge" style="font-size:12px;padding:4px 12px;border-radius:20px;background:var(--card2);color:var(--text2);">⏳ En attente</span>
           </div>
           <div style="display:flex;gap:8px;margin-bottom:10px;">
             <input id="crash-mise" type="number" placeholder="Mise ($)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
@@ -3140,12 +3147,20 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           </div>
           <div style="display:flex;gap:8px;">
             <button id="crash-bet-btn" onclick="crashBet()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">MISER 🚀</button>
-            <button id="crash-cashout-btn" onclick="crashCashOut()" disabled style="flex:1;padding:13px;border-radius:12px;border:none;background:#1a2a1a;color:#333;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:not-allowed;transition:all .3s;">CASH OUT</button>
+            <button id="crash-cashout-btn" onclick="crashCashOut()" disabled style="flex:1;padding:13px;border-radius:12px;border:none;background:#1a2a1a;color:#444;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:not-allowed;transition:all .3s;">CASH OUT</button>
           </div>
           <div id="crash-result" style="margin-top:10px;text-align:center;font-weight:700;min-height:22px;font-size:15px;"></div>
         </div>
-      </div>
 
+        <!-- Joueurs live -->
+        <div class="card" style="margin-top:8px;padding:12px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">👥 Joueurs ce round</div>
+          <div id="crash-players-list" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;">
+            <div style="text-align:center;color:var(--text2);font-size:13px;padding:12px;">Aucun joueur pour l'instant…</div>
+          </div>
+        </div>
+
+      </div>
       <!-- ROUE -->
       <div id="game-roue" class="game-panel" style="display:none;">
         <div class="card" style="padding:16px 0;overflow:hidden;display:flex;justify-content:center;align-items:center;background:#070714;">
@@ -6648,7 +6663,9 @@ function openGame(name) {
   document.getElementById('game-view').style.display = 'block';
   document.querySelectorAll('.game-panel').forEach(p => p.style.display = 'none');
   document.getElementById('game-' + name).style.display = 'block';
-  if (name === 'crash') setTimeout(initCrashCanvas, 50);
+  if (name === 'crash') {
+    setTimeout(() => { initCrashCanvas(); crashPoll(); }, 50);
+  }
   if (name === 'roue') setTimeout(initRoueCanvas, 50);
   if (name === 'mines') initMinesGrid();
 }
@@ -6657,11 +6674,9 @@ function backToGameList() {
   document.getElementById('game-view').style.display = 'none';
   document.getElementById('games-selection').style.display = 'block';
   loadCasinoBalance();
-  // Arrêter le crash si en cours
-  if (crashState === 'running') {
-    cancelAnimationFrame(crashRAF);
-    crashState = 'idle';
-  }
+  // Arrêter le polling crash
+  if (crashPollTimer) { clearTimeout(crashPollTimer); crashPollTimer = null; }
+  if (crashRAF) { cancelAnimationFrame(crashRAF); crashRAF = null; }
 }
 
 async function gamePost(payload) {
@@ -6673,55 +6688,58 @@ async function gamePost(payload) {
   return r.json();
 }
 
-// ─── CRASH ────────────────────────────────────────────────────────────────────
-let crashState = 'idle'; // idle | running | crashed
-let crashMult  = 1.0;
-let crashRAF   = null;
-let crashMise  = 0;
-let crashCrashPoint = 0;
-let crashCashedOut  = false;
-let crashStartTime  = 0;
+// ─── CRASH MULTIJOUEUR ───────────────────────────────────────────────────────
+// État local
+let crashMyMise    = 0;
+let crashMyBet     = false;   // j'ai misé ce round
+let crashCashedOut = false;
+let crashPhase     = 'waiting'; // waiting | flying | crashed
+let crashRoundId   = -1;
+let crashRAF       = null;
+let crashPollTimer = null;
+let crashFlyStart  = null;   // Date.now() quand flying a commencé (estimé)
+let crashLocalMult = 1.0;
 
+// Canvas helpers — identiques à avant
 function initCrashCanvas() {
   const c = document.getElementById('crash-canvas');
   if (!c) return;
   const ctx = c.getContext('2d');
-  // Sync canvas resolution to actual display size
-  const displayW = c.clientWidth || 360;
-  const displayH = c.clientHeight || 220;
-  c.width = displayW;
-  c.height = displayH;
+  const dw = c.clientWidth || 360;
+  const dh = c.clientHeight || 200;
+  c.width = dw; c.height = dh;
   drawCrashIdle(ctx, c);
   const plane = document.getElementById('crash-plane-svg');
-  if (plane) { plane.style.display = 'none'; }
-  const exp = document.getElementById('crash-explosion');
-  if (exp) { exp.style.display = 'none'; }
+  if (plane) plane.style.display = 'none';
 }
 
 function drawCrashIdle(ctx, c) {
   ctx.clearRect(0, 0, c.width, c.height);
-  ctx.fillStyle = '#070714';
-  ctx.fillRect(0, 0, c.width, c.height);
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1;
+  ctx.fillStyle = '#070714'; ctx.fillRect(0, 0, c.width, c.height);
+  _crashGrid(ctx, c);
+  ctx.fillStyle = 'rgba(247,201,72,0.15)';
+  ctx.font = 'bold 28px Bangers, cursive'; ctx.textAlign = 'center';
+  ctx.fillText('CRASH', c.width/2, c.height/2 - 10);
+  ctx.font = '13px Nunito, sans-serif'; ctx.fillStyle = 'rgba(160,160,176,0.5)';
+  ctx.fillText('Mises ouvertes — rejoins le round !', c.width/2, c.height/2 + 18);
+  ctx.textAlign = 'left';
+}
+
+function _crashGrid(ctx, c) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
   for (let x = 0; x < c.width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,c.height); ctx.stroke(); }
   for (let y = 0; y < c.height; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(c.width,y); ctx.stroke(); }
-  ctx.fillStyle = 'rgba(247,201,72,0.15)';
-  ctx.font = 'bold 28px Bangers, cursive';
-  ctx.textAlign = 'center';
-  ctx.fillText('CRASH', c.width/2, c.height/2 - 10);
-  ctx.font = '14px Nunito, sans-serif';
-  ctx.fillStyle = 'rgba(160,160,176,0.6)';
-  ctx.fillText('Mise ta mise et attends le crash !', c.width/2, c.height/2 + 20);
-  ctx.textAlign = 'left';
+}
+
+function _crashMult(elapsed) {
+  return parseFloat((1.0 + elapsed * 0.12 + Math.pow(elapsed, 1.5) * 0.04).toFixed(2));
 }
 
 function _crashCurveTip(c, mult) {
   const progress = Math.min((mult - 1) / 15, 1);
   const t = progress;
   const x = 30 + t * (c.width - 60);
-  const curveY = Math.pow(t, 1.5);
-  const y = c.height - 30 - curveY * (c.height - 60);
+  const y = c.height - 30 - Math.pow(t, 1.5) * (c.height - 60);
   return {x, y};
 }
 
@@ -6730,94 +6748,45 @@ function _movePlane(c, tip, angle) {
   if (!plane) return;
   const rect = c.getBoundingClientRect();
   const arena = document.getElementById('crash-arena');
-  const arenaRect = arena.getBoundingClientRect();
-  // Scale from canvas logical pixels to display pixels
-  const scaleX = rect.width / c.width;
-  const scaleY = rect.height / c.height;
-  // Position relative to arena
-  const px = (rect.left - arenaRect.left) + tip.x * scaleX - 30;
-  const py = (rect.top  - arenaRect.top)  + tip.y * scaleY - 20;
+  const ar = arena.getBoundingClientRect();
+  const sx = rect.width / c.width, sy = rect.height / c.height;
   plane.style.display = 'block';
-  plane.style.left = px + 'px';
-  plane.style.top  = py + 'px';
-  plane.style.transform = `rotate(${angle}deg)`;
+  plane.style.left = ((rect.left - ar.left) + tip.x * sx - 30) + 'px';
+  plane.style.top  = ((rect.top  - ar.top)  + tip.y * sy - 20) + 'px';
+  plane.style.transform = 'rotate(' + angle + 'deg)';
 }
 
 function drawCrashFrame(ctx, c, mult, crashed) {
   ctx.clearRect(0, 0, c.width, c.height);
-  ctx.fillStyle = '#070714';
-  ctx.fillRect(0, 0, c.width, c.height);
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x < c.width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,c.height); ctx.stroke(); }
-  for (let y = 0; y < c.height; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(c.width,y); ctx.stroke(); }
+  ctx.fillStyle = '#070714'; ctx.fillRect(0, 0, c.width, c.height);
+  _crashGrid(ctx, c);
 
   const progress = Math.min((mult - 1) / 15, 1);
   const pts = [];
-  const N = 60;
-  for (let i = 0; i <= N; i++) {
-    const t = (i / N) * progress;
-    const x = 30 + t * (c.width - 60);
-    const curveY = Math.pow(t, 1.5);
-    const y = c.height - 30 - curveY * (c.height - 60);
-    pts.push({x, y});
+  for (let i = 0; i <= 60; i++) {
+    const t = (i / 60) * progress;
+    pts.push({ x: 30 + t*(c.width-60), y: c.height-30 - Math.pow(t,1.5)*(c.height-60) });
   }
-
   if (pts.length >= 2) {
-    const color = crashed ? '#ff4444' : '#f7c948';
-    // Outer glow pass
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.strokeStyle = crashed ? 'rgba(255,68,68,0.3)' : 'rgba(247,201,72,0.25)';
-    ctx.lineWidth = 10;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 20;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    // Main trail
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3.5;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    // Fill under curve
-    ctx.lineTo(pts[pts.length-1].x, c.height - 30);
-    ctx.lineTo(pts[0].x, c.height - 30);
-    ctx.closePath();
-    ctx.fillStyle = crashed ? 'rgba(255,68,68,0.10)' : 'rgba(247,201,72,0.08)';
-    ctx.fill();
-
-    const tip = pts[pts.length - 1];
-    // Angle of trajectory
+    const col = crashed ? '#ff4444' : '#f7c948';
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.strokeStyle = crashed ? 'rgba(255,68,68,.3)' : 'rgba(247,201,72,.22)';
+    ctx.lineWidth = 10; ctx.shadowColor = col; ctx.shadowBlur = 20; ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.strokeStyle = col; ctx.lineWidth = 3.5; ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.lineTo(pts[pts.length-1].x, c.height-30); ctx.lineTo(pts[0].x, c.height-30); ctx.closePath();
+    ctx.fillStyle = crashed ? 'rgba(255,68,68,.1)' : 'rgba(247,201,72,.07)'; ctx.fill();
+    const tip = pts[pts.length-1];
     let angle = 0;
-    if (pts.length >= 2) {
-      const prev = pts[pts.length - 2];
-      angle = Math.atan2(tip.y - prev.y, tip.x - prev.x) * 180 / Math.PI;
-    }
-    if (!crashed) {
-      _movePlane(c, tip, angle);
-    } else {
-      const plane = document.getElementById('crash-plane-svg');
-      if (plane) plane.style.display = 'none';
-      const exp = document.getElementById('crash-explosion');
-      if (exp) { exp.style.display = 'flex'; exp.style.left = (tip.x - 40) + 'px'; exp.style.top = (tip.y - 40) + 'px'; exp.style.position = 'absolute'; exp.style.width = '80px'; exp.style.height = '80px'; }
-    }
+    if (pts.length>=2) { const prev=pts[pts.length-2]; angle=Math.atan2(tip.y-prev.y,tip.x-prev.x)*180/Math.PI; }
+    if (!crashed) { _movePlane(c, tip, angle); }
+    else { const pl=document.getElementById('crash-plane-svg'); if(pl) pl.style.display='none'; const ex=document.getElementById('crash-explosion'); if(ex){ex.style.display='flex';ex.style.position='absolute';ex.style.left=(tip.x-40)+'px';ex.style.top=(tip.y-40)+'px';ex.style.width='80px';ex.style.height='80px';} }
   }
-
-  const color = crashed ? '#ff4444' : '#f7c948';
-  ctx.font = 'bold 36px Bangers, cursive';
-  ctx.textAlign = 'center';
-  ctx.fillStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 20;
-  ctx.fillText('x' + mult.toFixed(2), c.width/2, 50);
-  ctx.shadowBlur = 0;
-  ctx.textAlign = 'left';
+  ctx.font = 'bold 36px Bangers, cursive'; ctx.textAlign = 'center';
+  ctx.fillStyle = crashed?'#ff4444':'#f7c948'; ctx.shadowColor=ctx.fillStyle; ctx.shadowBlur=20;
+  ctx.fillText('x'+mult.toFixed(2), c.width/2, 50); ctx.shadowBlur=0; ctx.textAlign='left';
 }
 
 function setCrashMise(factor) {
@@ -6826,115 +6795,220 @@ function setCrashMise(factor) {
   inp.value = Math.max(1000, Math.floor(v * factor));
 }
 
-async function crashBet() {
-  if (crashState !== 'idle') return;
-  const mise = parseInt(document.getElementById('crash-mise').value);
-  if (!mise || mise < 1000) return showToast('Mise minimum 1 000 $', true);
-
-  const d = await gamePost({game:'crash_start', mise});
-  if (!d.ok) return showToast(d.error || 'Erreur', true);
-
-  crashMise = mise;
-  crashCrashPoint = d.crash_point;
-  crashMult = 1.0;
-  crashCashedOut = false;
-  crashState = 'running';
-  crashStartTime = Date.now();
-
-  document.getElementById('crash-bet-btn').disabled = true;
-  document.getElementById('crash-bet-btn').style.opacity = '.4';
-  const coBtn = document.getElementById('crash-cashout-btn');
-  coBtn.disabled = false;
-  coBtn.style.background = 'var(--success)';
-  coBtn.style.color = '#000';
-  coBtn.style.cursor = 'pointer';
-  document.getElementById('crash-status-badge').textContent = '🚀 En cours';
-  document.getElementById('crash-status-badge').style.color = 'var(--accent)';
-  document.getElementById('crash-result').textContent = '';
-
-  runCrash();
-  loadData();
+// ── Polling loop ──────────────────────────────────────────────────────────────
+async function crashPoll() {
+  try {
+    const d = await gamePost({game:'crash_state'});
+    crashApplyState(d);
+  } catch(e) {}
+  // Continue polling only if crash panel visible
+  const panel = document.getElementById('game-crash');
+  if (panel && panel.style.display !== 'none') {
+    crashPollTimer = setTimeout(crashPoll, 500);
+  }
 }
 
-function runCrash() {
+function crashApplyState(d) {
+  if (!d) return;
+  const newRound = d.round_id !== crashRoundId;
+  if (newRound) {
+    // Nouveau round — reset état local
+    crashRoundId = d.round_id;
+    if (d.phase === 'waiting') {
+      crashMyBet = false;
+      crashCashedOut = false;
+      crashMyMise = 0;
+      document.getElementById('crash-result').textContent = '';
+      _crashEnableBetUI();
+    }
+  }
+
+  crashPhase = d.phase;
+
+  // Canvas animation via RAF uniquement en flying
+  if (d.phase === 'flying') {
+    const elapsed = d.elapsed;
+    crashLocalMult = _crashMult(elapsed);
+    if (!crashRAF) _crashStartRAF();
+    _crashShowFlyingUI();
+  } else if (d.phase === 'waiting') {
+    if (crashRAF) { cancelAnimationFrame(crashRAF); crashRAF = null; }
+    _crashShowWaitingUI(d.betting_remaining);
+    const c = document.getElementById('crash-canvas');
+    if (c) drawCrashIdle(c.getContext('2d'), c);
+  } else if (d.phase === 'crashed') {
+    if (crashRAF) { cancelAnimationFrame(crashRAF); crashRAF = null; }
+    _crashShowCrashedUI(d.crash_point);
+    const c = document.getElementById('crash-canvas');
+    if (c) drawCrashFrame(c.getContext('2d'), c, d.crash_point, true);
+    if (!crashCashedOut && crashMyBet) {
+      document.getElementById('crash-result').style.color = '#ff4444';
+      document.getElementById('crash-result').textContent = '💸 PERDU — -' + crashMyMise.toLocaleString('fr-FR') + ' $';
+    }
+  }
+
+  // Mettre à jour le multiplicateur affiché
+  if (d.phase === 'flying') {
+    // géré par RAF
+  } else if (d.phase !== 'crashed') {
+    document.getElementById('crash-mult-display').textContent = 'x1.00';
+    document.getElementById('crash-mult-display').style.color = 'var(--accent)';
+  }
+
+  // Joueurs
+  _crashRenderPlayers(d.players);
+
+  // Historique
+  if (d.history) _crashRenderHistory(d.history);
+}
+
+function _crashStartRAF() {
   const c = document.getElementById('crash-canvas');
   if (!c) return;
   const ctx = c.getContext('2d');
-
+  const start = performance.now() - (crashLocalMult > 1 ? _crashInverseTime(crashLocalMult) * 1000 : 0);
   function tick() {
-    if (crashState !== 'running') return;
-    const elapsed = (Date.now() - crashStartTime) / 1000;
-    crashMult = parseFloat((1 + elapsed * 0.12 + Math.pow(elapsed, 1.5) * 0.04).toFixed(2));
-
-    if (crashMult >= crashCrashPoint) {
-      crashMult = crashCrashPoint;
-      drawCrashFrame(ctx, c, crashMult, true);
-      crashState = 'crashed';
-      document.getElementById('crash-mult-display').textContent = 'x' + crashMult.toFixed(2);
-      document.getElementById('crash-mult-display').style.color = '#ff4444';
-      document.getElementById('crash-status-badge').textContent = '💥 CRASH !';
-      document.getElementById('crash-status-badge').style.color = '#ff4444';
-      const coBtn = document.getElementById('crash-cashout-btn');
-      coBtn.disabled = true;
-      coBtn.style.background = '#1a0a0a';
-      coBtn.style.color = '#333';
-      coBtn.style.cursor = 'not-allowed';
-      if (!crashCashedOut) {
-        document.getElementById('crash-result').style.color = '#ff4444';
-        document.getElementById('crash-result').textContent = `💸 PERDU — -${crashMise.toLocaleString('fr-FR')} $`;
-      }
-      setTimeout(resetCrash, 3000);
-      return;
-    }
-
-    drawCrashFrame(ctx, c, crashMult, false);
-    document.getElementById('crash-mult-display').textContent = 'x' + crashMult.toFixed(2);
+    if (crashPhase !== 'flying') { crashRAF = null; return; }
+    const elapsed = (performance.now() - start) / 1000;
+    crashLocalMult = _crashMult(elapsed);
+    drawCrashFrame(ctx, c, crashLocalMult, false);
+    document.getElementById('crash-mult-display').textContent = 'x' + crashLocalMult.toFixed(2);
     crashRAF = requestAnimationFrame(tick);
   }
   crashRAF = requestAnimationFrame(tick);
 }
 
+function _crashInverseTime(mult) {
+  // approx inverse of mult formula pour resync
+  return Math.max(0, (mult - 1) / 0.15);
+}
+
+function _crashShowWaitingUI(remaining) {
+  const ov = document.getElementById('crash-waiting-overlay');
+  if (ov) { ov.style.display = 'flex'; }
+  const cd = document.getElementById('crash-countdown');
+  if (cd) cd.textContent = remaining.toFixed(1) + 's';
+  const badge = document.getElementById('crash-status-badge');
+  if (badge) { badge.textContent = '⏳ Mises ouvertes'; badge.style.color = 'var(--text2)'; }
+  const pl = document.getElementById('crash-plane-svg');
+  if (pl) pl.style.display = 'none';
+  const ex = document.getElementById('crash-explosion');
+  if (ex) ex.style.display = 'none';
+  document.getElementById('crash-mult-display').style.color = 'var(--accent)';
+}
+
+function _crashShowFlyingUI() {
+  const ov = document.getElementById('crash-waiting-overlay');
+  if (ov) ov.style.display = 'none';
+  const badge = document.getElementById('crash-status-badge');
+  if (badge) { badge.textContent = '🚀 En vol'; badge.style.color = 'var(--accent)'; }
+  document.getElementById('crash-mult-display').style.color = 'var(--accent)';
+  if (crashMyBet && !crashCashedOut) {
+    const co = document.getElementById('crash-cashout-btn');
+    co.disabled = false; co.style.background = 'var(--success)'; co.style.color = '#000'; co.style.cursor = 'pointer';
+  }
+}
+
+function _crashShowCrashedUI(cp) {
+  const ov = document.getElementById('crash-waiting-overlay');
+  if (ov) ov.style.display = 'none';
+  const badge = document.getElementById('crash-status-badge');
+  if (badge) { badge.textContent = '💥 CRASH x'+cp.toFixed(2); badge.style.color = '#ff4444'; }
+  document.getElementById('crash-mult-display').textContent = 'x' + cp.toFixed(2);
+  document.getElementById('crash-mult-display').style.color = '#ff4444';
+  const co = document.getElementById('crash-cashout-btn');
+  co.disabled = true; co.style.background = '#1a0a0a'; co.style.color = '#444'; co.style.cursor = 'not-allowed';
+}
+
+function _crashEnableBetUI() {
+  const btn = document.getElementById('crash-bet-btn');
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+  const co = document.getElementById('crash-cashout-btn');
+  co.disabled = true; co.style.background = '#1a2a1a'; co.style.color = '#444'; co.style.cursor = 'not-allowed';
+  document.getElementById('crash-mult-display').textContent = 'x1.00';
+  document.getElementById('crash-mult-display').style.color = 'var(--accent)';
+}
+
+function _crashRenderPlayers(players) {
+  const list = document.getElementById('crash-players-list');
+  if (!list) return;
+  if (!players || players.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:var(--text2);font-size:13px;padding:12px;">Aucun joueur pour l\'instant…</div>';
+    return;
+  }
+  list.innerHTML = players.map(p => {
+    let statusColor, statusLabel;
+    if (p.cashed_out) {
+      statusColor = 'var(--success)'; statusLabel = '✅ x' + p.cashout_mult.toFixed(2);
+    } else if (crashPhase === 'crashed') {
+      statusColor = '#ff4444'; statusLabel = '💸 Perdu';
+    } else {
+      statusColor = 'var(--accent)'; statusLabel = '🚀 En vol';
+    }
+    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:10px;background:var(--card2);">' +
+      '<span style="font-size:20px;">' + (p.avatar||'👤') + '</span>' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + p.name + '</div>' +
+        '<div style="font-size:12px;color:var(--text2);">' + p.mise.toLocaleString('fr-FR') + ' $</div>' +
+      '</div>' +
+      '<span style="font-size:12px;font-weight:700;color:' + statusColor + ';white-space:nowrap;">' + statusLabel + '</span>' +
+    '</div>';
+  }).join('');
+}
+
+function _crashRenderHistory(history) {
+  const bar = document.getElementById('crash-history-bar');
+  if (!bar) return;
+  bar.innerHTML = [...history].reverse().map(h => {
+    const cp = h.crash_point;
+    const color = cp >= 10 ? '#a29bfe' : cp >= 3 ? 'var(--success)' : cp >= 2 ? 'var(--accent)' : '#ff4444';
+    return '<span style="flex-shrink:0;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(255,255,255,0.06);color:' + color + ';border:1px solid ' + color + '40;">x' + cp.toFixed(2) + '</span>';
+  }).join('');
+}
+
+// ── Actions utilisateur ────────────────────────────────────────────────────────
+async function crashBet() {
+  if (crashPhase !== 'waiting') return showToast('Mises fermées pour ce round', true);
+  if (crashMyBet) return showToast('Tu as déjà misé', true);
+  const mise = parseInt(document.getElementById('crash-mise').value);
+  if (!mise || mise < 1000) return showToast('Mise minimum 1 000 $', true);
+
+  const btn = document.getElementById('crash-bet-btn');
+  btn.disabled = true; btn.style.opacity = '.5';
+
+  const d = await gamePost({game:'crash_start', mise});
+  if (!d.ok) {
+    btn.disabled = false; btn.style.opacity = '1';
+    return showToast(d.error || 'Erreur', true);
+  }
+  crashMyBet = true;
+  crashMyMise = mise;
+  crashApplyState(d);
+  loadData();
+}
+
 async function crashCashOut() {
-  if (crashState !== 'running' || crashCashedOut) return;
+  if (crashPhase !== 'flying' || crashCashedOut || !crashMyBet) return;
   crashCashedOut = true;
-  const mult = crashMult;
-  const d = await gamePost({game:'crash_cashout', mult});
-  if (d.error && d.crashed) {
-    document.getElementById('crash-result').style.color = '#ff4444';
-    document.getElementById('crash-result').textContent = '💥 Trop tard !';
+  const d = await gamePost({game:'crash_cashout'});
+  if (d.error) {
+    if (d.crashed) {
+      document.getElementById('crash-result').style.color = '#ff4444';
+      document.getElementById('crash-result').textContent = '💥 Trop tard — crash !';
+    } else {
+      showToast(d.error, true);
+      crashCashedOut = false;
+    }
     return;
   }
   if (d.ok) {
     const sign = d.profit >= 0 ? '+' : '';
-    document.getElementById('crash-result').style.color = d.profit >= 0 ? 'var(--success)' : 'var(--accent2)';
-    document.getElementById('crash-result').textContent = `💰 Cash Out x${mult.toFixed(2)} — ${sign}${d.profit.toLocaleString('fr-FR')} $`;
-    document.getElementById('crash-cashout-btn').disabled = true;
-    document.getElementById('crash-cashout-btn').style.opacity = '.5';
+    document.getElementById('crash-result').style.color = d.profit >= 0 ? 'var(--success)' : '#ff4444';
+    document.getElementById('crash-result').textContent = '💰 Cash Out x' + d.mult.toFixed(2) + ' — ' + sign + d.profit.toLocaleString('fr-FR') + ' $';
+    const co = document.getElementById('crash-cashout-btn');
+    co.disabled = true; co.style.opacity = '.5';
     loadData();
   }
-}
-
-function resetCrash() {
-  crashState = 'idle';
-  crashMult = 1.0;
-  document.getElementById('crash-mult-display').textContent = 'x1.00';
-  document.getElementById('crash-mult-display').style.color = 'var(--accent)';
-  document.getElementById('crash-status-badge').textContent = 'En attente';
-  document.getElementById('crash-status-badge').style.color = 'var(--text2)';
-  const betBtn = document.getElementById('crash-bet-btn');
-  betBtn.disabled = false;
-  betBtn.style.opacity = '1';
-  const coBtn = document.getElementById('crash-cashout-btn');
-  coBtn.disabled = true;
-  coBtn.style.background = '#1a2a1a';
-  coBtn.style.color = '#333';
-  coBtn.style.cursor = 'not-allowed';
-  const plane = document.getElementById('crash-plane-svg');
-  if (plane) plane.style.display = 'none';
-  const exp = document.getElementById('crash-explosion');
-  if (exp) exp.style.display = 'none';
-  const c = document.getElementById('crash-canvas');
-  if (c) drawCrashIdle(c.getContext('2d'), c);
 }
 
 // ─── ROUE ────────────────────────────────────────────────────────────────────

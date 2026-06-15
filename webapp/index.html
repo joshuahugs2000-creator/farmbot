@@ -9030,7 +9030,7 @@ async function _loadAuctionLive() {
             <div class="auction-name">${a.item_name}</div>
             <span class="auction-rarity ${_rarityClass(a.rarity)}">${_rarityLabel(a.rarity)}</span>
           </div>
-          <div class="auction-timer-badge" id="enc-timer-${a.id}">⏱ ${_timeLeft(a.ends_at)}</div>
+          <div class="auction-timer-badge" id="enc-timer-${a.id}" title="${a.ends_at}">⏱ ${_timeLeft(a.ends_at)} [${(a.ends_at||"null").slice(0,19)}]</div>
         </div>
         <div class="auction-body">
           <div class="auction-bid-row">

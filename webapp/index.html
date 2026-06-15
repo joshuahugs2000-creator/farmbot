@@ -2525,6 +2525,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="eco-bento" style="margin-bottom:14px;">
           <div class="eco-bento-cell" data-icon="💵"><div class="eco-bento-label">Prix</div><div class="eco-bento-val gold" id="modal-price">—</div></div>
           <div class="eco-bento-cell" data-icon="⚠️"><div class="eco-bento-label">Risque</div><div class="eco-bento-val" id="modal-risk">—</div></div>
+          <div class="eco-bento-cell" data-icon="📊"><div class="eco-bento-label">Volatilité</div><div class="eco-bento-val" id="modal-vol">—</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
           <button onclick="mktQty(-1)" style="width:40px;height:40px;border-radius:50%;background:var(--border);border:none;color:var(--text);font-size:20px;cursor:pointer;flex-shrink:0;">−</button>
@@ -8927,19 +8928,36 @@ function initPay() { _payTargetUid = null; document.getElementById('pay-form').s
 async function paySearchPlayer(q) {
   if (q.length < 2) { document.getElementById('pay-search-results').innerHTML=''; return; }
   try {
-    const r = await fetchT('/api/webapp/actions/players/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 5000);
+    const r = await fetchT('/api/webapp/players/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 5000);
     const d = await r.json();
     const players = d.players || [];
     document.getElementById('pay-search-results').innerHTML = players.length
-      ? players.map(p => `<div onclick="selectPayTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:12px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px"><span style="font-size:22px">${p.avatar_emoji||'👤'}</span><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${p.level||1} · ${p.job||'Sans emploi'}</div></div></div>`).join('')
-      : '<div style="text-align:center;color:var(--text2);padding:16px;font-size:13px">Aucun résultat</div>';
+      ? players.map(p => {
+          const photoUrl = `/api/webapp/photo?user_id=${p.user_id}&size=50`;
+          return `<div onclick="selectPayTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
+            <div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);background:var(--card);">
+              <img src="${photoUrl}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\'font-size:22px;line-height:44px;display:block;text-align:center;\'>${p.avatar_emoji||\'👤\'}</span>'">
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:800;font-size:14px;color:var(--text1);">${p.name}</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px;">Niv. ${p.level||1}${p.job ? ' · '+p.job : ''}</div>
+            </div>
+            <span style="color:var(--accent);font-size:18px;">→</span>
+          </div>`;
+        }).join('')
+      : '<div style="text-align:center;color:var(--text2);padding:16px;font-size:13px;">Aucun résultat</div>';
   } catch(e) {}
 }
 function selectPayTarget(id, name, level) {
   _payTargetUid = id;
   document.getElementById('pay-search-results').innerHTML='';
   document.getElementById('pay-search-input').value='';
-  document.getElementById('pay-target-info').innerHTML = `<span style="font-size:28px">👤</span><div><div style="font-weight:900;font-size:15px">${name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${level}</div></div>`;
+  const photoUrl = `/api/webapp/photo?user_id=${id}&size=50`;
+  document.getElementById('pay-target-info').innerHTML = `
+    <div style="width:48px;height:48px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--accent);background:var(--card);">
+      <img src="${photoUrl}" width="48" height="48" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\'font-size:26px;line-height:48px;display:block;text-align:center;\'>👤</span>'">
+    </div>
+    <div><div style="font-weight:900;font-size:15px;color:var(--text1);">${name}</div><div style="font-size:11px;color:var(--text2);">Niv. ${level}</div></div>`;
   document.getElementById('pay-form').style.display='block';
 }
 function cancelPay() { _payTargetUid = null; document.getElementById('pay-form').style.display='none'; }
@@ -8948,7 +8966,7 @@ async function submitPay() {
   const note = document.getElementById('pay-note').value.trim();
   if (!_payTargetUid || !amount || amount <= 0) { showToast('Montant ou destinataire invalide'); return; }
   try {
-    const r = await fetchT('/api/webapp/actions/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _payTargetUid, amount, note }) }, 10000);
+    const r = await fetchT('/api/webapp/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _payTargetUid, amount, note }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('💸 Virement effectué !'); cancelPay(); document.getElementById('pay-amount').value=''; document.getElementById('pay-note').value=''; }
     else showToast(d.error || 'Erreur');
@@ -9322,11 +9340,11 @@ async function loadRecruter() {
 async function recSearchPlayer(q) {
   if (q.length < 2) { document.getElementById('rec-search-results').innerHTML=''; return; }
   try {
-    const r = await fetchT('/api/webapp/actions/players/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 5000);
+    const r = await fetchT('/api/webapp/players/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 5000);
     const d = await r.json();
     const players = d.players || [];
     document.getElementById('rec-search-results').innerHTML = players.length
-      ? players.map(p => `<div onclick="selectRecTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:12px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px"><span style="font-size:22px">${p.avatar_emoji||'👤'}</span><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${p.level||1}</div></div></div>`).join('')
+      ? players.map(p => { const pu=`/api/webapp/photo?user_id=${p.user_id}&size=44`; return `<div onclick="selectRecTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;"><div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);"><img src="${pu}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\\\'font-size:20px;line-height:44px;display:block;text-align:center;\\\'>${p.avatar_emoji||'👤'}</span>'"></div><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${p.level||1}</div></div></div>`; }).join('')
       : '<div style="text-align:center;color:var(--text2);padding:12px;font-size:13px">Aucun résultat</div>';
   } catch(e) {}
 }

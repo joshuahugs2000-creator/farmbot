@@ -8936,7 +8936,7 @@ async function paySearchPlayer(q) {
           const photoUrl = `/api/webapp/photo?user_id=${p.user_id}&size=50`;
           return `<div onclick="selectPayTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
             <div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);background:var(--card);">
-              <img src="${photoUrl}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\'font-size:22px;line-height:44px;display:block;text-align:center;\'>${p.avatar_emoji||\'👤\'}</span>'">
+              <img src="${photoUrl}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:22px;line-height:44px;display:block;text-align:center;&quot;>${p.avatar_emoji||'👤'}</span>'">
             </div>
             <div style="flex:1;min-width:0;">
               <div style="font-weight:800;font-size:14px;color:var(--text1);">${p.name}</div>

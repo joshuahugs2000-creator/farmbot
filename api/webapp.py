@@ -1573,7 +1573,7 @@ async def webapp_auctions_inventory(request: web.Request) -> web.Response:
     async with AsyncSessionLocal() as session:
         try:
             r = await session.execute(text("""
-                SELECT item_id, item_name, item_emoji, rarity, true_value, acquired_at
+                SELECT id, item_name, item_emoji, rarity, true_value, acquired_at, for_sale, sale_price
                 FROM auction_inventory
                 WHERE user_id = :uid
                 ORDER BY acquired_at DESC
@@ -1581,12 +1581,15 @@ async def webapp_auctions_inventory(request: web.Request) -> web.Response:
             """), {'uid': uid})
             for row in r.fetchall():
                 items.append({
+                    'id':          row[0],
                     'item_id':     row[0],
                     'item_name':   row[1],
                     'item_emoji':  row[2],
                     'rarity':      row[3],
                     'true_value':  row[4],
                     'acquired_at': str(row[5])[:10] if row[5] else '',
+                    'for_sale':    bool(row[6]),
+                    'sale_price':  row[7],
                 })
         except Exception as e:
             return web.json_response({'items': [], 'error': str(e)})

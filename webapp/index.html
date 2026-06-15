@@ -9264,34 +9264,98 @@ async function _loadAuctionInventory() {
     const d = await r.json();
     const items = d.items || [];
     if (!items.length) {
-      el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🎒</div><div style="font-size:15px;font-weight:700">Inventaire vide</div><div style="font-size:12px;margin-top:6px">Remporte des enchères pour collecter des objets</div></div>`;
+      el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🧲</div><div style="font-size:15px;font-weight:700">Inventaire vide</div><div style="font-size:12px;margin-top:6px">Remporte des enchères pour collecter des objets</div></div>';
       return;
     }
-    el.innerHTML = items.map(function(it, i) {
+    el.innerHTML = '';
+    items.forEach(function(it, i) {
+      const itemId = it.id || it.item_id;
       const rarLow = (it.rarity||'').toLowerCase();
       const isVip = rarLow === 'mythique' || rarLow === 'divin';
       const expertGain = Math.max(1, Math.floor((it.true_value||0) * 0.50));
-      return `<div class="inv-card" style="animation-delay:${i*0.05}s;${isVip?'border:1px solid #7c3aed;background:linear-gradient(145deg,#1a1130,var(--card))':''}">
-        <div class="inv-emoji" style="${isVip?'filter:drop-shadow(0 0 8px #8b5cf6)':''}">${it.item_emoji}</div>
-        <div style="flex:1">
-          <div class="inv-name">${it.item_name}</div>
-          <div class="inv-val">💰 ${fmt(it.true_value)} $</div>
-          <div class="inv-date">📅 ${(it.acquired_at||'').slice(0,10)}</div>
-          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-            <button onclick="invSellExpert(${it.id},'${it.item_name.replace(/'/g,"\\'")}','${it.item_emoji}',${expertGain})"
-              style="padding:6px 12px;border-radius:8px;border:none;background:#e17055;color:#fff;font-weight:800;font-size:11px;cursor:pointer">
-              🧑‍💼 Expert (${fmt(expertGain)} $)
-            </button>
-            <button onclick="invPutMarket(${it.id},'${it.item_name.replace(/'/g,"\\'")}','${it.item_emoji}',${it.true_value})"
-              style="padding:6px 12px;border-radius:8px;border:none;background:#00b894;color:#fff;font-weight:800;font-size:11px;cursor:pointer">
-              🏪 Vendre
-            </button>
-          </div>
-        </div>
-        <span class="auction-rarity ${_rarityClass(it.rarity)}">${_rarityLabel(it.rarity)}</span>
-      </div>`;
-    }).join('');
+      const forSale = !!it.for_sale;
+
+      const card = document.createElement('div');
+      card.className = 'inv-card';
+      card.style.animationDelay = (i*0.05) + 's';
+      if (isVip) { card.style.border = '1px solid #7c3aed'; card.style.background = 'linear-gradient(145deg,#1a1130,var(--card))'; }
+      if (forSale) { card.style.opacity = '.8'; card.style.border = '1px solid rgba(0,184,148,.3)'; }
+
+      // Emoji col
+      const emojiCol = document.createElement('div');
+      emojiCol.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px';
+      const emojiDiv = document.createElement('div');
+      emojiDiv.className = 'inv-emoji';
+      emojiDiv.textContent = it.item_emoji || '🎁';
+      if (isVip) emojiDiv.style.filter = 'drop-shadow(0 0 8px #8b5cf6)';
+      emojiCol.appendChild(emojiDiv);
+      if (forSale) {
+        const tag = document.createElement('div');
+        tag.style.cssText = 'font-size:9px;font-weight:900;color:#00b894;letter-spacing:.5px';
+        tag.textContent = 'EN VENTE';
+        emojiCol.appendChild(tag);
+      }
+      card.appendChild(emojiCol);
+
+      // Info col
+      const info = document.createElement('div');
+      info.style.flex = '1';
+      const nameEl = document.createElement('div'); nameEl.className = 'inv-name'; nameEl.textContent = it.item_name||'';
+      const valEl  = document.createElement('div'); valEl.className = 'inv-val';
+      valEl.textContent = '💰 ' + fmt(it.true_value) + ' $';
+      if (forSale && it.sale_price) {
+        const sp = document.createElement('span');
+        sp.style.cssText = 'color:#00b894;margin-left:6px';
+        sp.textContent = '🏷️ ' + fmt(it.sale_price) + ' $';
+        valEl.appendChild(sp);
+      }
+      const dateEl = document.createElement('div'); dateEl.className = 'inv-date'; dateEl.textContent = '📅 ' + (it.acquired_at||'').slice(0,10);
+      info.appendChild(nameEl); info.appendChild(valEl); info.appendChild(dateEl);
+
+      const btns = document.createElement('div');
+      btns.style.cssText = 'display:flex;gap:6px;margin-top:8px;flex-wrap:wrap';
+      if (forSale) {
+        const b = document.createElement('button');
+        b.style.cssText = 'padding:6px 12px;border-radius:8px;border:none;background:#636e72;color:#fff;font-weight:800;font-size:11px;cursor:pointer';
+        b.textContent = '❌ Retirer du marché';
+        b.onclick = function() { invRemoveMarket(itemId, it.item_name, it.item_emoji); };
+        btns.appendChild(b);
+      } else {
+        const bExp = document.createElement('button');
+        bExp.style.cssText = 'padding:6px 12px;border-radius:8px;border:none;background:#e17055;color:#fff;font-weight:800;font-size:11px;cursor:pointer';
+        bExp.textContent = '🧑‍💼 Expert (' + fmt(expertGain) + ' $)';
+        bExp.onclick = function() { invSellExpert(itemId, it.item_name, it.item_emoji, expertGain); };
+        const bMkt = document.createElement('button');
+        bMkt.style.cssText = 'padding:6px 12px;border-radius:8px;border:none;background:#00b894;color:#fff;font-weight:800;font-size:11px;cursor:pointer';
+        bMkt.textContent = '🏪 Vendre';
+        bMkt.onclick = function() { invPutMarket(itemId, it.item_name, it.item_emoji, it.true_value); };
+        btns.appendChild(bExp); btns.appendChild(bMkt);
+      }
+      info.appendChild(btns);
+      card.appendChild(info);
+
+      const rar = document.createElement('span');
+      rar.className = 'auction-rarity ' + _rarityClass(it.rarity);
+      rar.textContent = _rarityLabel(it.rarity);
+      card.appendChild(rar);
+      el.appendChild(card);
+    });
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+
+async function invRemoveMarket(itemId, name, emoji) {
+  const ok = await showConfirmModal(
+    'Retirer du marché ?',
+    (emoji||'') + ' <b>' + (name||'') + '</b><br>L\'objet reviendra dans ton inventaire.',
+    '❌ Confirmer', '#636e72'
+  );
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/webapp/items/remove_market', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
+    const d = await r.json();
+    if (d.ok) { showToast(d.msg||'Retiré du marché'); _loadAuctionInventory(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
 }
 
 async function invSellExpert(itemId, name, emoji, gain) {
@@ -9921,7 +9985,8 @@ function openBidModal(auctionId, currentBid, isSalle) {
     document.getElementById('salle-bid-current').innerHTML =
       'Enchère actuelle : <b style="color:#e9d5ff">' + fmt(currentBid) + ' $</b><br>' +
       '<span style="font-size:11px">Minimum requis : <b style="color:#a78bfa">' + fmt(minBid) + ' $</b></span>';
-    document.getElementById('salle-bid-input').value = minBid;
+    const si = document.getElementById('salle-bid-input');
+    si.value = minBid; si.min = minBid; si.dataset.min = minBid;
     document.getElementById('salle-bid-modal').style.display = 'flex';
   } else {
     document.getElementById('enc-bid-title').innerHTML =
@@ -9929,31 +9994,36 @@ function openBidModal(auctionId, currentBid, isSalle) {
     document.getElementById('enc-bid-current').innerHTML =
       'Enchère actuelle : <b style="color:var(--accent)">⚡ ' + fmt(currentBid) + ' $</b><br>' +
       '<span style="font-size:11px;color:var(--text2)">Minimum requis : <b>' + fmt(minBid) + ' $</b></span>';
-    document.getElementById('enc-bid-input').value = minBid;
-    document.getElementById('enc-bid-input').min = minBid;
+    const ei = document.getElementById('enc-bid-input');
+    ei.value = minBid; ei.min = minBid; ei.dataset.min = minBid;
     document.getElementById('enc-bid-modal').style.display = 'flex';
-    document.getElementById('enc-bid-input').focus();
+    ei.focus();
   }
 }
 function closeBidModal() { document.getElementById('enc-bid-modal').style.display = 'none'; _encBidAuctionId = null; }
 function closeSalleBidModal() { document.getElementById('salle-bid-modal').style.display = 'none'; _encBidAuctionId = null; }
 async function submitBid(isSalle) {
   const inputId = isSalle ? 'salle-bid-input' : 'enc-bid-input';
-  const amount = parseInt(document.getElementById(inputId).value);
-  if (!amount || amount <= 0) { showToast('Montant invalide'); return; }
-  const btnId = isSalle ? null : 'enc-bid-submit-btn';
-  const btn = btnId ? document.getElementById(btnId) : null;
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  const inputEl = document.getElementById(inputId);
+  const amount = parseInt(inputEl.value);
+  const minBid = parseInt(inputEl.min || inputEl.dataset.min || 1);
+
+  if (!amount || isNaN(amount) || amount <= 0) { showToast('❌ Montant invalide'); return; }
+  if (amount < minBid) { showToast('❌ Minimum requis : ' + fmt(minBid) + ' $'); inputEl.value = minBid; inputEl.style.borderColor='#e17055'; setTimeout(()=>inputEl.style.borderColor='',1000); return; }
+
+  const btnId = isSalle ? 'salle-bid-submit-btn' : 'enc-bid-submit-btn';
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
   try {
     const endpoint = isSalle ? '/api/webapp/salle/bid' : '/api/webapp/auctions/bid';
-    const r = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, auction_id: _encBidAuctionId, amount }) });
-    const d = await r.json();
+    const r = await fetchT(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, auction_id: _encBidAuctionId, amount }) }, 12000);
+    let d;
+    try { d = await r.json(); } catch(je) { d = { ok: false, error: 'Réponse serveur invalide (code ' + r.status + ')' }; }
     if (d.ok) {
       showToast('⚡ Mise de ' + fmt(amount) + ' $ placée !');
       if (isSalle) { closeSalleBidModal(); _loadSalle(); }
       else {
         closeBidModal();
-        // Mise à jour immédiate du DOM sans recharger tout
         const bidEl = document.getElementById('enc-bid-val-' + _encBidAuctionId);
         const leaderEl = document.getElementById('enc-leader-' + _encBidAuctionId);
         const btnEl = document.getElementById('enc-btn-' + _encBidAuctionId);
@@ -9963,12 +10033,12 @@ async function submitBid(isSalle) {
         refreshCoins && refreshCoins();
       }
     } else {
-      showToast(d.error || 'Erreur');
-      if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmer'; }
+      showToast('❌ ' + (d.error || 'Erreur inconnue'));
+      if (btn) { btn.disabled = false; btn.textContent = isSalle ? '⚡ Enchérir' : '⚡ Confirmer'; }
     }
   } catch(e) {
-    showToast('Erreur réseau');
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmer'; }
+    showToast('❌ ' + (e.message || 'Erreur réseau'));
+    if (btn) { btn.disabled = false; btn.textContent = isSalle ? '⚡ Enchérir' : '⚡ Confirmer'; }
   }
 }
 

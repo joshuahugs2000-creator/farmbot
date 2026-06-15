@@ -9348,12 +9348,11 @@ async function buyBadge(id, price) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: uid, badge_id: id, price })
     });
-    const d = await r.json();
+    let d;
+    try { d = await r.json(); } catch(e) { showToast('❌ Erreur serveur (' + r.status + ')'); return; }
     if (d.ok) {
       _pfCustom.badges_owned = d.badges_owned || [];
-      _pfCoins    -= price;
-      _pfCoinsRaw -= price;   // sync la valeur brute aussi
-      // Mettre à jour l'affichage coins dans le profil
+      _pfCoinsRaw -= price;
       const cashEl = document.getElementById('pf-cash');
       if (cashEl) cashEl.textContent = fmt(_pfCoinsRaw);
       showToast('✅ Badge acheté !');
@@ -9361,7 +9360,8 @@ async function buyBadge(id, price) {
       showToast('❌ ' + (d.error || 'Erreur achat'));
     }
   } catch(e) {
-    showToast('❌ Erreur réseau');
+    console.error('[buyBadge]', e);
+    showToast('❌ ' + (e.message || 'Erreur réseau'));
   } finally {
     _renderBadgeShop();
   }
@@ -9372,16 +9372,31 @@ function onCustPhotoSelected(input) {
   const file = input.files[0];
   if (!file) return;
   const statusEl = document.getElementById('cust-photo-status');
-  if (file.size > 5 * 1024 * 1024) {
-    if (statusEl) { statusEl.textContent = '⚠️ Image trop lourde (max 5 Mo)'; statusEl.style.color = 'var(--accent2)'; }
+  if (file.size > 10 * 1024 * 1024) {
+    if (statusEl) { statusEl.textContent = '⚠️ Image trop lourde (max 10 Mo)'; statusEl.style.color = 'var(--accent2)'; }
     return;
   }
+  if (statusEl) { statusEl.textContent = '⏳ Traitement…'; statusEl.style.color = 'var(--text2)'; }
   const reader = new FileReader();
   reader.onload = function(e) {
-    _custPhotoBase64 = e.target.result;
-    const prev = document.getElementById('cust-photo-preview');
-    if (prev) prev.innerHTML = `<img src="${_custPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
-    if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
+    // Compression via canvas — max 800x800, qualité 0.85
+    const img = new Image();
+    img.onload = function() {
+      const MAX = 800;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else       { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      _custPhotoBase64 = canvas.toDataURL('image/jpeg', 0.85);
+      const prev = document.getElementById('cust-photo-preview');
+      if (prev) prev.innerHTML = `<img src="${_custPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
+      if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
+    };
+    img.src = e.target.result;
   };
   reader.readAsDataURL(file);
   input.value = '';

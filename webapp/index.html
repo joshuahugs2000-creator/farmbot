@@ -3677,7 +3677,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <input id="enc-bid-input" type="number" placeholder="Votre mise ($)"
           style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;box-sizing:border-box;margin-bottom:12px"/>
         <div style="display:flex;gap:10px">
-          <button onclick="submitBid(false)" style="flex:1;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-weight:900;font-size:14px;cursor:pointer">⚡ Enchérir</button>
+          <button id="enc-bid-submit-btn" onclick="submitBid(false)" style="flex:1;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-weight:900;font-size:14px;cursor:pointer">⚡ Confirmer</button>
           <button onclick="closeBidModal()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-weight:700;font-size:14px;cursor:pointer">Annuler</button>
         </div>
       </div>
@@ -8803,6 +8803,12 @@ async function _gardenHarvest(gardenId) {
       transition:.15s; active:transform:scale(.97);
     }
     .bid-btn:disabled { background:var(--card2); color:var(--text2); box-shadow:none; cursor:default; }
+    .bid-btn-leading { background:linear-gradient(135deg,#00b894,#00cec9) !important; color:#fff !important; box-shadow:0 4px 16px rgba(0,184,148,.3) !important; }
+
+    .auction-bid-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:10px; padding:10px 12px; background:var(--card2); border-radius:12px; border:1px solid var(--border); }
+    .auction-bid-val { font-size:18px; font-weight:900; margin-top:3px; }
+    .auction-bid-val.gold { color:#f7c948; }
+    .auction-leader-val { font-size:12px; font-weight:800; color:var(--text); margin-top:3px; }
 
     .inv-card {
       display:flex; gap:14px; align-items:center; padding:14px;
@@ -8960,24 +8966,80 @@ async function _loadAuctionLive() {
     const r = await fetchT('/api/webapp/auctions/live?user_id='+uid, {}, 12000);
     const d = await r.json();
     const auctions = d.auctions || [];
-    // Remplir le cache pour openBidModal
-    auctions.forEach(function(a) { _auctionCache[a.id] = {name: a.item_name, emoji: a.item_emoji, rarity: a.rarity}; });
+    auctions.forEach(function(a) { _auctionCache[a.id] = {name:a.item_name, emoji:a.item_emoji, rarity:a.rarity}; });
     if (!auctions.length) {
-      el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🔨</div><div style="font-size:15px;font-weight:700">Aucune enchère en cours</div><div style="font-size:12px;margin-top:6px">Les enchères se lancent automatiquement</div></div>';
+      el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🔨</div><div style="font-size:15px;font-weight:700">Aucune enchère en cours</div><div style="font-size:12px;margin-top:6px">Les enchères se lancent automatiquement</div></div>`;
       return;
     }
     el.innerHTML = auctions.map(function(a, i) {
-      const isLeader = a.leader_id == uid;
+      const isLeader = String(a.leader_id) === String(uid);
       const rarLow = (a.rarity||'').toLowerCase();
-      const borderCol = rarLow==='legendaire'||rarLow==='légendaire' ? '#f7c948' : rarLow==='epique'||rarLow==='épique' ? '#8b5cf6' : rarLow==='rare' ? '#3b82f6' : 'var(--border)';
-      const name = (a.item_name||'').replace(/'/g,"\'").replace(/"/g,'\"');
-      return '<div class="auction-card" style="animation-delay:'+i*0.08+'s;border-color:'+borderCol+'"><div class="auction-header"><div class="auction-emoji">'+(a.item_emoji||'📦')+'</div><div style="flex:1"><div class="auction-name">'+a.item_name+'</div><span class="auction-rarity '+_rarityClass(a.rarity)+'">'+_rarityLabel(a.rarity)+'</span></div><div class="auction-timer-badge" id="enc-timer-'+a.id+'">⏱ '+_timeLeft(a.ends_at)+'</div></div><div class="auction-body"><div class="auction-row"><span class="auction-label">💰 Mise de départ</span><span class="auction-val">'+fmt(a.start_price)+'</span></div><div class="auction-row"><span class="auction-label">📈 Enchère actuelle</span><span class="auction-val gold">⚡ '+fmt(a.current_bid)+'</span></div><div class="auction-row"><span class="auction-label">❓ Valeur réelle</span><span class="auction-val" style="color:var(--text2);font-style:italic">cachée</span></div><div class="auction-leader">'+(isLeader ? '👑 <b>Tu mènes !</b>' : (a.leader_name ? '🏃 Meneur : <b>'+a.leader_name+'</b>' : '💤 Aucune mise encore'))+'</div><button class="bid-btn" onclick="openBidModal('+a.id+','+a.current_bid+',false)"'+(isLeader?' disabled':'')+'>'+(isLeader?'✅ Tu mènes':'⚡ Enchérir')+'</button></div></div>';
+      const borderCol = rarLow==='legendaire'||rarLow==='légendaire' ? '#f7c948'
+                      : rarLow==='epique'||rarLow==='épique' ? '#8b5cf6'
+                      : rarLow==='rare' ? '#3b82f6' : 'var(--border)';
+      return `
+      <div class="auction-card" style="animation-delay:${i*0.08}s;border-color:${borderCol}">
+        <div class="auction-header">
+          <div class="auction-emoji">${a.item_emoji||'📦'}</div>
+          <div style="flex:1">
+            <div class="auction-name">${a.item_name}</div>
+            <span class="auction-rarity ${_rarityClass(a.rarity)}">${_rarityLabel(a.rarity)}</span>
+          </div>
+          <div class="auction-timer-badge" id="enc-timer-${a.id}">⏱ ${_timeLeft(a.ends_at)}</div>
+        </div>
+        <div class="auction-body">
+          <div class="auction-bid-row">
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Enchère actuelle</div>
+              <div class="auction-bid-val gold" id="enc-bid-val-${a.id}">⚡ ${fmt(a.current_bid)} $</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Meneur</div>
+              <div class="auction-leader-val" id="enc-leader-${a.id}">${isLeader ? '👑 Toi' : (a.leader_name || '💤 Aucun')}</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:12px">
+            <span>Départ : ${fmt(a.start_price)} $</span>
+            <span style="font-style:italic;color:var(--text2)">❓ Valeur cachée</span>
+          </div>
+          <button class="bid-btn${isLeader?' bid-btn-leading':''}" id="enc-btn-${a.id}"
+            ${isLeader ? 'disabled' : `onclick="openBidModal(${a.id},${a.current_bid},false)"`}>
+            ${isLeader ? '✅ Tu mènes' : '⚡ Enchérir'}
+          </button>
+        </div>
+      </div>`;
     }).join('');
-    _liveTimerInterval = setInterval(function() {
+
+    // Timer + auto-refresh prix toutes les 20s
+    let _liveRefreshCountdown = 20;
+    _liveTimerInterval = setInterval(async function() {
+      // Tick timers
       auctions.forEach(function(a) {
         const t = document.getElementById('enc-timer-'+a.id);
-        if (t) t.textContent = '⏱ '+_timeLeft(a.ends_at);
+        if (t) t.textContent = '⏱ ' + _timeLeft(a.ends_at);
       });
+      // Refresh prix/meneur toutes les 20s
+      _liveRefreshCountdown--;
+      if (_liveRefreshCountdown <= 0) {
+        _liveRefreshCountdown = 20;
+        try {
+          const rr = await fetch('/api/webapp/auctions/live?user_id='+uid);
+          const dd = await rr.json();
+          (dd.auctions || []).forEach(function(a) {
+            const bidEl = document.getElementById('enc-bid-val-'+a.id);
+            const leaderEl = document.getElementById('enc-leader-'+a.id);
+            const btnEl = document.getElementById('enc-btn-'+a.id);
+            const isL = String(a.leader_id) === String(uid);
+            if (bidEl) bidEl.textContent = '⚡ ' + fmt(a.current_bid) + ' $';
+            if (leaderEl) leaderEl.textContent = isL ? '👑 Toi' : (a.leader_name || '💤 Aucun');
+            if (btnEl) {
+              if (isL) { btnEl.disabled = true; btnEl.className = 'bid-btn bid-btn-leading'; btnEl.textContent = '✅ Tu mènes'; }
+              else { btnEl.disabled = false; btnEl.className = 'bid-btn'; btnEl.textContent = '⚡ Enchérir'; btnEl.onclick = function(){ openBidModal(a.id, a.current_bid, false); }; }
+            }
+            _auctionCache[a.id] = {name:a.item_name, emoji:a.item_emoji, rarity:a.rarity};
+          });
+        } catch(e) {}
+      }
     }, 1000);
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
 }
@@ -9024,9 +9086,38 @@ async function _loadSalle() {
       '</div>';
     _loadSalleHistory();
     if (auc) {
-      _salleTimerInterval = setInterval(function() {
+      let _salleRefreshCd = 15;
+      _salleTimerInterval = setInterval(async function() {
+        // tick timer
         const t = document.getElementById('salle-timer');
         if (t) t.textContent = '⏱ ' + _timeLeft(auc.ends_at);
+        // poll prix/meneur toutes les 15s
+        _salleRefreshCd--;
+        if (_salleRefreshCd <= 0) {
+          _salleRefreshCd = 15;
+          try {
+            const rp = await fetch('/api/webapp/salle/status?user_id='+uid);
+            const dp = await rp.json();
+            const na = dp.auction;
+            if (na) {
+              const bidEl = document.getElementById('salle-stat-bid');
+              const leaderEl = document.getElementById('salle-stat-leader');
+              const btnEl = document.getElementById('salle-main-btn');
+              const isL = na.is_leading;
+              const minB = Math.max((na.current_bid||0)+1, Math.floor((na.current_bid||0)*1.05));
+              if (bidEl) bidEl.textContent = fmt(na.current_bid) + ' $';
+              if (leaderEl) leaderEl.innerHTML = isL ? '<span style="color:#4ade80">👑 Toi</span>' : (na.leader_name || 'Personne');
+              if (btnEl) {
+                if (isL) { btnEl.disabled=true; btnEl.className='salle-bid-btn leading'; btnEl.textContent='✅ Tu mènes cette enchère'; }
+                else { btnEl.disabled=false; btnEl.className='salle-bid-btn active'; btnEl.textContent='⚡ Placer une enchère · min '+fmt(minB)+' $'; btnEl.onclick=function(){ openBidModal(na.id,na.current_bid,true); }; }
+              }
+              auc.current_bid = na.current_bid;
+              auc.is_leading = na.is_leading;
+              auc.leader_name = na.leader_name;
+              _auctionCache[na.id] = {name:na.item_name, emoji:na.item_emoji, rarity:na.rarity};
+            }
+          } catch(e) {}
+        }
       }, 1000);
     }
   } catch(e) {
@@ -9102,11 +9193,11 @@ function _buildSalleAuctionHTML(auc) {
       '</div>' +
       '<div class="salle-stat-cell">' +
         '<div class="salle-stat-label">Enchère actuelle</div>' +
-        '<div class="salle-stat-value gold">' + fmt(auc.current_bid) + ' $</div>' +
+        '<div class="salle-stat-value gold" id="salle-stat-bid">' + fmt(auc.current_bid) + ' $</div>' +
       '</div>' +
       '<div class="salle-stat-cell">' +
         '<div class="salle-stat-label">Meneur</div>' +
-        '<div class="salle-stat-value" style="font-size:11px">' + leaderDisplay + '</div>' +
+        '<div class="salle-stat-value" style="font-size:11px" id="salle-stat-leader">' + leaderDisplay + '</div>' +
       '</div>' +
       '<div class="salle-stat-cell">' +
         '<div class="salle-stat-label">Valeur réelle</div>' +
@@ -9117,7 +9208,7 @@ function _buildSalleAuctionHTML(auc) {
       '<div class="salle-countdown" id="salle-timer">⏱ ' + _timeLeft(auc.ends_at) + '</div>' +
       '<div class="salle-rotation-hint">ROTATION TOUTES LES HEURES</div>' +
     '</div>' +
-    '<button class="salle-bid-btn ' + (isLeader ? 'leading' : 'active') + '" ' +
+    '<button id="salle-main-btn" class="salle-bid-btn ' + (isLeader ? 'leading' : 'active') + '" ' +
       (isLeader ? 'disabled' : 'onclick="openBidModal(' + auc.id + ',' + auc.current_bid + ',true)"') + '>' +
       (isLeader ? '✅ Tu mènes cette enchère' : '⚡ Placer une enchère · min ' + fmt(minBid) + ' $') +
     '</button>' +
@@ -9823,19 +9914,25 @@ async function loadEncheres() {
 function openBidModal(auctionId, currentBid, isSalle) {
   _encBidAuctionId = auctionId;
   _encBidIsSalle = isSalle;
+  const cached = _auctionCache[auctionId] || {name:'Objet', emoji:'📦'};
   const minBid = Math.max(currentBid + 1, Math.floor(currentBid * 1.05));
-  // Récupérer le nom depuis le cache
-  const name = (_auctionCache[auctionId] || {name: '🔨 Objet'}).name;
   if (isSalle) {
-    document.getElementById('salle-bid-title').textContent = name;
-    document.getElementById('salle-bid-current').textContent = 'Mise actuelle : '+fmt(currentBid)+' $ — min : '+fmt(minBid)+' $';
+    document.getElementById('salle-bid-title').textContent = cached.emoji + ' ' + cached.name;
+    document.getElementById('salle-bid-current').innerHTML =
+      'Enchère actuelle : <b style="color:#e9d5ff">' + fmt(currentBid) + ' $</b><br>' +
+      '<span style="font-size:11px">Minimum requis : <b style="color:#a78bfa">' + fmt(minBid) + ' $</b></span>';
     document.getElementById('salle-bid-input').value = minBid;
     document.getElementById('salle-bid-modal').style.display = 'flex';
   } else {
-    document.getElementById('enc-bid-title').textContent = '🔨 '+name;
-    document.getElementById('enc-bid-current').textContent = 'Mise actuelle : '+fmt(currentBid)+' $ — min : '+fmt(minBid)+' $';
+    document.getElementById('enc-bid-title').innerHTML =
+      '<span style="font-size:22px">' + cached.emoji + '</span> ' + cached.name;
+    document.getElementById('enc-bid-current').innerHTML =
+      'Enchère actuelle : <b style="color:var(--accent)">⚡ ' + fmt(currentBid) + ' $</b><br>' +
+      '<span style="font-size:11px;color:var(--text2)">Minimum requis : <b>' + fmt(minBid) + ' $</b></span>';
     document.getElementById('enc-bid-input').value = minBid;
+    document.getElementById('enc-bid-input').min = minBid;
     document.getElementById('enc-bid-modal').style.display = 'flex';
+    document.getElementById('enc-bid-input').focus();
   }
 }
 function closeBidModal() { document.getElementById('enc-bid-modal').style.display = 'none'; _encBidAuctionId = null; }
@@ -9844,15 +9941,35 @@ async function submitBid(isSalle) {
   const inputId = isSalle ? 'salle-bid-input' : 'enc-bid-input';
   const amount = parseInt(document.getElementById(inputId).value);
   if (!amount || amount <= 0) { showToast('Montant invalide'); return; }
+  const btnId = isSalle ? null : 'enc-bid-submit-btn';
+  const btn = btnId ? document.getElementById(btnId) : null;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
     const endpoint = isSalle ? '/api/webapp/salle/bid' : '/api/webapp/auctions/bid';
     const r = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, auction_id: _encBidAuctionId, amount }) });
     const d = await r.json();
     if (d.ok) {
-      showToast('⚡ Mise de '+fmt(amount)+' $ placée !');
-      if (isSalle) { closeSalleBidModal(); _loadSalle(); } else { closeBidModal(); _loadAuctionLive(); }
-    } else { showToast(d.error || 'Erreur'); }
-  } catch(e) { showToast('Erreur réseau'); }
+      showToast('⚡ Mise de ' + fmt(amount) + ' $ placée !');
+      if (isSalle) { closeSalleBidModal(); _loadSalle(); }
+      else {
+        closeBidModal();
+        // Mise à jour immédiate du DOM sans recharger tout
+        const bidEl = document.getElementById('enc-bid-val-' + _encBidAuctionId);
+        const leaderEl = document.getElementById('enc-leader-' + _encBidAuctionId);
+        const btnEl = document.getElementById('enc-btn-' + _encBidAuctionId);
+        if (bidEl) bidEl.textContent = '⚡ ' + fmt(amount) + ' $';
+        if (leaderEl) leaderEl.textContent = '👑 Toi';
+        if (btnEl) { btnEl.disabled = true; btnEl.className = 'bid-btn bid-btn-leading'; btnEl.textContent = '✅ Tu mènes'; }
+        refreshCoins && refreshCoins();
+      }
+    } else {
+      showToast(d.error || 'Erreur');
+      if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmer'; }
+    }
+  } catch(e) {
+    showToast('Erreur réseau');
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmer'; }
+  }
 }
 
 // Attacher les listeners customize — appelé depuis fillProfile une fois le DOM réel prêt

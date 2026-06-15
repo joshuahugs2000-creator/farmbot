@@ -1316,6 +1316,7 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/gains/daily', webapp_gains_daily)
     app.router.add_post('/api/webapp/gains/work',  webapp_gains_work)
     app.router.add_get('/api/webapp/diplomes',     webapp_diplomes)
+    app.router.add_get('/api/webapp/online',       webapp_online_users)
 
     # ── Nouvelles routes webapp (isolées du bot) ──────────────────────────────
     from api.webapp_actions import setup_actions_routes
@@ -3617,3 +3618,54 @@ async def webapp_salle_history(request: web.Request) -> web.Response:
             })
 
     return web.json_response({'history': history})
+
+
+async def webapp_online_users(request: web.Request) -> web.Response:
+    """GET /api/webapp/online?user_id=xxx — Utilisateurs actifs les 30 dernières minutes"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import timedelta
+    from database.models import Relationship, RelationType
+
+    cutoff = datetime.utcnow() - timedelta(minutes=30)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User)
+            .where(User.is_banned == False, User.last_seen >= cutoff)
+            .order_by(User.last_seen.desc())
+            .limit(50)
+        )
+        users = result.scalars().all()
+
+        # Récupérer les relations existantes avec moi
+        my_rels = (await session.execute(
+            select(Relationship).where(Relationship.user_id == uid)
+        )).scalars().all()
+        rel_map = {r.related_user_id: r.relation_type.value for r in my_rels}
+
+        # Aussi ceux qui ont une relation vers moi
+        their_rels = (await session.execute(
+            select(Relationship).where(Relationship.related_user_id == uid)
+        )).scalars().all()
+        for r in their_rels:
+            if r.user_id not in rel_map:
+                rel_map[r.user_id] = r.relation_type.value
+
+        online = []
+        for u in users:
+            if u.user_id == uid:
+                continue
+            online.append({
+                'user_id':  u.user_id,
+                'name':     u.first_name or '—',
+                'username': u.username or '',
+                'coins':    int(u.coins or 0),
+                'gender':   u.gender or '',
+                'relation': rel_map.get(u.user_id, ''),
+                'last_seen': u.last_seen.isoformat() if u.last_seen else '',
+            })
+
+    return web.json_response({'users': online})

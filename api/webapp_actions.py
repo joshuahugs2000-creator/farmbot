@@ -2014,3 +2014,182 @@ def setup_actions_routes(app: web.Application):
     # Notifications
     app.router.add_get("/api/webapp/notifications/all",    webapp_notifications_all)
     app.router.add_get("/api/webapp/notifications/eco",    webapp_notifications_eco)
+
+    # Marché des objets
+    app.router.add_get("/api/webapp/items/market",         webapp_item_market_list)
+    app.router.add_post("/api/webapp/items/sell_expert",   webapp_item_sell_expert)
+    app.router.add_post("/api/webapp/items/put_market",    webapp_item_put_market)
+    app.router.add_post("/api/webapp/items/remove_market", webapp_item_remove_market)
+    app.router.add_post("/api/webapp/items/buy",           webapp_item_buy)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  MARCHÉ DES OBJETS (auction_inventory)
+# ═════════════════════════════════════════════════════════════════════════════
+
+async def webapp_item_sell_expert(request: web.Request) -> web.Response:
+    """POST /api/webapp/items/sell_expert — Revendre un objet au bot (50% valeur)"""
+    body = await _body(request)
+    uid     = int(body.get("user_id", 0))
+    item_id = int(body.get("item_id", 0))
+    if not _auth(uid):
+        return _err("unauthorized")
+    if not item_id:
+        return _err("item_id manquant")
+
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            text("SELECT id, item_name, item_emoji, true_value, for_sale FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
+            {"iid": item_id, "uid": uid}
+        )
+        row = r.fetchone()
+        if not row:
+            return _err("Objet introuvable")
+        if row[4]:  # for_sale
+            return _err("Retire l'objet du marché avant de le revendre")
+
+        gain = max(1, int((row[3] or 0) * 0.50))
+        await session.execute(
+            text("DELETE FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
+            {"iid": item_id, "uid": uid}
+        )
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:g AS BIGINT) WHERE user_id = :uid"),
+            {"g": gain, "uid": uid}
+        )
+        await session.commit()
+
+    return _ok(f"✅ {row[2]} {row[1]} vendu à l'expert pour {gain:,} $ (50% de la valeur) !", gain=gain)
+
+
+async def webapp_item_put_market(request: web.Request) -> web.Response:
+    """POST /api/webapp/items/put_market — Mettre un objet en vente sur le marché"""
+    body = await _body(request)
+    uid     = int(body.get("user_id", 0))
+    item_id = int(body.get("item_id", 0))
+    price   = int(body.get("price", 0))
+    if not _auth(uid):
+        return _err("unauthorized")
+    if not item_id:
+        return _err("item_id manquant")
+    if price < 1:
+        return _err("Prix invalide (minimum 1 $)")
+
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            text("SELECT id, item_name, item_emoji, true_value FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
+            {"iid": item_id, "uid": uid}
+        )
+        row = r.fetchone()
+        if not row:
+            return _err("Objet introuvable")
+
+        await session.execute(
+            text("UPDATE auction_inventory SET for_sale = TRUE, sale_price = :price WHERE id = :iid AND user_id = :uid"),
+            {"price": price, "iid": item_id, "uid": uid}
+        )
+        await session.commit()
+
+    return _ok(f"🏷️ {row[2]} {row[1]} mis en vente à {price:,} $ !", price=price)
+
+
+async def webapp_item_remove_market(request: web.Request) -> web.Response:
+    """POST /api/webapp/items/remove_market — Retirer un objet du marché"""
+    body = await _body(request)
+    uid     = int(body.get("user_id", 0))
+    item_id = int(body.get("item_id", 0))
+    if not _auth(uid):
+        return _err("unauthorized")
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("UPDATE auction_inventory SET for_sale = FALSE, sale_price = NULL WHERE id = :iid AND user_id = :uid"),
+            {"iid": item_id, "uid": uid}
+        )
+        await session.commit()
+
+    return _ok("✅ Objet retiré du marché.")
+
+
+async def webapp_item_market_list(request: web.Request) -> web.Response:
+    """GET /api/webapp/items/market — Liste des objets en vente"""
+    uid = int(request.rel_url.query.get("user_id", 0))
+    if not _auth(uid):
+        return _err("unauthorized")
+
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(text("""
+            SELECT ai.id, ai.user_id, ai.item_name, ai.item_emoji, ai.rarity,
+                   ai.true_value, ai.sale_price, ai.acquired_at,
+                   u.first_name, u.username
+            FROM auction_inventory ai
+            JOIN users u ON u.user_id = ai.user_id
+            WHERE ai.for_sale = TRUE
+            ORDER BY ai.sale_price ASC
+            LIMIT 100
+        """))
+        items = []
+        for row in r.fetchall():
+            items.append({
+                "id":          row[0],
+                "seller_id":   row[1],
+                "item_name":   row[2],
+                "item_emoji":  row[3],
+                "rarity":      row[4],
+                "true_value":  row[5],
+                "sale_price":  row[6],
+                "acquired_at": str(row[7])[:10] if row[7] else "",
+                "seller_name": row[8] or "—",
+                "seller_username": row[9] or "",
+                "is_mine":     row[1] == uid,
+            })
+
+    return web.json_response({"items": items})
+
+
+async def webapp_item_buy(request: web.Request) -> web.Response:
+    """POST /api/webapp/items/buy — Acheter un objet sur le marché"""
+    body = await _body(request)
+    uid     = int(body.get("user_id", 0))
+    item_id = int(body.get("item_id", 0))
+    if not _auth(uid):
+        return _err("unauthorized")
+    if not item_id:
+        return _err("item_id manquant")
+
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            text("SELECT id, user_id, item_name, item_emoji, rarity, true_value, sale_price FROM auction_inventory WHERE id = :iid AND for_sale = TRUE"),
+            {"iid": item_id}
+        )
+        row = r.fetchone()
+        if not row:
+            return _err("Objet introuvable ou plus disponible")
+        if row[1] == uid:
+            return _err("Tu ne peux pas acheter ton propre objet")
+
+        price = row[6]
+        buyer_r = await session.execute(text("SELECT coins FROM users WHERE user_id = :uid"), {"uid": uid})
+        buyer_row = buyer_r.fetchone()
+        if not buyer_row or buyer_row[0] < price:
+            return _err(f"Fonds insuffisants (besoin de {price:,} $)")
+
+        seller_id = row[1]
+        # Débiter acheteur
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:p AS BIGINT) WHERE user_id = :uid"),
+            {"p": price, "uid": uid}
+        )
+        # Créditer vendeur
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:p AS BIGINT) WHERE user_id = :uid"),
+            {"p": price, "uid": seller_id}
+        )
+        # Transférer l'objet
+        await session.execute(
+            text("UPDATE auction_inventory SET user_id = :buyer, for_sale = FALSE, sale_price = NULL WHERE id = :iid"),
+            {"buyer": uid, "iid": item_id}
+        )
+        await session.commit()
+
+    return _ok(f"✅ {row[3]} {row[2]} acheté pour {price:,} $ ! L'objet est dans ton inventaire.", price=price)

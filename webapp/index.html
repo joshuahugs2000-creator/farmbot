@@ -211,6 +211,19 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   animation: shimmer 3s linear infinite;
 }
 .casino-header-sub { font-size: 11px; color: rgba(255,255,255,.35); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+.casino-header { position: relative; }
+.casino-deco {
+  position: absolute; pointer-events: none; opacity: .22; filter: blur(.3px);
+  animation: casinoDecoFloat 6s ease-in-out infinite;
+}
+.casino-deco-1 { top: 14px;  left: 8%;  font-size: 26px; animation-delay: 0s; }
+.casino-deco-2 { top: 60px;  right: 10%; font-size: 22px; animation-delay: -2s; }
+.casino-deco-3 { top: 18px;  right: 22%; font-size: 18px; animation-delay: -4s; }
+.casino-deco-4 { top: 70px;  left: 18%; font-size: 16px; animation-delay: -1.2s; }
+@keyframes casinoDecoFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(8deg); }
+}
 .casino-balance-chip {
   display: inline-flex; align-items: center; gap: 8px;
   background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
@@ -221,72 +234,110 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .casino-balance-chip-label { font-size: 10px; color: rgba(255,255,255,.4); font-weight: 700; letter-spacing: 1px; }
 
 .casino-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-  padding: 14px 14px 24px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  padding: 18px 16px 28px;
 }
 
 /* ── GAME CARD — miniature uniforme ── */
 .game-card {
-  border-radius: 16px; cursor: pointer; position: relative; overflow: hidden;
+  border-radius: 20px; cursor: pointer; position: relative; overflow: hidden;
   background: rgba(12,12,20,.9);
   border: 1px solid rgba(255,255,255,.09);
-  box-shadow: 0 3px 14px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05);
-  transition: transform .16s cubic-bezier(.34,1.56,.64,1), box-shadow .16s;
+  box-shadow: 0 6px 20px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+  transition: transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .25s;
   padding: 0; display: flex; flex-direction: column;
   /* hauteur fixe identique pour toutes */
   min-height: 0;
+  animation: cardFloat 5s ease-in-out infinite;
 }
-.game-card:active { transform: scale(0.96); }
+.casino-grid .game-card:nth-child(2n)  { animation-delay: -1.6s; }
+.casino-grid .game-card:nth-child(3n)  { animation-delay: -3.1s; }
+.casino-grid .game-card:nth-child(4n)  { animation-delay: -.8s; }
+.game-card:active { transform: scale(0.96) !important; animation-play-state: paused; }
+@keyframes cardFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
 
 /* Barre néon haut */
 .game-card-top-bar {
   position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  border-radius: 16px 16px 0 0; z-index: 4;
+  border-radius: 20px 20px 0 0; z-index: 4;
+  background-size: 200% 100%;
+  animation: barShimmer 3s linear infinite;
 }
+@keyframes barShimmer { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
 
 /* Badge étiquette (VEDETTE, PvP, HOT…) */
 .game-badge {
-  position: absolute; top: 8px; left: 8px; z-index: 5;
+  position: absolute; top: 10px; left: 10px; z-index: 5;
   font-size: 8px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;
-  padding: 2px 7px; border-radius: 20px;
+  padding: 3px 8px; border-radius: 20px;
   backdrop-filter: blur(6px);
 }
-.badge-vedette { background: linear-gradient(90deg,#ff6b6b,#f7c948); color: #000; }
+.badge-vedette { background: linear-gradient(90deg,#ff6b6b,#f7c948); color: #000; animation: badgePulse 2s ease-in-out infinite; }
 .badge-pvp     { background: rgba(0,180,216,.25); color: #00d4f5; border: 1px solid rgba(0,180,216,.4); }
-.badge-hot     { background: rgba(255,107,53,.25); color: #ff6b35; border: 1px solid rgba(255,107,53,.4); }
+.badge-hot     { background: rgba(255,107,53,.25); color: #ff6b35; border: 1px solid rgba(255,107,53,.4); animation: badgePulse 1.6s ease-in-out infinite; }
 .badge-chance  { background: rgba(162,155,254,.2); color: #c0b8ff; border: 1px solid rgba(162,155,254,.35); }
 .badge-strategie { background: rgba(85,239,196,.18); color: #55efc4; border: 1px solid rgba(85,239,196,.3); }
 .badge-gold    { background: rgba(247,201,72,.2); color: #f7c948; border: 1px solid rgba(247,201,72,.35); }
+@keyframes badgePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,.0); }
+  50% { transform: scale(1.07); box-shadow: 0 0 12px 1px rgba(255,255,255,.25); }
+}
 
 /* Zone artwork SVG — hauteur fixe */
 .game-card-art {
-  width: 100%; height: 90px; overflow: hidden; flex-shrink: 0;
+  width: 100%; height: 108px; overflow: hidden; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   position: relative;
 }
 .game-card-art svg { display: block; }
+.game-card-art::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, transparent 55%, rgba(12,12,20,.85) 100%);
+}
 
 /* Zone infos */
 .game-card-info {
-  padding: 8px 11px 10px;
+  padding: 12px 13px 14px;
   position: relative; z-index: 2;
   border-top: 1px solid rgba(255,255,255,.05);
-  display: flex; flex-direction: column; gap: 2px;
+  display: flex; flex-direction: column; gap: 3px;
 }
 .game-card-name {
-  font-family: 'Bangers', cursive; font-size: 17px; letter-spacing: 2px; line-height: 1;
+  font-family: 'Bangers', cursive; font-size: 18px; letter-spacing: 2px; line-height: 1;
 }
-.game-card-desc { font-size: 9.5px; color: rgba(255,255,255,.35); line-height: 1.3; margin-top: 1px; }
-.game-card-meta { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+.game-card-desc { font-size: 10px; color: rgba(255,255,255,.4); line-height: 1.35; margin-top: 2px; }
+.game-card-meta { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .game-card-tag {
   font-size: 8.5px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase;
-  padding: 2px 7px; border-radius: 20px;
+  padding: 3px 8px; border-radius: 20px;
+}
+
+/* Bouton "play" flottant style 1xbet */
+.game-card-play {
+  position: absolute; bottom: 10px; right: 10px; z-index: 5;
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18);
+  backdrop-filter: blur(6px); font-size: 11px; color: #fff;
+  animation: playPulse 2.4s ease-in-out infinite;
+}
+@keyframes playPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,.18); }
+  50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(255,255,255,0); }
 }
 
 /* Glow fond */
 .game-card-glow {
-  position: absolute; top: -15px; right: -15px; width: 80px; height: 80px;
-  border-radius: 50%; pointer-events: none; opacity: .4; filter: blur(22px); z-index: 0;
+  position: absolute; top: -15px; right: -15px; width: 90px; height: 90px;
+  border-radius: 50%; pointer-events: none; opacity: .35; filter: blur(24px); z-index: 0;
+  animation: glowPulse 4s ease-in-out infinite;
+}
+@keyframes glowPulse {
+  0%, 100% { opacity: .25; transform: scale(1); }
+  50% { opacity: .55; transform: scale(1.25); }
 }
 
 /* Per-game themes */
@@ -2637,6 +2688,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
     <!-- Header Casino -->
     <div class="casino-header">
+      <span class="casino-deco casino-deco-1">🎰</span>
+      <span class="casino-deco casino-deco-2">🃏</span>
+      <span class="casino-deco casino-deco-3">💎</span>
+      <span class="casino-deco casino-deco-4">🎲</span>
       <div class="casino-header-title">CASINO</div>
       <div class="casino-header-sub">Joue · Risque · Gagne</div>
       <div class="casino-balance-chip">
@@ -2654,6 +2709,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-crash" onclick="openGame('crash')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
           <span class="game-badge badge-vedette">⭐ Vedette</span>
           <div class="game-card-art" style="background:linear-gradient(135deg,#1a0a0a 0%,#2d1010 100%);">
             <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
@@ -2695,6 +2751,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-roue" onclick="openGame('roue')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
           <span class="game-badge badge-chance">🍀 Chance</span>
           <div class="game-card-art" style="background:linear-gradient(135deg,#0d0a1f 0%,#1a1235 100%);">
             <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
@@ -2746,6 +2803,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-mines" onclick="openGame('mines')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
           <span class="game-badge badge-strategie">🧠 Stratégie</span>
           <div class="game-card-art" style="background:linear-gradient(135deg,#061a12 0%,#0b2a1c 100%);">
             <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
@@ -2798,23 +2856,28 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-apple" onclick="openGame('apple')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
           <span class="game-badge badge-strategie">🎮 Arcade</span>
           <div class="game-card-art" style="background:linear-gradient(135deg,#091a0a 0%,#112b14 100%);">
             <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <rect x="48" y="5" width="64" height="10" rx="3" fill="#1f5227" stroke="#6bcb77" stroke-width="1.4" stroke-opacity=".9"/>
-              <text x="80" y="13" font-family="'Bangers',cursive" font-size="8" fill="#6bcb77" text-anchor="middle">×10 🍎</text>
-              <rect x="40" y="19" width="80" height="10" rx="3" fill="#163d1a" stroke="#6bcb77" stroke-width=".8" stroke-opacity=".5"/>
-              <text x="80" y="27" font-family="'Bangers',cursive" font-size="7" fill="#4a9454" text-anchor="middle">×8</text>
-              <rect x="32" y="33" width="96" height="10" rx="3" fill="#133519" stroke="#6bcb77" stroke-width=".8" stroke-opacity=".4"/>
-              <text x="80" y="41" font-family="'Bangers',cursive" font-size="7" fill="#3f7d43" text-anchor="middle">×6</text>
-              <rect x="22" y="47" width="116" height="13" rx="3" fill="#1f5227" stroke="#6bcb77" stroke-width="1.6" stroke-opacity=".95"/>
-              <text x="72" y="57" font-family="'Bangers',cursive" font-size="9" fill="#6bcb77" text-anchor="middle">×4</text>
-              <circle cx="118" cy="51" r="4" fill="#6bcb77" opacity=".9"/>
-              <rect x="115" y="55" width="6" height="5" rx="1" fill="#6bcb77" opacity=".7"/>
-              <rect x="14" y="64" width="132" height="10" rx="3" fill="#112d14" stroke="#6bcb77" stroke-width=".6" stroke-opacity=".3"/>
-              <text x="80" y="72" font-family="'Bangers',cursive" font-size="7" fill="#2e5c33" text-anchor="middle">×3</text>
-              <rect x="10" y="78" width="140" height="10" rx="3" fill="#0c2010" stroke="#6bcb77" stroke-width=".4" stroke-opacity=".2"/>
-              <text x="80" y="86" font-family="'Bangers',cursive" font-size="7" fill="#1e3d21" text-anchor="middle">×1</text>
+              <defs>
+                <radialGradient id="appleGlow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#6bcb77" stop-opacity=".35"/>
+                  <stop offset="100%" stop-color="#6bcb77" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="appleBody" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#8fe399"/>
+                  <stop offset="55%" stop-color="#6bcb77"/>
+                  <stop offset="100%" stop-color="#3f9e4c"/>
+                </linearGradient>
+              </defs>
+              <circle cx="80" cy="46" r="38" fill="url(#appleGlow)"/>
+              <path d="M80 30 C 64 24, 46 34, 47 54 C 48 72, 64 80, 80 80 C 96 80, 112 72, 113 54 C 114 34, 96 24, 80 30 Z" fill="url(#appleBody)"/>
+              <path d="M80 30 C 64 24, 46 34, 47 54 C 48 72, 64 80, 80 80 C 96 80, 112 72, 113 54 C 114 34, 96 24, 80 30 Z" fill="none" stroke="#eafff0" stroke-width="1" stroke-opacity=".15"/>
+              <ellipse cx="68" cy="42" rx="10" ry="14" fill="#eafff0" opacity=".22"/>
+              <path d="M80 30 C 79 24, 82 18, 88 15" fill="none" stroke="#4a8a3f" stroke-width="3" stroke-linecap="round"/>
+              <path d="M88 16 C 96 12, 104 16, 105 23 C 97 25, 90 22, 88 16 Z" fill="#9be36a"/>
+              <text x="118" y="22" font-family="'Bangers',cursive" font-size="16" fill="#6bcb77" opacity=".9" letter-spacing="1">×10</text>
             </svg>
           </div>
           <div class="game-card-info">
@@ -2830,6 +2893,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-cockfight" onclick="openGame('cockfight')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
           <span class="game-badge badge-pvp">⚔️ PvP</span>
           <div class="game-card-art" style="background:linear-gradient(135deg,#1a0900 0%,#2d1200 100%);">
             <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
@@ -2880,6 +2944,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-ppc" onclick="openGame('ppc')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
           <span class="game-badge badge-pvp">⚔️ PvP</span>
           <div class="game-card-art" style="background:linear-gradient(135deg,#00090f 0%,#001a26 100%);">
             <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
@@ -2923,6 +2988,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-lancer" onclick="openGame('lancer')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
           <span class="game-badge badge-pvp">🎲 Duel</span>
           <div class="game-card-art" style="background:linear-gradient(135deg,#0d0a1f 0%,#1a1235 100%);">
             <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
@@ -2972,6 +3038,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="game-card game-rebet" onclick="openGame('rebet')">
           <div class="game-card-glow"></div>
           <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
           <span class="game-badge badge-gold">💰 Gold</span>
           <div class="game-card-art" style="background:linear-gradient(135deg,#1a1000 0%,#2d1e00 100%);">
             <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">

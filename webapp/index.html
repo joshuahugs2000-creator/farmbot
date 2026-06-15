@@ -1018,25 +1018,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
-    <!-- ── DIPLÔMES ── -->
-    <div class="pf-section">
-      <div class="pf-section-header">🎓 Diplômes</div>
-      <div style="padding:14px 16px">
-        <div id="pf-dip-domain-wrap" style="display:none;margin-bottom:12px" class="dip-domain-pill">🎓 <span id="pf-dip-domain">—</span></div>
-        <div class="dip-track" id="pf-diplomes-list"></div>
-        <div id="pf-dip-cooldown-card" style="display:none;text-align:center;padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;margin-top:8px">
-          <div style="font-size:22px;margin-bottom:4px">⏳</div>
-          <div style="font-size:11px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">Prochain examen dans</div>
-          <div style="font-size:20px;font-weight:900;color:var(--accent);margin-top:4px;font-family:'Bangers',cursive;letter-spacing:2px" id="pf-dip-cooldown-val">—</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── GAINS ── -->
+    <!-- ── ACTIVITÉS UNIFIÉES ── -->
     <div class="pf-section" style="margin-bottom:24px">
-      <div class="pf-section-header">💰 Gains quotidiens</div>
-      <div style="padding:14px 16px" id="pf-gains-inner">
-        <div style="text-align:center;padding:20px;color:var(--text2);font-size:13px">Chargement…</div>
+      <div class="pf-section-header">⚡ Activités</div>
+      <div style="padding:0 16px 16px" id="pf-activities-inner">
+        <div style="text-align:center;padding:28px;color:var(--text2);font-size:13px">Chargement…</div>
       </div>
     </div>
 
@@ -5040,8 +5026,7 @@ function fillProfile(d) {
   }
 
   // Sections intégrées dans la page profil
-  _loadProfileDiplomes();
-  _loadProfileGains();
+  _loadProfileActivities();
 
   // Pré-remplir preview photo
   const photoPreview = document.getElementById('pf-photo-preview');
@@ -5268,103 +5253,144 @@ async function loadDiplomes() {
 
 
 // ════════════════════════════════════════
-//  PROFIL — DIPLÔMES INTÉGRÉS
+//  PROFIL — ACTIVITÉS UNIFIÉES (diplômes + gains)
 // ════════════════════════════════════════
 
-async function _loadProfileDiplomes() {
+async function _loadProfileActivities() {
   if (!uid) return;
-  const list = document.getElementById('pf-diplomes-list');
-  if (!list) return;
-  try {
-    const r = await fetchT(`/api/webapp/diplomes?user_id=${uid}`, {}, 15000);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-
-    const domWrap = document.getElementById('pf-dip-domain-wrap');
-    if (d.domain) {
-      document.getElementById('pf-dip-domain').textContent = d.domain;
-      domWrap.style.display = '';
-    } else {
-      domWrap.style.display = 'none';
-    }
-
-    list.innerHTML = d.diplomes.map((dip, i) => `
-      <div class="dip-node${dip.obtained ? ' obtained' : ''}" style="${dip.obtained ? `border-color:${DIP_COLORS[i]}44;background:${DIP_COLORS[i]}08;` : ''}">
-        <div class="dip-dot${dip.obtained ? ' done' : ''}" style="${dip.obtained ? `border-color:${DIP_COLORS[i]};` : ''}"></div>
-        <div class="dip-emoji" style="${!dip.obtained ? 'filter:grayscale(1);opacity:.4' : ''}">${dip.obtained ? dip.emoji : '🔒'}</div>
-        <div class="dip-info">
-          <div class="dip-name" style="${dip.obtained ? `color:${DIP_COLORS[i]}` : ''}">${dip.label}</div>
-          <div class="dip-sub">${dip.obtained ? `<span style="color:${DIP_COLORS[i]}">✓ Obtenu</span>` : (dip['prerequis'] ? `Nécessite : ${dip['prerequis']}` : 'Disponible')}</div>
-        </div>
-        ${dip.obtained ? `<div class="dip-check" style="color:${DIP_COLORS[i]}">✦</div>` : ''}
-      </div>
-    `).join('');
-
-    if (d.cooldown_left > 0) {
-      const h = Math.floor(d.cooldown_left / 60);
-      const m = d.cooldown_left % 60;
-      document.getElementById('pf-dip-cooldown-val').textContent = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
-      document.getElementById('pf-dip-cooldown-card').style.display = 'block';
-    } else {
-      document.getElementById('pf-dip-cooldown-card').style.display = 'none';
-    }
-  } catch(e) {
-    if (list) list.innerHTML = `<div style="color:var(--text2);font-size:12px;padding:8px 0">${e.message}</div>`;
-  }
-}
-
-// ════════════════════════════════════════
-//  PROFIL — GAINS INTÉGRÉS
-// ════════════════════════════════════════
-
-async function _loadProfileGains() {
-  if (!uid) return;
-  const inner = document.getElementById('pf-gains-inner');
+  const inner = document.getElementById('pf-activities-inner');
   if (!inner) return;
+
+  // Charge gains + diplômes en parallèle
+  let gains = {}, dips = {};
   try {
-    const r = await fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 15000);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-
-    const dailyAvail = !d.daily_claimed;
-    const workAvail  = d.work_cooldown_left === 0;
-
-    inner.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div style="background:rgba(247,201,72,0.06);border:1px solid rgba(247,201,72,0.2);border-radius:16px;padding:14px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <div style="font-size:22px;width:36px;text-align:center">${dailyAvail ? '🎁' : '⏳'}</div>
-            <div style="flex:1">
-              <div style="font-size:13px;font-weight:900;color:var(--text)">Coffre du jour</div>
-              <div style="font-size:11px;color:${dailyAvail ? '#00c864' : 'var(--text2)'};margin-top:1px">${dailyAvail ? '✦ Disponible' : 'Demain'}</div>
-            </div>
-          </div>
-          <button onclick="claimDailyFromProfile()" ${dailyAvail ? '' : 'disabled'}
-            style="width:100%;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:900;cursor:${dailyAvail ? 'pointer' : 'not-allowed'};background:${dailyAvail ? 'var(--accent)' : 'rgba(255,255,255,0.06)'};color:${dailyAvail ? '#000' : 'var(--text2)'}">
-            🎁 Récupérer
-          </button>
-          <div id="pf-daily-result" style="text-align:center;font-size:12px;font-weight:700;min-height:16px;margin-top:6px"></div>
-        </div>
-        <div style="background:rgba(108,99,255,0.06);border:1px solid rgba(108,99,255,0.2);border-radius:16px;padding:14px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <div style="font-size:22px;width:36px;text-align:center">${workAvail ? '💼' : '⏳'}</div>
-            <div style="flex:1">
-              <div style="font-size:13px;font-weight:900;color:var(--text)">Travail</div>
-              <div style="font-size:11px;color:${workAvail ? '#00c864' : 'var(--text2)'};margin-top:1px">${workAvail ? '✦ Prêt à travailler' : `Repos — ${_fmtCooldown(d.work_cooldown_left)}`}</div>
-            </div>
-          </div>
-          <button onclick="claimWorkFromProfile()" ${workAvail ? '' : 'disabled'}
-            style="width:100%;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:900;cursor:${workAvail ? 'pointer' : 'not-allowed'};background:${workAvail ? '#6c63ff' : 'rgba(255,255,255,0.06)'};color:${workAvail ? '#fff' : 'var(--text2)'}">
-            💼 Travailler
-          </button>
-          <div id="pf-work-result" style="text-align:center;font-size:12px;font-weight:700;min-height:16px;margin-top:6px"></div>
-        </div>
-      </div>
-    `;
+    const [rg, rd] = await Promise.all([
+      fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 15000),
+      fetchT(`/api/webapp/diplomes?user_id=${uid}`, {}, 15000),
+    ]);
+    gains = await rg.json();
+    dips  = await rd.json();
   } catch(e) {
-    if (inner) inner.innerHTML = `<div style="color:var(--text2);font-size:12px;padding:8px 0">Chargement impossible</div>`;
+    inner.innerHTML = `<div style="color:var(--text2);font-size:12px;padding:12px 0">Chargement impossible</div>`;
+    return;
   }
+
+  const dailyAvail = gains.daily_available === true;
+  // FIX: l'API retourne work_wait_min (pas work_cooldown_left)
+  const workAvail  = gains.work_available === true;
+  const workWait   = gains.work_wait_min || 0;
+
+  // Tabs state
+  const tabs = [
+    { id: 'tab-gains',    label: '💰 Gains',    active: true  },
+    { id: 'tab-diplomes', label: '🎓 Diplômes', active: false },
+  ];
+
+  // Diplomes HTML
+  const dipColors = ['#f7c948','#00c864','#6c63ff','#ff6b6b','#00bcd4','#ff9800'];
+  const dipListHTML = (dips.diplomes || []).map((dip, i) => `
+    <div class="dip-node${dip.obtained ? ' obtained' : ''}" style="${dip.obtained ? `border-color:${dipColors[i%dipColors.length]}44;background:${dipColors[i%dipColors.length]}08;` : ''}">
+      <div class="dip-dot${dip.obtained ? ' done' : ''}" style="${dip.obtained ? `border-color:${dipColors[i%dipColors.length]};` : ''}"></div>
+      <div class="dip-emoji" style="${!dip.obtained ? 'filter:grayscale(1);opacity:.4' : ''}">${dip.obtained ? dip.emoji : '🔒'}</div>
+      <div class="dip-info">
+        <div class="dip-name" style="${dip.obtained ? `color:${dipColors[i%dipColors.length]}` : ''}">${dip.label}</div>
+        <div class="dip-sub">${dip.obtained ? `<span style="color:${dipColors[i%dipColors.length]}">✓ Obtenu</span>` : (dip.prerequis ? `Nécessite : ${dip.prerequis}` : 'Disponible')}</div>
+      </div>
+      ${dip.obtained ? `<div class="dip-check" style="color:${dipColors[i%dipColors.length]}">✦</div>` : ''}
+    </div>
+  `).join('');
+
+  const dipCooldownHTML = (dips.cooldown_left > 0) ? `
+    <div style="text-align:center;padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;margin-top:10px">
+      <div style="font-size:20px;margin-bottom:4px">⏳</div>
+      <div style="font-size:11px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">Prochain examen dans</div>
+      <div style="font-size:20px;font-weight:900;color:var(--accent);margin-top:4px;font-family:'Bangers',cursive;letter-spacing:2px">${_fmtCooldown(dips.cooldown_left)}</div>
+    </div>` : '';
+
+  inner.innerHTML = `
+    <!-- Tab pills -->
+    <div style="display:flex;gap:8px;margin-bottom:14px;padding-top:4px">
+      <button id="act-tab-gains" onclick="_actTab('gains')"
+        style="flex:1;padding:9px 0;border-radius:12px;border:none;font-size:12px;font-weight:900;cursor:pointer;
+               background:var(--accent);color:#000;transition:all .2s">
+        💰 Gains
+      </button>
+      <button id="act-tab-diplomes" onclick="_actTab('diplomes')"
+        style="flex:1;padding:9px 0;border-radius:12px;border:none;font-size:12px;font-weight:900;cursor:pointer;
+               background:rgba(255,255,255,0.07);color:var(--text2);transition:all .2s">
+        🎓 Diplômes
+      </button>
+    </div>
+
+    <!-- Panel gains -->
+    <div id="act-panel-gains">
+      <!-- Coffre -->
+      <div style="background:rgba(247,201,72,0.06);border:1px solid rgba(247,201,72,${dailyAvail?'0.35':'0.12'});border-radius:18px;padding:16px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div style="font-size:28px;width:40px;text-align:center;line-height:1">${dailyAvail ? '🎁' : '⏳'}</div>
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:900;color:var(--text)">Coffre du jour</div>
+            <div style="font-size:11px;color:${dailyAvail ? '#00c864' : 'var(--text2)'};margin-top:2px;font-weight:700">
+              ${dailyAvail ? '✦ Disponible maintenant' : '⏰ Reviens demain'}
+            </div>
+          </div>
+          ${dailyAvail ? '<div style="width:8px;height:8px;border-radius:50%;background:#00c864;box-shadow:0 0 8px #00c864;flex-shrink:0"></div>' : ''}
+        </div>
+        <button onclick="claimDailyFromProfile()" ${dailyAvail ? '' : 'disabled'}
+          style="width:100%;padding:12px;border-radius:13px;border:none;font-size:13px;font-weight:900;
+                 cursor:${dailyAvail ? 'pointer' : 'not-allowed'};
+                 background:${dailyAvail ? 'linear-gradient(135deg,#f7c948,#ffaa00)' : 'rgba(255,255,255,0.05)'};
+                 color:${dailyAvail ? '#000' : 'var(--text2)'};letter-spacing:.3px">
+          🎁 Récupérer
+        </button>
+        <div id="pf-daily-result" style="text-align:center;font-size:12px;font-weight:700;min-height:18px;margin-top:7px"></div>
+      </div>
+
+      <!-- Travail -->
+      <div style="background:rgba(108,99,255,0.06);border:1px solid rgba(108,99,255,${workAvail?'0.35':'0.12'});border-radius:18px;padding:16px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div style="font-size:28px;width:40px;text-align:center;line-height:1">${workAvail ? '💼' : '😴'}</div>
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:900;color:var(--text)">Travail</div>
+            <div style="font-size:11px;color:${workAvail ? '#00c864' : 'var(--text2)'};margin-top:2px;font-weight:700">
+              ${workAvail ? '✦ Prêt à travailler' : `😴 Repos — ${_fmtCooldown(workWait)}`}
+            </div>
+          </div>
+          ${workAvail ? '<div style="width:8px;height:8px;border-radius:50%;background:#6c63ff;box-shadow:0 0 8px #6c63ff;flex-shrink:0"></div>' : ''}
+        </div>
+        <button onclick="claimWorkFromProfile()" ${workAvail ? '' : 'disabled'}
+          style="width:100%;padding:12px;border-radius:13px;border:none;font-size:13px;font-weight:900;
+                 cursor:${workAvail ? 'pointer' : 'not-allowed'};
+                 background:${workAvail ? 'linear-gradient(135deg,#6c63ff,#9d4edd)' : 'rgba(255,255,255,0.05)'};
+                 color:${workAvail ? '#fff' : 'var(--text2)'};letter-spacing:.3px">
+          💼 Travailler
+        </button>
+        <div id="pf-work-result" style="text-align:center;font-size:12px;font-weight:700;min-height:18px;margin-top:7px"></div>
+      </div>
+    </div>
+
+    <!-- Panel diplômes -->
+    <div id="act-panel-diplomes" style="display:none">
+      ${dips.domain ? `<div class="dip-domain-pill" style="margin-bottom:12px">🎓 ${dips.domain}</div>` : ''}
+      <div class="dip-track">${dipListHTML || '<div style="color:var(--text2);font-size:12px;padding:8px 0">Aucun diplôme disponible</div>'}</div>
+      ${dipCooldownHTML}
+    </div>
+  `;
 }
+
+function _actTab(tab) {
+  const isGains = tab === 'gains';
+  document.getElementById('act-panel-gains').style.display    = isGains ? '' : 'none';
+  document.getElementById('act-panel-diplomes').style.display = isGains ? 'none' : '';
+  document.getElementById('act-tab-gains').style.background    = isGains ? 'var(--accent)' : 'rgba(255,255,255,0.07)';
+  document.getElementById('act-tab-gains').style.color         = isGains ? '#000' : 'var(--text2)';
+  document.getElementById('act-tab-diplomes').style.background = !isGains ? 'linear-gradient(135deg,#6c63ff,#9d4edd)' : 'rgba(255,255,255,0.07)';
+  document.getElementById('act-tab-diplomes').style.color      = !isGains ? '#fff' : 'var(--text2)';
+}
+
+// Aliases pour la compatibilité avec les appels existants
+function _loadProfileGains()    { _loadProfileActivities(); }
+function _loadProfileDiplomes() { _loadProfileActivities(); }
 
 function _fmtCooldown(mins) {
   if (!mins) return '—';
@@ -5374,61 +5400,55 @@ function _fmtCooldown(mins) {
 }
 
 async function claimDailyFromProfile() {
-  const btns = document.querySelectorAll('#pf-gains-inner button');
+  const btns = document.querySelectorAll('#act-panel-gains button');
   const btn = Array.from(btns).find(b => b.textContent.includes('Récupérer'));
   if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
   const res = document.getElementById('pf-daily-result');
   try {
     const r = await fetchT('/api/webapp/gains/daily', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
     const d = await r.json();
-    if (d.error) throw new Error(d.error);
-    if (res) {
-      if (d.status === 'already') {
-        res.textContent = '⏳ Déjà récupéré aujourd\'hui !';
-        res.style.color = 'var(--text2)';
-      } else {
-        res.textContent = `🎁 +${fmt(d.amount)} $ gagné !`;
-        res.style.color = 'var(--success)';
-        setTimeout(() => _loadProfileGains(), 1200);
-      }
+    if (d.status === 'already') {
+      if (res) { res.textContent = '⏰ Déjà récupéré aujourd\'hui !'; res.style.color = 'var(--text2)'; }
+    } else if (d.status === 'ok') {
+      if (res) { res.textContent = `🎁 +${_fmt(d.amount)} $ gagné !`; res.style.color = '#00c864'; }
+      setTimeout(() => _loadProfileActivities(), 1400);
+    } else {
+      if (res) { res.textContent = `❌ ${d.error || d.status}`; res.style.color = 'var(--accent2)'; }
+      if (btn) { btn.disabled = false; btn.textContent = '🎁 Récupérer'; }
     }
   } catch(e) {
-    if (res) { res.textContent = `❌ ${e.message}`; res.style.color = 'var(--accent2)'; }
+    if (res) { res.textContent = `❌ Erreur réseau`; res.style.color = 'var(--accent2)'; }
     if (btn) { btn.disabled = false; btn.textContent = '🎁 Récupérer'; }
   }
 }
 
 async function claimWorkFromProfile() {
-  const btns = document.querySelectorAll('#pf-gains-inner button');
+  const btns = document.querySelectorAll('#act-panel-gains button');
   const btn = Array.from(btns).find(b => b.textContent.includes('Travailler'));
   if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
   const res = document.getElementById('pf-work-result');
   const JOBS = [
-    '👨‍🌾 Tu as travaillé aux champs','🚗 Tu as conduit un taxi',
-    '👨‍💻 Tu as codé toute la nuit','🏗️ Tu as construit des maisons',
-    '🎤 Tu as animé une soirée','🍳 Tu as cuisiné au restaurant',
-    '📦 Tu as livré des colis','🎨 Tu as vendu tes tableaux',
+    '👨‍🌾 Travail aux champs','🚗 Taxi de nuit',
+    '👨‍💻 Nuit de code','🏗️ Chantier','🎤 Animation soirée',
+    '🍳 Cuisine resto','📦 Livraison express','🎨 Vente tableau',
   ];
   try {
     const r = await fetchT('/api/webapp/gains/work', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
     const d = await r.json();
-    if (d.error) throw new Error(d.error);
-    if (res) {
-      if (d.status === 'cooldown') {
-        const h = Math.floor(d.wait_min / 60);
-        const m = d.wait_min % 60;
-        const dur = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
-        res.textContent = `😴 Reviens dans ${dur}`;
-        res.style.color = 'var(--text2)';
-      } else {
-        const job = JOBS[Math.floor(Math.random() * JOBS.length)];
-        res.textContent = `${job} — +${fmt(d.amount)} $ !`;
-        res.style.color = 'var(--success)';
-        setTimeout(() => _loadProfileGains(), 1500);
-      }
+    if (d.status === 'cooldown') {
+      const dur = _fmtCooldown(d.wait_min);
+      if (res) { res.textContent = `😴 Reviens dans ${dur}`; res.style.color = 'var(--text2)'; }
+      if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
+    } else if (d.status === 'ok') {
+      const job = JOBS[Math.floor(Math.random() * JOBS.length)];
+      if (res) { res.textContent = `${job} — +${_fmt(d.amount)} $ !`; res.style.color = '#6c63ff'; }
+      setTimeout(() => _loadProfileActivities(), 1500);
+    } else {
+      if (res) { res.textContent = `❌ ${d.error || d.status}`; res.style.color = 'var(--accent2)'; }
+      if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
     }
   } catch(e) {
-    if (res) { res.textContent = `❌ ${e.message}`; res.style.color = 'var(--accent2)'; }
+    if (res) { res.textContent = `❌ Erreur réseau`; res.style.color = 'var(--accent2)'; }
     if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
   }
 }

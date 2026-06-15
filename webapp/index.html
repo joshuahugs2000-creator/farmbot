@@ -8934,13 +8934,14 @@ async function paySearchPlayer(q) {
     document.getElementById('pay-search-results').innerHTML = players.length
       ? players.map(p => {
           const photoUrl = `/api/webapp/photo?user_id=${p.user_id}&size=50`;
-          return `<div onclick="selectPayTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
+          const sub = p.username ? '@'+p.username : (p.company ? p.company+(p.role?' · '+p.role:'') : '');
+          return `<div onclick="selectPayTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}','${(p.username||'').replace(/'/g,"\\'")}')" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
             <div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);background:var(--card);">
               <img src="${photoUrl}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:22px;line-height:44px;display:block;text-align:center;&quot;>${p.avatar_emoji||'👤'}</span>'">
             </div>
             <div style="flex:1;min-width:0;">
               <div style="font-weight:800;font-size:14px;color:var(--text1);">${p.name}</div>
-              <div style="font-size:11px;color:var(--text2);margin-top:2px;">Niv. ${p.level||1}${p.job ? ' · '+p.job : ''}</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px;">${sub||'&nbsp;'}</div>
             </div>
             <span style="color:var(--accent);font-size:18px;">→</span>
           </div>`;
@@ -8948,16 +8949,16 @@ async function paySearchPlayer(q) {
       : '<div style="text-align:center;color:var(--text2);padding:16px;font-size:13px;">Aucun résultat</div>';
   } catch(e) {}
 }
-function selectPayTarget(id, name, level) {
+function selectPayTarget(id, name, username) {
   _payTargetUid = id;
   document.getElementById('pay-search-results').innerHTML='';
   document.getElementById('pay-search-input').value='';
   const photoUrl = `/api/webapp/photo?user_id=${id}&size=50`;
   document.getElementById('pay-target-info').innerHTML = `
     <div style="width:48px;height:48px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--accent);background:var(--card);">
-      <img src="${photoUrl}" width="48" height="48" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\'font-size:26px;line-height:48px;display:block;text-align:center;\'>👤</span>'">
+      <img src="${photoUrl}" width="48" height="48" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:26px;line-height:48px;display:block;text-align:center;&quot;>👤</span>'">
     </div>
-    <div><div style="font-weight:900;font-size:15px;color:var(--text1);">${name}</div><div style="font-size:11px;color:var(--text2);">Niv. ${level}</div></div>`;
+    <div><div style="font-weight:900;font-size:15px;color:var(--text1);">${name}</div><div style="font-size:11px;color:var(--text2);">${username?'@'+username:''}</div></div>`;
   document.getElementById('pay-form').style.display='block';
 }
 function cancelPay() { _payTargetUid = null; document.getElementById('pay-form').style.display='none'; }
@@ -9344,15 +9345,15 @@ async function recSearchPlayer(q) {
     const d = await r.json();
     const players = d.players || [];
     document.getElementById('rec-search-results').innerHTML = players.length
-      ? players.map(p => { const pu=`/api/webapp/photo?user_id=${p.user_id}&size=44`; return `<div onclick="selectRecTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}',${p.level||1})" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;"><div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);"><img src="${pu}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\\\'font-size:20px;line-height:44px;display:block;text-align:center;\\\'>${p.avatar_emoji||'👤'}</span>'"></div><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${p.level||1}</div></div></div>`; }).join('')
+      ? players.map(p => { const pu=`/api/webapp/photo?user_id=${p.user_id}&size=44`; const sub = p.username ? '@'+p.username : (p.company ? p.company+(p.role?' · '+p.role:'') : ''); return `<div onclick="selectRecTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}','${(p.username||'').replace(/'/g,"\\'")}')" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;"><div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);"><img src="${pu}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:20px;line-height:44px;display:block;text-align:center;&quot;>${p.avatar_emoji||'👤'}</span>'"></div><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">${sub||'&nbsp;'}</div></div></div>`; }).join('')
       : '<div style="text-align:center;color:var(--text2);padding:12px;font-size:13px">Aucun résultat</div>';
   } catch(e) {}
 }
-function selectRecTarget(id, name, level) {
+function selectRecTarget(id, name, username) {
   _recTargetUid = id;
   document.getElementById('rec-search-results').innerHTML='';
   document.getElementById('rec-search-input').value='';
-  document.getElementById('rec-target-info').innerHTML = `<span style="font-size:28px">👤</span><div><div style="font-weight:900;font-size:15px">${name}</div><div style="font-size:11px;color:var(--text2)">Niv. ${level}</div></div>`;
+  document.getElementById('rec-target-info').innerHTML = `<span style="font-size:28px">👤</span><div><div style="font-weight:900;font-size:15px">${name}</div><div style="font-size:11px;color:var(--text2)">${username?'@'+username:''}</div></div>`;
   document.getElementById('rec-form').style.display='block';
 }
 function cancelRec() { _recTargetUid=null; document.getElementById('rec-form').style.display='none'; }

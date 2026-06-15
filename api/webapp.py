@@ -1555,7 +1555,7 @@ async def webapp_auctions_live(request: web.Request) -> web.Response:
                     'current_bid': row[7],
                     'leader_id':   row[8],
                     'leader_name': row[9],
-                    'ends_at':     str(row[10]) if row[10] else None,
+                    'ends_at':     row[10].strftime('%Y-%m-%d %H:%M:%S') if row[10] else None,
                 })
         except Exception as e:
             return web.json_response({'auctions': [], 'error': str(e)})
@@ -1573,7 +1573,7 @@ async def webapp_auctions_inventory(request: web.Request) -> web.Response:
     async with AsyncSessionLocal() as session:
         try:
             r = await session.execute(text("""
-                SELECT id, item_name, item_emoji, rarity, true_value, acquired_at, for_sale, sale_price
+                SELECT item_id, item_name, item_emoji, rarity, true_value, acquired_at
                 FROM auction_inventory
                 WHERE user_id = :uid
                 ORDER BY acquired_at DESC
@@ -1581,15 +1581,12 @@ async def webapp_auctions_inventory(request: web.Request) -> web.Response:
             """), {'uid': uid})
             for row in r.fetchall():
                 items.append({
-                    'id':          row[0],
                     'item_id':     row[0],
                     'item_name':   row[1],
                     'item_emoji':  row[2],
                     'rarity':      row[3],
                     'true_value':  row[4],
                     'acquired_at': str(row[5])[:10] if row[5] else '',
-                    'for_sale':    bool(row[6]),
-                    'sale_price':  row[7],
                 })
         except Exception as e:
             return web.json_response({'items': [], 'error': str(e)})

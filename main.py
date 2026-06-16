@@ -11,6 +11,9 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     TypeHandler,
+    MessageHandler,
+    PreCheckoutQueryHandler,
+    filters,
 )
 
 from config import BOT_TOKEN
@@ -753,6 +756,83 @@ def _prison_checked(handler_func):
     return wrapper
 
 
+_FT_PRICES_MAIN = {'basique': 3, 'premium': 5, 'vip': 10}
+_FT_NAMES_MAIN  = {'basique': '🎫 Ticket Basique', 'premium': '🎟️ Ticket Premium', 'vip': '👑 Ticket VIP'}
+
+async def ft_pre_checkout(update: Update, context) -> None:
+    """Valide la facture avant que Telegram débite l'utilisateur."""
+    query = update.pre_checkout_query
+    payload = query.invoice_payload  # format : ticket_<type>_<qty>_<uid>
+
+    try:
+        parts = payload.split('_')
+        # ticket_basique_3_123456789  →  ['ticket', 'basique', '3', '123456789']
+        ticket_type = parts[1]
+        qty         = int(parts[2])
+        # uid         = int(parts[3])  # non utilisé ici mais validé ci-dessous
+        if len(parts) < 4:
+            raise ValueError("payload trop court")
+    except Exception:
+        await query.answer(ok=False, error_message="Payload de facture invalide.")
+        return
+
+    if ticket_type not in _FT_PRICES_MAIN:
+        await query.answer(ok=False, error_message="Type de ticket invalide ou supprimé.")
+        return
+
+    expected_amount = _FT_PRICES_MAIN[ticket_type] * qty
+    if expected_amount != query.total_amount:
+        await query.answer(ok=False, error_message="Montant incorrect pour ce ticket.")
+        return
+
+    await query.answer(ok=True)
+
+
+async def ft_successful_payment(update: Update, context) -> None:
+    """Crédite les tickets après confirmation Telegram Stars."""
+    payment = update.message.successful_payment
+    payload = payment.invoice_payload  # ticket_<type>_<qty>_<uid>
+
+    try:
+        parts       = payload.split('_')
+        ticket_type = parts[1]
+        qty         = int(parts[2])
+        uid         = int(parts[3])
+    except Exception:
+        await update.message.reply_text("⚠️ Erreur de traitement du paiement. Contacte un admin.")
+        return
+
+    from sqlalchemy import text as _text
+    from database.db import AsyncSessionLocal as _ASL
+
+    async with _ASL() as session:
+        # Créer la table si elle n'existe pas (sécurité)
+        await session.execute(_text("""
+            CREATE TABLE IF NOT EXISTS user_tickets (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                ticket_type VARCHAR(20) NOT NULL,
+                qty INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(user_id, ticket_type)
+            )
+        """))
+        await session.execute(_text("""
+            INSERT INTO user_tickets (user_id, ticket_type, qty)
+            VALUES (:uid, :t, :q)
+            ON CONFLICT (user_id, ticket_type)
+            DO UPDATE SET qty = user_tickets.qty + :q
+        """), {'uid': uid, 't': ticket_type, 'q': qty})
+        await session.commit()
+
+    name = _FT_NAMES_MAIN.get(ticket_type, ticket_type)
+    await update.message.reply_text(
+        f"✅ Paiement confirmé !\n"
+        f"Tu as reçu <b>{qty}× {name}</b>.\n"
+        f"Retrouve tes tickets dans la boutique de la Mini App.",
+        parse_mode='HTML'
+    )
+
+
 async def main():
     app = (
         Application.builder()
@@ -763,6 +843,10 @@ async def main():
     )
 
     app.add_error_handler(error_handler)
+
+    # ── Paiements Telegram Stars (Family Tickets) ─────────────────────────────
+    app.add_handler(PreCheckoutQueryHandler(ft_pre_checkout))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, ft_successful_payment))
 
     # ── Middleware de logging automatique ─────────────────────────────────────
     app.add_handler(TypeHandler(Update, antispam_middleware),         group=-1)

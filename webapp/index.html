@@ -10728,7 +10728,7 @@ function openNotifications() {
   panel.classList.add('open');
   loadNotifications();
   // Marquer toutes comme lues à l'ouverture
-  apiFetch('/notifications/read', {method:'POST', body: JSON.stringify({user_id: _userId})}).catch(()=>{});
+  if (uid) apiFetch('/notifications/read', {method:'POST', body: JSON.stringify({user_id: uid})}).catch(()=>{});
 }
 function closeNotifications() {
   document.getElementById('notif-panel').classList.remove('open');
@@ -10773,13 +10773,13 @@ function updateBellBadge(count) {
 }
 // Polling auto toutes les 30s pour mettre à jour le badge sans ouvrir le panel
 async function _pollNotifBadge() {
+  if (!uid) return;
   try {
     const d = await apiFetch('/notifications/all');
     if (d && typeof d.count === 'number') updateBellBadge(d.count);
   } catch(e) {}
 }
 setInterval(_pollNotifBadge, 30000);
-// Premier check 3s après le chargement
 setTimeout(_pollNotifBadge, 3000);
 
 // ── SLIDES ENGINE ──

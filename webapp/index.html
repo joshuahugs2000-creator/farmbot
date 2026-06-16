@@ -11056,4 +11056,411 @@ function sendSocialCmd(cmd) {
     try { tg.close(); } catch(e) {}
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  🔊 SOUND ENGINE — Web Audio API (zéro fichier externe)
+// ════════════════════════════════════════════════════════════════════════════
+const SFX = (() => {
+  let ctx = null;
+  let enabled = true;
+  let musicNode = null, musicGain = null;
+
+  function _ctx() {
+    if (!ctx) {
+      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { return null; }
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+
+  function _osc(freq, type, duration, vol=0.3, delay=0) {
+    if (!enabled) return;
+    const c = _ctx(); if (!c) return;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.connect(g); g.connect(c.destination);
+    o.type = type; o.frequency.value = freq;
+    const t = c.currentTime + delay;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    o.start(t); o.stop(t + duration + 0.05);
+  }
+
+  function _noise(duration, vol=0.15, delay=0) {
+    if (!enabled) return;
+    const c = _ctx(); if (!c) return;
+    const buf = c.createBuffer(1, c.sampleRate * duration, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource();
+    const g = c.createGain();
+    const filt = c.createBiquadFilter();
+    src.buffer = buf;
+    filt.type = 'bandpass'; filt.frequency.value = 800;
+    src.connect(filt); filt.connect(g); g.connect(c.destination);
+    const t = c.currentTime + delay;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    src.start(t); src.stop(t + duration + 0.05);
+  }
+
+  function _chord(freqs, type, duration, vol=0.2) {
+    freqs.forEach((f, i) => _osc(f, type, duration, vol, i * 0.03));
+  }
+
+  const sounds = {
+    // UI générique
+    click()     { _osc(880, 'sine', 0.06, 0.15); },
+    tap()       { _osc(660, 'sine', 0.05, 0.1); },
+    back()      { _osc(440, 'sine', 0.08, 0.12); },
+    open()      { _osc(523, 'sine', 0.05, 0.1); _osc(659, 'sine', 0.08, 0.1, 0.05); },
+    close()     { _osc(659, 'sine', 0.05, 0.1); _osc(523, 'sine', 0.08, 0.1, 0.05); },
+    toast()     { _osc(800, 'sine', 0.04, 0.08); _osc(1000, 'sine', 0.07, 0.1, 0.04); },
+
+    // Succès / gains
+    coin()      {
+      [523, 659, 784, 1047].forEach((f, i) => _osc(f, 'sine', 0.12, 0.2, i * 0.05));
+    },
+    win()       {
+      [523, 659, 784, 1047, 1319].forEach((f, i) => _osc(f, 'triangle', 0.18, 0.25, i * 0.06));
+    },
+    bigwin()    {
+      [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => _osc(f, 'triangle', 0.25, 0.35, i * 0.055));
+      setTimeout(() => _noise(0.3, 0.08), 350);
+    },
+    jackpot()   {
+      const seq = [523,659,784,1047,1319,1568,2093];
+      seq.forEach((f, i) => { _osc(f,'triangle', 0.3, 0.4, i*0.07); _osc(f*2,'sine', 0.15, 0.1, i*0.07+0.01); });
+      setTimeout(() => { for(let i=0;i<5;i++) _noise(0.1, 0.12, i*0.06); }, 500);
+    },
+    daily()     {
+      [523, 784, 1047].forEach((f,i) => _osc(f, 'triangle', 0.2, 0.3, i*0.08));
+      setTimeout(() => _osc(1568, 'sine', 0.3, 0.25), 280);
+    },
+
+    // Pertes / erreurs
+    lose()      { _osc(300, 'sawtooth', 0.15, 0.2); _osc(220, 'sawtooth', 0.2, 0.15, 0.1); },
+    error()     { _osc(200, 'square', 0.08, 0.15); _osc(180, 'square', 0.12, 0.1, 0.08); },
+    denied()    { _osc(250, 'sawtooth', 0.12, 0.18); },
+
+    // ── CRASH GAME ──
+    crashTick() {
+      const mult = parseFloat(document.getElementById('crash-mult-display')?.textContent) || 1;
+      const freq = Math.min(200 + mult * 80, 1800);
+      _osc(freq, 'sine', 0.04, 0.06);
+    },
+    crashRise() {
+      // Son qui monte en continu pendant le crash (lancé en boucle)
+      _osc(400, 'sawtooth', 0.08, 0.05);
+    },
+    crashExplode() {
+      // Explosion crash
+      _noise(0.6, 0.4);
+      _osc(80, 'sawtooth', 0.5, 0.4);
+      _osc(60, 'square', 0.4, 0.3, 0.05);
+      setTimeout(() => _noise(0.3, 0.2), 200);
+    },
+    crashCashout() {
+      // Cash out réussi
+      [784, 1047, 1319].forEach((f,i) => _osc(f, 'triangle', 0.15, 0.3, i*0.06));
+      setTimeout(() => _osc(1568, 'sine', 0.2, 0.2), 220);
+    },
+    crashBet()  { _osc(523, 'sine', 0.06, 0.15); _osc(659, 'sine', 0.08, 0.12, 0.05); },
+    crashCount(){ _osc(440, 'sine', 0.04, 0.08); },
+
+    // ── MINES ──
+    mineReveal()  { _osc(700 + Math.random()*200, 'sine', 0.07, 0.15); },
+    mineSafe()    { _osc(880, 'triangle', 0.1, 0.2); },
+    mineBoom()    {
+      _noise(0.8, 0.5);
+      _osc(60, 'sawtooth', 0.6, 0.5);
+      _osc(40, 'square', 0.5, 0.4, 0.08);
+      setTimeout(() => _noise(0.4, 0.25), 300);
+    },
+    mineCash()    { [659, 784, 1047].forEach((f,i) => _osc(f, 'triangle', 0.15, 0.25, i*0.06)); },
+
+    // ── ROUE ──
+    wheelSpin()  {
+      // Tick qui accélère
+      let delay = 0, interval = 0.18;
+      for (let i = 0; i < 20; i++) {
+        _osc(600 + i*20, 'square', 0.03, 0.08, delay);
+        delay += interval;
+        interval *= 0.88;
+      }
+    },
+    wheelTick()  { _osc(800, 'square', 0.03, 0.1); },
+    wheelStop()  {
+      _osc(523, 'triangle', 0.12, 0.3);
+      setTimeout(() => sounds.win(), 200);
+    },
+
+    // ── APPLE / GRILLE ──
+    appleFlip()  { _osc(500 + Math.random()*400, 'sine', 0.08, 0.12); },
+    appleMatch() { [784, 1047].forEach((f,i) => _osc(f, 'triangle', 0.12, 0.25, i*0.05)); },
+    appleFail()  { _osc(250, 'sawtooth', 0.15, 0.2); },
+
+    // ── COCKFIGHT ──
+    fightStart() { _noise(0.2, 0.2); _osc(300, 'sawtooth', 0.15, 0.2, 0.1); },
+    fightWin()   { sounds.win(); },
+    fightLose()  { sounds.lose(); },
+
+    // ── PPC (Pierre Papier Ciseaux) ──
+    ppcThrow()   { _noise(0.12, 0.15); },
+    ppcWin()     { sounds.win(); },
+    ppcLose()    { sounds.lose(); },
+
+    // ── LANCER ──
+    lancerThrow()  { _osc(400, 'sawtooth', 0.06, 0.2); _osc(800, 'sine', 0.08, 0.12, 0.04); },
+    lancerLand()   { _noise(0.1, 0.2); },
+
+    // ── REBET ──
+    rebetFlip()  { _osc(600, 'square', 0.05, 0.12); },
+    rebetWin()   { sounds.win(); },
+    rebetLose()  { sounds.lose(); },
+
+    // ── ENCHÈRES ──
+    bid()        { [523, 659].forEach((f,i) => _osc(f, 'triangle', 0.1, 0.2, i*0.05)); },
+    bidWon()     { sounds.bigwin(); },
+    bidTimer()   { _osc(880, 'sine', 0.04, 0.08); },
+
+    // ── PROFIL / BADGES ──
+    badge()      { [784, 1047, 1319].forEach((f,i) => _osc(f, 'triangle', 0.2, 0.3, i*0.07)); },
+    levelUp()    { sounds.jackpot(); },
+
+    // ── ÉCONOMIE ──
+    buy()        { [523, 784].forEach((f,i) => _osc(f, 'sine', 0.12, 0.2, i*0.06)); },
+    sell()       { _osc(659, 'triangle', 0.1, 0.2); _osc(523, 'triangle', 0.12, 0.15, 0.07); },
+    invest()     { sounds.coin(); },
+    bankDeposit(){ [523, 659, 784].forEach((f,i) => _osc(f,'sine', 0.12, 0.2, i*0.05)); },
+
+    // ── GARDEN ──
+    plant()      { _osc(523, 'sine', 0.08, 0.15); _osc(659, 'sine', 0.1, 0.12, 0.06); },
+    harvest()    { sounds.coin(); },
+  };
+
+  // Musique d'ambiance casino (boucle générée)
+  function startCasinoMusic() {
+    if (!enabled) return;
+    const c = _ctx(); if (!c) return;
+    stopMusic();
+    musicGain = c.createGain();
+    musicGain.gain.value = 0.04;
+    musicGain.connect(c.destination);
+
+    const notes = [261, 293, 329, 349, 392, 440, 493, 523];
+    let step = 0;
+    const playNote = () => {
+      if (!musicGain) return;
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.connect(g); g.connect(musicGain);
+      o.type = 'triangle';
+      o.frequency.value = notes[step % notes.length] * (step % 16 < 8 ? 1 : 1.5);
+      const t = c.currentTime;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.5, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      o.start(t); o.stop(t + 0.4);
+      step++;
+    };
+    musicNode = setInterval(playNote, 380);
+  }
+
+  function stopMusic() {
+    if (musicNode) { clearInterval(musicNode); musicNode = null; }
+    if (musicGain) { try { musicGain.disconnect(); } catch(e) {} musicGain = null; }
+  }
+
+  function toggle() {
+    enabled = !enabled;
+    if (!enabled) stopMusic();
+    localStorage.setItem('sfx_enabled', enabled ? '1' : '0');
+    return enabled;
+  }
+
+  // Init
+  try { enabled = localStorage.getItem('sfx_enabled') !== '0'; } catch(e) {}
+
+  return { ...sounds, startCasinoMusic, stopMusic, toggle, isEnabled: () => enabled };
+})();
+
+// Déclenchement du contexte audio au premier tap (obligatoire mobile)
+document.addEventListener('touchstart', () => { SFX.click(); }, { once: true, passive: true });
+document.addEventListener('click', () => { }, { once: true });
+
+// ── Patch showToast pour son ──
+const _origShowToast = showToast;
+window.showToast = function(msg, dur) {
+  const isErr = msg && (msg.includes('❌') || msg.includes('Erreur') || msg.includes('erreur'));
+  const isWin = msg && (msg.includes('✅') || msg.includes('🎁') || msg.includes('+') || msg.includes('gagné'));
+  if (isErr) SFX.error(); else if (isWin) SFX.coin(); else SFX.toast();
+  return _origShowToast(msg, dur);
+};
+
+// ── Patch navigation pour sons ──
+const _origMainTab = window.mainTab;
+window.mainTab = function(key, el) {
+  SFX.tap();
+  return _origMainTab(key, el);
+};
+const _origPlusGo = window.plusGo;
+window.plusGo = function(key) {
+  key === 'hub' ? SFX.back() : SFX.open();
+  return _origPlusGo(key);
+};
+const _origOpenGame = window.openGame;
+window.openGame = function(name) {
+  SFX.open();
+  if (name === 'crash') SFX.startCasinoMusic();
+  return _origOpenGame(name);
+};
+
+// ── Patch crash ──
+const _origCrashBet = window.crashBet;
+window.crashBet = function() { SFX.crashBet(); return _origCrashBet(); };
+const _origCrashCashOut = window.crashCashOut;
+window.crashCashOut = function() { SFX.crashCashout(); return _origCrashCashOut(); };
+const _origCrashApplyState = window.crashApplyState;
+window.crashApplyState = function(d) {
+  const wasCrashed = window._lastCrashStatus === 'crashed';
+  const prev = window._lastCrashStatus;
+  window._lastCrashStatus = d.status;
+  if (d.status === 'flying' && prev !== 'flying') SFX.startCasinoMusic();
+  if (d.status === 'crashed' && !wasCrashed) { SFX.stopMusic(); SFX.crashExplode(); }
+  if (d.status === 'waiting' && prev === 'crashed') SFX.stopMusic();
+  return _origCrashApplyState(d);
+};
+
+// Tick son crash pendant le vol
+const _origDrawCrashFrame = window.drawCrashFrame;
+window.drawCrashFrame = function(ctx, c, mult, crashed) {
+  if (!crashed && mult > 1 && Math.round(mult * 10) % 3 === 0) SFX.crashTick();
+  return _origDrawCrashFrame(ctx, c, mult, crashed);
+};
+
+// ── Patch mines ──
+const _origMinesReveal = window.minesReveal;
+window.minesReveal = function(idx) {
+  SFX.mineReveal();
+  return _origMinesReveal(idx);
+};
+const _origMinesStart = window.minesStart;
+window.minesStart = function() { SFX.crashBet(); return _origMinesStart(); };
+const _origMinesCashOut = window.minesCashOut;
+window.minesCashOut = function() { SFX.mineCash(); return _origMinesCashOut(); };
+
+// ── Patch roue ──
+const _origOpenRoue = window.openGame;
+// Roue spin son via patch du bouton
+document.addEventListener('click', function(e) {
+  const t = e.target.closest('button');
+  if (!t) return;
+  const id = t.id || '';
+  const txt = t.textContent || '';
+
+  // Sons navigation
+  if (t.classList.contains('nav-btn') || t.classList.contains('sh2-back-btn')) SFX.tap();
+  if (t.classList.contains('back-btn')) SFX.back();
+
+  // Sons jeux
+  if (id === 'roue-spin-btn' || txt.includes('Tourner')) SFX.wheelSpin();
+  if (id === 'apple-start-btn' || id === 'apple-cashout-btn') SFX.appleFlip();
+  if (id === 'cockfight-start-btn' || txt.includes('Parier')) SFX.fightStart();
+  if (id.startsWith('ppc-btn') || t.dataset.action === 'ppc') SFX.ppcThrow();
+  if (id === 'lancer-start-btn' || txt.includes('Lancer')) SFX.lancerThrow();
+  if (id === 'rebet-start-btn' || txt.includes('Doubler')) SFX.rebetFlip();
+
+  // Sons économie
+  if (txt.includes('Acheter') || txt.includes('Investir')) SFX.buy();
+  if (txt.includes('Vendre') || txt.includes('Expert')) SFX.sell();
+  if (txt.includes('Déposer') || txt.includes('Épargner')) SFX.bankDeposit();
+
+  // Sons enchères
+  if (txt.includes('Enchérir') || txt.includes('Confirmer la mise')) SFX.bid();
+
+  // Sons profil
+  if (txt.includes('Enregistrer')) SFX.coin();
+  if (txt.includes('RÉCUPÉRER') || txt.includes('Coffre')) SFX.daily();
+  if (txt.includes('TRAVAILLER') || txt.includes('Travailler')) SFX.coin();
+
+  // Sons jardin
+  if (t.closest('#page-garden')) SFX.plant();
+}, { passive: true });
+
+// Résultats jeux patchés via réponses API
+const _origApplePick = window.applePick;
+window.applePick = async function(col, btn) {
+  SFX.appleFlip();
+  const result = await _origApplePick(col, btn);
+  return result;
+};
+const _origCockfightStart = window.cockfightStart;
+window.cockfightStart = async function() {
+  SFX.fightStart();
+  return _origCockfightStart();
+};
+const _origPpcPlay = window.ppcPlay;
+window.ppcPlay = async function(choice) {
+  SFX.ppcThrow();
+  return _origPpcPlay(choice);
+};
+const _origLancerStart = window.lancerStart;
+window.lancerStart = async function() {
+  SFX.lancerThrow();
+  return _origLancerStart();
+};
+const _origRebetAction = window.rebetAction;
+window.rebetAction = async function(action) {
+  SFX.rebetFlip();
+  return _origRebetAction(action);
+};
+const _origSubmitBid = window.submitBid;
+window.submitBid = async function(isSalle) {
+  SFX.bid();
+  return _origSubmitBid(isSalle);
+};
+
+// Sons gains profil
+const _origActClaimDaily = window.actClaimDaily;
+window.actClaimDaily = async function() {
+  SFX.daily();
+  return _origActClaimDaily();
+};
+const _origActClaimWork = window.actClaimWork;
+window.actClaimWork = async function() {
+  SFX.coin();
+  return _origActClaimWork();
+};
+
+// ── BOUTON SON ON/OFF dans le header casino ──
+function _injectSoundToggle() {
+  const header = document.querySelector('.casino-header');
+  if (!header || document.getElementById('sfx-toggle')) return;
+  const btn = document.createElement('button');
+  btn.id = 'sfx-toggle';
+  btn.style.cssText = 'position:absolute;top:12px;right:12px;background:rgba(255,255,255,.12);border:none;border-radius:50%;width:34px;height:34px;font-size:16px;cursor:pointer;z-index:10;transition:all .2s';
+  btn.title = 'Sons On/Off';
+  btn.textContent = SFX.isEnabled() ? '🔊' : '🔇';
+  btn.onclick = function(e) {
+    e.stopPropagation();
+    const on = SFX.toggle();
+    btn.textContent = on ? '🔊' : '🔇';
+    if (on) SFX.toast();
+  };
+  header.style.position = 'relative';
+  header.appendChild(btn);
+}
+// Injecter au chargement de la page jeux
+const _origOpenGameFinal = window.openGame;
+window.openGame = function(name) {
+  setTimeout(_injectSoundToggle, 100);
+  return _origOpenGameFinal(name);
+};
+
+// Son au démarrage de l'app
+window.addEventListener('load', () => {
+  setTimeout(() => { if (SFX.isEnabled()) SFX.open(); }, 800);
+});
 </script>

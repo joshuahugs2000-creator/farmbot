@@ -205,6 +205,18 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💸 {mention(sender)} a envoyé {_fmt(amount)} {CURRENCY} à {mention(target)} !{karma_msg}",
             parse_mode=ParseMode.HTML,
         )
+        # Notifs persistantes Mini App
+        try:
+            from api.webapp import push_db_notif as _pn
+            sender_name = sender.first_name or sender.username or str(sender.user_id)
+            target_name = target.first_name or target.username or str(target.user_id)
+            await _pn(target.user_id, "💸", "Paiement reçu",
+                      f"{sender_name} t'a envoyé {_fmt(amount)} {CURRENCY}")
+            await _pn(sender.user_id, "✅", "Paiement envoyé",
+                      f"Tu as envoyé {_fmt(amount)} {CURRENCY} à {target_name}")
+        except Exception as _e:
+            import logging as _lg
+            _lg.getLogger(__name__).error(f"push_db_notif /pay: {_e}")
 
 
 # ─── /richlist ────────────────────────────────────────────────────────────────

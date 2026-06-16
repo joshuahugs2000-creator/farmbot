@@ -1318,6 +1318,10 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/api/webapp/diplomes',     webapp_diplomes)
     app.router.add_get('/api/webapp/online',       webapp_online_users)
 
+    # ── Notifications persistantes ───────────────────────────────────────────
+    app.router.add_post('/api/webapp/notifications/read',     webapp_notifications_read)
+    app.router.add_post('/api/webapp/notifications/announce', webapp_notifications_announce)
+
     # ── Nouvelles routes webapp (isolées du bot) ──────────────────────────────
     from api.webapp_actions import setup_actions_routes
     setup_actions_routes(app)
@@ -3394,6 +3398,125 @@ async def webapp_salle_status(request: web.Request) -> web.Response:
         return await _webapp_salle_status_inner(request)
     except Exception as _e2:
         return web.json_response({'error': str(_e2), 'trace': _tb2.format_exc()[-1000:]}, status=500)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SYSTÈME DE NOTIFICATIONS PERSISTANTES
+# ══════════════════════════════════════════════════════════════════════════════
+
+_notif_table_ready = False
+
+async def _ensure_notif_table():
+    """Crée la table user_notifications si elle n'existe pas (idempotent)."""
+    global _notif_table_ready
+    if _notif_table_ready:
+        return
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_notifications (
+                    id          SERIAL PRIMARY KEY,
+                    user_id     BIGINT NOT NULL,
+                    icon        VARCHAR(10) DEFAULT '🔔',
+                    title       VARCHAR(200) NOT NULL,
+                    body        TEXT NOT NULL,
+                    is_read     BOOLEAN DEFAULT FALSE,
+                    created_at  TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            await session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_notif_user ON user_notifications(user_id, is_read)"
+            ))
+            await session.commit()
+        _notif_table_ready = True
+    except Exception as e:
+        import logging as _nlog
+        _nlog.getLogger(__name__).error(f"_ensure_notif_table error: {e}", exc_info=True)
+
+
+async def push_db_notif(user_id: int, icon: str, title: str, body: str):
+    """Insère une notification persistante pour un joueur."""
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("""
+                INSERT INTO user_notifications (user_id, icon, title, body)
+                VALUES (:uid, :icon, :title, :body)
+            """), {"uid": user_id, "icon": icon, "title": title, "body": body})
+            await session.commit()
+    except Exception as e:
+        import logging as _nlog
+        _nlog.getLogger(__name__).error(f"push_db_notif error: {e}", exc_info=True)
+
+
+async def webapp_notifications_read(request: web.Request) -> web.Response:
+    """POST /api/webapp/notifications/read — body: {user_id, notif_id?}
+    Si notif_id absent : marque toutes comme lues."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    uid = int(body.get("user_id", 0))
+    if not _is_allowed(uid):
+        return web.json_response({"error": "unauthorized"}, status=403)
+    notif_id = body.get("notif_id")
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            if notif_id:
+                await session.execute(text(
+                    "UPDATE user_notifications SET is_read = TRUE WHERE id = :nid AND user_id = :uid"
+                ), {"nid": int(notif_id), "uid": uid})
+            else:
+                await session.execute(text(
+                    "UPDATE user_notifications SET is_read = TRUE WHERE user_id = :uid"
+                ), {"uid": uid})
+            await session.commit()
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def webapp_notifications_announce(request: web.Request) -> web.Response:
+    """POST /api/webapp/notifications/announce — body: {admin_id, title, body, icon?}
+    Admin uniquement : envoie une notif à tous les joueurs."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    admin_id = int(body.get("admin_id", 0))
+    # Vérifier que c'est un admin
+    try:
+        from config import ADMIN_IDS
+        if admin_id not in ADMIN_IDS:
+            return web.json_response({"error": "unauthorized"}, status=403)
+    except Exception:
+        return web.json_response({"error": "unauthorized"}, status=403)
+
+    title = str(body.get("title", "")).strip()
+    msg   = str(body.get("body", "")).strip()
+    icon  = str(body.get("icon", "📢")).strip() or "📢"
+    if not title or not msg:
+        return web.json_response({"error": "title et body requis"}, status=400)
+
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            # Récupérer tous les user_id actifs
+            rows = (await session.execute(
+                text("SELECT user_id FROM users WHERE is_banned = FALSE")
+            )).fetchall()
+            count = 0
+            for row in rows:
+                await session.execute(text("""
+                    INSERT INTO user_notifications (user_id, icon, title, body)
+                    VALUES (:uid, :icon, :title, :body)
+                """), {"uid": row[0], "icon": icon, "title": title, "body": msg})
+                count += 1
+            await session.commit()
+        return web.json_response({"ok": True, "sent": count})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
 
 async def _ensure_salle_tables():
     """Crée les tables Salle si elles n'existent pas (idempotent)."""

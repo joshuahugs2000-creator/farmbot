@@ -2021,6 +2021,7 @@ def setup_actions_routes(app: web.Application):
     app.router.add_post("/api/webapp/items/put_market",    webapp_item_put_market)
     app.router.add_post("/api/webapp/items/remove_market", webapp_item_remove_market)
     app.router.add_post("/api/webapp/items/buy",           webapp_item_buy)
+    app.router.add_post("/api/webapp/items/delete",        webapp_item_delete)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -2118,7 +2119,7 @@ async def webapp_item_market_list(request: web.Request) -> web.Response:
         return _err("unauthorized")
 
     async with AsyncSessionLocal() as session:
-        r = await session.execute(text("""
+        r = await session.execute(sa_text("""
             SELECT ai.id, ai.user_id, ai.item_name, ai.item_emoji, ai.rarity,
                    ai.true_value, ai.sale_price, ai.acquired_at,
                    u.first_name, u.username
@@ -2169,7 +2170,7 @@ async def webapp_item_buy(request: web.Request) -> web.Response:
             return _err("Tu ne peux pas acheter ton propre objet")
 
         price = row[6]
-        buyer_r = await session.execute(text("SELECT coins FROM users WHERE user_id = :uid"), {"uid": uid})
+        buyer_r = await session.execute(sa_text("SELECT coins FROM users WHERE user_id = :uid"), {"uid": uid})
         buyer_row = buyer_r.fetchone()
         if not buyer_row or buyer_row[0] < price:
             return _err(f"Fonds insuffisants (besoin de {price:,} $)")
@@ -2193,3 +2194,30 @@ async def webapp_item_buy(request: web.Request) -> web.Response:
         await session.commit()
 
     return _ok(f"✅ {row[3]} {row[2]} acheté pour {price:,} $ ! L'objet est dans ton inventaire.", price=price)
+
+
+async def webapp_item_delete(request: web.Request) -> web.Response:
+    """POST /api/webapp/items/delete — Supprimer définitivement un objet de l'inventaire"""
+    body = await _body(request)
+    uid     = int(body.get("user_id", 0))
+    item_id = int(body.get("item_id", 0))
+    if not _auth(uid):
+        return _err("unauthorized")
+    if not item_id:
+        return _err("item_id manquant")
+
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            sa_text("SELECT id, item_name, item_emoji FROM auction_inventory WHERE id = :iid AND user_id = :uid AND for_sale = FALSE"),
+            {"iid": item_id, "uid": uid}
+        )
+        row = r.fetchone()
+        if not row:
+            return _err("Objet introuvable ou en vente (retire-le du marché d'abord)")
+        await session.execute(
+            sa_text("DELETE FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
+            {"iid": item_id, "uid": uid}
+        )
+        await session.commit()
+
+    return _ok(f"🗑️ {row[2]} {row[1]} supprimé définitivement.")

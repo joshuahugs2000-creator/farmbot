@@ -14,6 +14,9 @@ from handlers.invest import ASSETS, CATEGORIES, _current_price, _risk_emoji
 WEBAPP_ADMIN_IDS = {
     6227863810,   # Admin 1
     1782278519,   # Beta tester
+    6714140540,
+    8061125722,
+    7597600257,
 }
 
 # Mini App fermée au public — le skeleton /webapp exige initData valide avant de livrer le HTML

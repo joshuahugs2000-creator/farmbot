@@ -1685,28 +1685,30 @@ async def webapp_pay(request: web.Request) -> web.Response:
 
         sender.coins -= amount
         target.coins += amount
+        # Capturer les noms AVANT commit (après, les objets peuvent expirer)
+        sender_name  = sender.first_name
+        target_name  = target.first_name
+        sender_coins = sender.coins
         await session.commit()
 
         await _notify(target_id,
-            f"💸 <b>{sender.first_name}</b> t'a envoyé <b>{_fmt(amount)} $</b> !")
+            f"💸 <b>{sender_name}</b> t'a envoyé <b>{_fmt(amount)} $</b> !")
 
-        # Notif persistante — destinataire ET expéditeur
-        try:
-            from api.webapp import push_db_notif as _pn
-            import logging as _lg
-            # Notif au destinataire
-            await _pn(target_id, "💸", "Paiement reçu",
-                      f"{sender.first_name} t'a envoyé {_fmt(amount)} $")
-            # Notif à l'expéditeur
-            await _pn(uid, "✅", "Paiement envoyé",
-                      f"Tu as envoyé {_fmt(amount)} $ à {target.first_name}")
-        except Exception as _e:
-            import logging as _lg
-            _lg.getLogger(__name__).error(f"push_db_notif pay: {_e}")
+    # Notifs persistantes EN DEHORS du with (session déjà fermée)
+    try:
+        from api.webapp import push_db_notif as _pn
+        import logging as _lg
+        await _pn(target_id, "💸", "Paiement reçu",
+                  f"{sender_name} t'a envoyé {_fmt(amount)} $")
+        await _pn(uid, "✅", "Paiement envoyé",
+                  f"Tu as envoyé {_fmt(amount)} $ à {target_name}")
+    except Exception as _e:
+        import logging as _lg
+        _lg.getLogger(__name__).error(f"push_db_notif pay: {_e}")
 
     return _ok(
-        f"✅ {_fmt(amount)} $ envoyés à {target.first_name} !",
-        new_balance=_fmt(sender.coins),
+        f"✅ {_fmt(amount)} $ envoyés à {target_name} !",
+        new_balance=_fmt(sender_coins),
     )
 
 

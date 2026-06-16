@@ -467,6 +467,34 @@ async def create_request(session: AsyncSession, from_id: int, to_id: int,
     )
     session.add(req)
     await session.commit()
+
+    # Notif persistante pour le destinataire
+    try:
+        from_user = (await session.execute(
+            select(User).where(User.user_id == from_id)
+        )).scalar_one_or_none()
+        from_name = from_user.first_name if from_user else str(from_id)
+        if req_type.name == "MARRY":
+            icon, title, body_txt = "💍", "Demande en mariage", f"{from_name} te demande en mariage !"
+        elif req_type.name == "ADOPT":
+            icon, title, body_txt = "👨‍👧", "Demande d'adoption", f"{from_name} veut t'adopter !"
+        else:
+            icon, title, body_txt = "🔔", "Nouvelle demande", f"{from_name} t'a envoyé une demande."
+
+        from config import DATABASE_URL as _durl  # noqa — juste pour vérifier qu'on est dans le bon contexte
+        async with AsyncSessionLocal() as _sess2:
+            await _sess2.execute(
+                text("""
+                    INSERT INTO user_notifications (user_id, icon, title, body)
+                    VALUES (:uid, :icon, :title, :body)
+                    ON CONFLICT DO NOTHING
+                """),
+                {"uid": to_id, "icon": icon, "title": title, "body": body_txt}
+            )
+            await _sess2.commit()
+    except Exception:
+        pass  # Table pas encore créée ou autre erreur — non bloquant
+
     return req
 
 

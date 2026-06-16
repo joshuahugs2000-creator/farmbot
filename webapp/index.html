@@ -12145,10 +12145,11 @@ async function ftDetailBuy() {
 
   try {
     // Récupère l'invoice_url depuis le backend
-    const d = await fetchT('/api/webapp/tickets/invoice', {
+    const resp = await fetchT('/api/webapp/tickets/invoice', {
       method: 'POST',
       body: JSON.stringify({ ticket_type: type, qty, user_id: uid })
     });
+    const d = await resp.json();
     console.log('[FT] invoice response:', JSON.stringify(d));
 
     if (!d.invoice_url) {

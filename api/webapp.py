@@ -4018,13 +4018,13 @@ async def webapp_tickets_invoice(request: web.Request) -> web.Response:
             ) as resp:
                 result = await resp.json()
         if result.get('ok'):
-            logger.info(f"[INVOICE] OK → {result['result']}")
+            print(f"[INVOICE] OK → {result['result']}", flush=True)
             return web.json_response({'invoice_url': result['result']})
         else:
-            logger.error(f"[INVOICE] Telegram error: {result}")
+            print(f"[INVOICE] Telegram error: {result}", flush=True)
             return web.json_response({'error': result.get('description', 'Erreur Telegram')}, status=500)
     except Exception as e:
-        logger.error(f"[INVOICE] Exception: {e}", exc_info=True)
+        print(f"[INVOICE] Exception: {e}", flush=True)
         return web.json_response({'error': str(e)}, status=500)
 
 

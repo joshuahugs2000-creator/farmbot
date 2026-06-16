@@ -174,61 +174,8 @@ async def _launch_auction(context: ContextTypes.DEFAULT_TYPE, group_id: int):
         auction_id = res.fetchone()[0]
         await session.commit()
 
-    rarity_icon = RARITY_EMOJI.get(rarity, "⚪")
-
-    # Vérifier si c'est la 1ère enchère de ce groupe
-    async with AsyncSessionLocal() as session:
-        res_count = await session.execute(text(
-            "SELECT COUNT(*) FROM auction_sessions WHERE group_id = :gid"
-        ), {"gid": group_id})
-        total_auctions = res_count.fetchone()[0]
-
-    if total_auctions <= 1:
-        intro = (
-            "📢 <b>NOUVEAU — SYSTÈME D'ENCHÈRES !</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🎯 Comment ça marche :\n"
-            "• Des objets apparaissent 2x/jour\n"
-            "• Enchéris avec <b>/bid [montant]</b>\n"
-            "• Le plus offrant remporte l'objet\n"
-            "• L'ancien leader est toujours remboursé\n"
-            "• Découvre la valeur avec <b>/expertise</b>\n"
-            "• Revends tes objets avec <b>/sellitem</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        )
-    else:
-        intro = ""
-
-    text_msg = (
-        f"{intro}"
-        f"🔨 <b>ENCHÈRE EN COURS !</b>\n\n"
-        f"{item_emoji} <b>{item_name}</b>\n"
-        f"{rarity_icon} Rareté : <b>{rarity.capitalize()}</b>\n\n"
-        f"💰 Mise de départ : <b>{_fmt(start_price)} {CURRENCY}</b>\n"
-        f"❓ Valeur réelle : <b>???</b> (révélée après acquisition)\n\n"
-        f"⏳ Enchère ouverte <b>10 minutes</b> !\n"
-        f"👇 Enchérir avec <b>/bid [montant]</b>"
-    )
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("📊 Infos", callback_data=f"auction:info:{auction_id}"),
-        InlineKeyboardButton("⚡ Enchérir vite !", callback_data=f"auction:bid:{auction_id}"),
-    ]])
-
+    # Programmer la clôture dans 10 minutes (pas de message dans le groupe)
     try:
-        msg = await context.bot.send_message(
-            chat_id=group_id,
-            text=text_msg,
-            parse_mode=ParseMode.HTML,
-            reply_markup=keyboard
-        )
-        async with AsyncSessionLocal() as session:
-            await session.execute(text(
-                "UPDATE auction_sessions SET message_id = :mid WHERE id = :aid"
-            ), {"mid": msg.message_id, "aid": auction_id})
-            await session.commit()
-
-        # Programmer la clôture dans 10 minutes
         context.job_queue.run_once(
             _close_auction,
             when=timedelta(minutes=10),
@@ -274,14 +221,7 @@ async def _close_auction(context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
 
     if auction.leader_id:
-        msg = (
-            f"🏆 <b>Enchère terminée !</b>\n\n"
-            f"{auction.item_emoji} <b>{auction.item_name}</b>\n"
-            f"🥇 Gagnant : <b>{auction.leader_name}</b>\n"
-            f"💰 Prix payé : <b>{_fmt(auction.current_bid)} {CURRENCY}</b>\n\n"
-            f"👉 Utilise <b>/expertise</b> pour révéler la vraie valeur !"
-        )
-        # Notif persistante au gagnant
+        # Notif persistante au gagnant (Mini App)
         try:
             import aiohttp as _aiohttp
             from config import DATABASE_URL as _durl  # noqa
@@ -303,18 +243,8 @@ async def _close_auction(context: ContextTypes.DEFAULT_TYPE):
                 await _sess.commit()
         except Exception as _ne:
             logger.error(f"push notif enchère gagnée: {_ne}")
-    else:
-        msg = (
-            f"😔 <b>Enchère terminée — personne n'a enchéri !</b>\n\n"
-            f"{auction.item_emoji} <b>{auction.item_name}</b> repart sans preneur."
-        )
 
-    try:
-        await context.bot.send_message(chat_id=group_id, text=msg, parse_mode=ParseMode.HTML)
-    except Exception as e:
-        logger.error(f"Erreur clôture enchère: {e}")
-
-    # ── Relance automatique : nouvelle enchère dans 30s ──────────────────────
+    # Relance automatique : nouvelle enchère dans 30s (silencieuse, Mini App uniquement)
     try:
         context.job_queue.run_once(
             _relaunch_auction,

@@ -12141,19 +12141,28 @@ async function ftDetailBuy() {
         body: JSON.stringify({ ticket_type: type, qty, user_id: uid })
       });
       if (d.invoice_url) {
-        Telegram.WebApp.openInvoice(d.invoice_url, (status) => {
-          if (status === 'paid') {
-            _ftOwned[type] = (_ftOwned[type] || 0) + qty;
-            _ftUpdateTopbar();
-            _ftUpdateDropdown();
-            _ftUpdateOwnedCards();
-            const ownedEl = document.getElementById('ft-detail-owned');
-            if (ownedEl) ownedEl.textContent = _ftOwned[type];
-            _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' !');
-          } else if (status === 'cancelled') {
-            _ftShowToast('❌ Paiement annulé');
-          }
-        });
+        const invoiceUrl = d.invoice_url;
+        const onPaid = () => {
+          _ftOwned[type] = (_ftOwned[type] || 0) + qty;
+          _ftUpdateTopbar();
+          _ftUpdateDropdown();
+          _ftUpdateOwnedCards();
+          const ownedEl = document.getElementById('ft-detail-owned');
+          if (ownedEl) ownedEl.textContent = _ftOwned[type];
+          _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' !');
+        };
+        // openInvoice disponible sur TMA récents (Bot API 6.1+)
+        if (typeof Telegram.WebApp.openInvoice === 'function') {
+          Telegram.WebApp.openInvoice(invoiceUrl, (status) => {
+            if (status === 'paid') onPaid();
+            else if (status === 'cancelled') _ftShowToast('❌ Paiement annulé');
+            else if (status === 'failed') _ftShowToast('❌ Paiement échoué');
+          });
+        } else {
+          // Fallback : ouvrir le lien dans Telegram (anciens clients)
+          Telegram.WebApp.openTelegramLink(invoiceUrl);
+          _ftShowToast('ℹ️ Complète le paiement dans Telegram puis reviens ici');
+        }
       } else {
         _ftShowToast('❌ ' + (d.error || 'Erreur création facture'));
       }

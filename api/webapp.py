@@ -16,8 +16,8 @@ WEBAPP_ADMIN_IDS = {
     1782278519,   # Beta tester
 }
 
-# Mini App fermée au public — le skeleton /webapp exige initData valide avant de livrer le HTML
-WEBAPP_OPEN = False
+# Mini App ouverte au public
+WEBAPP_OPEN = True
 
 def _is_allowed(user_id: int) -> bool:
     """Toujours True — la sécurité est garantie par /api/webapp/load (initData)."""
@@ -386,7 +386,7 @@ async def webapp_load_app(request: web.Request) -> web.Response:
     except (ValueError, TypeError):
         is_admin = False
 
-    if not (valid_init or is_admin):
+    if not valid_init:
         return web.json_response({'error': 'access denied'}, status=403)
 
     import os

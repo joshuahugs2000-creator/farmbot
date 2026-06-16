@@ -1,12091 +1,4070 @@
-<!DOCTYPE html>
+"""
+api/webapp.py — Routes API pour la Mini App Telegram
+"""
+import hmac, hashlib, json
+from datetime import datetime, timedelta
+from aiohttp import web
+from sqlalchemy import select, text, func
+from database.db import AsyncSessionLocal
+from database.models import User, BankAccount, Loan, Investment, CompanyEmployee, Company
+from config import BOT_TOKEN, CURRENCY
+from handlers.invest import ASSETS, CATEGORIES, _current_price, _risk_emoji
+
+# ── Accès restreint ──────────────────────────────────────────────────────────
+WEBAPP_ADMIN_IDS = {
+    6227863810,   # Admin 1
+}
+
+# Mini App fermée au public — le skeleton /webapp exige initData valide avant de livrer le HTML
+WEBAPP_OPEN = False
+
+def _is_allowed(user_id: int) -> bool:
+    """Toujours True — la sécurité est garantie par /api/webapp/load (initData)."""
+    return True
+
+def _is_admin(user_id: int) -> bool:
+    return user_id in WEBAPP_ADMIN_IDS
+
+
+@web.middleware
+async def webapp_auth_middleware(request: web.Request, handler):
+    """Middleware : seul /api/webapp/load valide initData. Les routes API passent librement
+    (la sécurité est garantie par le skeleton — sans initData valide le HTML n'est jamais livré)."""
+    return await handler(request)
+
+
+def _verify_init_data(init_data: str) -> bool:
+    """Vérifie la signature Telegram initData."""
+    if not init_data:
+        return False
+    try:
+        pairs = dict(p.split('=', 1) for p in init_data.split('&') if '=' in p)
+        check_hash = pairs.pop('hash', '')
+        data_check = '\n'.join(f'{k}={v}' for k, v in sorted(pairs.items()))
+        secret = hmac.new(b'WebAppData', BOT_TOKEN.encode(), hashlib.sha256).digest()
+        expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, check_hash)
+    except Exception:
+        return False
+
+
+def _fmt(n):
+    try:
+        if not n:
+            return 0
+        return int(float(n))
+    except Exception:
+        return 0
+
+
+async def webapp_user(request: web.Request) -> web.Response:
+    """GET /api/webapp/user?user_id=xxx&init_data=xxx"""
+    user_id   = request.rel_url.query.get('user_id')
+    init_data = request.rel_url.query.get('init_data', '')
+
+    if not user_id:
+        return web.json_response({'error': 'missing user_id'}, status=400)
+
+    try:
+        uid = int(user_id)
+    except ValueError:
+        return web.json_response({'error': 'invalid user_id'}, status=400)
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'access denied'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        # ── User ──
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # ── Banque ──
+        banks = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid)
+        )).scalars().all()
+        bank_total = sum(b.balance or 0 for b in banks)
+
+        # ── Dettes ──
+        loans = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == 'active')
+        )).scalars().all()
+        loans_total = sum(l.remaining or 0 for l in loans)
+
+        # ── Fortune ──
+        fortune_totale = (user.coins or 0) + bank_total - loans_total
+
+        # ── Classement ──
+        all_fortunes = (await session.execute(
+            text("""
+                SELECT u.user_id,
+                       COALESCE(u.coins,0)
+                       + COALESCE((SELECT SUM(b.balance) FROM bank_accounts b WHERE b.user_id=u.user_id),0)
+                       - COALESCE((SELECT SUM(l.remaining) FROM loans l WHERE l.user_id=u.user_id AND l.status='active'),0)
+                       AS fortune
+                FROM users u
+                ORDER BY fortune DESC
+            """)
+        )).fetchall()
+        total_players = len(all_fortunes)
+        rank = next((i+1 for i,r in enumerate(all_fortunes) if r[0]==uid), total_players)
+
+        # ── Portfolio ──
+        investments = (await session.execute(
+            select(Investment).where(Investment.user_id == uid, Investment.status == 'active')
+        )).scalars().all()
+        invested = sum((i.buy_price or 0) * (i.quantity or 0) for i in investments)
+        # Prix actuel approximatif (on garde buy_price comme proxy)
+        current  = sum((i.buy_price or 0) * (i.quantity or 0) * 1.05 for i in investments)
+
+        # ── Entreprise ──
+        emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.user_id == uid,
+                CompanyEmployee.left_at == None
+            )
+        )).scalar_one_or_none()
+
+        company_data = {}
+        if emp:
+            company = await session.get(Company, emp.company_id)
+            if company and company.is_active:
+                # Nombre employés
+                nb_emp = (await session.execute(
+                    select(func.count()).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.left_at == None
+                    )
+                )).scalar()
+
+                # PDG
+                pdg_emp = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.role == 'pdg',
+                        CompanyEmployee.left_at == None
+                    )
+                )).scalar_one_or_none()
+                pdg_user = None
+                if pdg_emp:
+                    pdg_user = await session.get(User, pdg_emp.user_id)
+
+                daily_rate = 0.001 * (1 + (company.level - 1) * 0.002)
+                rev_day    = int(company.value * daily_rate) // 30
+
+                LEVELS = {1:('⭐','Startup'),2:('⭐⭐','PME'),3:('⭐⭐⭐','ETI'),4:('⭐⭐⭐⭐','Grande Entreprise'),5:('⭐⭐⭐⭐⭐','Multinationale')}
+                lvl_emoji, lvl_name = LEVELS.get(company.level, ('⭐','—'))
+
+                company_data = {
+                    'company':            company.name,
+                    'company_level':      f"{lvl_emoji} {lvl_name}",
+                    'company_rep':        company.reputation,
+                    'company_value':      _fmt(company.value),
+                    'company_treasury':   _fmt(company.treasury),
+                    'company_revenue_day': _fmt(rev_day),
+                    'company_employees':  f"{nb_emp} employé(s)",
+                    'company_owner':      pdg_user.first_name if pdg_user else '—',
+                    'role':               emp.role.upper(),
+                }
+
+        # ── Diplômes ──
+        diplomes_raw = getattr(user, 'diplomes', None) or ''
+        diplomes_str = diplomes_raw if diplomes_raw else '—'
+
+        # ── Titre ──
+        from config import TITLES
+        titre = '👤 Citoyen'
+        family_size = 0
+        karma = user.karma or 0
+        for min_fam, min_karma, label in TITLES:
+            if family_size >= min_fam and karma >= min_karma:
+                titre = label
+
+        payload = {
+            'name':          user.first_name or '—',
+            'username':      user.username or '',
+            'title':         titre,
+            'coins':         _fmt(user.coins),
+            'coins_raw':     int(user.coins or 0),
+            'bank_total':    _fmt(bank_total),
+            'loans_total':   _fmt(loans_total),
+            'fortune_totale':_fmt(fortune_totale),
+            'karma':         karma,
+            'rank':          rank,
+            'total_players': total_players,
+            'diplomes':      diplomes_str,
+            'avatar_data':   user.avatar_data or None,
+            'photo_file_id': user.photo_file_id or None,
+            'photo_file_type': user.photo_file_type or None,
+            'customization': user.profile_color or None,
+            'portfolio': {
+                'invested': _fmt(invested),
+                'current':  _fmt(current),
+                'pnl':      _fmt(current - invested),
+            },
+            **company_data,
+        }
+
+    return web.json_response(payload)
+
+
+async def webapp_photo_proxy(request: web.Request) -> web.Response:
+    """GET /api/webapp/photo?user_id=xxx — Proxy vers la photo de profil Telegram ou photo custom."""
+    import aiohttp as _aiohttp
+    import base64 as _b64
+    user_id = request.rel_url.query.get('user_id')
+    if not user_id:
+        return web.Response(status=404)
+
+    try:
+        uid = int(user_id)
+    except ValueError:
+        return web.Response(status=400)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+
+    if not user or not user.photo_file_id:
+        return web.Response(status=404)
+
+    # ── Photo custom (upload depuis la galerie) ──
+    if user.photo_file_type == 'custom_b64':
+        try:
+            avatar_obj = json.loads(user.avatar_data or '{}') if user.avatar_data else {}
+            b64data = avatar_obj.get('_custom_photo', '')
+            if not b64data:
+                return web.Response(status=404)
+            img_bytes = _b64.b64decode(b64data)
+            return web.Response(body=img_bytes, content_type='image/jpeg',
+                                headers={'Cache-Control': 'no-store, no-cache, must-revalidate'})
+        except Exception:
+            return web.Response(status=500)
+
+    try:
+        async with _aiohttp.ClientSession() as s:
+            # Récupérer le chemin du fichier
+            r = await s.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile',
+                            params={'file_id': user.photo_file_id}, timeout=_aiohttp.ClientTimeout(total=5))
+            data = await r.json()
+            if not data.get('ok'):
+                return web.Response(status=404)
+            file_path = data['result']['file_path']
+            # Streamer le fichier
+            img_r = await s.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}',
+                                timeout=_aiohttp.ClientTimeout(total=10))
+            img_bytes = await img_r.read()
+            content_type = img_r.headers.get('Content-Type', 'image/jpeg')
+            return web.Response(body=img_bytes, content_type=content_type,
+                                headers={'Cache-Control': 'public, max-age=3600'})
+    except Exception:
+        return web.Response(status=502)
+
+
+async def webapp_save_avatar(request: web.Request) -> web.Response:
+    """POST /api/webapp/avatar — Sauvegarde l'avatar en base de données."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid JSON'}, status=400)
+
+    user_id_raw = body.get('user_id')
+    avatar_data = body.get('avatar_data')
+
+    if not user_id_raw or not avatar_data:
+        return web.json_response({'error': 'missing user_id or avatar_data'}, status=400)
+
+    try:
+        uid = int(user_id_raw)
+    except (ValueError, TypeError):
+        return web.json_response({'error': 'invalid user_id'}, status=400)
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'access denied'}, status=403)
+
+    # Valider que avatar_data est bien du JSON sérialisable
+    try:
+        json_str = json.dumps(avatar_data)
+    except Exception:
+        return web.json_response({'error': 'invalid avatar_data'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        user.avatar_data = json_str
+        await session.commit()
+
+    return web.json_response({'ok': True})
+
+
+async def webapp_index(request: web.Request) -> web.Response:
+    """Sert un skeleton vide — le vrai HTML est livré par /api/webapp/load après validation initData."""
+    skeleton = """<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>Family Bot</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
 <style>
-:root {
-  --bg: #0f0f1a;
-  --card: #1a1a2e;
-  --card2: #16213e;
-  --accent: #f7c948;
-  --accent2: #ff6b6b;
-  --accent3: #4ecdc4;
-  --accent4: #a29bfe;
-  --text: #f0f0f0;
-  --text2: #a0a0b0;
-  --border: #2a2a4a;
-  --success: #55efc4;
-  --radius: 16px;
-}
-* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Nunito', sans-serif; overflow: hidden; }
-
-/* ── TOP BAR ── */
-#top-bar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 101;
-  height: 52px;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 16px;
-  background: rgba(15,15,26,0.85);
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-#top-bar-title {
-  font-family: 'Bangers', cursive; font-size: 20px; letter-spacing: 2px;
-  color: var(--accent); line-height: 1;
-}
-#top-bar-right { display: flex; align-items: center; gap: 8px; }
-#settings-btn {
-  width: 38px; height: 38px; border-radius: 50%;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: background .2s;
-}
-#settings-btn:active { background: rgba(255,255,255,0.12); }
-#notif-bell-btn {
-  position: relative; width: 38px; height: 38px; border-radius: 50%;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: background .2s;
-}
-#notif-bell-btn:active { background: rgba(255,255,255,0.12); }
-#notif-bell-btn svg { width: 20px; height: 20px; }
-#notif-bell-dot {
-  display: none; position: absolute; top: 6px; right: 6px;
-  width: 8px; height: 8px; border-radius: 50%;
-  background: #ff6b6b; border: 1.5px solid var(--bg);
-  box-shadow: 0 0 6px rgba(255,107,107,.8);
-  animation: bellPulse 2s ease-in-out infinite;
-}
-@keyframes bellPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.3); } }
-#notif-bell-count {
-  display: none; position: absolute; top: 2px; right: 2px;
-  min-width: 16px; height: 16px; border-radius: 8px;
-  background: #ff6b6b; border: 1.5px solid var(--bg);
-  color: #fff; font-size: 9px; font-weight: 900;
-  align-items: center; justify-content: center; padding: 0 3px;
-}
-
-/* ── NAV ── */
-#nav {
-  display: flex; justify-content: space-around; align-items: flex-end;
-  background: rgba(15,15,26,0.9);
-  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-  border-top: 1px solid rgba(255,255,255,0.07);
-  padding: 6px 8px 14px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
-  gap: 4px;
-}
-#nav::-webkit-scrollbar { display: none; }
-.nav-btn {
-  display: flex; flex-direction: column; align-items: center; gap: 0;
-  background: none; border: none; color: var(--text2); font-family: 'Nunito', sans-serif;
-  font-size: 10px; font-weight: 700; cursor: pointer; padding: 0 4px;
-  min-width: 52px; transition: color .2s; flex-shrink: 0; position: relative;
-}
-.nav-btn-pill {
-  width: 48px; height: 30px; border-radius: 15px;
-  display: flex; align-items: center; justify-content: center;
-  transition: background .25s cubic-bezier(.4,0,.2,1), width .25s cubic-bezier(.4,0,.2,1);
-  margin-bottom: 2px;
-}
-.nav-btn .icon { font-size: 22px; line-height: 1; }
-.nav-btn-label { font-size: 10px; font-weight: 700; transition: color .2s; }
-.nav-btn.active { color: var(--accent); }
-.nav-btn.active .nav-btn-pill {
-  background: rgba(247,201,72,0.18);
-}
-.nav-btn.active .icon { filter: drop-shadow(0 0 5px rgba(247,201,72,.6)); }
-
-/* ── PAGES ── */
-#app { height: 100%; padding-top: 52px; padding-bottom: 80px; overflow-y: auto; }
-.page { display: none; padding: 16px; animation: fadeIn .3s ease; }
-.page.active { display: block; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes gradShift { 0% { background-position:0% 50%; } 100% { background-position:200% 50%; } }
-
-/* ── HEADER ── */
-.page-title {
-  font-family: 'Bangers', cursive; font-size: 28px; letter-spacing: 2px;
-  color: var(--accent); text-shadow: 2px 2px 0 rgba(0,0,0,.5);
-  margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
-}
-
-/* ── CARDS ── */
-.card {
-  background: rgba(255,255,255,0.04); border-radius: 20px; border: 1px solid rgba(255,255,255,0.07);
-  padding: 16px; margin-bottom: 12px;
-}
-.card-title { font-size: 12px; font-weight: 900; letter-spacing: .3px; color: var(--text); margin-bottom: 12px; }
-
-/* ── STAT ROW ── */
-.stat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
-.stat-row:last-child { border-bottom: none; }
-.stat-label { font-size: 13px; color: var(--text2); }
-.stat-value { font-size: 14px; font-weight: 800; color: var(--text); }
-.stat-value.gold { color: var(--accent); }
-.stat-value.green { color: var(--success); }
-.stat-value.red { color: var(--accent2); }
-
-/* ── BADGE ── */
-.badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 800; background: var(--accent); color: #000; }
-
-/* ── AVATAR SECTION ── */
-#avatar-stage {
-  display: flex; justify-content: center; align-items: flex-end;
-  height: 220px; margin-bottom: 16px; position: relative;
-}
-#avatar-canvas { width: 160px; height: 210px; }
-
-.customizer-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 4px; }
-.customizer-tabs::-webkit-scrollbar { display: none; }
-.ctab {
-  flex-shrink: 0; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 800;
-  border: 2px solid var(--border); background: var(--card2); color: var(--text2); cursor: pointer; transition: all .2s;
-}
-.ctab.active { background: var(--accent); border-color: var(--accent); color: #000; }
-
-.options-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.opt-btn {
-  aspect-ratio: 1; border-radius: 12px; border: 2px solid var(--border);
-  background: var(--card2); cursor: pointer; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 3px; font-size: 10px;
-  font-weight: 700; color: var(--text2); transition: all .2s; padding: 4px;
-}
-.opt-btn:hover { border-color: var(--accent); }
-.opt-btn.selected { border-color: var(--accent); background: rgba(247,201,72,.15); color: var(--accent); }
-.opt-btn .opt-preview { width: 32px; height: 32px; border-radius: 8px; }
-.color-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); }
-
-/* ── GENDER TOGGLE ── */
-.gender-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
-.gender-btn {
-  flex: 1; padding: 10px; border-radius: 12px; border: 2px solid var(--border);
-  background: var(--card2); color: var(--text2); font-family: 'Nunito', sans-serif;
-  font-size: 14px; font-weight: 800; cursor: pointer; transition: all .2s; text-align: center;
-}
-.gender-btn.active { border-color: var(--accent4); background: rgba(162,155,254,.15); color: var(--accent4); }
-
-/* ── SAVE BTN ── */
-.save-btn {
-  width: 100%; padding: 16px; border-radius: 28px; border: none;
-  background: var(--accent); color: #000;
-  font-family: 'Nunito', sans-serif; font-size: 15px; font-weight: 900; letter-spacing: .5px;
-  cursor: pointer; margin-top: 16px;
-  box-shadow: 0 2px 12px rgba(247,201,72,.35), 0 1px 2px rgba(0,0,0,.3);
-  transition: all .2s cubic-bezier(.4,0,.2,1);
-}
-.save-btn:active { transform: scale(.97); box-shadow: none; }
-
-/* ── MARKET ── */
-.asset-card {
-  background: var(--card2); border-radius: 12px; border: 1px solid var(--border);
-  padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;
-}
-.asset-name { font-weight: 800; font-size: 14px; }
-.asset-price { font-size: 13px; color: var(--accent); font-weight: 700; }
-.asset-change.up { color: var(--success); font-size: 12px; font-weight: 700; }
-.asset-change.down { color: var(--accent2); font-size: 12px; font-weight: 700; }
-
-/* ── COMPANY ── */
-.company-header { text-align: center; padding: 20px 0; }
-.company-name { font-family: 'Bangers', cursive; font-size: 32px; color: var(--accent); letter-spacing: 2px; }
-.company-level { color: var(--text2); font-size: 13px; margin-top: 4px; }
-.rep-stars { color: var(--accent); font-size: 18px; margin-top: 6px; }
-
-/* ── GAMES CASINO HUB ── */
-#page-games { padding: 0; }
-.casino-header {
-  padding: 28px 20px 20px;
-  background: linear-gradient(180deg, rgba(255,107,107,.08) 0%, transparent 100%);
-  border-bottom: 1px solid rgba(255,255,255,.05);
-  text-align: center;
-}
-.casino-header-title {
-  font-family: 'Bangers', cursive; font-size: 32px; letter-spacing: 4px;
-  background: linear-gradient(135deg, #ff6b6b, #f7c948, #ff6b6b);
-  background-size: 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  animation: shimmer 3s linear infinite;
-}
-.casino-header-sub { font-size: 11px; color: rgba(255,255,255,.35); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
-.casino-header { position: relative; }
-.casino-deco {
-  position: absolute; pointer-events: none; opacity: .22; filter: blur(.3px);
-  animation: casinoDecoFloat 6s ease-in-out infinite;
-}
-.casino-deco-1 { top: 14px;  left: 8%;  font-size: 26px; animation-delay: 0s; }
-.casino-deco-2 { top: 60px;  right: 10%; font-size: 22px; animation-delay: -2s; }
-.casino-deco-3 { top: 18px;  right: 22%; font-size: 18px; animation-delay: -4s; }
-.casino-deco-4 { top: 70px;  left: 18%; font-size: 16px; animation-delay: -1.2s; }
-@keyframes casinoDecoFloat {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-8px) rotate(8deg); }
-}
-.casino-balance-chip {
-  display: inline-flex; align-items: center; gap: 8px;
-  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
-  border-radius: 30px; padding: 8px 16px; margin-top: 14px;
-  font-size: 16px; font-weight: 900; color: #f7c948;
-  backdrop-filter: blur(8px);
-}
-.casino-balance-chip-label { font-size: 10px; color: rgba(255,255,255,.4); font-weight: 700; letter-spacing: 1px; }
-
-.casino-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-  padding: 18px 16px 28px;
-}
-
-/* ── GAME CARD — miniature uniforme ── */
-.game-card {
-  border-radius: 20px; cursor: pointer; position: relative; overflow: hidden;
-  background: rgba(12,12,20,.9);
-  border: 1px solid rgba(255,255,255,.09);
-  box-shadow: 0 6px 20px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
-  transition: transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .25s;
-  padding: 0; display: flex; flex-direction: column;
-  /* hauteur fixe identique pour toutes */
-  min-height: 0;
-  animation: cardFloat 5s ease-in-out infinite;
-}
-.casino-grid .game-card:nth-child(2n)  { animation-delay: -1.6s; }
-.casino-grid .game-card:nth-child(3n)  { animation-delay: -3.1s; }
-.casino-grid .game-card:nth-child(4n)  { animation-delay: -.8s; }
-.game-card:active { transform: scale(0.96) !important; animation-play-state: paused; }
-@keyframes cardFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-}
-
-/* Barre néon haut */
-.game-card-top-bar {
-  position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  border-radius: 20px 20px 0 0; z-index: 4;
-  background-size: 200% 100%;
-  animation: barShimmer 3s linear infinite;
-}
-@keyframes barShimmer { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
-
-/* Badge étiquette (VEDETTE, PvP, HOT…) */
-.game-badge {
-  position: absolute; top: 10px; left: 10px; z-index: 5;
-  font-size: 8px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;
-  padding: 3px 8px; border-radius: 20px;
-  backdrop-filter: blur(6px);
-}
-.badge-vedette { background: linear-gradient(90deg,#ff6b6b,#f7c948); color: #000; animation: badgePulse 2s ease-in-out infinite; }
-.badge-pvp     { background: rgba(0,180,216,.25); color: #00d4f5; border: 1px solid rgba(0,180,216,.4); }
-.badge-hot     { background: rgba(255,107,53,.25); color: #ff6b35; border: 1px solid rgba(255,107,53,.4); animation: badgePulse 1.6s ease-in-out infinite; }
-.badge-chance  { background: rgba(162,155,254,.2); color: #c0b8ff; border: 1px solid rgba(162,155,254,.35); }
-.badge-strategie { background: rgba(85,239,196,.18); color: #55efc4; border: 1px solid rgba(85,239,196,.3); }
-.badge-gold    { background: rgba(247,201,72,.2); color: #f7c948; border: 1px solid rgba(247,201,72,.35); }
-@keyframes badgePulse {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,.0); }
-  50% { transform: scale(1.07); box-shadow: 0 0 12px 1px rgba(255,255,255,.25); }
-}
-
-/* Zone artwork SVG — hauteur fixe */
-.game-card-art {
-  width: 100%; height: 108px; overflow: hidden; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  position: relative;
-}
-.game-card-art svg { display: block; }
-.game-card-art::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(180deg, transparent 55%, rgba(12,12,20,.85) 100%);
-}
-
-/* Zone infos */
-.game-card-info {
-  padding: 12px 13px 14px;
-  position: relative; z-index: 2;
-  border-top: 1px solid rgba(255,255,255,.05);
-  display: flex; flex-direction: column; gap: 3px;
-}
-.game-card-name {
-  font-family: 'Bangers', cursive; font-size: 18px; letter-spacing: 2px; line-height: 1;
-}
-.game-card-desc { font-size: 10px; color: rgba(255,255,255,.4); line-height: 1.35; margin-top: 2px; }
-.game-card-meta { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-.game-card-tag {
-  font-size: 8.5px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase;
-  padding: 3px 8px; border-radius: 20px;
-}
-
-/* Bouton "play" flottant style 1xbet */
-.game-card-play {
-  position: absolute; bottom: 10px; right: 10px; z-index: 5;
-  width: 28px; height: 28px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18);
-  backdrop-filter: blur(6px); font-size: 11px; color: #fff;
-  animation: playPulse 2.4s ease-in-out infinite;
-}
-@keyframes playPulse {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,.18); }
-  50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(255,255,255,0); }
-}
-
-/* Glow fond */
-.game-card-glow {
-  position: absolute; top: -15px; right: -15px; width: 90px; height: 90px;
-  border-radius: 50%; pointer-events: none; opacity: .35; filter: blur(24px); z-index: 0;
-  animation: glowPulse 4s ease-in-out infinite;
-}
-@keyframes glowPulse {
-  0%, 100% { opacity: .25; transform: scale(1); }
-  50% { opacity: .55; transform: scale(1.25); }
-}
-
-/* Per-game themes */
-.game-crash .game-card-top-bar { background: linear-gradient(90deg, #ff6b6b, #ff9f43); }
-.game-crash .game-card-glow { background: #ff6b6b; }
-.game-crash .game-card-icon-bg { background: rgba(255,107,107,.15); border: 1px solid rgba(255,107,107,.25); }
-.game-crash .game-card-name { color: #ff9f43; }
-.game-crash .game-card-label { color: #ff6b6b; }
-.game-crash .game-card-tag { background: rgba(255,107,107,.15); color: #ff9f43; border: 1px solid rgba(255,107,107,.2); }
-.game-crash { border-color: rgba(255,107,107,.15); }
-
-.game-roue .game-card-top-bar { background: linear-gradient(90deg, #a29bfe, #fd79a8); }
-.game-roue .game-card-glow { background: #a29bfe; }
-.game-roue .game-card-icon-bg { background: rgba(162,155,254,.15); border: 1px solid rgba(162,155,254,.25); }
-.game-roue .game-card-name { color: #a29bfe; }
-.game-roue .game-card-label { color: #a29bfe; }
-.game-roue .game-card-tag { background: rgba(162,155,254,.15); color: #a29bfe; border: 1px solid rgba(162,155,254,.2); }
-.game-roue { border-color: rgba(162,155,254,.15); }
-
-.game-mines .game-card-top-bar { background: linear-gradient(90deg, #55efc4, #00b894); }
-.game-mines .game-card-glow { background: #55efc4; }
-.game-mines .game-card-icon-bg { background: rgba(85,239,196,.12); border: 1px solid rgba(85,239,196,.2); }
-.game-mines .game-card-name { color: #55efc4; }
-.game-mines .game-card-label { color: #55efc4; }
-.game-mines .game-card-tag { background: rgba(85,239,196,.12); color: #55efc4; border: 1px solid rgba(85,239,196,.2); }
-.game-mines { border-color: rgba(85,239,196,.15); }
-
-.game-apple .game-card-top-bar { background: linear-gradient(90deg, #6bcb77, #4d9e57); }
-.game-apple .game-card-glow { background: #6bcb77; }
-.game-apple .game-card-icon-bg { background: rgba(107,203,119,.12); border: 1px solid rgba(107,203,119,.2); }
-.game-apple .game-card-name { color: #6bcb77; }
-.game-apple .game-card-label { color: #6bcb77; }
-.game-apple .game-card-tag { background: rgba(107,203,119,.12); color: #6bcb77; border: 1px solid rgba(107,203,119,.2); }
-.game-apple { border-color: rgba(107,203,119,.15); }
-
-.game-rebet .game-card-top-bar { background: linear-gradient(90deg, #f7c948, #e17055); }
-.game-rebet .game-card-glow { background: #f7c948; }
-.game-rebet .game-card-icon-bg { background: rgba(247,201,72,.12); border: 1px solid rgba(247,201,72,.2); }
-.game-rebet .game-card-name { color: #f7c948; }
-.game-rebet .game-card-label { color: #f7c948; }
-.game-rebet .game-card-tag { background: rgba(247,201,72,.12); color: #f7c948; border: 1px solid rgba(247,201,72,.2); }
-.game-rebet { border-color: rgba(247,201,72,.15); }
-
-.game-cockfight .game-card-top-bar { background: linear-gradient(90deg, #ff6b35, #c0392b); }
-.game-cockfight .game-card-glow { background: #ff6b35; }
-.game-cockfight .game-card-icon-bg { background: rgba(255,107,53,.12); border: 1px solid rgba(255,107,53,.2); }
-.game-cockfight .game-card-name { color: #ff6b35; }
-.game-cockfight .game-card-label { color: #ff6b35; }
-.game-cockfight .game-card-tag { background: rgba(255,107,53,.12); color: #ff6b35; border: 1px solid rgba(255,107,53,.2); }
-.game-cockfight { border-color: rgba(255,107,53,.15); }
-
-.game-ppc .game-card-top-bar { background: linear-gradient(90deg, #00b4d8, #0077b6); }
-.game-ppc .game-card-glow { background: #00b4d8; }
-.game-ppc .game-card-icon-bg { background: rgba(0,180,216,.12); border: 1px solid rgba(0,180,216,.2); }
-.game-ppc .game-card-name { color: #00b4d8; }
-.game-ppc .game-card-label { color: #00b4d8; }
-.game-ppc .game-card-tag { background: rgba(0,180,216,.12); color: #00b4d8; border: 1px solid rgba(0,180,216,.2); }
-.game-ppc { border-color: rgba(0,180,216,.15); }
-
-.game-lancer .game-card-top-bar { background: linear-gradient(90deg, #a29bfe, #6c5ce7); }
-.game-lancer .game-card-glow { background: #a29bfe; }
-.game-lancer .game-card-icon-bg { background: rgba(162,155,254,.12); border: 1px solid rgba(162,155,254,.2); }
-.game-lancer .game-card-name { color: #a29bfe; }
-.game-lancer .game-card-label { color: #a29bfe; }
-.game-lancer .game-card-tag { background: rgba(162,155,254,.12); color: #a29bfe; border: 1px solid rgba(162,155,254,.2); }
-.game-lancer { border-color: rgba(162,155,254,.15); }
-
-/* ── PROFILE HEADER ── */
-.profile-header {
-  display: flex; align-items: center; gap: 14px;
-  background: linear-gradient(135deg, var(--card), var(--card2));
-  border-radius: var(--radius); border: 1px solid var(--border);
-  padding: 16px; margin-bottom: 12px;
-}
-.profile-avatar-small { width: 64px; height: 64px; border-radius: 50%; border: 3px solid var(--accent); overflow: hidden; }
-.profile-name { font-family: 'Bangers', cursive; font-size: 22px; color: var(--accent); letter-spacing: 1px; }
-.profile-title { font-size: 12px; color: var(--accent4); font-weight: 700; margin-top: 2px; }
-.profile-coins { font-size: 18px; font-weight: 900; color: var(--success); margin-top: 4px; }
-
-/* ── LOADING ── */
-#loading {
-  position: fixed; inset: 0; background: var(--bg); display: flex;
-  flex-direction: column; align-items: center; justify-content: center; z-index: 999;
-}
-.loading-logo { font-family: 'Bangers', cursive; font-size: 48px; color: var(--accent); letter-spacing: 4px; text-shadow: 0 0 30px rgba(247,201,72,.5); }
-.loading-sub { font-size: 14px; color: var(--text2); margin-top: 8px; }
-.loader { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin-top: 24px; overflow: hidden; }
-.loader-bar { height: 100%; background: var(--accent); border-radius: 2px; animation: load 1.5s ease infinite; }
-@keyframes load { 0% { width: 0; } 100% { width: 100%; } }
-
-/* ── TOAST ── */
-#toast {
-  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
-  background: var(--success); color: #000; padding: 10px 20px; border-radius: 20px;
-  font-weight: 800; font-size: 13px; opacity: 0; transition: all .3s; z-index: 200; white-space: nowrap;
-}
-#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
-/* ── GAME TABS ── */
-.game-tab {
-  padding: 8px 16px; border-radius: 20px; border: 1.5px solid var(--border);
-  background: var(--card2); color: var(--text2); font-family: 'Nunito', sans-serif;
-  font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
-  transition: all .2s;
-}
-.game-tab.active { background: var(--accent); color: #000; border-color: var(--accent); }
-.game-panel { animation: fadeIn .3s ease; }
-.game-back-btn {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
-  padding: 9px 16px; border-radius: 24px; border: 1px solid rgba(255,255,255,.1);
-  background: rgba(255,255,255,.06); color: rgba(255,255,255,.7);
-  font-size: 13px; font-weight: 800; cursor: pointer; width: fit-content;
-  backdrop-filter: blur(8px); transition: background .15s, color .15s;
-  letter-spacing: .3px;
-}
-.game-back-btn:active { background: rgba(255,255,255,.12); color: #fff; }
-/* game-card base defined in GAMES CASINO HUB section */
-#crash-arena { position: relative; border-radius: var(--radius); overflow: hidden; background: #070714; }
-
-/* ── MINES CELLS ── */
-.mine-cell {
-  aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--border);
-  background: var(--card2); display: flex; align-items: center; justify-content: center;
-  font-size: 22px; cursor: pointer; transition: all .15s; user-select: none;
-}
-.mine-cell:active { transform: scale(.92); }
-.mine-cell.revealed-safe { background: #0a2a0a; border-color: var(--success); cursor: default; }
-.mine-cell.revealed-mine { background: #2a0a0a; border-color: var(--accent2); cursor: default; animation: boom .4s ease; }
-.mine-cell.hidden-inactive { cursor: default; opacity: .5; }
-@keyframes boom { 0%{transform:scale(1)} 40%{transform:scale(1.3)} 100%{transform:scale(1)} }
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#0f0f1a;color:#f0f0f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center}
+.loader{text-align:center}
+.spinner{width:48px;height:48px;border:4px solid #2a2a4a;border-top-color:#f7c948;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lbl{color:#a0a0b0;font-size:13px}
 </style>
 </head>
 <body>
-
-<div id="loading">
-  <div class="loading-logo">FAMILY BOT</div>
-  <div class="loading-sub">Chargement de ton empire...</div>
-  <div class="loader"><div class="loader-bar"></div></div>
+<div class="loader" id="loader">
+  <div class="spinner"></div>
+  <div class="lbl">Chargement...</div>
 </div>
-
-<div id="toast"></div>
-
-<div id="app">
-
-  <!-- ══ PAGE PROFIL ══ -->
-  <!-- ══ STYLES PAGE PROFIL ══ -->
-  <style>
-  /* ── Cover v2 — plus grand, personnalisable ── */
-  .pf-cover {
-    position: relative;
-    height: 130px;
-    background: var(--pf-cover-bg, linear-gradient(135deg, #1a1a3e 0%, #0f0f2a 50%, #1a0a2e 100%));
-    overflow: hidden;
-    margin: -14px -14px 0;
-    border-radius: var(--radius) var(--radius) 0 0;
-  }
-  .pf-cover-blur {
-    position: absolute; inset: 0;
-    background: var(--pf-cover-overlay, linear-gradient(135deg, rgba(247,201,72,.15) 0%, rgba(162,155,254,.1) 50%, rgba(78,205,196,.1) 100%));
-  }
-  .pf-cover-lines {
-    position: absolute; inset: 0; overflow: hidden; opacity: .25;
-  }
-  .pf-cover-lines::before, .pf-cover-lines::after {
-    content: ''; position: absolute;
-    width: 200%; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(247,201,72,.7), transparent);
-  }
-  .pf-cover-lines::before { top: 30%; transform: rotate(-8deg); }
-  .pf-cover-lines::after  { top: 65%; transform: rotate(5deg); }
-  /* Effet particules (class sur .pf-cover) */
-  .pf-cover.fx-dots::after {
-    content: '';
-    position: absolute; inset: 0;
-    background-image: radial-gradient(circle, rgba(255,255,255,.18) 1px, transparent 1px);
-    background-size: 18px 18px;
-  }
-  .pf-cover.fx-grid::after {
-    content: '';
-    position: absolute; inset: 0;
-    background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px),
-                      linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
-    background-size: 24px 24px;
-  }
-  .pf-cover.fx-waves::after {
-    content: '';
-    position: absolute; bottom: 0; left: 0; right: 0; height: 60px;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 60'%3E%3Cpath d='M0,30 C200,60 400,0 600,30 C800,60 1000,0 1200,30 L1200,60 L0,60Z' fill='rgba(255,255,255,0.06)'/%3E%3C/svg%3E") repeat-x bottom;
-    background-size: 600px 60px;
-  }
-  /* Stats overlay dans le cover */
-  .pf-cover-stats {
-    position: absolute; bottom: 14px; left: 16px;
-    display: flex; align-items: center; gap: 14px;
-  }
-  .pf-cover-stat {
-    display: flex; flex-direction: column; gap: 1px;
-  }
-  .pf-cover-stat-val {
-    font-size: 15px; font-weight: 900; color: #fff;
-    text-shadow: 0 1px 6px rgba(0,0,0,.8);
-    line-height: 1;
-  }
-  .pf-cover-stat-lbl {
-    font-size: 9px; font-weight: 700; color: rgba(255,255,255,.6);
-    text-transform: uppercase; letter-spacing: .5px;
-  }
-  .pf-cover-stat-sep {
-    width: 1px; height: 28px;
-    background: rgba(255,255,255,.2);
-  }
-  /* Bouton edit cover */
-  .pf-cover-edit {
-    position: absolute; top: 10px; right: 12px;
-    background: rgba(0,0,0,.45);
-    border: 1px solid rgba(255,255,255,.15);
-    color: #fff; font-size: 14px;
-    width: 30px; height: 30px;
-    border-radius: 50%; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(6px);
-    transition: background .2s;
-  }
-  .pf-cover-edit:hover { background: rgba(247,201,72,.3); }
-  /* Avatar — en dehors du cover, dans la bande identité */
-  .pf-identity-row {
-    display: flex; align-items: center; gap: 14px;
-    padding: 12px 14px 0;
-    margin-top: -26px; /* remonte sur le cover */
-    position: relative; z-index: 2;
-  }
-  .pf-avatar-wrap {
-    width: 72px; height: 72px; flex-shrink: 0;
-    border-radius: 50%;
-    border: 3px solid var(--bg);
-    background: var(--card2);
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(0,0,0,.6);
-    cursor: pointer;
-  }
-  .pf-avatar-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .pf-avatar-placeholder {
-    width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 30px;
-    background: linear-gradient(135deg, #2a2a4a, #1a1a3e);
-  }
-  .pf-identity-info {
-    flex: 1; padding-top: 28px; /* espace pour sortir du cover */
-    min-width: 0;
-  }
-  .pf-fortune-block {
-    padding: 10px 14px 4px;
-  }
-  /* Badge rang */
-  .pf-rank-badge {
-    position: absolute; bottom: 12px; right: 14px;
-    background: linear-gradient(135deg,#f7c948,#e6a800);
-    color: #000; font-size: 11px; font-weight: 900;
-    padding: 4px 11px; border-radius: 20px;
-    letter-spacing: .5px;
-    box-shadow: 0 2px 8px rgba(247,201,72,.4);
-  }
-  /* Badges profil affichés sous le nom */
-  .pf-badges-row {
-    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;
-  }
-  .pf-badge {
-    font-size: 18px;
-    background: rgba(255,255,255,.08);
-    border: 1px solid rgba(255,255,255,.12);
-    border-radius: 8px;
-    padding: 3px 6px;
-    cursor: default;
-    position: relative;
-  }
-  .pf-badge[title]:hover::after {
-    content: attr(title);
-    position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
-    background: #222; color: #fff; font-size: 11px; padding: 3px 7px;
-    border-radius: 6px; white-space: nowrap; pointer-events: none;
-    z-index: 99;
-  }
-  /* ══ MODAL PERSONNALISATION — REDESIGN PREMIUM ══ */
-  #modal-customize {
-    display: none; position: fixed; inset: 0; z-index: 9999;
-    background: rgba(0,0,0,.75); backdrop-filter: blur(8px);
-    align-items: flex-end; justify-content: center;
-  }
-  .customize-sheet {
-    background: linear-gradient(160deg, #1c1c35 0%, #111128 100%);
-    border-top: 1px solid rgba(247,201,72,.25);
-    border-left: 1px solid rgba(255,255,255,.06);
-    border-right: 1px solid rgba(255,255,255,.06);
-    border-radius: 24px 24px 0 0;
-    width: 100%; max-width: 480px;
-    padding: 8px 18px 36px;
-    max-height: 92vh; overflow-y: auto;
-  }
-  .customize-sheet::-webkit-scrollbar { display: none; }
-  /* Drag handle */
-  .cust-handle {
-    width: 40px; height: 4px; border-radius: 2px;
-    background: rgba(255,255,255,.15); margin: 12px auto 16px;
-  }
-  /* Header */
-  .cust-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 20px; padding-bottom: 14px;
-    border-bottom: 1px solid rgba(255,255,255,.07);
-  }
-  .cust-header-left { display: flex; align-items: center; gap: 10px; }
-  .cust-header-icon {
-    width: 36px; height: 36px; border-radius: 10px;
-    background: linear-gradient(135deg, rgba(247,201,72,.2), rgba(247,201,72,.05));
-    border: 1px solid rgba(247,201,72,.3);
-    display: flex; align-items: center; justify-content: center; font-size: 18px;
-  }
-  .cust-header-title { font-size: 16px; font-weight: 900; color: var(--text); }
-  .cust-header-sub { font-size: 11px; color: var(--text2); margin-top: 1px; }
-  .cust-close-btn {
-    width: 32px; height: 32px; border-radius: 50%;
-    border: 1px solid rgba(255,255,255,.1);
-    background: rgba(255,255,255,.06);
-    color: var(--text2); font-size: 18px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: all .15s;
-  }
-  .cust-close-btn:hover { background: rgba(255,255,255,.12); color: var(--text); }
-  /* Onglets pill */
-  .cust-tabs {
-    display: flex; gap: 6px; margin-bottom: 20px;
-    overflow-x: auto; padding-bottom: 2px;
-  }
-  .cust-tabs::-webkit-scrollbar { display: none; }
-  .cust-tab {
-    display: flex; align-items: center; gap: 5px;
-    padding: 8px 14px; border-radius: 12px;
-    border: 1px solid rgba(255,255,255,.08);
-    background: rgba(255,255,255,.04); color: var(--text2);
-    font-size: 12px; font-weight: 700; cursor: pointer;
-    white-space: nowrap; transition: all .2s; flex-shrink: 0;
-  }
-  .cust-tab .tab-icon { font-size: 14px; }
-  .cust-tab.active {
-    background: rgba(247,201,72,.15);
-    border-color: rgba(247,201,72,.5);
-    color: var(--accent);
-    box-shadow: 0 0 12px rgba(247,201,72,.15);
-  }
-  /* Section label */
-  .cust-label {
-    font-size: 10px; font-weight: 800; text-transform: uppercase;
-    letter-spacing: 1.2px; color: rgba(160,160,176,.6);
-    margin: 0 0 10px; display: flex; align-items: center; gap: 6px;
-  }
-  .cust-label::after { content:''; flex:1; height:1px; background:rgba(255,255,255,.05); }
-  /* ── COULEURS ── */
-  .cover-colors {
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
-    margin-bottom: 4px;
-  }
-  .cover-color-btn {
-    height: 44px; border-radius: 12px; border: 2px solid transparent;
-    cursor: pointer; transition: all .2s; position: relative;
-    box-shadow: 0 2px 8px rgba(0,0,0,.3);
-  }
-  .cover-color-btn.selected {
-    border-color: #fff;
-    box-shadow: 0 0 0 1px rgba(255,255,255,.4), 0 4px 16px rgba(0,0,0,.4);
-    transform: scale(1.05);
-  }
-  .cover-color-btn.selected::after {
-    content: '✓'; position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px; font-weight: 900; color: rgba(255,255,255,.9);
-    text-shadow: 0 1px 4px rgba(0,0,0,.5);
-  }
-  .cover-color-btn:hover:not(.selected) { transform: scale(1.04); border-color: rgba(255,255,255,.4); }
-  /* ── EFFETS ── */
-  .cover-effects { display: flex; gap: 8px; flex-wrap: wrap; }
-  .fx-btn {
-    padding: 9px 15px; border-radius: 12px;
-    border: 1px solid rgba(255,255,255,.08);
-    background: rgba(255,255,255,.04); color: var(--text2);
-    font-size: 12px; font-weight: 700; cursor: pointer; transition: all .2s;
-  }
-  .fx-btn.selected {
-    background: rgba(162,155,254,.15); border-color: rgba(162,155,254,.5);
-    color: var(--accent4); box-shadow: 0 0 10px rgba(162,155,254,.2);
-  }
-  .fx-btn:hover:not(.selected) { background: rgba(255,255,255,.08); color: var(--text); }
-  /* ── BADGES ── */
-  .badge-shop-grid { display: flex; flex-direction: column; gap: 8px; }
-  .badge-shop-item {
-    background: rgba(255,255,255,.03);
-    border: 1px solid rgba(255,255,255,.07);
-    border-radius: 16px; padding: 12px 14px;
-    display: flex; align-items: center; gap: 12px;
-    transition: border-color .2s;
-  }
-  .badge-shop-item.owned {
-    background: rgba(85,239,196,.04);
-    border-color: rgba(85,239,196,.2);
-  }
-  .badge-emoji-wrap {
-    width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
-    background: rgba(255,255,255,.05);
-    border: 1px solid rgba(255,255,255,.08);
-    display: flex; align-items: center; justify-content: center; font-size: 26px;
-  }
-  .badge-shop-item.owned .badge-emoji-wrap {
-    background: rgba(85,239,196,.08); border-color: rgba(85,239,196,.2);
-  }
-  .badge-info { flex: 1; min-width: 0; }
-  .badge-name { font-size: 13px; font-weight: 800; color: var(--text); }
-  .badge-desc { font-size: 11px; color: var(--text2); margin-top: 2px; }
-  .badge-price-tag {
-    font-size: 12px; font-weight: 800; color: var(--accent);
-    margin-top: 3px; display: flex; align-items: center; gap: 3px;
-  }
-  .badge-price-tag.owned-tag { color: var(--success); font-size: 11px; }
-  .badge-buy-btn {
-    border: none; border-radius: 10px;
-    padding: 7px 12px; font-size: 11px; font-weight: 900;
-    cursor: pointer; white-space: nowrap; transition: all .2s; flex-shrink: 0;
-  }
-  .badge-buy-btn.btn-buy {
-    background: linear-gradient(135deg, var(--accent), #e6a800);
-    color: #000; box-shadow: 0 2px 8px rgba(247,201,72,.3);
-  }
-  .badge-buy-btn.btn-buy:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(247,201,72,.4); }
-  .badge-buy-btn.btn-equip {
-    background: rgba(85,239,196,.15); color: var(--success);
-    border: 1px solid rgba(85,239,196,.3);
-  }
-  .badge-buy-btn.btn-unequip {
-    background: rgba(162,155,254,.12); color: var(--accent4);
-    border: 1px solid rgba(162,155,254,.3);
-  }
-  .badge-buy-btn:disabled { background: rgba(255,255,255,.05); color: var(--text2); cursor: default; box-shadow: none; }
-  /* ── PHOTO ── */
-  .cust-photo-zone {
-    display: flex; flex-direction: column; align-items: center; gap: 16px;
-  }
-  .cust-photo-ring {
-    width: 96px; height: 96px; border-radius: 50%;
-    padding: 3px;
-    background: linear-gradient(135deg, var(--accent), var(--accent3));
-    box-shadow: 0 0 20px rgba(247,201,72,.25);
-  }
-  .cust-photo-inner {
-    width: 100%; height: 100%; border-radius: 50%;
-    overflow: hidden; background: var(--card2);
-    display: flex; align-items: center; justify-content: center; font-size: 38px;
-  }
-  #cust-photo-preview img { width: 100%; height: 100%; object-fit: cover; }
-  .cust-photo-infos { text-align: center; }
-  .cust-photo-title { font-size: 14px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
-  .cust-photo-sub { font-size: 11px; color: var(--text2); line-height: 1.6; }
-  .cust-photo-btn {
-    width: 100%; padding: 12px; border-radius: 14px;
-    border: 1.5px dashed rgba(255,255,255,.15);
-    background: rgba(255,255,255,.03); color: var(--text2);
-    font-size: 13px; font-weight: 700; cursor: pointer; transition: all .2s;
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-  }
-  .cust-photo-btn:hover {
-    border-color: rgba(247,201,72,.4); color: var(--accent);
-    background: rgba(247,201,72,.05);
-  }
-  #cust-photo-status {
-    text-align: center; font-size: 12px; color: var(--text2);
-    min-height: 18px; padding: 0 4px;
-  }
-  /* ── BOUTON SAVE ── */
-  .cust-save-btn {
-    width: 100%; margin-top: 22px; padding: 15px;
-    border-radius: 16px; border: none; cursor: pointer;
-    background: linear-gradient(135deg, #f7c948 0%, #e8a000 100%);
-    color: #000; font-size: 15px; font-weight: 900; letter-spacing: .5px;
-    box-shadow: 0 4px 20px rgba(247,201,72,.35);
-    transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 8px;
-  }
-  .cust-save-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(247,201,72,.45); }
-  .cust-save-btn:disabled { background: var(--card2); color: var(--text2); box-shadow: none; transform: none; }
-  .pf-identity {
-    padding: 12px 14px 4px;
-  }
-  .pf-name-row {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  }
-  .pf-name {
-    font-family: 'Bangers', cursive;
-    font-size: 26px; letter-spacing: 1px;
-    color: var(--text);
-    line-height: 1;
-  }
-  .pf-title-badge {
-    font-size: 11px; font-weight: 800;
-    padding: 3px 9px; border-radius: 20px;
-    background: rgba(162,155,254,.2);
-    color: var(--accent4);
-    border: 1px solid rgba(162,155,254,.3);
-  }
-  .pf-username {
-    font-size: 12px; color: var(--text2); margin-top: 2px;
-  }
-  .pf-fortune-hero {
-    margin-top: 10px;
-    font-size: 28px; font-weight: 900;
-    color: var(--accent);
-    letter-spacing: -0.5px;
-  }
-  .pf-fortune-label {
-    font-size: 11px; color: var(--text2); margin-top: 1px;
-  }
-  .pf-stats-grid {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 10px; padding: 0 14px 10px;
-  }
-  .pf-stat-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 20px;
-    padding: 14px;
-    position: relative; overflow: hidden;
-  }
-  .pf-stat-card::before {
-    content: ''; position: absolute;
-    top: 0; left: 20%; right: 20%; height: 2px;
-    background: var(--pf-accent, var(--accent));
-    border-radius: 0 0 4px 4px;
-    opacity: .8;
-  }
-  .pf-stat-icon { font-size: 20px; margin-bottom: 6px; }
-  .pf-stat-label { font-size: 10px; color: var(--text2); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
-  .pf-stat-value { font-size: 16px; font-weight: 900; color: var(--text); margin-top: 3px; }
-  .pf-stat-sub   { font-size: 10px; color: var(--text2); margin-top: 1px; }
-  .pf-section {
-    margin: 0 14px 12px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 20px;
-    overflow: hidden;
-  }
-  .pf-section-header {
-    padding: 12px 16px;
-    font-size: 12px; font-weight: 900; letter-spacing: .3px;
-    color: var(--text);
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-  }
-  .pf-section-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 11px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    font-size: 13px;
-  }
-  .pf-section-row:last-child { border-bottom: none; }
-  .pf-section-key { color: var(--text2); font-weight: 600; }
-  .pf-section-val { font-weight: 800; color: var(--text); }
-  .pf-section-val.gold { color: var(--accent); }
-  .pf-section-val.red  { color: var(--accent2); }
-  .pf-section-val.green { color: var(--success); }
-  .pf-section-val.purple { color: var(--accent4); }
-  .pf-company-banner {
-    margin: 0 14px 12px;
-    border-radius: 20px; overflow: hidden;
-    background: rgba(85,239,196,0.06);
-    border: 1px solid rgba(85,239,196,.2);
-    padding: 14px;
-    display: flex; align-items: center; gap: 12px;
-  }
-  .pf-company-icon {
-    width: 44px; height: 44px; border-radius: 12px;
-    background: rgba(85,239,196,.15);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 22px; flex-shrink: 0;
-  }
-  .pf-company-name { font-weight: 900; font-size: 15px; color: var(--text); }
-  .pf-company-role {
-    display: inline-block; margin-top: 3px;
-    font-size: 10px; font-weight: 800; padding: 2px 8px;
-    border-radius: 10px; background: rgba(85,239,196,.2);
-    color: var(--success); letter-spacing: .5px;
-  }
-  .pf-no-company {
-    margin: 0 14px 12px;
-    padding: 12px 14px; border-radius: 14px;
-    background: var(--card); border: 1px solid var(--border);
-    color: var(--text2); font-size: 13px; text-align: center;
-  }
-  </style>
-
-  <div class="page active" id="page-profile">
-
-    <!-- ── SLIDES ZONE ── -->
-    <div id="home-slides" class="visible" style="margin: -16px -16px 16px; overflow: hidden; position: relative;">
-      <div class="slides-track" id="slides-track">
-        <!-- Slide 1 -->
-        <div class="slide-item">
-          <div class="slide-item-bg" style="background: linear-gradient(135deg, #0d1b3e 0%, #1a237e 50%, #311b92 100%)"></div>
-          <div class="slide-item-overlay"></div>
-          <div class="slide-item-content">
-            <div class="slide-item-label">✨ Nouveauté</div>
-            <div class="slide-item-title">Cockfight Arena</div>
-            <div class="slide-item-sub">Nouveau jeu PvP disponible !</div>
-          </div>
-        </div>
-        <!-- Slide 2 -->
-        <div class="slide-item">
-          <div class="slide-item-bg" style="background: linear-gradient(135deg, #1b0000 0%, #7b1818 50%, #b71c1c 100%)"></div>
-          <div class="slide-item-overlay"></div>
-          <div class="slide-item-content">
-            <div class="slide-item-label">🎰 Casino</div>
-            <div class="slide-item-title">Jackpot x50</div>
-            <div class="slide-item-sub">Tente ta chance ce weekend</div>
-          </div>
-        </div>
-        <!-- Slide 3 -->
-        <div class="slide-item">
-          <div class="slide-item-bg" style="background: linear-gradient(135deg, #0a2e1a 0%, #1b5e20 50%, #2e7d32 100%)"></div>
-          <div class="slide-item-overlay"></div>
-          <div class="slide-item-content">
-            <div class="slide-item-label">💼 Économie</div>
-            <div class="slide-item-title">Marché ouvert</div>
-            <div class="slide-item-sub">Investi dans les assets du moment</div>
-          </div>
-        </div>
-      </div>
-      <div class="slides-dots" id="slides-dots">
-        <div class="slides-dot active"></div>
-        <div class="slides-dot"></div>
-        <div class="slides-dot"></div>
-      </div>
-    </div>
-
-    <!-- Cover + Avatar -->
-    <!-- Cover avec stats en overlay -->
-    <div class="pf-cover" id="pf-cover">
-      <div class="pf-cover-blur" id="pf-cover-blur"></div>
-      <div class="pf-cover-lines"></div>
-      <button class="pf-cover-edit" id="btn-cover-edit" title="Personnaliser">✏️</button>
-      <!-- Stats en bas à gauche du cover -->
-      <div class="pf-cover-stats">
-        <div class="pf-cover-stat">
-          <span class="pf-cover-stat-val" id="pf-cover-fortune">—</span>
-          <span class="pf-cover-stat-lbl">Fortune</span>
-        </div>
-        <div class="pf-cover-stat-sep"></div>
-        <div class="pf-cover-stat">
-          <span class="pf-cover-stat-val" id="pf-cover-karma">—</span>
-          <span class="pf-cover-stat-lbl">Karma</span>
-        </div>
-      </div>
-      <div class="pf-rank-badge" id="pf-rank-badge"># —</div>
-    </div>
-
-    <!-- Bande identité : avatar à gauche + infos à droite -->
-    <div class="pf-identity-row">
-      <div class="pf-avatar-wrap" id="pf-avatar-wrap" onclick="openCustomize('photo')" title="Modifier la photo" style="cursor:pointer;position:relative">
-        <div class="pf-avatar-placeholder">👤</div>
-        <div style="position:absolute;bottom:2px;right:2px;width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.5)">✏️</div>
-      </div>
-      <div class="pf-identity-info">
-        <div class="pf-name-row">
-          <div class="pf-name" id="pf-name">—</div>
-          <div class="pf-title-badge" id="pf-title">Citoyen</div>
-        </div>
-        <div class="pf-username" id="pf-username"></div>
-        <div class="pf-badges-row" id="pf-badges-row"></div>
-      </div>
-    </div>
-
-    <!-- Fortune hero -->
-    <div class="pf-fortune-block">
-      <div class="pf-fortune-hero" id="pf-coins">—</div>
-      <div class="pf-fortune-label">Fortune totale</div>
-    </div>
-
-    <!-- Stats grid 2x2 -->
-    <div class="pf-stats-grid">
-      <div class="pf-stat-card" style="--pf-accent:#f7c948">
-        <div class="pf-stat-icon">💵</div>
-        <div class="pf-stat-label">En poche</div>
-        <div class="pf-stat-value" id="pf-cash">—</div>
-      </div>
-      <div class="pf-stat-card" style="--pf-accent:#55efc4">
-        <div class="pf-stat-icon">🏦</div>
-        <div class="pf-stat-label">En banque</div>
-        <div class="pf-stat-value" id="pf-bank">—</div>
-      </div>
-      <div class="pf-stat-card" style="--pf-accent:#a29bfe">
-        <div class="pf-stat-icon">⭐</div>
-        <div class="pf-stat-label">Karma</div>
-        <div class="pf-stat-value" id="pf-karma">—</div>
-      </div>
-      <div class="pf-stat-card" style="--pf-accent:#ff6b6b">
-        <div class="pf-stat-icon">💳</div>
-        <div class="pf-stat-label">Dettes</div>
-        <div class="pf-stat-value" id="pf-debt">—</div>
-      </div>
-    </div>
-
-    <!-- Entreprise -->
-    <div id="pf-company-banner" class="pf-company-banner" style="display:none">
-      <div class="pf-company-icon">🏢</div>
-      <div>
-        <div class="pf-company-name" id="pf-company">—</div>
-        <span class="pf-company-role" id="pf-role">—</span>
-      </div>
-    </div>
-    <div id="pf-no-company" class="pf-no-company">Sans emploi</div>
-
-    <!-- Réputation & classement -->
-    <div class="pf-section">
-      <div class="pf-section-header">Réputation & classement</div>
-      <div class="pf-section-row">
-        <span class="pf-section-key">Classement fortune</span>
-        <span class="pf-section-val gold" id="pf-rank">—</span>
-      </div>
-      <div class="pf-section-row">
-        <span class="pf-section-key">Diplômes</span>
-        <span class="pf-section-val purple" id="pf-diplomes">—</span>
-      </div>
-      <div class="pf-section-row">
-        <span class="pf-section-key">Fortune totale</span>
-        <span class="pf-section-val gold" id="pf-total">—</span>
-      </div>
-    </div>
-
-    <!-- ── ACTIVITÉS UNIFIÉES ── -->
-    <div class="pf-section" style="margin-bottom:24px">
-      <div class="pf-section-header">⚡ Activités</div>
-      <div style="padding:0 16px 16px" id="pf-activities-inner">
-        <div style="text-align:center;padding:28px;color:var(--text2);font-size:13px">Chargement…</div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ══ MODAL PARAMÈTRES ══ -->
-  <div id="modal-settings" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);overflow-y:auto">
-    <div style="min-height:100%;display:flex;align-items:flex-start;padding:16px 0 40px">
-      <div style="width:100%;max-width:480px;margin:0 auto;background:var(--card);border-radius:24px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6)">
-
-        <!-- Header -->
-        <div style="background:linear-gradient(135deg,#0d1f0d,#111);padding:22px 20px 16px;position:relative">
-          <div style="font-size:10px;font-weight:900;letter-spacing:3px;color:#00c864;text-transform:uppercase;margin-bottom:4px">FARMBOT</div>
-          <div style="font-size:22px;font-weight:900;color:#fff">⚙️ Paramètres</div>
-          <button onclick="closeSettings()" style="position:absolute;top:16px;right:16px;background:rgba(255,255,255,.1);border:none;border-radius:50%;width:34px;height:34px;color:#fff;font-size:18px;cursor:pointer;line-height:34px">×</button>
-        </div>
-
-        <div style="padding:16px;display:flex;flex-direction:column;gap:6px">
-
-          <!-- ── AUDIO ── -->
-          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:10px 4px 4px">🔊 Audio</div>
-
-          <div class="settings-row" onclick="settingsToggle('sfx')">
-            <div>
-              <div class="settings-label">Sons & Effets</div>
-              <div class="settings-sub">Clics, gains, jeux</div>
-            </div>
-            <div class="settings-toggle" id="toggle-sfx"></div>
-          </div>
-
-          <div class="settings-row" onclick="settingsToggle('music')">
-            <div>
-              <div class="settings-label">Musique Casino</div>
-              <div class="settings-sub">Ambiance pendant les jeux</div>
-            </div>
-            <div class="settings-toggle" id="toggle-music"></div>
-          </div>
-
-          <div class="settings-row" id="settings-vol-row">
-            <div style="flex:1">
-              <div class="settings-label">Volume</div>
-              <div class="settings-sub">Intensité des sons</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px">
-              <span style="font-size:13px;color:var(--text2)">🔈</span>
-              <input type="range" id="settings-vol" min="0" max="100" value="70"
-                oninput="settingsVolume(this.value)"
-                style="width:100px;accent-color:#00c864;cursor:pointer">
-              <span style="font-size:13px;color:var(--text2)">🔊</span>
-            </div>
-          </div>
-
-          <!-- ── AFFICHAGE ── -->
-          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:14px 4px 4px">🎨 Affichage</div>
-
-          <div class="settings-row" onclick="settingsToggle('darkplus')">
-            <div>
-              <div class="settings-label">Mode Nuit Renforcé</div>
-              <div class="settings-sub">Réduit la luminosité pour les yeux</div>
-            </div>
-            <div class="settings-toggle" id="toggle-darkplus"></div>
-          </div>
-
-          <div class="settings-row" onclick="settingsToggle('bigtext')">
-            <div>
-              <div class="settings-label">Texte Agrandi</div>
-              <div class="settings-sub">Augmente la taille des textes</div>
-            </div>
-            <div class="settings-toggle" id="toggle-bigtext"></div>
-          </div>
-
-          <div class="settings-row" onclick="settingsToggle('animations')">
-            <div>
-              <div class="settings-label">Animations</div>
-              <div class="settings-sub">Effets visuels et transitions</div>
-            </div>
-            <div class="settings-toggle" id="toggle-animations"></div>
-          </div>
-
-          <!-- ── NOTIFICATIONS ── -->
-          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:14px 4px 4px">🔔 Notifications</div>
-
-          <div class="settings-row" onclick="settingsToggle('notif_gain')">
-            <div>
-              <div class="settings-label">Rappel coffre quotidien</div>
-              <div class="settings-sub">Te prévient quand ton coffre est disponible</div>
-            </div>
-            <div class="settings-toggle" id="toggle-notif_gain"></div>
-          </div>
-
-          <div class="settings-row" onclick="settingsToggle('notif_bid')">
-            <div>
-              <div class="settings-label">Alertes enchères</div>
-              <div class="settings-sub">Quelqu'un surenchérit sur toi</div>
-            </div>
-            <div class="settings-toggle" id="toggle-notif_bid"></div>
-          </div>
-
-          <!-- ── CONFIDENTIALITÉ ── -->
-          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:14px 4px 4px">🔒 Confidentialité</div>
-
-          <div class="settings-row" onclick="settingsToggle('hide_balance')">
-            <div>
-              <div class="settings-label">Masquer le solde</div>
-              <div class="settings-sub">Affiche *** à la place du solde</div>
-            </div>
-            <div class="settings-toggle" id="toggle-hide_balance"></div>
-          </div>
-
-          <div class="settings-row" onclick="settingsToggle('hide_rank')">
-            <div>
-              <div class="settings-label">Masquer le classement</div>
-              <div class="settings-sub">Ton rang n'est pas visible par les autres</div>
-            </div>
-            <div class="settings-toggle" id="toggle-hide_rank"></div>
-          </div>
-
-          <!-- ── COMPTE ── -->
-          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:14px 4px 4px">👤 Compte</div>
-
-          <div class="settings-row" style="cursor:default">
-            <div>
-              <div class="settings-label">User ID</div>
-              <div class="settings-sub" id="settings-uid-val">—</div>
-            </div>
-            <button onclick="navigator.clipboard&&navigator.clipboard.writeText(String(uid)).then(()=>showToast('✅ ID copié !'))" style="background:rgba(255,255,255,.08);border:none;border-radius:8px;padding:6px 12px;color:var(--text);font-size:12px;cursor:pointer">Copier</button>
-          </div>
-
-          <div class="settings-row" onclick="settingsResetCache()">
-            <div>
-              <div class="settings-label">Vider le cache</div>
-              <div class="settings-sub">Recharge les données depuis le serveur</div>
-            </div>
-            <div style="color:var(--text2);font-size:18px">↻</div>
-          </div>
-
-          <!-- Version -->
-          <div style="text-align:center;padding:20px 0 4px;font-size:11px;color:rgba(255,255,255,.2)">
-            FarmBot v2.0 · Made with ❤️
-          </div>
-
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ MODAL PERSONNALISATION ══ -->
-  <div id="modal-customize">
-    <div class="customize-sheet">
-      <!-- Drag handle -->
-      <div class="cust-handle"></div>
-
-      <!-- Header -->
-      <div class="cust-header">
-        <div class="cust-header-left">
-          <div class="cust-header-icon">✏️</div>
-          <div>
-            <div class="cust-header-title">Personnaliser</div>
-            <div class="cust-header-sub">Cover · Effets · Badges · Photo</div>
-          </div>
-        </div>
-        <button id="btn-customize-cancel" class="cust-close-btn">×</button>
-      </div>
-
-      <!-- Onglets pill -->
-      <div class="cust-tabs">
-        <button class="cust-tab active" data-tab="colors"><span class="tab-icon">🎨</span>Couleurs</button>
-        <button class="cust-tab" data-tab="fx"><span class="tab-icon">✨</span>Effets</button>
-        <button class="cust-tab" data-tab="badges"><span class="tab-icon">🏅</span>Badges</button>
-        <button class="cust-tab" data-tab="photo"><span class="tab-icon">📸</span>Photo</button>
-      </div>
-
-      <!-- Panneau Couleurs -->
-      <div class="cust-panel" id="cust-panel-colors">
-        <div class="cust-label">Thème du cover</div>
-        <div class="cover-colors" id="cover-colors-grid"></div>
-      </div>
-
-      <!-- Panneau Effets -->
-      <div class="cust-panel" id="cust-panel-fx" style="display:none">
-        <div class="cust-label">Effet animé</div>
-        <div class="cover-effects" id="cover-effects-btns">
-          <button class="fx-btn selected" data-fx="">⬜ Aucun</button>
-          <button class="fx-btn" data-fx="particles">✦ Particules</button>
-          <button class="fx-btn" data-fx="rain">🌧 Pluie</button>
-          <button class="fx-btn" data-fx="snow">❄️ Neige</button>
-          <button class="fx-btn" data-fx="neon">⚡ Néon</button>
-          <button class="fx-btn" data-fx="matrix">🔢 Matrix</button>
-        </div>
-      </div>
-
-      <!-- Panneau Badges -->
-      <div class="cust-panel" id="cust-panel-badges" style="display:none">
-        <div class="cust-label">Boutique badges</div>
-        <div class="badge-shop-grid" id="badge-shop-grid"></div>
-      </div>
-
-      <!-- Panneau Photo -->
-      <div class="cust-panel" id="cust-panel-photo" style="display:none">
-        <div class="cust-label">Photo de profil</div>
-        <div class="cust-photo-zone">
-          <div class="cust-photo-ring">
-            <div class="cust-photo-inner" id="cust-photo-preview">👤</div>
-          </div>
-          <div class="cust-photo-infos">
-            <div class="cust-photo-title">Photo personnalisée</div>
-            <div class="cust-photo-sub">Remplace ta photo Telegram<br>uniquement dans la mini app.</div>
-          </div>
-          <input type="file" id="cust-photo-input" accept="image/*" style="display:none" onchange="onCustPhotoSelected(this)">
-          <button class="cust-photo-btn" onclick="document.getElementById('cust-photo-input').click()">
-            🖼️ Choisir une photo
-          </button>
-          <div id="cust-photo-status"></div>
-        </div>
-      </div>
-
-      <!-- Bouton Enregistrer -->
-      <button id="btn-customize-save" class="cust-save-btn">
-        💾 Enregistrer les modifications
-      </button>
-    </div>
-  </div>
-
-  <!-- ══ PAGE AVATAR ══ -->
-  <div class="page" id="page-avatar">
-    <div class="page-title">🎨 Avatar</div>
-
-    <div class="gender-toggle">
-      <button class="gender-btn active" id="btn-m" onclick="setGender('m')">👦 Masculin</button>
-      <button class="gender-btn" id="btn-f" onclick="setGender('f')">👧 Féminin</button>
-    </div>
-
-    <div id="avatar-stage">
-      <svg id="avatar-canvas" viewBox="0 0 160 210" xmlns="http://www.w3.org/2000/svg"></svg>
-    </div>
-
-    <div class="customizer-tabs" id="ctabs">
-      <button class="ctab active" onclick="showTab('skin')">🎨 Peau</button>
-      <button class="ctab" onclick="showTab('hair')">💇 Coiffure</button>
-      <button class="ctab" onclick="showTab('top')">👕 Haut</button>
-      <button class="ctab" onclick="showTab('bottom')">👖 Bas</button>
-      <button class="ctab" onclick="showTab('shoes')">👟 Shoes</button>
-      <button class="ctab" onclick="showTab('accessory')">😎 Accès.</button>
-    </div>
-
-    <div id="options-container"></div>
-
-    <button class="save-btn" onclick="saveAvatar()">💾 SAUVEGARDER</button>
-  </div>
-
-  <!-- ══ PAGE GAINS ══ -->
-  <style>
-    .gains-card {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 24px;
-      padding: 20px;
-      margin-bottom: 14px;
-      position: relative;
-      overflow: hidden;
-    }
-    .gains-card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 20%; right: 20%;
-      height: 2px;
-      border-radius: 0 0 4px 4px;
-    }
-    .gains-card.daily::before { background: linear-gradient(90deg, #f7c948, #ffb347); }
-    .gains-card.work::before  { background: linear-gradient(90deg, #6c63ff, #a78bfa); }
-
-    .gains-icon-wrap {
-      width: 54px; height: 54px;
-      border-radius: 16px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 26px;
-      margin-bottom: 12px;
-      position: relative;
-    }
-    .gains-icon-wrap.daily { background: rgba(247,201,72,0.12); border: 1px solid rgba(247,201,72,0.25); }
-    .gains-icon-wrap.work  { background: rgba(108,99,255,0.12); border: 1px solid rgba(108,99,255,0.25); }
-
-    @keyframes pulseIcon {
-      0%,100% { transform: scale(1); }
-      50% { transform: scale(1.08); }
-    }
-    .gains-icon-wrap.available { animation: pulseIcon 2s ease-in-out infinite; }
-
-    .gains-label {
-      font-size: 11px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--text2);
-      margin-bottom: 4px;
-    }
-    .gains-title {
-      font-family: 'Bangers', cursive;
-      font-size: 22px;
-      letter-spacing: 1px;
-      color: var(--text);
-      margin-bottom: 2px;
-    }
-    .gains-badge {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 3px 10px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 700;
-      margin-top: 6px;
-    }
-    .gains-badge.avail  { background: rgba(0,200,100,0.15); color: #00c864; border: 1px solid rgba(0,200,100,0.3); }
-    .gains-badge.wait   { background: rgba(255,255,255,0.06); color: var(--text2); border: 1px solid rgba(255,255,255,0.1); }
-
-    .gains-action-btn {
-      width: 100%;
-      margin-top: 14px;
-      padding: 15px;
-      border-radius: 28px;
-      border: none;
-      font-family: 'Nunito', sans-serif;
-      font-size: 15px;
-      font-weight: 900;
-      letter-spacing: .3px;
-      cursor: pointer;
-      transition: all 0.2s cubic-bezier(.4,0,.2,1);
-      position: relative;
-      overflow: hidden;
-    }
-    .gains-action-btn.daily-active {
-      background: var(--accent);
-      color: #000;
-      box-shadow: 0 2px 16px rgba(247,201,72,0.35);
-    }
-    .gains-action-btn.work-active {
-      background: #6c63ff;
-      color: #fff;
-      box-shadow: 0 2px 16px rgba(108,99,255,0.35);
-    }
-    .gains-action-btn:disabled {
-      background: rgba(255,255,255,0.06) !important;
-      color: var(--text2) !important;
-      box-shadow: none !important;
-      cursor: not-allowed;
-    }
-    .gains-action-btn:not(:disabled):active { transform: scale(.96); box-shadow: none !important; }
-
-    .gains-result-box {
-      margin-top: 10px;
-      min-height: 22px;
-      text-align: center;
-      font-size: 13px;
-      font-weight: 700;
-      border-radius: 10px;
-      padding: 0 8px;
-    }
-
-    /* ── DIPLÔMES ── */
-    .dip-track {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-      position: relative;
-      padding-left: 36px;
-    }
-    .dip-track::before {
-      content: '';
-      position: absolute;
-      left: 17px; top: 24px; bottom: 24px;
-      width: 2px;
-      background: linear-gradient(to bottom, rgba(247,201,72,0.5), rgba(108,99,255,0.5), rgba(255,107,107,0.5), rgba(0,200,100,0.5));
-    }
-    .dip-node {
-      position: relative;
-      padding: 14px 16px 14px 20px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 16px;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      transition: all 0.3s;
-    }
-    .dip-node.obtained {
-      background: rgba(247,201,72,0.05);
-      border-color: rgba(247,201,72,0.2);
-    }
-    .dip-node.obtained:nth-child(2) { border-color: rgba(108,99,255,0.25); background: rgba(108,99,255,0.05); }
-    .dip-node.obtained:nth-child(3) { border-color: rgba(255,107,107,0.25); background: rgba(255,107,107,0.05); }
-    .dip-node.obtained:nth-child(4) { border-color: rgba(0,200,100,0.25); background: rgba(0,200,100,0.05); }
-
-    .dip-dot {
-      position: absolute;
-      left: -28px;
-      width: 16px; height: 16px;
-      border-radius: 50%;
-      border: 2px solid rgba(255,255,255,0.2);
-      background: #0d1117;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 8px;
-      top: 50%; transform: translateY(-50%);
-    }
-    .dip-dot.done { border-color: var(--accent); background: rgba(247,201,72,0.2); }
-    .dip-dot.done::after { content: '✓'; color: var(--accent); font-size: 9px; font-weight: 900; }
-
-    .dip-emoji { font-size: 30px; line-height: 1; flex-shrink: 0; }
-    .dip-info { flex: 1; }
-    .dip-name { font-weight: 900; font-size: 15px; color: var(--text); }
-    .dip-sub { font-size: 11px; color: var(--text2); margin-top: 3px; }
-    .dip-check { font-size: 18px; }
-
-    @keyframes dipGlow {
-      0%,100% { box-shadow: 0 0 0 rgba(247,201,72,0); }
-      50% { box-shadow: 0 0 16px rgba(247,201,72,0.2); }
-    }
-    .dip-node.obtained { animation: dipGlow 3s ease-in-out infinite; }
-
-    .dip-domain-pill {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: rgba(108,99,255,0.1);
-      border: 1px solid rgba(108,99,255,0.25);
-      border-radius: 20px;
-      padding: 8px 16px;
-      font-size: 13px;
-      font-weight: 700;
-      color: #a78bfa;
-      margin-bottom: 18px;
-    }
-  </style>
-
-  <div class="page" id="page-gains">
-    <div class="page-title">💰 Gains</div>
-    <div id="gains-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="gains-content" style="display:none">
-
-      <!-- Daily -->
-      <div class="gains-card daily">
-        <div class="gains-icon-wrap daily" id="daily-icon-wrap">🎁</div>
-        <div class="gains-label">Bonus quotidien</div>
-        <div class="gains-title">Coffre du jour</div>
-        <span class="gains-badge avail" id="daily-badge" style="display:none">✦ Disponible maintenant</span>
-        <span class="gains-badge wait" id="daily-badge-wait" style="display:none">⏳ <span id="daily-cooldown">Demain</span></span>
-        <button id="daily-btn" class="gains-action-btn daily-active" onclick="claimDaily()">🎁 RÉCUPÉRER</button>
-        <div class="gains-result-box" id="daily-result"></div>
-      </div>
-
-      <!-- Work -->
-      <div class="gains-card work">
-        <div class="gains-icon-wrap work" id="work-icon-wrap">💼</div>
-        <div class="gains-label">Travail</div>
-        <div class="gains-title">Gagner sa vie</div>
-        <span class="gains-badge avail" id="work-badge" style="display:none">✦ Prêt à travailler</span>
-        <span class="gains-badge wait" id="work-badge-wait" style="display:none">⏳ Repos — <span id="work-cooldown">—</span></span>
-        <button id="work-btn" class="gains-action-btn work-active" onclick="claimWork()">💼 TRAVAILLER</button>
-        <div class="gains-result-box" id="work-result"></div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- ══ PAGE DIPLOMES ══ -->
-  <div class="page" id="page-diplomes">
-    <div class="page-title">🎓 Diplômes</div>
-    <div id="diplomes-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="diplomes-content" style="display:none">
-      <div id="dip-domain-wrap" style="display:none" class="dip-domain-pill">🎓 <span id="dip-domain">—</span></div>
-      <div class="dip-track" id="diplomes-list"></div>
-      <div id="diplomes-cooldown-card" class="card" style="display:none;margin-top:4px;text-align:center;padding:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);">
-        <div style="font-size:26px;margin-bottom:6px">⏳</div>
-        <div style="font-size:12px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">Prochain examen dans</div>
-        <div style="font-size:24px;font-weight:900;color:var(--accent);margin-top:6px;font-family:'Bangers',cursive;letter-spacing:2px" id="dip-cooldown-val">—</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE SOCIAL HUB ══ -->
-  <div class="page" id="page-social-hub">
-
-    <!-- ── HERO ── -->
-    <div class="sh2-hero">
-      <div class="sh2-hero-orb sh2-orb1"></div>
-      <div class="sh2-hero-orb sh2-orb2"></div>
-      <div class="sh2-hero-orb sh2-orb3"></div>
-      <div class="sh2-hero-top">
-        <div>
-          <div class="sh2-hero-eyebrow">COMMUNAUTÉ</div>
-          <div class="sh2-hero-name" id="sh-greeting">Bonjour 👋</div>
-        </div>
-        <div class="sh2-hero-pills">
-          <div class="sh2-hero-pill sh2-pill-purple" id="sh-rank-badge">🏆 —</div>
-          <div class="sh2-hero-pill sh2-pill-blue" id="sh-fam-badge">👨‍👩‍👧 —</div>
-        </div>
-      </div>
-      <!-- 4 stats inline -->
-      <div class="sh2-stats-row">
-        <div class="sh2-stat" onclick="subTab('ranking','loadRanking')">
-          <div class="sh2-stat-val gold" id="sh-coins">—</div>
-          <div class="sh2-stat-lbl">Fortune</div>
-        </div>
-        <div class="sh2-stat-sep"></div>
-        <div class="sh2-stat" onclick="subTab('ranking','loadRanking')">
-          <div class="sh2-stat-val" style="color:#a29bfe" id="sh-rank-val">—</div>
-          <div class="sh2-stat-lbl">Rang</div>
-        </div>
-        <div class="sh2-stat-sep"></div>
-        <div class="sh2-stat" onclick="subTab('famille','loadFamille')">
-          <div class="sh2-stat-val" style="color:#74b9ff" id="sh-fam-val">—</div>
-          <div class="sh2-stat-lbl">Famille</div>
-        </div>
-        <div class="sh2-stat-sep"></div>
-        <div class="sh2-stat" onclick="subTab('invitations','loadInvitations')">
-          <div class="sh2-stat-val" style="color:#fd79a8" id="sh-inv-val">—</div>
-          <div class="sh2-stat-lbl">Invitations</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── PODIUM ── -->
-    <div class="sh2-section-label">TOP FORTUNE <span class="sh2-label-line"></span></div>
-    <div class="sh2-podium" id="sh-top3">
-      <div class="sh2-podium-loading">Chargement…</div>
-    </div>
-
-    <!-- ── EN LIGNE ── -->
-    <div class="sh2-section-label" style="margin-top:18px">EN LIGNE <span class="sh2-label-line"></span></div>
-    <div id="sh-online-list" style="display:flex;flex-wrap:wrap;gap:12px;padding:4px 0 6px;">
-      <div style="color:var(--text2);font-size:12px;padding:10px 0;">Chargement…</div>
-    </div>
-
-    <!-- ── RÉSEAU ── -->
-    <div class="sh2-section-label" style="margin-top:18px">RÉSEAU <span class="sh2-label-line"></span></div>
-
-    <div class="sh2-card-wide sh2-c-blue" onclick="subTab('famille','loadFamille')">
-      <div class="sh2-card-wide-glow" style="background:#74b9ff"></div>
-      <div class="sh2-card-wide-left">
-        <div class="sh2-card-wide-icon" style="background:rgba(116,185,255,.15);border-color:rgba(116,185,255,.3)">👨‍👩‍👧</div>
-        <div>
-          <div class="sh2-card-wide-name" style="color:#74b9ff">Famille</div>
-          <div class="sh2-card-wide-sub">Conjoint·e · Parents · Enfants · Amis</div>
-        </div>
-      </div>
-      <div class="sh2-card-wide-arrow">›</div>
-    </div>
-
-    <div class="sh2-card-wide sh2-c-gold" onclick="subTab('ranking','loadRanking')">
-      <div class="sh2-card-wide-glow" style="background:#f7c948"></div>
-      <div class="sh2-card-wide-left">
-        <div class="sh2-card-wide-icon" style="background:rgba(247,201,72,.15);border-color:rgba(247,201,72,.3)">🏆</div>
-        <div>
-          <div class="sh2-card-wide-name" style="color:#f7c948">Classement</div>
-          <div class="sh2-card-wide-sub">Fortune · Famille · Entreprise</div>
-        </div>
-      </div>
-      <div class="sh2-card-wide-arrow">›</div>
-    </div>
-
-    <!-- ── EMPLOI ── -->
-    <div class="sh2-section-label" style="margin-top:6px">EMPLOI <span class="sh2-label-line"></span></div>
-
-    <div class="sh2-card-wide sh2-c-teal" onclick="subTab('entreprises','loadEntreprises')">
-      <div class="sh2-card-wide-glow" style="background:#00cec9"></div>
-      <div class="sh2-card-wide-left">
-        <div class="sh2-card-wide-icon" style="background:rgba(0,206,201,.15);border-color:rgba(0,206,201,.3)">🏢</div>
-        <div>
-          <div class="sh2-card-wide-name" style="color:#00cec9">Entreprises</div>
-          <div class="sh2-card-wide-sub">Toutes les boîtes · Postuler · Recruter</div>
-        </div>
-      </div>
-      <div class="sh2-card-wide-arrow">›</div>
-    </div>
-
-  </div>
-
-  <!-- ══ PAGE FAMILLE ══ -->
-  <div class="page" id="page-famille">
-    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="subTab('social-hub','')">← Social</button></div>
-    <div class="page-title">👨‍👩‍👧 Famille</div>
-    <div id="fam-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="fam-content" style="display:none">
-      <div id="fam-name-card" style="display:none;text-align:center;padding:14px 0 6px;">
-        <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text2);margin-bottom:4px">Nom de famille</div>
-        <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--accent);letter-spacing:2px" id="fam-name">—</div>
-      </div>
-      <div id="fam-sections"></div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE CLASSEMENT ══ -->
-  <div class="page" id="page-ranking">
-    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="subTab('social-hub','')">← Social</button></div>
-    <div class="page-title">🏆 Classement</div>
-    <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px" id="rank-tabs">
-      <button class="rank-tab-btn active" onclick="rankTab('coins',this)">💰 Fortune</button>
-      <button class="rank-tab-btn" onclick="rankTab('family',this)">👨‍👩‍👧 Famille</button>
-      <button class="rank-tab-btn" onclick="rankTab('company',this)">🏢 Entreprise</button>
-    </div>
-    <div id="rank-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="rank-list" style="display:none"></div>
-    <div id="rank-myrow" style="display:none;margin-top:10px"></div>
-  </div>
-
-  <!-- ══ PAGE ENTREPRISE ══ -->
-  <div class="page" id="page-company">
-
-    <!-- Pas d'entreprise -->
-    <div id="co-none" style="display:none;text-align:center;padding:50px 20px;">
-      <div style="font-size:64px;margin-bottom:16px;filter:grayscale(1);opacity:.4;">🏗️</div>
-      <div style="color:var(--text2);font-size:15px;font-weight:700;">Aucune entreprise</div>
-      <div style="color:var(--text2);font-size:13px;margin-top:8px;">Utilise <code style="background:var(--card);padding:2px 6px;border-radius:6px;">/postuler</code> sur le bot.</div>
-    </div>
-
-    <!-- Contenu entreprise -->
-    <div id="co-content" style="display:none;">
-
-      <!-- Hero entreprise -->
-      <div class="eco-hero" style="background:linear-gradient(135deg,#0d1117 0%,#1a1a2e 60%,#16213e 100%);margin-bottom:0;border-radius:20px 20px 0 0;">
-        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#ff6b6b,var(--accent4),var(--accent));z-index:3;"></div>
-        <div class="eco-hero-bg" style="opacity:.06;font-size:120px;">🏢</div>
-        <div class="eco-hero-content">
-          <div id="co-frozen-banner" style="display:none;background:rgba(229,85,85,.15);border:1px solid #e55;color:#ff8888;border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;margin-bottom:8px;width:fit-content;">🔒 TRÉSORERIE GELÉE</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
-            <span style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:3px 10px;font-size:10px;color:var(--text2);" id="co-sector">—</span>
-            <span style="background:rgba(247,201,72,.12);border:1px solid rgba(247,201,72,.3);border-radius:20px;padding:3px 10px;font-size:10px;color:var(--accent);font-weight:800;" id="co-role-badge">—</span>
-          </div>
-          <div style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.5px;" id="co-name">—</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:3px;" id="co-level">—</div>
-          <div style="margin-top:4px;" id="co-stars">—</div>
-        </div>
-      </div>
-
-      <!-- Onglets underline style -->
-      <div style="background:var(--card);border-bottom:1px solid var(--border);margin-bottom:12px;">
-        <div style="display:flex;overflow-x:auto;scrollbar-width:none;">
-          <button class="co-tab-btn active" onclick="coTab('general',this)" data-tab="general" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid var(--accent);color:var(--accent);font-weight:800;font-size:11px;cursor:pointer;white-space:nowrap;">📊 Général</button>
-          <button class="co-tab-btn" onclick="coTab('equipe',this)" data-tab="equipe" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">👥 Équipe</button>
-          <button class="co-tab-btn" onclick="coTab('contrats',this)" data-tab="contrats" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📋 Bureau</button>
-          <button class="co-tab-btn" onclick="coTab('auto',this)" data-tab="auto" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">🤖 Auto</button>
-          <button class="co-tab-btn" onclick="coTab('impots',this)" data-tab="impots" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">🏛️ Impôts</button>
-          <button class="co-tab-btn" onclick="coTab('parts',this)" data-tab="parts" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📜 Parts</button>
-          <button class="co-tab-btn" onclick="coTab('candidatures',this)" data-tab="candidatures" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📥 Candidats</button>
-          <button class="co-tab-btn" onclick="coTab('logs',this)" data-tab="logs" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📜 Logs</button>
-        </div>
-      </div>
-
-      <!-- ── ONGLET GÉNÉRAL ── -->
-      <div id="co-tab-general">
-        <!-- Bento finances -->
-        <div class="eco-bento">
-          <div class="eco-bento-cell wide" data-icon="🏦">
-            <div class="eco-bento-label">Trésorerie</div>
-            <div class="eco-bento-val gold" id="co-treasury" style="font-size:22px;">—</div>
-          </div>
-          <div class="eco-bento-cell" data-icon="📈">
-            <div class="eco-bento-label">Valeur</div>
-            <div class="eco-bento-val gold" id="co-value">—</div>
-          </div>
-          <div class="eco-bento-cell" data-icon="💹">
-            <div class="eco-bento-label">Revenu/sem</div>
-            <div class="eco-bento-val green" id="co-weekly">—</div>
-          </div>
-          <div class="eco-bento-cell" data-icon="🛡️">
-            <div class="eco-bento-label">Réserve légale</div>
-            <div class="eco-bento-val" id="co-legal-reserve">—</div>
-          </div>
-          <div class="eco-bento-cell" data-icon="⚠️">
-            <div class="eco-bento-label">Dette fiscale</div>
-            <div class="eco-bento-val red" id="co-taxdebt">—</div>
-          </div>
-        </div>
-
-        <!-- Bento activité -->
-        <div class="eco-section-title">📊 Activité</div>
-        <div class="eco-bento">
-          <div class="eco-bento-cell" data-icon="⌨️">
-            <div class="eco-bento-label">Mes cmds</div>
-            <div class="eco-bento-val" id="co-mycmds">—</div>
-          </div>
-          <div class="eco-bento-cell" data-icon="🔢">
-            <div class="eco-bento-label">Total équipe</div>
-            <div class="eco-bento-val" id="co-totalcmds">—</div>
-          </div>
-          <div class="eco-bento-cell" data-icon="👥">
-            <div class="eco-bento-label">Équipe</div>
-            <div class="eco-bento-val" id="co-emp-count">—</div>
-          </div>
-          <div class="eco-bento-cell" data-icon="📋">
-            <div class="eco-bento-label">Contrats</div>
-            <div class="eco-bento-val" id="co-nb-contrats">—</div>
-          </div>
-        </div>
-
-        <!-- Actions PDG -->
-        <div id="co-pdg-actions" style="display:none;">
-          <div class="eco-section-title">⚡ Actions PDG</div>
-          <div class="eco-action-grid">
-            <button class="eco-action-btn green" onclick="coShowDepot()">
-              <span class="ico">💰</span>Déposer
-            </button>
-            <button class="eco-action-btn red" onclick="coShowRetrait()">
-              <span class="ico">💸</span>Retirer
-            </button>
-          </div>
-        </div>
-
-        <!-- Actionnariat -->
-        <div class="eco-section-title">📜 Actionnariat</div>
-        <div class="eco-row" style="cursor:default;">
-          <span style="font-size:13px;color:var(--text2);">Parts émises</span>
-          <span style="font-size:14px;font-weight:900;" id="co-total-shares">—</span>
-        </div>
-        <div id="co-parts-list"></div>
-      </div>
-
-      <!-- ── ONGLET ÉQUIPE ── -->
-      <div id="co-tab-equipe" style="display:none;">
-        <div class="card" style="margin-top:10px;">
-          <div class="card-title">👥 ÉQUIPE</div>
-          <div id="co-employees-list"><div style="color:var(--text2);font-size:13px;">Chargement...</div></div>
-        </div>
-      </div>
-
-      <!-- ── ONGLET BUREAU DES CONTRATS ── -->
-      <div id="co-tab-contrats" style="display:none;">
-        <div style="color:var(--text2);font-size:12px;text-align:center;padding:10px 0;">Contrats Bureau des Contrats · max 2 simultanés</div>
-        <div id="co-contrats-list" style="margin-top:6px;"></div>
-        <div style="text-align:center;margin-top:10px;">
-          <div style="color:var(--text2);font-size:12px;">Soumettre un dossier : <code>/soumettredossier</code> sur le bot</div>
-        </div>
-      </div>
-
-      <!-- ── ONGLET CONTRATS AUTO ── -->
-      <div id="co-tab-auto" style="display:none;">
-        <div style="color:var(--text2);font-size:12px;text-align:center;padding:10px 0;">Contrats proposés automatiquement par l'IA</div>
-        <div id="co-auto-list" style="margin-top:6px;"></div>
-        <div style="text-align:center;margin-top:10px;">
-          <div style="color:var(--text2);font-size:12px;">Gérer les contrats auto : <code>/mescontratsauto</code></div>
-        </div>
-      </div>
-
-      <!-- ── ONGLET IMPÔTS ── -->
-      <div id="co-tab-impots" style="display:none;">
-        <div id="co-taxes-list" style="margin-top:10px;"></div>
-        <div id="co-tax-pay-zone" style="display:none;margin-top:10px;">
-          <div class="card">
-            <div class="card-title">💳 PAYER LES IMPÔTS</div>
-            <div style="color:var(--text2);font-size:12px;margin-bottom:10px;">Les paiements s'appliquent aux factures les plus anciennes en premier.</div>
-            <input id="co-tax-amount" type="number" placeholder="Montant à payer"
-              style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:15px;margin-bottom:10px;">
-            <button class="btn-success" style="width:100%;" onclick="coPayerImpots()">🏛️ Payer les impôts</button>
-            <div id="co-tax-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:16px;"></div>
-          </div>
-        </div>
-        <div id="co-no-taxes" style="display:none;text-align:center;padding:30px 0;">
-          <div style="font-size:36px;">✅</div>
-          <div style="color:var(--text2);margin-top:8px;">Aucun impôt en attente.</div>
-        </div>
-      </div>
-
-      <!-- ── ONGLET PARTS & OFFRES ── -->
-      <div id="co-tab-parts" style="display:none;">
-        <div class="card" style="margin-top:10px;">
-          <div class="card-title">📜 ACTIONNARIAT</div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-            <span style="font-size:12px;color:var(--text2);">Parts totales : <span id="co-total-shares2" style="color:var(--text1);font-weight:700;">—</span></span>
-          </div>
-          <div id="co-parts-list2"></div>
-        </div>
-        <!-- Acheter des parts (non-PDG) -->
-        <div class="card" style="margin-top:10px;" id="co-buy-shares-card" style="display:none;">
-          <div class="card-title">💼 ACHETER DES PARTS</div>
-          <div style="color:var(--text2);font-size:12px;margin-bottom:10px;">Soumet une offre au PDG. Tes fonds sont bloqués 48h.</div>
-          <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Disponibles : <span id="co-available-shares" style="color:var(--accent);font-weight:700;">—</span> · Prix/part : <span id="co-price-per-share" style="color:var(--accent);font-weight:700;">—</span></div>
-          <input id="co-buy-qty" type="number" min="1" placeholder="Nombre de parts"
-            style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:15px;margin-bottom:8px;">
-          <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Total estimé : <span id="co-buy-total" style="color:var(--accent);font-weight:700;">—</span></div>
-          <button class="btn-primary" style="width:100%;" onclick="coSoumettreOffre()">📩 Soumettre l'offre</button>
-          <div id="co-buy-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:16px;"></div>
-        </div>
-        <!-- Offres en attente (PDG les voit et peut accepter/refuser) -->
-        <div class="card" style="margin-top:10px;" id="co-share-offers-card">
-          <div class="card-title">💼 OFFRES EN ATTENTE</div>
-          <div id="co-share-offers-list"></div>
-        </div>
-      </div>
-
-      <!-- ── ONGLET CANDIDATURES ── -->
-      <div id="co-tab-candidatures" style="display:none;">
-        <div id="co-cands-list" style="margin-top:10px;"></div>
-        <div id="co-no-cands" style="display:none;text-align:center;padding:30px 0;">
-          <div style="font-size:36px;">📥</div>
-          <div style="color:var(--text2);margin-top:8px;">Aucune candidature en attente.</div>
-          <div style="color:var(--text2);font-size:12px;margin-top:4px;">Les joueurs postulent via /postuler</div>
-        </div>
-      </div>
-
-      <!-- ── ONGLET LOGS ── -->
-      <div id="co-tab-logs" style="display:none;">
-        <div class="card" style="margin-top:10px;">
-          <div class="card-title">📜 HISTORIQUE</div>
-          <div id="co-logs-list"><div style="color:var(--text2);font-size:13px;">Chargement...</div></div>
-        </div>
-      </div>
-
-    </div><!-- /co-content -->
-
-    <!-- Modal dépôt -->
-    <div id="co-depot-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:flex-end;">
-      <div style="background:var(--card);border-radius:20px 20px 0 0;padding:24px;width:100%;box-sizing:border-box;">
-        <div style="font-size:17px;font-weight:800;color:var(--text1);margin-bottom:16px;">💰 Déposer en trésorerie</div>
-        <div style="color:var(--text2);font-size:13px;margin-bottom:12px;">Solde disponible : <span id="co-depot-wallet" style="color:var(--accent);font-weight:700;">—</span></div>
-        <input id="co-depot-amount" type="number" placeholder="Montant"
-          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;color:var(--text1);font-size:16px;margin-bottom:12px;">
-        <div style="display:flex;gap:8px;">
-          <button class="btn-outline" style="flex:1;" onclick="coCloseDepot()">Annuler</button>
-          <button class="btn-success" style="flex:1;" onclick="coConfirmDepot()">✅ Déposer</button>
-        </div>
-        <div id="co-depot-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:16px;"></div>
-      </div>
-    </div>
-
-    <!-- Modal retrait -->
-    <div id="co-retrait-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:flex-end;">
-      <div style="background:var(--card);border-radius:20px 20px 0 0;padding:24px;width:100%;box-sizing:border-box;">
-        <div style="font-size:17px;font-weight:800;color:var(--text1);margin-bottom:16px;">💸 Retirer de la trésorerie</div>
-        <div style="color:var(--text2);font-size:13px;margin-bottom:12px;">Trésorerie : <span id="co-retrait-treasury" style="color:var(--accent);font-weight:700;">—</span></div>
-        <input id="co-retrait-amount" type="number" placeholder="Montant"
-          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;color:var(--text1);font-size:16px;margin-bottom:12px;">
-        <div style="display:flex;gap:8px;">
-          <button class="btn-outline" style="flex:1;" onclick="coCloseRetrait()">Annuler</button>
-          <button class="btn-primary" style="flex:1;" onclick="coConfirmRetrait()">💸 Retirer</button>
-        </div>
-        <div id="co-retrait-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:16px;"></div>
-      </div>
-    </div>
-
-  </div><!-- /page-company -->
-
-  <!-- ══ STYLES ÉCONOMIE REDESIGN ══ -->
-  <style>
-  /* ── ECO HERO CARD ── */
-  .eco-hero {
-    position: relative; overflow: hidden;
-    border-radius: 20px; padding: 24px 20px 20px;
-    margin-bottom: 16px; min-height: 130px;
-    display: flex; flex-direction: column; justify-content: flex-end;
-  }
-  .eco-hero::before {
-    content: ''; position: absolute; inset: 0;
-    background: inherit; filter: brightness(1.1);
-    z-index: 0;
-  }
-  .eco-hero-bg {
-    position: absolute; inset: 0; z-index: 1;
-    opacity: .08; font-size: 140px; display: flex;
-    align-items: center; justify-content: flex-end;
-    padding-right: 10px; line-height: 1; pointer-events: none;
-  }
-  .eco-hero-content { position: relative; z-index: 2; }
-  .eco-hero-label {
-    font-size: 10px; font-weight: 800; letter-spacing: 2px;
-    text-transform: uppercase; opacity: .7; margin-bottom: 4px;
-  }
-  .eco-hero-value {
-    font-size: 30px; font-weight: 900; letter-spacing: -1px;
-    line-height: 1;
-  }
-  .eco-hero-sub { font-size: 12px; opacity: .65; margin-top: 4px; }
-
-  /* ── ECO BENTO GRID ── */
-  .eco-bento {
-    display: grid; gap: 10px;
-    grid-template-columns: 1fr 1fr;
-    margin-bottom: 14px;
-  }
-  .eco-bento-cell {
-    background: var(--card); border-radius: 16px;
-    border: 1px solid var(--border);
-    padding: 14px 12px; position: relative; overflow: hidden;
-  }
-  .eco-bento-cell.wide { grid-column: 1 / -1; }
-  .eco-bento-cell::after {
-    content: attr(data-icon);
-    position: absolute; right: 8px; bottom: 4px;
-    font-size: 36px; opacity: .07; line-height: 1;
-    pointer-events: none;
-  }
-  .eco-bento-label {
-    font-size: 9px; font-weight: 800; letter-spacing: 1.5px;
-    text-transform: uppercase; color: var(--text2); margin-bottom: 6px;
-  }
-  .eco-bento-val {
-    font-size: 16px; font-weight: 900; color: var(--text);
-  }
-  .eco-bento-val.gold { color: var(--accent); }
-  .eco-bento-val.green { color: var(--success); }
-  .eco-bento-val.red { color: #ff6b6b; }
-  .eco-bento-val.purple { color: var(--accent4); }
-
-  /* ── ECO SECTION TITLE ── */
-  .eco-section-title {
-    font-size: 10px; font-weight: 800; letter-spacing: 2px;
-    text-transform: uppercase; color: var(--text2);
-    margin: 16px 0 8px; padding-left: 2px;
-    display: flex; align-items: center; gap: 6px;
-  }
-  .eco-section-title::after {
-    content: ''; flex: 1; height: 1px; background: var(--border);
-  }
-
-  /* ── ECO ROW ITEM ── */
-  .eco-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 11px 14px; background: var(--card);
-    border-radius: 13px; margin-bottom: 8px;
-    border: 1px solid var(--border);
-    transition: border-color .2s;
-  }
-  .eco-row:active { border-color: var(--accent); }
-  .eco-row-left { display: flex; align-items: center; gap: 10px; }
-  .eco-row-icon {
-    width: 38px; height: 38px; border-radius: 12px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px; flex-shrink: 0;
-  }
-  .eco-row-name { font-size: 13px; font-weight: 800; color: var(--text); }
-  .eco-row-sub { font-size: 11px; color: var(--text2); margin-top: 1px; }
-  .eco-row-right { text-align: right; }
-  .eco-row-val { font-size: 14px; font-weight: 900; color: var(--text); }
-  .eco-row-tag {
-    font-size: 10px; font-weight: 700; padding: 2px 7px;
-    border-radius: 6px; margin-top: 2px; display: inline-block;
-  }
-
-  /* ── ECO ACTION BTNS ── */
-  .eco-action-grid {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 8px; margin-bottom: 14px;
-  }
-  .eco-action-btn {
-    padding: 14px 10px; border-radius: 20px; border: none;
-    font-size: 12px; font-weight: 800; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center;
-    gap: 5px; transition: transform .15s cubic-bezier(.4,0,.2,1), box-shadow .15s;
-    box-shadow: 0 1px 4px rgba(0,0,0,.25);
-  }
-  .eco-action-btn:active { transform: scale(.93); box-shadow: none; }
-  .eco-action-btn span.ico { font-size: 22px; }
-  .eco-action-btn.green { background: #00b894; color: #fff; }
-  .eco-action-btn.yellow { background: var(--accent); color: #000; }
-  .eco-action-btn.purple { background: #a29bfe; color: #000; }
-  .eco-action-btn.red { background: #e17055; color: #fff; }
-  .eco-action-btn.blue { background: #0984e3; color: #fff; }
-  .eco-action-btn.dark { background: var(--card2); color: var(--text); border: 1px solid var(--border); box-shadow: none; }
-
-  /* ── ECO PILL TABS ── */
-  .eco-pill-tabs {
-    display: flex; gap: 8px; overflow-x: auto;
-    scrollbar-width: none; padding-bottom: 2px; margin-bottom: 14px;
-  }
-  .eco-pill-tabs::-webkit-scrollbar { display: none; }
-  .eco-pill {
-    flex-shrink: 0; padding: 8px 20px; border-radius: 30px;
-    font-size: 13px; font-weight: 800; cursor: pointer;
-    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-    color: var(--text2); transition: all .2s cubic-bezier(.4,0,.2,1);
-    white-space: nowrap;
-  }
-  .eco-pill.active {
-    background: var(--accent); border-color: var(--accent); color: #000;
-    box-shadow: 0 2px 10px rgba(247,201,72,.3);
-  }
-
-  /* ── ECO INPUT ── */
-  .eco-input {
-    width: 100%; box-sizing: border-box;
-    padding: 12px 14px; border-radius: 13px;
-    border: 1.5px solid var(--border); background: var(--card);
-    color: var(--text); font-size: 14px; font-weight: 700;
-    outline: none; margin-bottom: 10px;
-    transition: border-color .2s;
-  }
-  .eco-input:focus { border-color: var(--accent); }
-
-  /* ── ECO SUBMIT BTN ── */
-  .eco-submit {
-    width: 100%; padding: 16px; border-radius: 28px; border: none;
-    background: var(--accent);
-    color: #000; font-size: 15px; font-weight: 900;
-    cursor: pointer; transition: transform .15s, box-shadow .15s;
-    margin-top: 4px;
-    box-shadow: 0 2px 12px rgba(247,201,72,.3);
-  }
-  .eco-submit:active { transform: scale(.97); box-shadow: none; opacity: .9; }
-
-  /* ── SLIDE TRANSITION ── */
-  .page.eco-slide-in {
-    animation: ecoSlideIn .25s cubic-bezier(.4,0,.2,1) both;
-  }
-  @keyframes ecoSlideIn {
-    from { opacity: 0; transform: translateX(18px); }
-    to   { opacity: 1; transform: translateX(0); }
-  }
-
-  /* ── ASSET CARD MARCHÉ ── */
-  .asset-card {
-    background: var(--card); border-radius: 16px;
-    border: 1px solid var(--border); padding: 14px;
-    margin-bottom: 8px; display: flex;
-    align-items: center; justify-content: space-between;
-    cursor: pointer; transition: border-color .18s, transform .15s;
-  }
-  .asset-card:active { transform: scale(.98); border-color: var(--accent); }
-  .asset-icon {
-    width: 42px; height: 42px; border-radius: 13px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 20px; flex-shrink: 0; margin-right: 12px;
-  }
-  .asset-name { font-size: 13px; font-weight: 800; }
-  .asset-cat { font-size: 10px; color: var(--text2); margin-top: 2px; }
-  .asset-price { font-size: 14px; font-weight: 900; color: var(--accent); text-align: right; }
-  .asset-risk { font-size: 10px; margin-top: 2px; text-align: right; }
-
-  /* ── CONTRAT CARD ── */
-  .contrat-card {
-    background: var(--card); border-radius: 16px;
-    border: 1px solid var(--border); padding: 14px;
-    margin-bottom: 10px; position: relative; overflow: hidden;
-  }
-  .contrat-progress-bar {
-    height: 4px; border-radius: 4px; background: var(--border);
-    margin-top: 10px; overflow: hidden;
-  }
-  .contrat-progress-fill {
-    height: 100%; border-radius: 4px;
-    background: linear-gradient(90deg, var(--accent), #00b894);
-    transition: width .4s ease;
-  }
-  </style>
-
-  <!-- ══ HUB ÉCONOMIE CSS ══ -->
-  <style>
-  /* ── ECO PUSH PAGES ── */
-  .eco-push-page {
-    display: none; position: fixed; inset: 0; z-index: 200;
-    background: var(--bg); overflow-y: auto; padding-bottom: 20px;
-    transform: translateX(100%);
-    transition: transform .28s cubic-bezier(.4,0,.2,1);
-  }
-  .eco-push-page.open {
-    display: block; transform: translateX(0);
-    animation: pushIn .28s cubic-bezier(.4,0,.2,1) both;
-  }
-  @keyframes pushIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-  .eco-push-header {
-    position: sticky; top: 0; z-index: 10;
-    display: flex; align-items: center; gap: 12px;
-    padding: 14px 16px 12px;
-    background: rgba(15,15,26,.92); backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
-  }
-  .eco-push-back {
-    width: 36px; height: 36px; border-radius: 50%;
-    border: 1.5px solid var(--border); background: var(--card);
-    color: var(--text); font-size: 18px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; transition: background .15s;
-  }
-  .eco-push-back:active { background: var(--accent); color: #000; }
-  .eco-push-title { font-size: 17px; font-weight: 900; color: var(--text); }
-  .eco-push-content { padding: 16px; }
-
-  /* ── HUB LAYOUT ── */
-  /* ══ ECO HUB REDESIGN ══ */
-  #page-eco-hub-legacy { display: none; }
-
-  /* HERO */
-  .eco-hero-card {
-    background: #141428; border: 1px solid rgba(0,212,212,.18);
-    border-radius: 22px; padding: 20px 18px 16px;
-    margin-bottom: 12px; position: relative; overflow: hidden;
-  }
-  .eco-hero-card::before {
-    content:''; position:absolute; inset:0;
-    background: radial-gradient(ellipse at 85% -5%, rgba(0,212,212,.09) 0%, transparent 55%);
-    pointer-events:none;
-  }
-  .eco-hero-eyebrow { font-size:10px;font-weight:900;color:#00d4d4;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:6px; }
-  .eco-hero-amount { font-family:'Courier New',monospace;font-size:36px;font-weight:900;color:#f0f0f0;letter-spacing:-1px;line-height:1; }
-  .eco-hero-amount sup { font-size:17px;color:rgba(240,240,240,.38);margin-left:4px;font-family:'Nunito',sans-serif; }
-  .eco-hero-sub-lbl { font-size:10px;color:rgba(240,240,240,.3);margin-top:4px;margin-bottom:12px; }
-  .eco-sparkline { width:100%;height:36px;display:block;margin-bottom:12px; }
-  .eco-splits { display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px; }
-  .eco-split { background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:11px;padding:8px 9px; }
-  .eco-split-lbl { font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:rgba(240,240,240,.3);margin-bottom:3px; }
-  .eco-split-val { font-family:'Courier New',monospace;font-size:12px;font-weight:900; }
-
-  /* QUICK ACTIONS */
-  .eco-qactions { display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:12px; }
-  .eco-qbtn { background:#141428;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:10px 4px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;transition:transform .1s;-webkit-tap-highlight-color:transparent; }
-  .eco-qbtn:active { transform:scale(.94); }
-  .eco-qbtn-icon { width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px; }
-  .eco-qbtn-lbl { font-size:9px;font-weight:800;color:rgba(240,240,240,.38);letter-spacing:.3px;text-align:center; }
-
-  /* ACCORDION */
-  .eco-acc-list { display:flex;flex-direction:column;gap:8px; }
-  .eco-acc-item { background:#141428;border:1px solid rgba(255,255,255,.07);border-radius:18px;overflow:hidden;transition:border-color .2s; }
-  .eco-acc-item.open { border-color:rgba(0,212,212,.22); }
-  .eco-acc-head { display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none; }
-  .eco-acc-head:active { background:rgba(255,255,255,.03); }
-  .eco-acc-icon { width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0; }
-  .eco-acc-info { flex:1;min-width:0; }
-  .eco-acc-name { font-size:14px;font-weight:900;color:#f0f0f0; }
-  .eco-acc-sub { font-size:10px;color:rgba(240,240,240,.35);font-weight:700;margin-top:2px; }
-  .eco-acc-right { display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0; }
-  .eco-acc-val { font-family:'Courier New',monospace;font-size:13px;font-weight:900; }
-  .eco-acc-chevron { font-size:16px;color:rgba(240,240,240,.25);transition:transform .25s;flex-shrink:0;margin-left:6px; }
-  .eco-acc-item.open .eco-acc-chevron { transform:rotate(180deg); }
-  .eco-acc-notif { background:#ff6b6b;color:#fff;font-size:8px;font-weight:900;padding:2px 6px;border-radius:20px;animation:ecoNotifPulse 1.5s infinite; }
-  @keyframes ecoNotifPulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,107,107,.5)} 50%{box-shadow:0 0 0 5px rgba(255,107,107,0)} }
-  .eco-acc-body { max-height:0;overflow:hidden;transition:max-height .32s cubic-bezier(0.4,0,0.2,1); }
-  .eco-acc-item.open .eco-acc-body { max-height:700px; }
-  .eco-acc-inner { padding:0 16px 16px;border-top:1px solid rgba(255,255,255,.05); }
-
-  /* inside body */
-  .eco-stat-row { display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05); }
-  .eco-stat-row:last-of-type { border-bottom:none; }
-  .eco-stat-key { font-size:12px;color:rgba(240,240,240,.4);font-weight:700; }
-  .eco-stat-v { font-family:'Courier New',monospace;font-size:13px;font-weight:900; }
-  .eco-metrics-grid { display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin:12px 0 10px; }
-  .eco-metric-cell { background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center; }
-  .eco-metric-v { font-family:'Courier New',monospace;font-size:12px;font-weight:900;color:#f7c948; }
-  .eco-metric-l { font-size:8px;color:rgba(240,240,240,.3);font-weight:700;text-transform:uppercase;letter-spacing:.8px;margin-top:2px; }
-  .eco-badge-row { display:flex;gap:6px;flex-wrap:wrap;margin-top:8px; }
-  .eco-ebadge { font-size:9px;font-weight:900;padding:3px 8px;border-radius:20px;letter-spacing:.4px; }
-  .eco-acc-btn { width:100%;margin-top:12px;padding:10px;border-radius:12px;border:none;cursor:pointer;font-size:12px;font-weight:900;letter-spacing:.5px;transition:opacity .15s;-webkit-tap-highlight-color:transparent; }
-  .eco-acc-btn:active { opacity:.7; }
-  .eco-mini-item { display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05); }
-  .eco-mini-item:last-of-type { border-bottom:none; }
-  .eco-mini-tag { font-size:10px;font-weight:700;color:rgba(240,240,240,.35); }
-  .eco-mini-val { font-family:'Courier New',monospace;font-size:12px;font-weight:900; }
-  .eco-prog-bar { height:4px;background:rgba(255,255,255,.07);border-radius:99px;margin-top:7px;overflow:hidden; }
-  .eco-prog-fill { height:100%;border-radius:99px; }
-  .eco-contrat-item { padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05); }
-  .eco-contrat-item:last-of-type { border-bottom:none; }
-  .eco-contrat-title { font-size:11px;font-weight:800;color:#f0f0f0;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-  .eco-contrat-row { display:flex;justify-content:space-between;align-items:center; }
-  .eco-contrat-pct { font-size:10px;color:rgba(240,240,240,.35); }
-  .eco-contrat-reward { font-family:'Courier New',monospace;font-size:11px;font-weight:900;color:#fdcb6e; }
-  .eco-claim-badge { background:rgba(85,239,196,.1);border:1px solid rgba(85,239,196,.25);color:#55efc4;font-size:9px;font-weight:900;padding:2px 7px;border-radius:20px; }
-
-  /* ── ECO HUB HERO ── */
-  #page-eco-hub { padding: 0 0 30px; overflow-y: auto; background: var(--bg); }
-  .ehub-hero {
-    background: linear-gradient(160deg, #060d1a 0%, #0c1829 45%, #071220 100%);
-    padding: 22px 18px 18px;
-    border-bottom: 1px solid rgba(0,212,212,.12);
-    position: relative; overflow: hidden;
-  }
-  .ehub-hero::before {
-    content: ''; position: absolute; top: -60px; right: -40px;
-    width: 200px; height: 200px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(0,212,212,.08) 0%, transparent 70%);
-    pointer-events: none;
-  }
-  .ehub-hero-grid { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
-  .ehub-hero-label { font-size: 10px; font-weight: 900; color: rgba(0,212,212,.6); letter-spacing: 2.5px; text-transform: uppercase; margin-bottom: 6px; }
-  .ehub-hero-amount {
-    font-family: 'Courier New', monospace; font-size: 38px; font-weight: 900;
-    color: #f0f0f0; letter-spacing: -1.5px; line-height: 1;
-  }
-  .ehub-hero-amount sup { font-size: 16px; color: rgba(240,240,240,.3); margin-left: 3px; font-family: 'Nunito', sans-serif; font-weight: 700; }
-  .ehub-hero-sub { font-size: 10px; color: rgba(240,240,240,.25); margin-top: 5px; font-weight: 700; letter-spacing: .5px; }
-  .ehub-hero-pulse {
-    width: 10px; height: 10px; border-radius: 50%; background: #00d4d4; flex-shrink: 0; margin-top: 6px;
-    box-shadow: 0 0 0 0 rgba(0,212,212,.5);
-    animation: ehubPulse 2s infinite;
-  }
-  @keyframes ehubPulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,212,212,.5)} 50%{box-shadow:0 0 0 8px rgba(0,212,212,0)} }
-  /* Splits */
-  .ehub-splits { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-  .ehub-split-item { display: flex; flex-direction: column; gap: 5px; }
-  .ehub-split-bar-wrap { height: 3px; background: rgba(255,255,255,.06); border-radius: 99px; overflow: hidden; }
-  .ehub-split-bar { height: 100%; border-radius: 99px; transition: width .8s cubic-bezier(.4,0,.2,1); }
-  .ehub-split-lbl { font-size: 9px; font-weight: 800; color: rgba(240,240,240,.3); text-transform: uppercase; letter-spacing: 1px; }
-  .ehub-split-val { font-family: 'Courier New', monospace; font-size: 11px; font-weight: 900; }
-  /* Quick actions */
-  .ehub-qgrid {
-    display: grid; grid-template-columns: repeat(5,1fr); gap: 8px;
-    padding: 14px 14px 0;
-  }
-  .ehub-qbtn {
-    background: none; border: none; padding: 0; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 5px;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .ehub-qbtn:active .ehub-qicon { transform: scale(.88); opacity: .7; }
-  .ehub-qicon {
-    width: 46px; height: 46px; border-radius: 14px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 20px; transition: transform .12s, opacity .12s;
-    backdrop-filter: blur(10px);
-  }
-  .ehub-qlbl { font-size: 9px; font-weight: 800; color: rgba(240,240,240,.35); letter-spacing: .3px; text-align: center; }
-  /* Accordéons */
-  .eco-acc-list { display: flex; flex-direction: column; gap: 8px; padding: 14px 14px 0; }
-
-  /* keep nav badge */
-
-  .hub-wallet-card { display:none; }
-  .nav-notif-badge {
-    position: absolute; top: 2px; right: 2px;
-    background: #ff6b6b; color: #fff;
-    font-size: 9px; font-weight: 900;
-    min-width: 14px; height: 14px; border-radius: 7px;
-    display: flex; align-items: center; justify-content: center;
-    padding: 0 3px; pointer-events: none;
-    box-shadow: 0 2px 6px rgba(255,107,107,.6);
-  }
-  .nav-btn { position: relative; }
-
-  /* legacy – keep shimmer for company accent */
-  @keyframes shimmer { 0%{background-position:0%} 100%{background-position:200%} }
-
-  /* OLD HUB CLASSES – hidden, kept for JS compat */
-  .hub-wallet-card,
-  .hub-pay-banner { display:none!important; }
-
-  .hub-wallet-card {
-    border-radius: 28px; padding: 26px 22px 22px;
-    background: linear-gradient(145deg, rgba(0,184,148,.18) 0%, rgba(13,13,30,.85) 40%, rgba(8,24,30,.9) 100%);
-    border: 1px solid rgba(85,239,196,.22);
-    margin-bottom: 16px; position: relative; overflow: hidden;
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    box-shadow: 0 8px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
-  }
-  .hub-wallet-glow {
-    position: absolute; top: -40px; right: -40px; width: 160px; height: 160px;
-    border-radius: 50%; background: radial-gradient(circle, rgba(85,239,196,.18) 0%, transparent 70%);
-    pointer-events: none;
-  }
-  .hub-wallet-glow2 {
-    position: absolute; bottom: -30px; left: 20px; width: 100px; height: 100px;
-    border-radius: 50%; background: radial-gradient(circle, rgba(0,206,201,.1) 0%, transparent 70%);
-    pointer-events: none;
-  }
-  .hub-wallet-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
-  .hub-wallet-icon-wrap {
-    width: 44px; height: 44px; border-radius: 14px;
-    background: rgba(85,239,196,.15); border: 1px solid rgba(85,239,196,.25);
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  }
-  .hub-wallet-label {
-    font-size: 10px; font-weight: 800; letter-spacing: 2.5px;
-    text-transform: uppercase; color: rgba(85,239,196,.7); margin-bottom: 4px;
-  }
-  .hub-wallet-amount {
-    font-size: 38px; font-weight: 900; color: #fff; letter-spacing: -2px;
-    line-height: 1; text-shadow: 0 0 40px rgba(85,239,196,.3);
-  }
-  .hub-wallet-amount-unit { font-size: 20px; font-weight: 700; color: rgba(255,255,255,.5); margin-left: 4px; }
-  .hub-wallet-sub { font-size: 11px; color: rgba(255,255,255,.35); margin-top: 4px; }
-  .hub-wallet-actions { display: flex; gap: 10px; margin-top: 20px; }
-  .hub-wallet-btn {
-    flex: 1; padding: 13px 8px; border-radius: 28px; border: none;
-    font-size: 12px; font-weight: 800; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    transition: transform .15s, opacity .15s;
-    letter-spacing: .3px;
-  }
-  .hub-wallet-btn:active { transform: scale(.96); opacity: .85; }
-  .hub-wallet-btn.wsend {
-    background: #00b894;
-    color: #fff; box-shadow: 0 2px 12px rgba(0,184,148,.3);
-  }
-  .hub-wallet-btn.whist {
-    background: rgba(255,255,255,.07); color: rgba(255,255,255,.75);
-    border: 1px solid rgba(255,255,255,.12);
-  }
-
-  /* ── HUB SECTION ── */
-  .hub-section { margin-bottom: 24px; }
-  .hub-section-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 12px; padding-left: 2px;
-  }
-  .hub-section-title {
-    font-size: 13px; font-weight: 900; color: var(--text);
-    letter-spacing: .3px;
-    display: flex; align-items: center; gap: 8px;
-  }
-  .hub-section-dot {
-    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-  }
-  .hub-section-dot.bank { background: #55efc4; box-shadow: 0 0 8px rgba(85,239,196,.8); }
-  .hub-section-dot.market { background: #74b9ff; box-shadow: 0 0 8px rgba(116,185,255,.8); }
-  .hub-section-dot.company { background: #f7c948; box-shadow: 0 0 8px rgba(247,201,72,.8); }
-  .hub-section-dot.parts { background: #00cec9; box-shadow: 0 0 8px rgba(0,206,201,.8); }
-  .hub-section-dot.contrats { background: #fdcb6e; box-shadow: 0 0 8px rgba(253,203,110,.8); }
-  .hub-section-see-all {
-    font-size: 12px; font-weight: 800; color: var(--accent);
-    cursor: pointer; padding: 5px 14px; border-radius: 20px;
-    background: rgba(247,201,72,0.1); border: 1px solid rgba(247,201,72,0.2);
-    transition: background .15s;
-  }
-  .hub-section-see-all:active { background: rgba(247,201,72,0.2); }
-
-  /* ── HORIZONTAL SCROLL CARDS ── */
-  .hub-scroll-row {
-    display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px;
-    scrollbar-width: none;
-  }
-  .hub-scroll-row::-webkit-scrollbar { display: none; }
-
-  /* ── GLASS ENTITY CARDS ── */
-  .hub-card {
-    flex-shrink: 0; width: 150px; border-radius: 20px;
-    background: rgba(255,255,255,.04);
-    border: 1px solid rgba(255,255,255,.09);
-    padding: 16px 14px; cursor: pointer; position: relative;
-    transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
-    overflow: hidden;
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 2px 12px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);
-  }
-  .hub-card:active { transform: translateY(-4px) scale(1.02); box-shadow: 0 12px 32px rgba(0,0,0,.5); }
-  .hub-card-accent { position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 20px 20px 0 0; }
-  .hub-card-icon-wrap {
-    width: 38px; height: 38px; border-radius: 12px; margin-bottom: 12px;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-  }
-  .hub-card-icon-wrap svg { width: 20px; height: 20px; }
-  .hub-card-name { font-size: 12px; font-weight: 900; color: var(--text); margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .hub-card-val { font-size: 16px; font-weight: 900; line-height: 1; }
-  .hub-card-sub { font-size: 10px; color: var(--text2); margin-top: 3px; }
-  .hub-card-badge {
-    position: absolute; top: 12px; right: 12px;
-    background: #ff6b6b; color: #fff;
-    font-size: 9px; font-weight: 900; min-width: 18px; height: 18px;
-    border-radius: 9px; display: flex; align-items: center; justify-content: center;
-    padding: 0 5px; box-shadow: 0 2px 8px rgba(255,107,107,.5);
-  }
-  .hub-card.bank-accent { border-color: rgba(85,239,196,.2); }
-  .hub-card.bank-accent .hub-card-accent { background: linear-gradient(90deg, #00b894, #55efc4); }
-  .hub-card.bank-accent .hub-card-icon-wrap { background: rgba(85,239,196,.12); border: 1px solid rgba(85,239,196,.2); }
-  .hub-card.bank-accent .hub-card-val { color: #55efc4; }
-  .hub-card.market-accent { border-color: rgba(116,185,255,.2); }
-  .hub-card.market-accent .hub-card-accent { background: linear-gradient(90deg, #0984e3, #74b9ff); }
-  .hub-card.market-accent .hub-card-icon-wrap { background: rgba(116,185,255,.12); border: 1px solid rgba(116,185,255,.2); }
-  .hub-card.market-accent .hub-card-val { color: #74b9ff; }
-  .hub-card.parts-accent { border-color: rgba(0,206,201,.2); }
-  .hub-card.parts-accent .hub-card-accent { background: linear-gradient(90deg, #00b894, #00cec9); }
-  .hub-card.parts-accent .hub-card-icon-wrap { background: rgba(0,206,201,.12); border: 1px solid rgba(0,206,201,.2); }
-  .hub-card.parts-accent .hub-card-val { color: #00cec9; }
-  .hub-card.contrat-accent { border-color: rgba(253,203,110,.2); }
-  .hub-card.contrat-accent .hub-card-accent { background: linear-gradient(90deg, #fdcb6e, #e17055); }
-  .hub-card.contrat-accent .hub-card-icon-wrap { background: rgba(253,203,110,.12); border: 1px solid rgba(253,203,110,.2); }
-  .hub-card.contrat-accent .hub-card-val { color: #fdcb6e; }
-  .hub-card.add-card {
-    border-style: dashed; border-color: rgba(255,255,255,.1);
-    background: rgba(255,255,255,.02); display: flex;
-    flex-direction: column; align-items: center; justify-content: center;
-    gap: 8px; height: 120px;
-  }
-  .hub-card.add-card .add-icon { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.3); font-size: 18px; }
-  .hub-card.add-card .add-label { font-size: 11px; color: rgba(255,255,255,.3); font-weight: 700; text-align: center; line-height: 1.4; }
-
-  /* ── COMPANY HUB CARD (pleine largeur) ── */
-  .hub-company-card {
-    border-radius: 22px; padding: 18px 18px 16px;
-    background: rgba(247,201,72,.05);
-    border: 1px solid rgba(247,201,72,.18);
-    cursor: pointer; position: relative; overflow: hidden;
-    transition: transform .2s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .2s;
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 4px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06);
-  }
-  .hub-company-card:active { transform: scale(.99); border-color: rgba(247,201,72,.4); box-shadow: 0 8px 32px rgba(0,0,0,.5); }
-  .hub-company-accent { position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 22px 22px 0 0; background: linear-gradient(90deg, #f7c948, #e17055, #f7c948); background-size: 200%; animation: shimmer 3s linear infinite; }
-  @keyframes shimmer { 0% {background-position: 0%} 100% {background-position: 200%} }
-  .hub-company-glow { position: absolute; top: -20px; right: -20px; width: 100px; height: 100px; border-radius: 50%; background: radial-gradient(circle, rgba(247,201,72,.12) 0%, transparent 70%); pointer-events: none; }
-  .hub-company-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; margin-top: 6px; }
-  .hub-company-logo { width: 50px; height: 50px; border-radius: 16px; background: rgba(247,201,72,.1); display: flex; align-items: center; justify-content: center; font-size: 26px; flex-shrink: 0; border: 1px solid rgba(247,201,72,.2); }
-  .hub-company-name { font-size: 16px; font-weight: 900; color: var(--text); }
-  .hub-company-role { font-size: 11px; color: rgba(247,201,72,.8); font-weight: 700; margin-top: 3px; letter-spacing: .5px; }
-  .hub-company-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-  .hub-company-stat { background: rgba(255,255,255,.04); border-radius: 12px; padding: 10px 8px; text-align: center; border: 1px solid rgba(255,255,255,.06); }
-  .hub-company-stat-val { font-size: 14px; font-weight: 900; color: #f7c948; }
-  .hub-company-stat-label { font-size: 9px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-top: 3px; }
-
-  /* ── NOTIFICATION BADGE NAV ── */
-  .nav-notif-badge {
-    position: absolute; top: 2px; right: 2px;
-    background: #ff6b6b; color: #fff;
-    font-size: 9px; font-weight: 900;
-    min-width: 14px; height: 14px; border-radius: 7px;
-    display: flex; align-items: center; justify-content: center;
-    padding: 0 3px; pointer-events: none;
-    box-shadow: 0 2px 6px rgba(255,107,107,.6);
-  }
-  .nav-btn { position: relative; }
-
-  /* ── VIREMENT RAPIDE (hub) ── */
-  .hub-pay-banner {
-    border-radius: 18px; padding: 16px 18px;
-    background: rgba(162,155,254,.07);
-    border: 1px solid rgba(162,155,254,.15);
-    display: flex; align-items: center; gap: 14px;
-    cursor: pointer; margin-bottom: 24px;
-    transition: transform .18s cubic-bezier(.34,1.56,.64,1), border-color .18s, box-shadow .18s;
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 2px 16px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.05);
-  }
-  .hub-pay-banner:active { transform: scale(.98); border-color: rgba(162,155,254,.4); box-shadow: 0 6px 24px rgba(108,92,231,.25); }
-  .hub-pay-icon-wrap {
-    width: 42px; height: 42px; border-radius: 13px; flex-shrink: 0;
-    background: rgba(162,155,254,.15); border: 1px solid rgba(162,155,254,.2);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .hub-pay-icon-wrap svg { width: 22px; height: 22px; }
-  .hub-pay-text-title { font-size: 14px; font-weight: 900; color: var(--text); }
-  .hub-pay-text-sub { font-size: 11px; color: var(--text2); margin-top: 3px; }
-  .hub-pay-arrow { margin-left: auto; color: rgba(162,155,254,.6); font-size: 20px; font-weight: 300; flex-shrink: 0; }
-  </style>
-
-  <!-- ══ PAGE HUB ÉCONOMIE ══ -->
-  <div class="page" id="page-eco-hub">
-
-    <!-- ══ HERO TERMINAL ══ -->
-    <div class="ehub-hero">
-      <div class="ehub-hero-grid">
-        <div>
-          <div class="ehub-hero-label">Fortune nette</div>
-          <div class="ehub-hero-amount" id="hub-wallet-amount">—<sup>$</sup></div>
-          <div class="ehub-hero-sub" id="ehub-hero-sub">Poche · Banque · Portfolio</div>
-        </div>
-        <div class="ehub-hero-pulse" id="ehub-pulse-dot"></div>
-      </div>
-      <!-- Barres de répartition -->
-      <div class="ehub-splits">
-        <div class="ehub-split-item">
-          <div class="ehub-split-bar-wrap"><div class="ehub-split-bar" id="ehub-bar-pocket" style="background:#00d4d4;width:0%"></div></div>
-          <div class="ehub-split-lbl">Poche</div>
-          <div class="ehub-split-val" style="color:#00d4d4" id="hub-split-pocket">—</div>
-        </div>
-        <div class="ehub-split-item">
-          <div class="ehub-split-bar-wrap"><div class="ehub-split-bar" id="ehub-bar-bank" style="background:#55efc4;width:0%"></div></div>
-          <div class="ehub-split-lbl">Banque</div>
-          <div class="ehub-split-val" style="color:#55efc4" id="hub-split-bank">—</div>
-        </div>
-        <div class="ehub-split-item">
-          <div class="ehub-split-bar-wrap"><div class="ehub-split-bar" id="ehub-bar-portfolio" style="background:#74b9ff;width:0%"></div></div>
-          <div class="ehub-split-lbl">Portfolio</div>
-          <div class="ehub-split-val" style="color:#74b9ff" id="hub-split-portfolio">—</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ══ QUICK ACTIONS 5 boutons ══ -->
-    <div class="ehub-qgrid">
-      <button class="ehub-qbtn" onclick="ecoGo('pay')">
-        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(0,212,212,.15),rgba(0,212,212,.05));border:1px solid rgba(0,212,212,.25)">💸</div>
-        <div class="ehub-qlbl">Envoyer</div>
-      </button>
-      <button class="ehub-qbtn" onclick="ecoGo('bank')">
-        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(85,239,196,.15),rgba(85,239,196,.05));border:1px solid rgba(85,239,196,.25)">🏦</div>
-        <div class="ehub-qlbl">Banque</div>
-      </button>
-      <button class="ehub-qbtn" onclick="ecoGo('market')">
-        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(116,185,255,.15),rgba(116,185,255,.05));border:1px solid rgba(116,185,255,.25)">📈</div>
-        <div class="ehub-qlbl">Marché</div>
-      </button>
-      <button class="ehub-qbtn" onclick="ecoGo('company')">
-        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(247,201,72,.15),rgba(247,201,72,.05));border:1px solid rgba(247,201,72,.25)">🏢</div>
-        <div class="ehub-qlbl">Entreprise</div>
-      </button>
-      <button class="ehub-qbtn" onclick="ecoGo('parts')">
-        <div class="ehub-qicon" style="background:linear-gradient(135deg,rgba(162,155,254,.15),rgba(162,155,254,.05));border:1px solid rgba(162,155,254,.25)">📜</div>
-        <div class="ehub-qlbl">Parts</div>
-      </button>
-    </div>
-
-    <!-- ══ ACCORDÉONS ══ -->
-    <div class="eco-acc-list">
-
-      <!-- BANQUE -->
-      <div class="eco-acc-item" id="eco-acc-bank">
-        <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-bank')">
-          <div class="eco-acc-icon" style="background:rgba(85,239,196,.1);border:1px solid rgba(85,239,196,.18)">🏦</div>
-          <div class="eco-acc-info">
-            <div class="eco-acc-name">Banque</div>
-            <div class="eco-acc-sub" id="eco-acc-bank-sub">Chargement…</div>
-          </div>
-          <div class="eco-acc-right">
-            <div class="eco-acc-val" style="color:#55efc4" id="eco-acc-bank-val">—</div>
-          </div>
-          <div class="eco-acc-chevron">⌄</div>
-        </div>
-        <div class="eco-acc-body">
-          <div class="eco-acc-inner" id="eco-acc-bank-body">
-            <div style="color:var(--text2);font-size:12px;padding:12px 0;text-align:center">Chargement…</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- MARCHÉ / PORTFOLIO -->
-      <div class="eco-acc-item" id="eco-acc-market">
-        <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-market')">
-          <div class="eco-acc-icon" style="background:rgba(116,185,255,.1);border:1px solid rgba(116,185,255,.18)">📈</div>
-          <div class="eco-acc-info">
-            <div class="eco-acc-name">Marché · Portfolio</div>
-            <div class="eco-acc-sub" id="eco-acc-market-sub">Chargement…</div>
-          </div>
-          <div class="eco-acc-right">
-            <div class="eco-acc-val" style="color:#74b9ff" id="eco-acc-market-val">—</div>
-            <div style="font-size:10px;font-weight:800" id="eco-acc-market-pnl"></div>
-          </div>
-          <div class="eco-acc-chevron">⌄</div>
-        </div>
-        <div class="eco-acc-body">
-          <div class="eco-acc-inner" id="eco-acc-market-body">
-            <div style="color:var(--text2);font-size:12px;padding:12px 0;text-align:center">Chargement…</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ENTREPRISE(S) -->
-      <div id="hub-company-area">
-        <div class="eco-acc-item" style="opacity:.5">
-          <div class="eco-acc-head">
-            <div class="eco-acc-icon" style="background:rgba(247,201,72,.08)">🏢</div>
-            <div class="eco-acc-info"><div class="eco-acc-name">Entreprise</div><div class="eco-acc-sub">Chargement…</div></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- PARTS -->
-      <div class="eco-acc-item" id="eco-acc-parts">
-        <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-parts')">
-          <div class="eco-acc-icon" style="background:rgba(0,206,201,.1);border:1px solid rgba(0,206,201,.18)">📜</div>
-          <div class="eco-acc-info">
-            <div class="eco-acc-name">Parts détenues</div>
-            <div class="eco-acc-sub" id="eco-acc-parts-sub">Chargement…</div>
-          </div>
-          <div class="eco-acc-right">
-            <div class="eco-acc-val" style="color:#00cec9" id="eco-acc-parts-val">—</div>
-          </div>
-          <div class="eco-acc-chevron">⌄</div>
-        </div>
-        <div class="eco-acc-body">
-          <div class="eco-acc-inner" id="eco-acc-parts-body">
-            <div style="color:var(--text2);font-size:12px;padding:12px 0;text-align:center">Chargement…</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- CONTRATS BC -->
-      <div class="eco-acc-item" id="eco-acc-contrats">
-        <div class="eco-acc-head" onclick="ecoAccToggle('eco-acc-contrats')">
-          <div class="eco-acc-icon" style="background:rgba(253,203,110,.1);border:1px solid rgba(253,203,110,.18)">📋</div>
-          <div class="eco-acc-info">
-            <div class="eco-acc-name">Contrats Bureau</div>
-            <div class="eco-acc-sub" id="eco-acc-contrats-sub">Chargement…</div>
-          </div>
-          <div class="eco-acc-right" id="eco-acc-contrats-right"></div>
-          <div class="eco-acc-chevron">⌄</div>
-        </div>
-        <div class="eco-acc-body">
-          <div class="eco-acc-inner" id="eco-acc-contrats-body">
-            <div style="color:var(--text2);font-size:12px;padding:12px 0;text-align:center">Chargement…</div>
-          </div>
-        </div>
-      </div>
-
-    </div><!-- /acc-list -->
-
-    <!-- Padding bas -->
-    <div style="height:24px"></div>
-
-    <!-- Legacy compat -->
-    <div id="hub-bank-cards" style="display:none"></div>
-    <div id="hub-market-cards" style="display:none"></div>
-    <div id="hub-parts-cards" style="display:none"></div>
-    <div id="hub-contrats-cards" style="display:none"></div>
-  </div>
-
-  <!-- ══ PAGE MARCHÉ ══ -->
-  <div class="page" id="page-market">
-
-    <!-- Hero -->
-    <div class="eco-hero" style="background:linear-gradient(135deg,#0d1b2a 0%,#1a2744 50%,#0d2137 100%);">
-      <div class="eco-hero-bg">📈</div>
-      <div class="eco-hero-content">
-        <div class="eco-hero-label" style="color:#74b9ff">Marché Financier</div>
-        <div class="eco-hero-value" style="color:#fff">Investissements</div>
-        <div class="eco-hero-sub" style="color:#74b9ff">Achète · Vends · Génère des revenus</div>
-      </div>
-    </div>
-
-    <!-- Bento résumé portfolio -->
-    <div class="eco-bento">
-      <div class="eco-bento-cell" data-icon="📊">
-        <div class="eco-bento-label">Positions</div>
-        <div class="eco-bento-val" id="mk-count">—</div>
-      </div>
-      <div class="eco-bento-cell" data-icon="💰">
-        <div class="eco-bento-label">Investi</div>
-        <div class="eco-bento-val gold" id="mk-invested">—</div>
-      </div>
-      <div class="eco-bento-cell" data-icon="📉">
-        <div class="eco-bento-label">Valeur actuelle</div>
-        <div class="eco-bento-val gold" id="mk-current">—</div>
-      </div>
-      <div class="eco-bento-cell" data-icon="🎯">
-        <div class="eco-bento-label">P&amp;L</div>
-        <div class="eco-bento-val" id="mk-pnl">—</div>
-      </div>
-    </div>
-
-    <!-- Pill tabs -->
-    <div class="eco-pill-tabs">
-      <button class="eco-pill active" onclick="mktTab('catalog',this)">🏪 Catalogue</button>
-      <button class="eco-pill" onclick="mktTab('portfolio',this)">💼 Mon portfolio</button>
-    </div>
-
-    <!-- Catalogue -->
-    <div id="mkt-catalog">
-      <div id="mkt-cat-filter" style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none;"></div>
-      <input id="mkt-search" type="text" placeholder="🔍 Rechercher un asset…"
-        oninput="mktFilter()" class="eco-input"/>
-      <div id="mkt-assets-list"></div>
-    </div>
-
-    <!-- Portfolio -->
-    <div id="mkt-portfolio" style="display:none;">
-      <div id="mk-positions-list"></div>
-    </div>
-
-    <!-- Modal achat -->
-    <div id="mkt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:flex-end;">
-      <div style="background:var(--card);border-radius:22px 22px 0 0;padding:24px;width:100%;box-sizing:border-box;max-height:85vh;overflow-y:auto;border-top:2px solid var(--border);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-          <div id="modal-title" style="font-size:17px;font-weight:900;">Asset</div>
-          <button onclick="closeMktModal()" style="background:var(--card2);border:none;color:var(--text2);font-size:16px;width:30px;height:30px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
-        </div>
-        <div id="modal-desc" style="color:var(--text2);font-size:13px;margin-bottom:14px;line-height:1.5;"></div>
-        <div class="eco-bento" style="margin-bottom:14px;">
-          <div class="eco-bento-cell" data-icon="💵"><div class="eco-bento-label">Prix</div><div class="eco-bento-val gold" id="modal-price">—</div></div>
-          <div class="eco-bento-cell" data-icon="⚠️"><div class="eco-bento-label">Risque</div><div class="eco-bento-val" id="modal-risk">—</div></div>
-          <div class="eco-bento-cell" data-icon="📊"><div class="eco-bento-label">Volatilité</div><div class="eco-bento-val" id="modal-vol">—</div></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-          <button onclick="mktQty(-1)" style="width:40px;height:40px;border-radius:50%;background:var(--border);border:none;color:var(--text);font-size:20px;cursor:pointer;flex-shrink:0;">−</button>
-          <input id="modal-qty" type="number" value="1" min="1" oninput="mktUpdateTotal()"
-            style="flex:1;text-align:center;background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:10px;color:var(--text);font-size:18px;font-weight:900;">
-          <button onclick="mktQty(1)" style="width:40px;height:40px;border-radius:50%;background:var(--border);border:none;color:var(--text);font-size:20px;cursor:pointer;flex-shrink:0;">+</button>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:rgba(247,201,72,.08);border-radius:12px;border:1px solid rgba(247,201,72,.2);margin-bottom:16px;">
-          <span style="font-size:12px;color:var(--text2);font-weight:700;">TOTAL</span>
-          <span style="font-size:18px;font-weight:900;color:var(--accent);" id="modal-total">—</span>
-        </div>
-        <button id="modal-buy-btn" onclick="confirmBuy()" class="eco-submit">✅ Acheter maintenant</button>
-        <div id="modal-msg" style="text-align:center;margin-top:10px;font-size:13px;color:var(--text2);min-height:18px;"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE BANQUE ══ -->
-  <div class="page" id="page-bank">
-
-    <!-- Hero -->
-    <div class="eco-hero" style="background:linear-gradient(135deg,#0a1628 0%,#1a2744 50%,#0d2a1a 100%);">
-      <div class="eco-hero-bg">🏦</div>
-      <div class="eco-hero-content">
-        <div class="eco-hero-label" style="color:#55efc4">Banque</div>
-        <div class="eco-hero-value" style="color:#fff" id="bank-wallet">—</div>
-        <div class="eco-hero-sub" style="color:#55efc4">Solde en poche disponible</div>
-      </div>
-    </div>
-
-    <!-- Actions rapides -->
-    <div class="eco-action-grid">
-      <button class="eco-action-btn green" onclick="openBankModal('deposit')">
-        <span class="ico">⬇️</span>Déposer
-      </button>
-      <button class="eco-action-btn yellow" onclick="openBankModal('withdraw')">
-        <span class="ico">⬆️</span>Retirer
-      </button>
-      <button class="eco-action-btn blue" onclick="openBankModal('loan')">
-        <span class="ico">💳</span>Emprunter
-      </button>
-      <button class="eco-action-btn dark" onclick="openBankModal('repay')">
-        <span class="ico">✅</span>Rembourser
-      </button>
-    </div>
-
-    <!-- Mes comptes -->
-    <div class="eco-section-title">💰 Mes comptes</div>
-    <div id="bank-accounts-list"><div style="color:var(--text2);font-size:13px;padding:8px 0">Chargement...</div></div>
-
-    <!-- Prêts actifs -->
-    <div id="bank-loans-section" style="display:none;">
-      <div class="eco-section-title">💳 Prêts actifs</div>
-      <div id="bank-loans-list"></div>
-    </div>
-
-    <!-- Ouvrir un compte -->
-    <div class="eco-section-title">🏛️ Ouvrir un compte</div>
-    <div id="bank-open-list"></div>
-  </div>
-
-  <!-- MODAL BANQUE -->
-  <div id="bank-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:300;align-items:flex-end;">
-    <div style="background:var(--card);border-radius:22px 22px 0 0;padding:24px;width:100%;border-top:2px solid var(--accent);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <div id="bank-modal-title" style="font-size:18px;font-weight:900;color:var(--accent);">Dépôt</div>
-        <button onclick="closeBankModal()" style="background:var(--card2);border:none;color:var(--text2);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;">✕</button>
-      </div>
-      <div id="bank-modal-info" style="font-size:12px;color:var(--text2);margin-bottom:14px;"></div>
-      <input id="bank-modal-input" type="number" placeholder="Montant ($)" class="eco-input"/>
-      <div style="display:flex;gap:8px;margin-bottom:14px;">
-        <button onclick="bankQuick(.25)" style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text2);font-size:12px;font-weight:800;cursor:pointer;">25%</button>
-        <button onclick="bankQuick(.5)"  style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text2);font-size:12px;font-weight:800;cursor:pointer;">50%</button>
-        <button onclick="bankQuick(.75)" style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text2);font-size:12px;font-weight:800;cursor:pointer;">75%</button>
-        <button onclick="bankQuick(1)"   style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--accent);background:rgba(247,201,72,.1);color:var(--accent);font-size:12px;font-weight:800;cursor:pointer;">MAX</button>
-      </div>
-      <div style="display:flex;gap:10px;">
-        <button onclick="closeBankModal()" style="flex:1;padding:13px;border-radius:13px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-weight:800;font-size:14px;cursor:pointer;">Annuler</button>
-        <button id="bank-modal-confirm" onclick="confirmBankAction()" class="eco-submit" style="flex:2;margin-top:0;">Confirmer</button>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ══ PAGE FAMILLE ══ -->
-  <div class="page" id="page-garden">
-    <div class="page-title">🌱 Jardin</div>
-    <div id="garden-loading" style="text-align:center;padding:40px;color:var(--text2)">Chargement…</div>
-    <div id="garden-content" style="display:none">
-      <!-- Slots -->
-      <div class="card-title">🪴 MES SLOTS</div>
-      <div id="garden-slots"></div>
-      <!-- Catalogue -->
-      <div class="card-title" style="margin-top:12px">🌿 PLANTER</div>
-      <div id="garden-catalog" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px"></div>
-    </div>
-    <!-- Modal planter -->
-    <div id="garden-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;align-items:flex-end;justify-content:center">
-      <div style="background:var(--card);border-radius:18px 18px 0 0;padding:24px 20px;width:100%;max-width:480px">
-        <div style="font-size:16px;font-weight:800;margin-bottom:16px" id="garden-modal-title">Choisir une plante</div>
-        <div id="garden-modal-plants" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>
-        <button onclick="document.getElementById('garden-modal').style.display='none'" style="width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-size:14px;font-weight:700;cursor:pointer">Annuler</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE CLASSEMENT ══ -->
-  <div class="page" id="page-games">
-
-    <!-- Header Casino -->
-    <div class="casino-header">
-      <span class="casino-deco casino-deco-1">🎰</span>
-      <span class="casino-deco casino-deco-2">🃏</span>
-      <span class="casino-deco casino-deco-3">💎</span>
-      <span class="casino-deco casino-deco-4">🎲</span>
-      <div class="casino-header-title">CASINO</div>
-      <div class="casino-header-sub">Joue · Risque · Gagne</div>
-      <div class="casino-balance-chip">
-        <span class="casino-balance-chip-label">Solde</span>
-        <span id="casino-balance-display">—</span>
-        <span style="font-size:13px;color:rgba(247,201,72,.6)">$</span>
-      </div>
-    </div>
-
-    <!-- GRILLE DE SÉLECTION -->
-    <div id="games-selection">
-      <div class="casino-grid">
-
-        <!-- CRASH -->
-        <div class="game-card game-crash" onclick="openGame('crash')">
-          <div class="game-card-glow"></div>
-          <div class="game-card-top-bar"></div>
-          <div class="game-card-play">▶</div>
-          <span class="game-badge badge-vedette">⭐ Vedette</span>
-          <div class="game-card-art" style="background:linear-gradient(135deg,#1a0a0a 0%,#2d1010 100%);">
-            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="cg1" x1="0" y1="1" x2="1" y2="0"><stop offset="0%" stop-color="#ff6b6b" stop-opacity="0"/><stop offset="100%" stop-color="#ff9f43" stop-opacity=".7"/></linearGradient>
-                <linearGradient id="cg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ff6b6b" stop-opacity=".3"/><stop offset="100%" stop-color="#ff6b6b" stop-opacity="0"/></linearGradient>
-              </defs>
-              <line x1="0" y1="70" x2="160" y2="70" stroke="rgba(255,107,107,.1)" stroke-width="1"/>
-              <line x1="0" y1="45" x2="160" y2="45" stroke="rgba(255,107,107,.06)" stroke-width="1"/>
-              <line x1="53" y1="0" x2="53" y2="90" stroke="rgba(255,107,107,.06)" stroke-width="1"/>
-              <line x1="106" y1="0" x2="106" y2="90" stroke="rgba(255,107,107,.06)" stroke-width="1"/>
-              <path d="M 10 72 Q 50 70 90 52 Q 120 36 130 14 L 130 72 Z" fill="url(#cg2)" opacity=".7"/>
-              <path d="M 10 72 Q 50 70 90 52 Q 120 36 130 14" fill="none" stroke="url(#cg1)" stroke-width="2.5" stroke-linecap="round"/>
-              <g transform="translate(122,18) rotate(-35)">
-                <ellipse cx="0" cy="0" rx="10" ry="4" fill="#f7c948"/>
-                <polygon points="10,0 15,0 10,-2.5" fill="#ffe066"/>
-                <polygon points="-5,-3.5 -11,-9 -10,-3.5 -11,2 -5,2" fill="#fff" opacity=".85"/>
-                <polygon points="-5,2 -11,7 -10,2 -11,-2 -5,-2" fill="#ccc" opacity=".7"/>
-                <polygon points="-11,0 -17,-4 -13,0 -17,4" fill="#ffe066"/>
-                <circle cx="2" cy="-1" r="1.5" fill="#00c8ff" opacity=".85"/>
-                <ellipse cx="-14" cy="0" rx="4" ry="2" fill="#ff6b1a" opacity=".9"/>
-              </g>
-              <text x="138" y="28" font-family="'Bangers',cursive" font-size="18" fill="#ff9f43" opacity=".18" letter-spacing="1">×2.4</text>
-              <circle cx="130" cy="14" r="3.5" fill="#ff4444" opacity=".9"/>
-              <circle cx="130" cy="14" r="7" fill="#ff4444" opacity=".18"/>
-            </svg>
-          </div>
-          <div class="game-card-info">
-            <div class="game-card-name">CRASH</div>
-            <div class="game-card-desc">Cash out avant le crash !</div>
-            <div class="game-card-meta">
-              <span class="game-card-tag">∞× max</span>
-              <span class="game-card-tag">Min 1k$</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- ROUE -->
-        <div class="game-card game-roue" onclick="openGame('roue')">
-          <div class="game-card-glow"></div>
-          <div class="game-card-top-bar"></div>
-          <div class="game-card-play">▶</div>
-          <span class="game-badge badge-chance">🍀 Chance</span>
-          <div class="game-card-art" style="background:linear-gradient(135deg,#0d0a1f 0%,#1a1235 100%);">
-            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <defs><clipPath id="wc"><circle cx="80" cy="47" r="36"/></clipPath></defs>
-              <g clip-path="url(#wc)">
-                <path d="M80 47 L116 47 A36 36 0 0 0 105.4 21.6 Z" fill="#fd79a8" opacity=".9"/>
-                <path d="M80 47 L105.4 21.6 A36 36 0 0 0 80 11 Z" fill="#a29bfe" opacity=".9"/>
-                <path d="M80 47 L80 11 A36 36 0 0 0 54.6 21.6 Z" fill="#55efc4" opacity=".9"/>
-                <path d="M80 47 L54.6 21.6 A36 36 0 0 0 44 47 Z" fill="#f7c948" opacity=".9"/>
-                <path d="M80 47 L44 47 A36 36 0 0 0 54.6 72.4 Z" fill="#ff6b6b" opacity=".9"/>
-                <path d="M80 47 L54.6 72.4 A36 36 0 0 0 80 83 Z" fill="#00b4d8" opacity=".9"/>
-                <path d="M80 47 L80 83 A36 36 0 0 0 105.4 72.4 Z" fill="#6bcb77" opacity=".9"/>
-                <path d="M80 47 L105.4 72.4 A36 36 0 0 0 116 47 Z" fill="#e17055" opacity=".9"/>
-              </g>
-              <g stroke="rgba(0,0,0,.45)" stroke-width="1.2">
-                <line x1="80" y1="47" x2="116" y2="47"/>
-                <line x1="80" y1="47" x2="105.4" y2="21.6"/>
-                <line x1="80" y1="47" x2="80" y2="11"/>
-                <line x1="80" y1="47" x2="54.6" y2="21.6"/>
-                <line x1="80" y1="47" x2="44" y2="47"/>
-                <line x1="80" y1="47" x2="54.6" y2="72.4"/>
-                <line x1="80" y1="47" x2="80" y2="83"/>
-                <line x1="80" y1="47" x2="105.4" y2="72.4"/>
-              </g>
-              <text x="100" y="44" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×3</text>
-              <text x="93" y="30" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×5</text>
-              <text x="68" y="26" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×2</text>
-              <text x="55" y="44" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×0</text>
-              <text x="56" y="64" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×1</text>
-              <text x="68" y="76" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×1</text>
-              <text x="92" y="76" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×2</text>
-              <text x="103" y="64" font-family="'Bangers',cursive" font-size="9" fill="rgba(0,0,0,.7)" text-anchor="middle">×4</text>
-              <circle cx="80" cy="47" r="36" fill="none" stroke="#a29bfe" stroke-width="2.5" opacity=".7"/>
-              <circle cx="80" cy="47" r="8" fill="#1a1235" stroke="#a29bfe" stroke-width="1.8"/>
-              <circle cx="80" cy="47" r="4" fill="#a29bfe"/>
-              <polygon points="80,7 76,0 84,0" fill="#f7c948"/>
-            </svg>
-          </div>
-          <div class="game-card-info">
-            <div class="game-card-name">ROUE</div>
-            <div class="game-card-desc">Tente ta chance</div>
-            <div class="game-card-meta">
-              <span class="game-card-tag">×0 – ×5</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- MINES -->
-        <div class="game-card game-mines" onclick="openGame('mines')">
-          <div class="game-card-glow"></div>
-          <div class="game-card-top-bar"></div>
-          <div class="game-card-play">▶</div>
-          <span class="game-badge badge-strategie">🧠 Stratégie</span>
-          <div class="game-card-art" style="background:linear-gradient(135deg,#061a12 0%,#0b2a1c 100%);">
-            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <!-- grille 5×3 -->
-              <g opacity=".9">
-                <rect x="12" y="10" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-                <rect x="40" y="10" width="24" height="20" rx="4" fill="#1a5c3a" stroke="#55efc4" stroke-width="1.4" stroke-opacity=".8"/>
-                <rect x="68" y="10" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-                <rect x="96" y="10" width="24" height="20" rx="4" fill="#3d0a0a" stroke="#ff4444" stroke-width="1.4" stroke-opacity=".8"/>
-                <rect x="124" y="10" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-
-                <rect x="12" y="35" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-                <rect x="40" y="35" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-                <rect x="68" y="35" width="24" height="20" rx="4" fill="#1a5c3a" stroke="#55efc4" stroke-width="1.4" stroke-opacity=".8"/>
-                <rect x="96" y="35" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-                <rect x="124" y="35" width="24" height="20" rx="4" fill="#1a5c3a" stroke="#55efc4" stroke-width="1.4" stroke-opacity=".8"/>
-
-                <rect x="12" y="60" width="24" height="20" rx="4" fill="#1a5c3a" stroke="#55efc4" stroke-width="1.4" stroke-opacity=".8"/>
-                <rect x="40" y="60" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-                <rect x="68" y="60" width="24" height="20" rx="4" fill="#3d0a0a" stroke="#ff4444" stroke-width="1.4" stroke-opacity=".8"/>
-                <rect x="96" y="60" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-                <rect x="124" y="60" width="24" height="20" rx="4" fill="#0e3d28" stroke="#55efc4" stroke-width=".7" stroke-opacity=".3"/>
-              </g>
-              <!-- Gemmes -->
-              <polygon points="52,19 55,22 52,25 49,22" fill="#55efc4" opacity=".95"/>
-              <polygon points="80,44 83,47 80,50 77,47" fill="#55efc4" opacity=".95"/>
-              <polygon points="136,44 139,47 136,50 133,47" fill="#55efc4" opacity=".95"/>
-              <polygon points="24,69 27,72 24,75 21,72" fill="#55efc4" opacity=".95"/>
-              <!-- Bombes -->
-              <circle cx="108" cy="20" r="5.5" fill="#444"/>
-              <circle cx="108" cy="20" r="4" fill="#666"/>
-              <line x1="108" y1="10" x2="108" y2="14.5" stroke="#888" stroke-width="1.5"/>
-              <circle cx="108" cy="9" r="1.8" fill="#ff6b1a" opacity=".95"/>
-              <circle cx="80" cy="70" r="5.5" fill="#444"/>
-              <circle cx="80" cy="70" r="4" fill="#666"/>
-              <line x1="80" y1="60" x2="80" y2="64.5" stroke="#888" stroke-width="1.5"/>
-              <circle cx="80" cy="59" r="1.8" fill="#ff6b1a" opacity=".95"/>
-            </svg>
-          </div>
-          <div class="game-card-info">
-            <div class="game-card-name">MINES</div>
-            <div class="game-card-desc">Évite les bombes</div>
-            <div class="game-card-meta">
-              <span class="game-card-tag">1–20 💣</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- APPLE -->
-        <div class="game-card game-apple" onclick="openGame('apple')">
-          <div class="game-card-glow"></div>
-          <div class="game-card-top-bar"></div>
-          <div class="game-card-play">▶</div>
-          <span class="game-badge badge-strategie">🎮 Arcade</span>
-          <div class="game-card-art" style="background:linear-gradient(135deg,#091a0a 0%,#112b14 100%);">
-            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <radialGradient id="appleGlow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stop-color="#6bcb77" stop-opacity=".35"/>
-                  <stop offset="100%" stop-color="#6bcb77" stop-opacity="0"/>
-                </radialGradient>
-                <linearGradient id="appleBody" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#8fe399"/>
-                  <stop offset="55%" stop-color="#6bcb77"/>
-                  <stop offset="100%" stop-color="#3f9e4c"/>
-                </linearGradient>
-              </defs>
-              <circle cx="80" cy="46" r="38" fill="url(#appleGlow)"/>
-              <path d="M80 30 C 64 24, 46 34, 47 54 C 48 72, 64 80, 80 80 C 96 80, 112 72, 113 54 C 114 34, 96 24, 80 30 Z" fill="url(#appleBody)"/>
-              <path d="M80 30 C 64 24, 46 34, 47 54 C 48 72, 64 80, 80 80 C 96 80, 112 72, 113 54 C 114 34, 96 24, 80 30 Z" fill="none" stroke="#eafff0" stroke-width="1" stroke-opacity=".15"/>
-              <ellipse cx="68" cy="42" rx="10" ry="14" fill="#eafff0" opacity=".22"/>
-              <path d="M80 30 C 79 24, 82 18, 88 15" fill="none" stroke="#4a8a3f" stroke-width="3" stroke-linecap="round"/>
-              <path d="M88 16 C 96 12, 104 16, 105 23 C 97 25, 90 22, 88 16 Z" fill="#9be36a"/>
-              <text x="118" y="22" font-family="'Bangers',cursive" font-size="16" fill="#6bcb77" opacity=".9" letter-spacing="1">×10</text>
-            </svg>
-          </div>
-          <div class="game-card-info">
-            <div class="game-card-name">APPLE</div>
-            <div class="game-card-desc">Gravis 10 niveaux</div>
-            <div class="game-card-meta">
-              <span class="game-card-tag">10 niv</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- COCKFIGHT -->
-        <div class="game-card game-cockfight" onclick="openGame('cockfight')">
-          <div class="game-card-glow"></div>
-          <div class="game-card-top-bar"></div>
-          <div class="game-card-play">▶</div>
-          <span class="game-badge badge-pvp">⚔️ PvP</span>
-          <div class="game-card-art" style="background:linear-gradient(135deg,#1a0900 0%,#2d1200 100%);">
-            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <ellipse cx="80" cy="80" rx="55" ry="8" fill="rgba(255,107,53,.06)" stroke="rgba(255,107,53,.18)" stroke-width="1"/>
-              <!-- Coq gauche rouge -->
-              <g transform="translate(34,38)">
-                <ellipse cx="0" cy="10" rx="13" ry="9" fill="#c0392b"/>
-                <circle cx="11" cy="1" r="6.5" fill="#c0392b"/>
-                <polygon points="11,-6 9,-13 13,-11 15,-16 17,-10 14,-7" fill="#e74c3c"/>
-                <circle cx="14" cy="0" r="1.8" fill="#fff"/><circle cx="14.5" cy="0" r=".9" fill="#111"/>
-                <polygon points="18,1 23,0 18,3" fill="#f39c12"/>
-                <path d="M -5 6 Q -14 0 -13 9 Q -9 15 0 13" fill="#922b21"/>
-                <line x1="-3" y1="19" x2="-5" y2="29" stroke="#e67e22" stroke-width="2" stroke-linecap="round"/>
-                <line x1="3" y1="19" x2="5" y2="29" stroke="#e67e22" stroke-width="2" stroke-linecap="round"/>
-                <path d="M -13 7 Q -22 0 -20 -7 Q -16 -4 -13 5" fill="#e74c3c"/>
-              </g>
-              <!-- VS -->
-              <text x="80" y="50" font-family="'Bangers',cursive" font-size="18" fill="#ff6b35" text-anchor="middle" opacity=".9">VS</text>
-              <line x1="80" y1="40" x2="75" y2="33" stroke="#f7c948" stroke-width="1.5" opacity=".7"/>
-              <line x1="80" y1="40" x2="85" y2="33" stroke="#f7c948" stroke-width="1.5" opacity=".7"/>
-              <!-- Coq droit bot -->
-              <g transform="translate(126,38) scale(-1,1)">
-                <ellipse cx="0" cy="10" rx="13" ry="9" fill="#7f8c8d"/>
-                <circle cx="11" cy="1" r="6.5" fill="#7f8c8d"/>
-                <polygon points="11,-6 9,-13 13,-11 15,-16 17,-10 14,-7" fill="#95a5a6"/>
-                <circle cx="14" cy="0" r="1.8" fill="#fff"/><circle cx="14.5" cy="0" r=".9" fill="#111"/>
-                <polygon points="18,1 23,0 18,3" fill="#e67e22"/>
-                <path d="M -5 6 Q -14 0 -13 9 Q -9 15 0 13" fill="#6c7a7d"/>
-                <line x1="-3" y1="19" x2="-5" y2="29" stroke="#7f8c8d" stroke-width="2" stroke-linecap="round"/>
-                <line x1="3" y1="19" x2="5" y2="29" stroke="#7f8c8d" stroke-width="2" stroke-linecap="round"/>
-                <path d="M -13 7 Q -22 0 -20 -7 Q -16 -4 -13 5" fill="#95a5a6"/>
-              </g>
-              <rect x="108" y="14" width="22" height="11" rx="3" fill="rgba(127,140,141,.25)" stroke="#7f8c8d" stroke-width=".7"/>
-              <text x="119" y="22.5" font-family="'Nunito',sans-serif" font-size="7.5" fill="#95a5a6" text-anchor="middle" font-weight="800">BOT</text>
-            </svg>
-          </div>
-          <div class="game-card-info">
-            <div class="game-card-name">COCKFIGHT</div>
-            <div class="game-card-desc">Mise sur ton coq !</div>
-            <div class="game-card-meta">
-              <span class="game-card-tag">×1.8</span>
-              <span class="game-card-tag">Min 1k$</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- PPC -->
-        <div class="game-card game-ppc" onclick="openGame('ppc')">
-          <div class="game-card-glow"></div>
-          <div class="game-card-top-bar"></div>
-          <div class="game-card-play">▶</div>
-          <span class="game-badge badge-pvp">⚔️ PvP</span>
-          <div class="game-card-art" style="background:linear-gradient(135deg,#00090f 0%,#001a26 100%);">
-            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <!-- Pierre (gauche) -->
-              <circle cx="30" cy="45" r="22" fill="rgba(0,180,216,.1)" stroke="#00b4d8" stroke-width="1.3" stroke-opacity=".6"/>
-              <ellipse cx="30" cy="47" rx="11" ry="9" fill="#00b4d8" opacity=".85"/>
-              <rect x="21" y="39" width="18" height="8" rx="3.5" fill="#00b4d8" opacity=".85"/>
-              <rect x="22" y="36" width="4.5" height="5.5" rx="1.8" fill="#0096b4" opacity=".9"/>
-              <rect x="28" y="36" width="4.5" height="5.5" rx="1.8" fill="#0096b4" opacity=".9"/>
-              <rect x="34" y="37" width="3.5" height="4.5" rx="1.5" fill="#0096b4" opacity=".9"/>
-              <text x="30" y="74" font-family="'Nunito',sans-serif" font-size="7" fill="#00b4d8" text-anchor="middle" font-weight="900" opacity=".7">PIERRE</text>
-              <!-- Papier (haut) -->
-              <circle cx="80" cy="22" r="22" fill="rgba(162,155,254,.1)" stroke="#a29bfe" stroke-width="1.3" stroke-opacity=".6"/>
-              <rect x="68" y="17" width="22" height="14" rx="2.5" fill="#a29bfe" opacity=".8"/>
-              <line x1="72" y1="17" x2="70" y2="12" stroke="#a29bfe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
-              <line x1="76" y1="17" x2="75" y2="11" stroke="#a29bfe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
-              <line x1="80" y1="17" x2="80" y2="10" stroke="#a29bfe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
-              <line x1="84" y1="17" x2="85" y2="11" stroke="#a29bfe" stroke-width="2.5" stroke-linecap="round" opacity=".85"/>
-              <text x="80" y="50" font-family="'Nunito',sans-serif" font-size="7" fill="#a29bfe" text-anchor="middle" font-weight="900" opacity=".7">PAPIER</text>
-              <!-- Ciseaux (droite) -->
-              <circle cx="130" cy="45" r="22" fill="rgba(253,121,168,.1)" stroke="#fd79a8" stroke-width="1.3" stroke-opacity=".6"/>
-              <line x1="122" y1="37" x2="138" y2="53" stroke="#fd79a8" stroke-width="3.5" stroke-linecap="round" opacity=".85"/>
-              <line x1="138" y1="37" x2="122" y2="53" stroke="#fd79a8" stroke-width="3.5" stroke-linecap="round" opacity=".85"/>
-              <circle cx="130" cy="45" r="4.5" fill="#001220" stroke="#fd79a8" stroke-width="1.4"/>
-              <line x1="123" y1="37" x2="118" y2="31" stroke="#fd79a8" stroke-width="2.5" stroke-linecap="round" opacity=".6"/>
-              <line x1="137" y1="37" x2="142" y2="31" stroke="#fd79a8" stroke-width="2.5" stroke-linecap="round" opacity=".6"/>
-              <text x="130" y="74" font-family="'Nunito',sans-serif" font-size="7" fill="#fd79a8" text-anchor="middle" font-weight="900" opacity=".7">CISEAUX</text>
-            </svg>
-          </div>
-          <div class="game-card-info">
-            <div class="game-card-name">P·P·C</div>
-            <div class="game-card-desc">Pierre Papier Ciseaux</div>
-            <div class="game-card-meta">
-              <span class="game-card-tag">×1.9</span>
-              <span class="game-card-tag">Min 1k$</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- LANCER DE DÉS -->
-        <div class="game-card game-lancer" onclick="openGame('lancer')">
-          <div class="game-card-glow"></div>
-          <div class="game-card-top-bar"></div>
-          <div class="game-card-play">▶</div>
-          <span class="game-badge badge-pvp">🎲 Duel</span>
-          <div class="game-card-art" style="background:linear-gradient(135deg,#0d0a1f 0%,#1a1235 100%);">
-            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <!-- Dé gauche bleu -->
-              <g transform="translate(42,48)">
-                <rect x="-26" y="-26" width="42" height="42" rx="7" fill="#1a1650" stroke="#a29bfe" stroke-width="1.8"/>
-                <polygon points="-26,-26 -18,-36 26,-36 18,-26" fill="#252060" stroke="#a29bfe" stroke-width="1.3"/>
-                <polygon points="16,-26 26,-36 26,6 16,16" fill="#131040" stroke="#a29bfe" stroke-width="1.3"/>
-                <circle cx="-14" cy="-14" r="3.5" fill="#a29bfe" opacity=".95"/>
-                <circle cx="0"   cy="-14" r="3.5" fill="#a29bfe" opacity=".95"/>
-                <circle cx="6"   cy="-14" r="3.5" fill="#a29bfe" opacity=".95"/>
-                <circle cx="-14" cy="2"   r="3.5" fill="#a29bfe" opacity=".95"/>
-                <circle cx="0"   cy="2"   r="3.5" fill="#a29bfe" opacity=".95"/>
-                <circle cx="6"   cy="2"   r="3.5" fill="#a29bfe" opacity=".95"/>
-                <circle cx="-2"  cy="-33" r="2.5" fill="#c0b4ff" opacity=".65"/>
-                <text x="-4" y="28" font-family="'Bangers',cursive" font-size="13" fill="#a29bfe" text-anchor="middle">6</text>
-              </g>
-              <text x="80" y="52" font-family="'Bangers',cursive" font-size="18" fill="#f7c948" text-anchor="middle" opacity=".8">VS</text>
-              <!-- Dé droit rouge -->
-              <g transform="translate(118,48)">
-                <rect x="-26" y="-26" width="42" height="42" rx="7" fill="#2a0a0a" stroke="#ff6b6b" stroke-width="1.8"/>
-                <polygon points="-26,-26 -18,-36 26,-36 18,-26" fill="#3d1010" stroke="#ff6b6b" stroke-width="1.3"/>
-                <polygon points="16,-26 26,-36 26,6 16,16" fill="#220a0a" stroke="#ff6b6b" stroke-width="1.3"/>
-                <circle cx="-14" cy="-12" r="3.5" fill="#ff6b6b" opacity=".95"/>
-                <circle cx="4"   cy="-12" r="3.5" fill="#ff6b6b" opacity=".95"/>
-                <circle cx="-14" cy="4"   r="3.5" fill="#ff6b6b" opacity=".95"/>
-                <circle cx="4"   cy="4"   r="3.5" fill="#ff6b6b" opacity=".95"/>
-                <circle cx="-5"  cy="-33" r="2.5" fill="#ff9090" opacity=".65"/>
-                <circle cx="5"   cy="-33" r="2.5" fill="#ff9090" opacity=".65"/>
-                <text x="-4" y="28" font-family="'Bangers',cursive" font-size="13" fill="#ff6b6b" text-anchor="middle">4</text>
-              </g>
-              <line x1="72" y1="24" x2="82" y2="24" stroke="#a29bfe" stroke-width="1.2" stroke-dasharray="3,2" opacity=".4"/>
-              <line x1="96" y1="24" x2="106" y2="24" stroke="#ff6b6b" stroke-width="1.2" stroke-dasharray="3,2" opacity=".4"/>
-            </svg>
-          </div>
-          <div class="game-card-info">
-            <div class="game-card-name">LANCER DE DÉS</div>
-            <div class="game-card-desc">Le plus haut total gagne</div>
-            <div class="game-card-meta">
-              <span class="game-card-tag">×1.9</span>
-              <span class="game-card-tag">Min 1k$</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- REBET -->
-        <div class="game-card game-rebet" onclick="openGame('rebet')">
-          <div class="game-card-glow"></div>
-          <div class="game-card-top-bar"></div>
-          <div class="game-card-play">▶</div>
-          <span class="game-badge badge-gold">💰 Gold</span>
-          <div class="game-card-art" style="background:linear-gradient(135deg,#1a1000 0%,#2d1e00 100%);">
-            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
-              <!-- Stack gauche (5 pièces) -->
-              <g transform="translate(42,72)">
-                <ellipse cx="0" cy="0" rx="22" ry="7" fill="#f7c948"/>
-                <rect x="-22" y="-7" width="44" height="7" fill="#d4a800"/>
-                <ellipse cx="0" cy="-7" rx="22" ry="7" fill="#ffe566"/>
-                <rect x="-22" y="-17" width="44" height="10" fill="#c09600"/>
-                <ellipse cx="0" cy="-17" rx="22" ry="7" fill="#f7c948"/>
-                <rect x="-22" y="-27" width="44" height="10" fill="#b08600"/>
-                <ellipse cx="0" cy="-27" rx="22" ry="7" fill="#ffe566"/>
-                <rect x="-22" y="-37" width="44" height="10" fill="#a07600"/>
-                <ellipse cx="0" cy="-37" rx="22" ry="7" fill="#f7c948"/>
-                <rect x="-22" y="-47" width="44" height="10" fill="#907000"/>
-                <ellipse cx="0" cy="-47" rx="22" ry="7" fill="#ffe566"/>
-                <text x="0" y="-44" font-family="'Bangers',cursive" font-size="10" fill="#7a5a00" text-anchor="middle" opacity=".7">$</text>
-              </g>
-              <!-- Cercle ×2 -->
-              <circle cx="80" cy="48" r="18" fill="rgba(247,201,72,.1)" stroke="#f7c948" stroke-width="1.8" stroke-opacity=".6"/>
-              <text x="80" y="55" font-family="'Bangers',cursive" font-size="16" fill="#f7c948" text-anchor="middle">×2</text>
-              <!-- Stack droite (7 pièces) -->
-              <g transform="translate(118,72)">
-                <ellipse cx="0" cy="0" rx="25" ry="8" fill="#f7c948"/>
-                <rect x="-25" y="-8" width="50" height="8" fill="#d4a800"/>
-                <ellipse cx="0" cy="-8" rx="25" ry="8" fill="#ffe566"/>
-                <rect x="-25" y="-19" width="50" height="11" fill="#c09600"/>
-                <ellipse cx="0" cy="-19" rx="25" ry="8" fill="#f7c948"/>
-                <rect x="-25" y="-30" width="50" height="11" fill="#b08600"/>
-                <ellipse cx="0" cy="-30" rx="25" ry="8" fill="#ffe566"/>
-                <rect x="-25" y="-41" width="50" height="11" fill="#a07600"/>
-                <ellipse cx="0" cy="-41" rx="25" ry="8" fill="#f7c948"/>
-                <rect x="-25" y="-52" width="50" height="11" fill="#907000"/>
-                <ellipse cx="0" cy="-52" rx="25" ry="8" fill="#ffe566"/>
-                <rect x="-25" y="-63" width="50" height="11" fill="#806000"/>
-                <ellipse cx="0" cy="-63" rx="25" ry="8" fill="#f7c948"/>
-                <rect x="-25" y="-74" width="50" height="11" fill="#706000"/>
-                <ellipse cx="0" cy="-74" rx="25" ry="8" fill="#ffe566"/>
-                <text x="0" y="-71" font-family="'Bangers',cursive" font-size="10" fill="#7a5a00" text-anchor="middle" opacity=".7">$$</text>
-              </g>
-            </svg>
-          </div>
-          <div class="game-card-info">
-            <div class="game-card-name">REBET</div>
-            <div class="game-card-desc">Quitte ou double !</div>
-            <div class="game-card-meta">
-              <span class="game-card-tag">×2 / tour</span>
-              <span class="game-card-tag">Min 5k$</span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-
-    <!-- VUE JEU (cachée par défaut) -->
-    <div id="game-view" style="display:none;padding:16px 16px 0;">
-      <button class="game-back-btn" onclick="backToGameList()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
-        Retour
-      </button>
-
-      <!-- CRASH -->
-      <div id="game-crash" class="game-panel" style="display:none;">
-
-        <!-- Canvas Arena -->
-        <div id="crash-arena" class="card" style="padding:0;position:relative;overflow:hidden;background:#070714;">
-          <canvas id="crash-canvas" width="360" height="200" style="width:100%;display:block;"></canvas>
-
-          <svg id="crash-plane-svg" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"
-            style="position:absolute;width:60px;height:40px;pointer-events:none;display:none;left:20px;bottom:20px;">
-            <ellipse cx="30" cy="20" rx="22" ry="7" fill="#f7c948"/>
-            <polygon points="52,20 60,20 52,16" fill="#ffe066"/>
-            <polygon points="22,18 10,6 8,13 22,20" fill="#fff"/>
-            <polygon points="22,22 10,34 8,27 22,20" fill="#ccc"/>
-            <polygon points="8,20 0,10 6,20 0,30" fill="#ffe066"/>
-            <circle cx="32" cy="18" r="3" fill="#0af" opacity=".8"/>
-            <ellipse id="plane-flame" cx="6" cy="20" rx="6" ry="3" fill="#ff6b1a" opacity=".85"/>
-          </svg>
-          <div id="crash-explosion" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;font-size:80px;pointer-events:none;">💥</div>
-
-          <!-- Overlay phase d'attente -->
-          <div id="crash-waiting-overlay" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(7,7,20,0.85);gap:4px;">
-            <span style="font-family:'Bangers',cursive;font-size:16px;color:var(--text2);letter-spacing:2px;">PROCHAIN ROUND DANS</span>
-            <span id="crash-countdown" style="font-family:'Bangers',cursive;font-size:56px;color:var(--accent);letter-spacing:4px;text-shadow:0 0 24px var(--accent);">10s</span>
-            <span style="font-size:12px;color:var(--text2);">Placez vos mises maintenant !</span>
-          </div>
-        </div>
-
-        <!-- Barre historique -->
-        <div id="crash-history-bar" style="display:flex;gap:6px;padding:8px 4px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;"></div>
-
-        <!-- Contrôles -->
-        <div class="card" style="margin-top:6px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <span style="font-family:'Bangers',cursive;font-size:36px;color:var(--accent);letter-spacing:2px;text-shadow:0 0 20px currentColor;" id="crash-mult-display">x1.00</span>
-            <span id="crash-status-badge" style="font-size:12px;padding:4px 12px;border-radius:20px;background:var(--card2);color:var(--text2);">⏳ En attente</span>
-          </div>
-          <div style="display:flex;gap:8px;margin-bottom:10px;">
-            <input id="crash-mise" type="number" placeholder="Mise ($)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
-            <div style="display:flex;flex-direction:column;gap:4px;">
-              <button onclick="setCrashMise(0.5)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">½</button>
-              <button onclick="setCrashMise(2)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">x2</button>
-            </div>
-          </div>
-          <div style="display:flex;gap:8px;">
-            <button id="crash-bet-btn" onclick="crashBet()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">MISER 🚀</button>
-            <button id="crash-cashout-btn" onclick="crashCashOut()" disabled style="flex:1;padding:13px;border-radius:12px;border:none;background:#1a2a1a;color:#444;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:not-allowed;transition:all .3s;">CASH OUT</button>
-          </div>
-          <div id="crash-result" style="margin-top:10px;text-align:center;font-weight:700;min-height:22px;font-size:15px;"></div>
-        </div>
-
-        <!-- Joueurs live -->
-        <div class="card" style="margin-top:8px;padding:12px;">
-          <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">👥 Joueurs ce round</div>
-          <div id="crash-players-list" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;">
-            <div style="text-align:center;color:var(--text2);font-size:13px;padding:12px;">Aucun joueur pour l'instant…</div>
-          </div>
-        </div>
-
-      </div>
-      <!-- ROUE -->
-      <div id="game-roue" class="game-panel" style="display:none;">
-
-        <!-- Arena roue premium -->
-        <div style="position:relative;background:radial-gradient(ellipse at 50% 30%,#120d2a 0%,#07070f 100%);border-radius:18px;padding:20px 0 8px;overflow:hidden;display:flex;flex-direction:column;align-items:center;gap:0;">
-
-          <!-- Titre neon -->
-          <div style="font-family:'Bangers',cursive;font-size:22px;letter-spacing:4px;color:#f7c948;text-shadow:0 0 14px #f7c948,0 0 40px #f7c94866;margin-bottom:10px;text-align:center;">WHEEL OF FORTUNE</div>
-
-          <!-- Wrapper roue + flèche -->
-          <div style="position:relative;display:inline-block;">
-            <!-- Halo glow derrière la roue -->
-            <div id="roue-halo" style="position:absolute;inset:-18px;border-radius:50%;background:radial-gradient(circle,rgba(247,201,72,0.18) 0%,transparent 70%);pointer-events:none;transition:opacity .3s;"></div>
-            <canvas id="roue-canvas" width="320" height="320" style="display:block;position:relative;z-index:1;"></canvas>
-            <!-- Flèche indicatrice -->
-            <div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);z-index:10;filter:drop-shadow(0 2px 6px #f7c948);">
-              <svg width="28" height="36" viewBox="0 0 28 36"><defs><linearGradient id="arrowG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff7cc"/><stop offset="100%" stop-color="#c8940a"/></linearGradient></defs><polygon points="14,36 0,0 28,0" fill="url(#arrowG)" stroke="#0d0a1f" stroke-width="1"/></svg>
-            </div>
-          </div>
-
-          <!-- Particules victoire -->
-          <canvas id="roue-particles" style="position:absolute;inset:0;pointer-events:none;z-index:20;border-radius:18px;opacity:0;transition:opacity .3s;" width="360" height="400"></canvas>
-        </div>
-
-        <!-- Contrôles -->
-        <div class="card" style="margin-top:10px;">
-          <!-- Dernier résultat badge -->
-          <div id="roue-last-seg" style="display:none;text-align:center;margin-bottom:10px;"></div>
-
-          <div style="display:flex;gap:8px;margin-bottom:10px;">
-            <input id="roue-mise" type="number" placeholder="Mise ($)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
-            <div style="display:flex;flex-direction:column;gap:4px;">
-              <button onclick="document.getElementById('roue-mise').value=Math.floor((+document.getElementById('roue-mise').value||0)*0.5)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">½</button>
-              <button onclick="document.getElementById('roue-mise').value=Math.min((+document.getElementById('roue-mise').value||0)*2,6600000)" style="padding:5px 10px;border-radius:8px;border:none;background:var(--card2);color:var(--text2);font-size:11px;cursor:pointer;">x2</button>
-            </div>
-          </div>
-          <button id="roue-spin-btn" onclick="spinRoue()" style="width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#f7c948 0%,#ff9f43 50%,#ff6b6b 100%);color:#000;font-family:'Bangers',cursive;font-size:22px;letter-spacing:3px;cursor:pointer;box-shadow:0 4px 20px rgba(247,201,72,0.4);transition:transform .1s,box-shadow .1s;" onmousedown="this.style.transform='scale(.97)'" onmouseup="this.style.transform='scale(1)'">🎡 TOURNER !</button>
-          <div id="roue-result" style="margin-top:12px;text-align:center;font-weight:700;min-height:24px;font-size:15px;"></div>
-        </div>
-      </div>
-      <!-- MINES -->
-      <div id="game-mines" class="game-panel" style="display:none;">
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <span id="mines-mult-label" style="font-family:'Bangers',cursive;font-size:24px;color:var(--accent);">x1.00</span>
-            <span id="mines-gain-label" style="font-size:13px;color:var(--text2);">Gain potentiel : 0 $</span>
-          </div>
-          <div id="mines-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;"></div>
-          <div id="mines-controls">
-            <div style="display:flex;gap:8px;margin-bottom:8px;">
-              <input id="mines-mise" type="number" placeholder="Mise ($)" min="100" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
-              <select id="mines-nb" style="padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;outline:none;">
-                <option value="1">1 💣</option>
-                <option value="3" selected>3 💣</option>
-                <option value="5">5 💣</option>
-                <option value="10">10 💣</option>
-                <option value="15">15 💣</option>
-                <option value="20">20 💣</option>
-              </select>
-            </div>
-            <button onclick="minesStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💣 JOUER</button>
-          </div>
-          <button id="mines-cashout-btn" onclick="minesCashOut()" style="display:none;width:100%;padding:13px;border-radius:12px;border:none;background:var(--success);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💰 ENCAISSER</button>
-          <div id="mines-result" style="margin-top:10px;text-align:center;font-weight:700;min-height:22px;font-size:15px;"></div>
-        </div>
-      </div>
-
-      <!-- APPLE OF FORTUNE -->
-      <div id="game-apple" class="game-panel" style="display:none;">
-        <div class="card">
-          <div style="text-align:center;margin-bottom:12px;">
-            <span id="apple-level-label" style="font-family:'Bangers',cursive;font-size:22px;color:var(--accent);">Niveau 1/10</span>
-            <span style="margin:0 10px;color:var(--text2);">—</span>
-            <span id="apple-mult-label" style="font-family:'Bangers',cursive;font-size:22px;color:var(--success);">x1.50</span>
-          </div>
-          <div id="apple-row" style="display:flex;gap:8px;justify-content:center;margin-bottom:14px;"></div>
-          <div style="text-align:center;margin-bottom:10px;">
-            <span id="apple-gain-label" style="font-size:13px;color:var(--text2);">Gain encaissable : —</span>
-          </div>
-          <div id="apple-controls">
-            <div style="display:flex;gap:8px;margin-bottom:8px;">
-              <input id="apple-mise" type="number" placeholder="Mise (min 50 000 $)" min="50000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
-            </div>
-            <button onclick="appleStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#4caf50,#2e7d32);color:#fff;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🍏 JOUER</button>
-          </div>
-          <button id="apple-cashout-btn" onclick="appleCashOut()" style="display:none;width:100%;padding:13px;border-radius:12px;border:none;background:var(--success);color:#000;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💰 ENCAISSER</button>
-          <div id="apple-result" style="margin-top:10px;text-align:center;font-weight:700;min-height:22px;font-size:15px;"></div>
-        </div>
-        <div class="card" style="margin-top:10px;">
-          <div style="font-size:12px;color:var(--text2);line-height:1.6;">
-            <b style="color:var(--accent);">Comment jouer :</b><br>
-            Chaque rangée contient 5 pommes. Choisis-en une 🍏 pour avancer au niveau suivant, évite les 🍎 bombes !<br>
-            <b>Niv 1-2 :</b> 2 bombes | <b>Niv 3-8 :</b> 3 bombes | <b>Niv 9-10 :</b> 4 bombes
-          </div>
-        </div>
-      </div>
-
-      <!-- REBET — Quitte ou double -->
-      <div id="game-rebet" class="game-panel" style="display:none;">
-        <div class="card" style="text-align:center;">
-          <div style="font-family:'Bangers',cursive;font-size:28px;color:var(--accent);letter-spacing:2px;margin-bottom:6px;">🎲 REBET</div>
-          <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Quitte ou double — récupère ou remise !</div>
-          <div id="rebet-display" style="display:none;margin-bottom:16px;">
-            <div style="background:var(--card2);border-radius:12px;padding:14px;">
-              <div style="font-size:13px;color:var(--text2);">Tour</div>
-              <div id="rebet-round" style="font-family:'Bangers',cursive;font-size:36px;color:var(--accent);">1</div>
-              <div style="font-size:13px;color:var(--text2);margin-top:8px;">Gains actuels</div>
-              <div id="rebet-gains" style="font-family:'Bangers',cursive;font-size:28px;color:var(--success);">0 $</div>
-              <div style="font-size:13px;color:var(--text2);margin-top:4px;">Si tu doubles →</div>
-              <div id="rebet-next" style="font-size:20px;font-weight:900;color:#ffe066;">0 $</div>
-            </div>
-          </div>
-          <div id="rebet-controls">
-            <div style="display:flex;gap:8px;margin-bottom:10px;">
-              <input id="rebet-mise" type="number" placeholder="Mise (min 5 000 $)" min="5000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
-            </div>
-            <button onclick="rebetStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#9c27b0,#673ab7);color:#fff;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🎲 LANCER</button>
-          </div>
-          <div id="rebet-actions" style="display:none;gap:10px;flex-direction:column;">
-            <button onclick="rebetAction('cash')" style="padding:14px;border-radius:12px;border:none;background:var(--success);color:#000;font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">💰 RÉCUPÉRER</button>
-            <button onclick="rebetAction('double')" style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#9c27b0,#673ab7);color:#fff;font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">🎲 DOUBLER !</button>
-          </div>
-          <div id="rebet-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
-        </div>
-      </div>
-
-      <!-- COCKFIGHT -->
-      <div id="game-cockfight" class="game-panel" style="display:none;">
-        <div class="card" style="text-align:center;">
-          <div style="font-family:'Bangers',cursive;font-size:28px;color:#ff6b35;letter-spacing:2px;margin-bottom:4px;">🐔 COCKFIGHT</div>
-          <div style="font-size:13px;color:var(--text2);margin-bottom:18px;">Ton coq vs le bot — mise et gagne x1.8 !</div>
-          <div id="cockfight-arena" style="display:none;margin-bottom:16px;">
-            <div style="background:var(--card2);border-radius:14px;padding:16px;position:relative;overflow:hidden;">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-                <div style="flex:1;text-align:center;">
-                  <div style="font-size:48px;" id="cf-coq1-emoji">🐔</div>
-                  <div style="font-family:'Bangers',cursive;font-size:16px;color:#ff6b35;">TON COQ</div>
-                  <div id="cf-coq1-hp" style="font-size:22px;font-weight:900;color:var(--success);">100 ❤️</div>
-                </div>
-                <div style="font-family:'Bangers',cursive;font-size:28px;color:var(--text2);">VS</div>
-                <div style="flex:1;text-align:center;">
-                  <div style="font-size:48px;" id="cf-coq2-emoji">🐓</div>
-                  <div style="font-family:'Bangers',cursive;font-size:16px;color:#c0392b;">BOT</div>
-                  <div id="cf-coq2-hp" style="font-size:22px;font-weight:900;color:var(--success);">100 ❤️</div>
-                </div>
-              </div>
-              <div id="cf-log" style="margin-top:12px;font-size:13px;color:var(--text2);min-height:40px;line-height:1.6;"></div>
-            </div>
-          </div>
-          <div id="cockfight-controls">
-            <div style="display:flex;gap:8px;margin-bottom:10px;">
-              <input id="cf-mise" type="number" placeholder="Mise (min 1 000 $)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
-            </div>
-            <button onclick="cockfightStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#ff6b35,#c0392b);color:#fff;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🐔 LANCER LE COMBAT</button>
-          </div>
-          <div id="cf-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
-        </div>
-      </div>
-
-      <!-- PPC -->
-      <div id="game-ppc" class="game-panel" style="display:none;">
-        <div class="card" style="text-align:center;">
-          <div style="font-family:'Bangers',cursive;font-size:28px;color:#00b4d8;letter-spacing:2px;margin-bottom:4px;">✂️ PIERRE PAPIER CISEAUX</div>
-          <div style="font-size:13px;color:var(--text2);margin-bottom:18px;">Bats le bot — gagne x1.9 ta mise !</div>
-          <div id="ppc-arena" style="display:none;margin-bottom:16px;">
-            <div style="background:var(--card2);border-radius:14px;padding:16px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;">
-                <div style="flex:1;text-align:center;">
-                  <div style="font-size:52px;" id="ppc-p1-icon">❓</div>
-                  <div style="font-family:'Bangers',cursive;font-size:14px;color:#00b4d8;">TOI</div>
-                  <div id="ppc-p1-choice" style="font-size:12px;color:var(--text2);"></div>
-                </div>
-                <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--text2);">VS</div>
-                <div style="flex:1;text-align:center;">
-                  <div style="font-size:52px;" id="ppc-p2-icon">❓</div>
-                  <div style="font-family:'Bangers',cursive;font-size:14px;color:#0077b6;">BOT</div>
-                  <div id="ppc-p2-choice" style="font-size:12px;color:var(--text2);"></div>
-                </div>
-              </div>
-              <div id="ppc-verdict" style="font-family:'Bangers',cursive;font-size:22px;min-height:30px;"></div>
-            </div>
-          </div>
-          <div id="ppc-controls">
-            <div style="display:flex;gap:8px;margin-bottom:12px;">
-              <input id="ppc-mise" type="number" placeholder="Mise (min 1 000 $)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
-            </div>
-            <div style="display:flex;gap:8px;">
-              <button onclick="ppcPlay('pierre')" style="flex:1;padding:14px 0;border-radius:12px;border:2px solid rgba(0,180,216,.3);background:rgba(0,180,216,.08);color:#00b4d8;font-size:28px;cursor:pointer;">🪨</button>
-              <button onclick="ppcPlay('papier')" style="flex:1;padding:14px 0;border-radius:12px;border:2px solid rgba(0,180,216,.3);background:rgba(0,180,216,.08);color:#00b4d8;font-size:28px;cursor:pointer;">📄</button>
-              <button onclick="ppcPlay('ciseaux')" style="flex:1;padding:14px 0;border-radius:12px;border:2px solid rgba(0,180,216,.3);background:rgba(0,180,216,.08);color:#00b4d8;font-size:28px;cursor:pointer;">✂️</button>
-            </div>
-          </div>
-          <div id="ppc-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
-          <button id="ppc-replay-btn" onclick="ppcReset()" style="display:none;margin-top:10px;width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">🔄 REJOUER</button>
-        </div>
-      </div>
-
-      <!-- LANCER DE DÉS -->
-      <div id="game-lancer" class="game-panel" style="display:none;">
-        <div class="card" style="text-align:center;">
-          <div style="font-family:'Bangers',cursive;font-size:28px;color:#a29bfe;letter-spacing:2px;margin-bottom:4px;">🎲 LANCER DE DÉS</div>
-          <div style="font-size:13px;color:var(--text2);margin-bottom:18px;">2 dés chacun — le plus haut total gagne x1.9 !</div>
-          <div id="lancer-arena" style="display:none;margin-bottom:16px;">
-            <div style="background:var(--card2);border-radius:14px;padding:16px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
-                <div style="flex:1;text-align:center;">
-                  <div style="font-family:'Bangers',cursive;font-size:14px;color:#a29bfe;margin-bottom:8px;">TOI</div>
-                  <div style="display:flex;justify-content:center;gap:8px;">
-                    <div id="ld-d1" style="font-size:42px;">🎲</div>
-                    <div id="ld-d2" style="font-size:42px;">🎲</div>
-                  </div>
-                  <div id="ld-score1" style="font-family:'Bangers',cursive;font-size:28px;color:var(--success);margin-top:6px;">0</div>
-                </div>
-                <div style="font-family:'Bangers',cursive;font-size:24px;color:var(--text2);">VS</div>
-                <div style="flex:1;text-align:center;">
-                  <div style="font-family:'Bangers',cursive;font-size:14px;color:#6c5ce7;margin-bottom:8px;">BOT</div>
-                  <div style="display:flex;justify-content:center;gap:8px;">
-                    <div id="ld-d3" style="font-size:42px;">🎲</div>
-                    <div id="ld-d4" style="font-size:42px;">🎲</div>
-                  </div>
-                  <div id="ld-score2" style="font-family:'Bangers',cursive;font-size:28px;color:var(--success);margin-top:6px;">0</div>
-                </div>
-              </div>
-              <div id="ld-verdict" style="font-family:'Bangers',cursive;font-size:22px;min-height:30px;"></div>
-            </div>
-          </div>
-          <div id="lancer-controls">
-            <div style="display:flex;gap:8px;margin-bottom:10px;">
-              <input id="ld-mise" type="number" placeholder="Mise (min 1 000 $)" min="1000" style="flex:1;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;">
-            </div>
-            <button onclick="lancerStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#a29bfe,#6c5ce7);color:#fff;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🎲 LANCER LES DÉS</button>
-          </div>
-          <div id="ld-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
-          <button id="ld-replay-btn" onclick="lancerReset()" style="display:none;margin-top:10px;width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">🔄 REJOUER</button>
-        </div>
-      </div>
-
-    </div><!-- /#game-view -->
-  </div>
-
-  <!-- ══ PAGE PAY ══ -->
-  <div class="page" id="page-pay">
-
-    <!-- Hero -->
-    <div class="eco-hero" style="background:linear-gradient(135deg,#1a0d2e 0%,#2d1b4e 50%,#1a0a3a 100%);">
-      <div class="eco-hero-bg">💸</div>
-      <div class="eco-hero-content">
-        <div class="eco-hero-label" style="color:#a29bfe">Virement</div>
-        <div class="eco-hero-value" style="color:#fff">Envoyer des fonds</div>
-        <div class="eco-hero-sub" style="color:#a29bfe">Instantané · Sécurisé</div>
-      </div>
-    </div>
-
-    <input id="pay-search-input" type="text" placeholder="🔍 Rechercher un joueur…"
-      oninput="paySearchPlayer(this.value)" class="eco-input"/>
-    <div id="pay-search-results"></div>
-
-    <div id="pay-form" style="display:none">
-      <div id="pay-target-info" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(162,155,254,.08);border-radius:14px;border:1.5px solid rgba(162,155,254,.25);margin-bottom:12px;"></div>
-      <input id="pay-amount" type="number" placeholder="Montant ($)" min="1" class="eco-input"/>
-      <input id="pay-note" type="text" placeholder="Note (optionnelle)" maxlength="60" class="eco-input"/>
-      <button onclick="submitPay()" class="eco-submit">💸 Confirmer le virement</button>
-      <button onclick="cancelPay()" style="width:100%;padding:11px;border-radius:13px;border:none;background:none;color:var(--text2);font-weight:700;margin-top:8px;cursor:pointer;">Annuler</button>
-    </div>
-  </div>
-
-  <!-- ══ PAGE ENTREPRISES ══ -->
-  <div class="page" id="page-entreprises">
-    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="subTab('social-hub','')">← Social</button></div>
-    <div class="page-title">🏢 Entreprises</div>
-    <input id="co-search-input" type="text" placeholder="🔍 Rechercher une entreprise…"
-      oninput="searchCompanies(this.value)"
-      style="width:100%;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:14px;font-weight:700;margin-bottom:12px"/>
-    <div id="co-list"><div class="plus-loader">⏳ Chargement…</div></div>
-    <!-- Modale détail entreprise + postuler -->
-    <div id="co-detail-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.8);align-items:flex-end;justify-content:center;overflow-y:auto">
-      <div style="background:var(--card);border-radius:22px 22px 0 0;padding:24px;width:100%;max-width:480px;border-top:2px solid var(--border);max-height:85vh;overflow-y:auto">
-        <div id="co-detail-content"></div>
-        <button onclick="closeCOModal()" style="width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;margin-top:10px;cursor:pointer">✖ Fermer</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE INVITATIONS ══ -->
-  <div class="page" id="page-invitations">
-    <div class="page-title">📬 Invitations</div>
-    <div id="inv-list"><div class="plus-loader">⏳ Chargement…</div></div>
-    <!-- Modal contre-proposition -->
-    <div id="inv-counter-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.8);align-items:center;justify-content:center">
-      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">
-        <div style="font-size:16px;font-weight:900;margin-bottom:12px">💬 Contre-proposer un salaire</div>
-        <div id="inv-counter-info" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
-        <input id="inv-counter-salary" type="number" placeholder="Nouveau salaire proposé ($)"
-          style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;margin-bottom:12px"/>
-        <div style="display:flex;gap:10px">
-          <button onclick="submitCounterOffer()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#000;font-weight:900;cursor:pointer">Envoyer</button>
-          <button onclick="closeCounterModal()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;cursor:pointer">Annuler</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE PRÉSENCES ══ -->
-  <div class="page" id="page-presences">
-    <div class="page-title">📊 Présences</div>
-    <div id="presences-content"><div class="plus-loader">⏳ Chargement…</div></div>
-  </div>
-
-  <!-- ══ PAGE PARTS ══ -->
-  <div class="page" id="page-parts">
-
-    <!-- Hero -->
-    <div class="eco-hero" style="background:linear-gradient(135deg,#0d1f0a 0%,#1a3a14 50%,#0a2010 100%);">
-      <div class="eco-hero-bg">📜</div>
-      <div class="eco-hero-content">
-        <div class="eco-hero-label" style="color:#55efc4">Actionnariat</div>
-        <div class="eco-hero-value" style="color:#fff">Mes Parts</div>
-        <div class="eco-hero-sub" style="color:#55efc4">Achète · Vends · Gère tes participations</div>
-      </div>
-    </div>
-
-    <div class="eco-pill-tabs">
-      <button class="eco-pill active" onclick="partsTab('mes',this)">📜 Mes parts</button>
-      <button class="eco-pill" onclick="partsTab('offres',this)">📥 Offres reçues</button>
-      <button class="eco-pill" onclick="partsTab('vendre',this)">📤 Vendre</button>
-      <button class="eco-pill" onclick="partsTab('acheter',this)">🛒 Acheter</button>
-    </div>
-
-    <div id="parts-mes"><div style="color:var(--text2);font-size:13px;padding:12px 0;">Chargement…</div></div>
-
-    <div id="parts-offres" style="display:none"><div style="color:var(--text2);font-size:13px;padding:12px 0;">Chargement…</div></div>
-
-    <div id="parts-vendre" style="display:none">
-      <div class="eco-section-title">📤 Mettre des parts en vente</div>
-      <input id="parts-sell-company" type="text" placeholder="Nom de l'entreprise" class="eco-input"/>
-      <input id="parts-sell-qty" type="number" placeholder="Quantité de parts" min="1" class="eco-input"/>
-      <input id="parts-sell-price" type="number" placeholder="Prix par part ($)" min="1" class="eco-input"/>
-      <input id="parts-sell-target" type="text" placeholder="Acheteur cible (optionnel)" class="eco-input"/>
-      <button onclick="submitVendreParts()" class="eco-submit">📤 Mettre en vente</button>
-    </div>
-
-    <div id="parts-acheter" style="display:none">
-      <div class="eco-section-title">🛒 Soumettre une offre d'achat</div>
-      <input id="parts-buy-company" type="text" placeholder="Nom de l'entreprise" class="eco-input"/>
-      <input id="parts-buy-qty" type="number" placeholder="Quantité à acheter" min="1" class="eco-input"/>
-      <input id="parts-buy-price" type="number" placeholder="Prix max par part ($)" min="1" class="eco-input"/>
-      <button onclick="submitAcheterParts()" class="eco-submit">🛒 Soumettre l'offre</button>
-    </div>
-  </div>
-
-  <!-- ══ PAGE CONTRATS ══ -->
-  <div class="page" id="page-contrats">
-
-    <!-- Hero -->
-    <div class="eco-hero" style="background:linear-gradient(135deg,#1a1200 0%,#2e2010 50%,#1a0e00 100%);">
-      <div class="eco-hero-bg">📋</div>
-      <div class="eco-hero-content">
-        <div class="eco-hero-label" style="color:#f7c948">Contrats</div>
-        <div class="eco-hero-value" style="color:#fff">Bureau des Contrats</div>
-        <div class="eco-hero-sub" style="color:#f7c948">Commissions · Automatiques</div>
-      </div>
-    </div>
-
-    <div class="eco-pill-tabs">
-      <button class="eco-pill active" onclick="contratsTab('bc',this)">🤝 À commission</button>
-      <button class="eco-pill" onclick="contratsTab('auto',this)">🤖 Auto-transactions</button>
-    </div>
-
-    <div id="contrats-bc"><div style="color:var(--text2);font-size:13px;padding:12px 0;">Chargement…</div></div>
-    <div id="contrats-auto" style="display:none"><div style="color:var(--text2);font-size:13px;padding:12px 0;">Chargement…</div></div>
-  </div>
-
-  <!-- ══ PAGE RECRUTER (PDG) ══ -->
-  <div class="page" id="page-recruter">
-    <div class="page-title">👥 Recruter</div>
-    <div class="card">
-      <div class="card-title">INVITER UN JOUEUR</div>
-      <input id="rec-search-input" type="text" placeholder="🔍 Rechercher un joueur…"
-        oninput="recSearchPlayer(this.value)"
-        style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;margin-bottom:10px"/>
-      <div id="rec-search-results" style="margin-bottom:10px"></div>
-      <div id="rec-form" style="display:none">
-        <div id="rec-target-info" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--card2);border-radius:12px;border:1px solid var(--border);margin-bottom:12px"></div>
-        <input id="rec-salary" type="number" placeholder="Salaire proposé ($)" min="0"
-          style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;margin-bottom:10px"/>
-        <select id="rec-poste" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;margin-bottom:12px">
-          <option value="employe">👷 Employé</option>
-          <option value="manager">📋 Manager</option>
-          <option value="directeur">🎩 Directeur</option>
-        </select>
-        <button onclick="submitRecruter()" class="save-btn" style="font-size:15px">📨 Envoyer l'invitation</button>
-        <button onclick="cancelRec()" style="width:100%;padding:11px;border-radius:12px;border:none;background:none;color:var(--text2);font-weight:700;margin-top:8px;cursor:pointer">Annuler</button>
-      </div>
-    </div>
-    <div class="card" style="margin-top:12px">
-      <div class="card-title">GÉRER L'ÉQUIPE</div>
-      <div id="team-manage-list"><div class="plus-loader">⏳ Chargement…</div></div>
-    </div>
-    <!-- Modal licencier/nommer -->
-    <div id="team-action-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.8);align-items:center;justify-content:center">
-      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">
-        <div id="team-action-name" style="font-size:16px;font-weight:900;margin-bottom:16px;text-align:center"></div>
-        <div style="display:flex;flex-direction:column;gap:8px" id="team-action-btns"></div>
-        <button onclick="closeTeamModal()" style="width:100%;padding:11px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;margin-top:10px;cursor:pointer">✖ Fermer</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE PLUS HUB ══ -->
-  <div class="page" id="page-plus-hub">
-    <div class="plus-hub-hero">
-      <div class="plus-hub-orbs">
-        <div class="plus-hub-orb plus-hub-orb1"></div>
-        <div class="plus-hub-orb plus-hub-orb2"></div>
-      </div>
-      <div class="plus-hub-hero-inner">
-        <div class="plus-hub-hero-label">FARMBOT</div>
-        <div class="plus-hub-hero-title">Extras</div>
-        <div class="plus-hub-hero-sub">Événements · Enchères · Boutique</div>
-      </div>
-    </div>
-    <div class="plus-hub-cards">
-      <div class="plus-hub-card plus-hub-c-purple" onclick="plusGo('events')">
-        <div class="plus-hub-card-icon">🗓️</div>
-        <div class="plus-hub-card-body">
-          <div class="plus-hub-card-title">Événements</div>
-          <div class="plus-hub-card-sub">Actualités · Annonces · News du serveur</div>
-        </div>
-        <div class="plus-hub-card-arrow">›</div>
-      </div>
-      <div class="plus-hub-card plus-hub-c-gold" onclick="plusGo('encheres')">
-        <div class="plus-hub-card-icon">🔨</div>
-        <div class="plus-hub-card-body">
-          <div class="plus-hub-card-title">Enchères</div>
-          <div class="plus-hub-card-sub">En cours · Salle VIP · Inventaire</div>
-        </div>
-        <div class="plus-hub-card-arrow">›</div>
-        <div id="plus-enc-badge" style="display:none;position:absolute;top:12px;right:38px;background:#ef4444;color:#fff;font-size:10px;font-weight:900;border-radius:10px;padding:2px 7px"></div>
-      </div>
-      <div class="plus-hub-card plus-hub-c-teal" onclick="plusGo('boutique')">
-        <div class="plus-hub-card-icon">🎫</div>
-        <div class="plus-hub-card-body">
-          <div class="plus-hub-card-title">Family Tickets</div>
-          <div class="plus-hub-card-sub">Achète avec ⭐ · Ouvre des récompenses</div>
-        </div>
-        <div class="plus-hub-card-arrow">›</div>
-        <div id="plus-ft-badge" style="display:none;position:absolute;top:12px;right:38px;background:#f7c948;color:#000;font-size:10px;font-weight:900;border-radius:10px;padding:2px 7px"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ PAGE ÉVÉNEMENTS ══ -->
-  <div class="page" id="page-events">
-    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
-    <div class="page-title">🗓️ Événements</div>
-    <div id="events-list"><div class="plus-loader">⏳ Chargement…</div></div>
-  </div>
-
-  <!-- ══ PAGE BOUTIQUE ══ -->
-  <div class="page" id="page-boutique">
-    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
-
-    <div class="ft-boutique-wrap">
-      <div class="ft-boutique-hero">
-        <div class="ft-boutique-hero-title">🎫 FAMILY TICKETS</div>
-        <div class="ft-boutique-hero-sub">Achetez avec ⭐ Étoiles Telegram · Envoyez à vos amis</div>
-      </div>
-
-      <!-- Section achat -->
-      <div class="ft-buy-section-label">🛒 Acheter des tickets</div>
-
-      <div id="ft-card-basique" class="ft-ticket-card selected" onclick="ftSelect('basique')">
-        <div class="ft-ticket-icon">🎫</div>
-        <div class="ft-ticket-info">
-          <div class="ft-ticket-name">Ticket Basique</div>
-          <div class="ft-ticket-price">⭐ 3 étoiles / unité</div>
-        </div>
-        <div class="ft-ticket-qty-wrap">
-          <div class="ft-qty-btn" onclick="ftQty('basique',-1,event)">−</div>
-          <div class="ft-qty-val" id="ft-qty-basique">1</div>
-          <div class="ft-qty-btn" onclick="ftQty('basique',1,event)">+</div>
-        </div>
-      </div>
-
-      <div id="ft-card-premium" class="ft-ticket-card" onclick="ftSelect('premium')">
-        <div class="ft-ticket-icon">🎟️</div>
-        <div class="ft-ticket-info">
-          <div class="ft-ticket-name">Ticket Premium</div>
-          <div class="ft-ticket-price">⭐ 5 étoiles / unité</div>
-        </div>
-        <div class="ft-ticket-qty-wrap">
-          <div class="ft-qty-btn" onclick="ftQty('premium',-1,event)">−</div>
-          <div class="ft-qty-val" id="ft-qty-premium">1</div>
-          <div class="ft-qty-btn" onclick="ftQty('premium',1,event)">+</div>
-        </div>
-      </div>
-
-      <div id="ft-card-vip" class="ft-ticket-card" onclick="ftSelect('vip')">
-        <div class="ft-ticket-icon">👑</div>
-        <div class="ft-ticket-info">
-          <div class="ft-ticket-name">Ticket VIP</div>
-          <div class="ft-ticket-price">⭐ 10 étoiles / unité</div>
-        </div>
-        <div class="ft-ticket-qty-wrap">
-          <div class="ft-qty-btn" onclick="ftQty('vip',-1,event)">−</div>
-          <div class="ft-qty-val" id="ft-qty-vip">1</div>
-          <div class="ft-qty-btn" onclick="ftQty('vip',1,event)">+</div>
-        </div>
-      </div>
-
-      <!-- Total + bouton -->
-      <div style="text-align:center;margin-top:6px;font-size:13px;color:var(--text2)">
-        Total : <span id="ft-total-display" style="font-family:'Bangers',cursive;font-size:20px;color:#f7c948">3 ⭐</span>
-      </div>
-      <button class="ft-buy-btn" id="ft-buy-btn" onclick="ftBuy()">⭐ Acheter</button>
-
-      <!-- Section envoyer -->
-      <div class="ft-send-section">
-        <div class="ft-send-title">📨 Envoyer des tickets à un joueur</div>
-        <div class="ft-send-row">
-          <input class="ft-send-input" id="ft-send-userid" type="number" placeholder="ID du joueur"/>
-          <select class="ft-send-select" id="ft-send-type">
-            <option value="basique">🎫 Basique</option>
-            <option value="premium">🎟️ Premium</option>
-            <option value="vip">👑 VIP</option>
-          </select>
-        </div>
-        <div class="ft-send-row">
-          <input class="ft-send-input" id="ft-send-qty" type="number" value="1" min="1" placeholder="Quantité"/>
-          <button class="ft-send-btn" onclick="ftSend()">📨 Envoyer</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Toast FT -->
-  <div class="ft-toast" id="ft-toast"></div>
-
-  <!-- ══ PAGE ENCHERES ══ -->
-  <!-- ══ PAGE ENCHERES ══ -->
-  <div class="page" id="page-encheres">
-    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
-    <div class="page-title">🔨 Enchères</div>
-
-    <!-- Tabs: En cours / La Salle / Mon inventaire -->
-    <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;scrollbar-width:none">
-      <button class="enc-tab-btn active" onclick="encTab('live',this)">🔴 En cours</button>
-      <button class="enc-tab-btn" onclick="encTab('salle',this)">🏛️ La Salle</button>
-      <button class="enc-tab-btn" onclick="encTab('inventory',this)">🎒 Inventaire</button>
-      <button class="enc-tab-btn" onclick="encTab('market',this)">🏪 Marché</button>
-    </div>
-
-    <!-- TAB: En cours -->
-    <div id="enc-live">
-      <div id="enc-live-list"><div class="plus-loader">⏳ Chargement…</div></div>
-    </div>
-
-    <!-- TAB: La Salle -->
-    <div id="enc-salle" style="display:none">
-      <div id="enc-salle-content"><div class="plus-loader">⏳ Chargement…</div></div>
-    </div>
-
-    <!-- TAB: Inventaire -->
-    <div id="enc-inventory" style="display:none">
-      <div id="enc-inv-list"><div class="plus-loader">⏳ Chargement…</div></div>
-    </div>
-
-    <!-- TAB: Marché des objets -->
-    <div id="enc-market" style="display:none">
-      <div id="enc-market-list"><div class="plus-loader">⏳ Chargement…</div></div>
-    </div>
-
-    <!-- Modal mise publique -->
-    <div id="enc-bid-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.75);align-items:center;justify-content:center">
-      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">
-        <div id="enc-bid-title" style="font-size:16px;font-weight:900;margin-bottom:4px"></div>
-        <div id="enc-bid-current" style="font-size:12px;color:var(--text2);margin-bottom:14px"></div>
-        <input id="enc-bid-input" type="number" placeholder="Votre mise ($)"
-          style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:15px;font-weight:700;box-sizing:border-box;margin-bottom:12px"/>
-        <div style="display:flex;gap:10px">
-          <button id="enc-bid-submit-btn" onclick="submitBid(false)" style="flex:1;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-weight:900;font-size:14px;cursor:pointer">⚡ Confirmer</button>
-          <button onclick="closeBidModal()" style="flex:1;padding:13px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-weight:700;font-size:14px;cursor:pointer">Annuler</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal mise Salle VIP -->
-    <div id="salle-bid-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.82);align-items:center;justify-content:center">
-      <div style="background:linear-gradient(145deg,#1a1130,#110d22);border-radius:22px;padding:26px;width:88%;max-width:370px;border:1px solid #8b5cf6;box-shadow:0 0 40px rgba(139,92,246,.4)">
-        <div style="text-align:center;margin-bottom:6px;font-size:22px">🏛️</div>
-        <div id="salle-bid-title" style="font-size:16px;font-weight:900;text-align:center;color:#e9d5ff;margin-bottom:4px"></div>
-        <div id="salle-bid-current" style="font-size:12px;color:#a78bfa;text-align:center;margin-bottom:16px"></div>
-        <input id="salle-bid-input" type="number" placeholder="Votre mise ($)"
-          style="width:100%;padding:13px;border-radius:13px;border:1px solid #7c3aed;background:#0d0a1a;color:#e9d5ff;font-size:15px;font-weight:700;box-sizing:border-box;margin-bottom:12px;text-align:center"/>
-        <div style="display:flex;gap:10px">
-          <button onclick="submitBid(true)" style="flex:1;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-weight:900;font-size:14px;cursor:pointer">⚡ Enchérir</button>
-          <button onclick="closeSalleBidModal()" style="flex:1;padding:13px;border-radius:12px;border:none;background:#1e1630;color:#a78bfa;font-weight:700;font-size:14px;cursor:pointer">Annuler</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-</div>
-
-
-    <!-- Modal saisie prix inventaire -->
-    <div id="inv-price-modal" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.8);align-items:flex-end;justify-content:center">
-      <div style="background:var(--card);border-radius:24px 24px 0 0;padding:28px 22px 36px;width:100%;max-width:480px;border-top:1px solid var(--border);box-shadow:0 -8px 40px rgba(0,0,0,.5)">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
-          <div id="ipm-emoji" style="font-size:48px;line-height:1"></div>
-          <div style="flex:1">
-            <div id="ipm-name" style="font-size:16px;font-weight:900;color:var(--text)"></div>
-            <div id="ipm-rarity" style="font-size:11px;margin-top:2px"></div>
-            <div style="font-size:12px;color:var(--text2);margin-top:2px">Valeur estimée : <span id="ipm-value" style="color:var(--accent);font-weight:800"></span></div>
-          </div>
-        </div>
-        <div style="margin-bottom:14px">
-          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Suggestions rapides</div>
-          <div style="display:flex;gap:8px">
-            <button onclick="_ipmSetPct(0.5)" style="flex:1;padding:9px 4px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-size:11px;font-weight:700;cursor:pointer">50%<br><span id="ipm-lbl-50" style="color:var(--accent);font-size:10px"></span></button>
-            <button onclick="_ipmSetPct(0.7)" style="flex:1;padding:9px 4px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-size:11px;font-weight:700;cursor:pointer">70%<br><span id="ipm-lbl-70" style="color:var(--accent);font-size:10px"></span></button>
-            <button onclick="_ipmSetPct(0.8)" style="flex:1;padding:9px 4px;border-radius:12px;border:2px solid #f7c948;background:rgba(247,201,72,.12);color:#f7c948;font-size:11px;font-weight:800;cursor:pointer">80% ⭐<br><span id="ipm-lbl-80" style="color:#f7c948;font-size:10px"></span></button>
-            <button onclick="_ipmSetPct(1.0)" style="flex:1;padding:9px 4px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-size:11px;font-weight:700;cursor:pointer">100%<br><span id="ipm-lbl-100" style="color:var(--accent);font-size:10px"></span></button>
-          </div>
-        </div>
-        <div style="position:relative;margin-bottom:6px">
-          <input id="ipm-input" type="number" min="1" inputmode="numeric"
-            oninput="_ipmOnInput()"
-            style="width:100%;padding:16px 52px 16px 16px;border-radius:16px;border:2px solid var(--border);background:var(--card2);color:var(--text);font-size:22px;font-weight:900;box-sizing:border-box;text-align:center;transition:border-color .2s"
-            placeholder="0"/>
-          <span style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:16px;font-weight:900;color:var(--text2);pointer-events:none">$</span>
-        </div>
-        <div id="ipm-hint" style="text-align:center;font-size:11px;color:var(--text2);margin-bottom:18px;min-height:16px"></div>
-        <div style="display:flex;gap:10px">
-          <button onclick="_ipmClose()" style="flex:1;padding:14px;border-radius:14px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-weight:700;font-size:14px;cursor:pointer">Annuler</button>
-          <button id="ipm-confirm" onclick="_ipmConfirm()" style="flex:2;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;font-weight:900;font-size:15px;cursor:pointer">🏪 Mettre en vente</button>
-        </div>
-      </div>
-    </div>
-
-<!-- ── TOP BAR ── -->
-<div id="top-bar">
-  <div id="top-bar-title">🌾 FarmBot</div>
-  <div id="top-bar-right">
-    <div class="ft-topbar-chip" id="ft-topbar-chip" onclick="ftToggleDropdown(event)" title="Mes tickets">
-      <span class="ft-topbar-chip-icon">🎫</span>
-      <span class="ft-topbar-chip-count" id="ft-topbar-count">0</span>
-      <!-- Dropdown solde -->
-      <div class="ft-dropdown" id="ft-dropdown">
-        <div class="ft-dropdown-title">Mes tickets</div>
-        <div class="ft-dropdown-row">
-          <span class="ft-dropdown-label">🎫 Basique</span>
-          <span class="ft-dropdown-qty" id="ft-dd-basique">0</span>
-        </div>
-        <div class="ft-dropdown-row">
-          <span class="ft-dropdown-label">🎟️ Premium</span>
-          <span class="ft-dropdown-qty" id="ft-dd-premium">0</span>
-        </div>
-        <div class="ft-dropdown-row">
-          <span class="ft-dropdown-label">👑 VIP</span>
-          <span class="ft-dropdown-qty" id="ft-dd-vip">0</span>
-        </div>
-        <div style="margin-top:10px;text-align:center">
-          <span onclick="plusGo('boutique')" style="font-size:12px;color:var(--accent);font-weight:900;cursor:pointer">+ Acheter →</span>
-        </div>
-      </div>
-    </div>
-    <button id="settings-btn" onclick="mainTab('settings',null)" title="Paramètres">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;color:rgba(255,255,255,.75)">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
-    </button>
-    <button id="notif-bell-btn" onclick="openNotifications()" title="Notifications">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:rgba(255,255,255,.75)">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-      </svg>
-      <span id="notif-bell-dot"></span>
-      <span id="notif-bell-count"></span>
-    </button>
-  </div>
-</div>
-
-<!-- ── NAV BAR ── -->
-<div id="subnav" style="display:none;position:fixed;bottom:62px;left:0;right:0;z-index:99;background:linear-gradient(180deg,rgba(15,15,26,0) 0%,var(--card2) 20%);border-top:1px solid var(--border);padding:8px 12px;overflow-x:auto;white-space:nowrap;scrollbar-width:none"></div>
-<nav id="nav">
-  <button class="nav-btn active" onclick="mainTab('moi',this)">
-    <div class="nav-btn-pill"><span class="icon">👤</span></div>
-    <span class="nav-btn-label">Moi</span>
-  </button>
-  <button class="nav-btn" onclick="mainTab('eco',this)">
-    <div class="nav-btn-pill"><span class="icon">💼</span></div>
-    <span class="nav-btn-label">Économie</span>
-  </button>
-  <button class="nav-btn" onclick="mainTab('jeux',this)">
-    <div class="nav-btn-pill"><span class="icon">🎮</span></div>
-    <span class="nav-btn-label">Jeux</span>
-  </button>
-  <button class="nav-btn" onclick="mainTab('social',this)">
-    <div class="nav-btn-pill"><span class="icon">👥</span></div>
-    <span class="nav-btn-label">Social</span>
-  </button>
-  <button class="nav-btn" onclick="mainTab('plus',this)">
-    <div class="nav-btn-pill"><span class="icon">✨</span></div>
-    <span class="nav-btn-label">Plus</span>
-  </button>
-</nav>
-
-<style>
-.bank-card { background:var(--card);border-radius:var(--radius);border:1px solid var(--border);padding:14px;margin-bottom:10px; }
-.bank-card-header { display:flex;align-items:center;gap:10px;margin-bottom:10px; }
-.bank-emoji { font-size:28px;line-height:1; }
-.bank-name  { font-size:14px;font-weight:900;color:var(--text); }
-.bank-desc  { font-size:11px;color:var(--text2); }
-.bank-stat  { display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid var(--border); }
-.bank-stat:last-of-type { border:none; }
-.bank-stat-label { color:var(--text2); }
-.bank-stat-value { font-weight:800;color:var(--accent); }
-.bank-btns  { display:flex;gap:8px;margin-top:10px; }
-.bank-btn   { flex:1;padding:9px;border-radius:10px;border:none;font-weight:800;font-size:12px;cursor:pointer; }
-.bank-btn.deposit  { background:var(--success);color:#000; }
-.bank-btn.withdraw { background:var(--card2);color:var(--text);border:1px solid var(--border); }
-.bank-btn.loan     { background:#a29bfe;color:#000; }
-.bank-btn.repay    { background:var(--accent2);color:#fff; }
-.bank-btn.open-btn { background:var(--accent);color:#000;width:100%;margin-top:8px; }
-.bank-overdue-badge { background:var(--accent2);color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;margin-left:6px; }
-.bank-quick-btn { flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-weight:800;font-size:12px;cursor:pointer; }
-</style>
-
-<style>
-.rank-cat-btn {
-  display:inline-block; padding:7px 16px; border-radius:20px; font-size:12px;
-  font-weight:800; border:none; background:var(--card); color:var(--text2);
-  cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all .2s;
-}
-.rank-cat-active { background:var(--accent) !important; color:#000 !important; }
-
-/* ── ONGLETS MARCHÉ ── */
-.mkt-tab-btn {
-  padding:10px 24px; border-radius:14px; font-size:13px;
-  font-weight:800; border:1px solid var(--border);
-  background:var(--card); color:var(--text2);
-  cursor:pointer; transition:all .2s; font-family:'Nunito',sans-serif;
-  box-shadow:0 1px 4px rgba(0,0,0,.3);
-}
-.mkt-tab-btn.active {
-  background:linear-gradient(135deg,#f7c948,#e6b800);
-  color:#000; border-color:transparent;
-  box-shadow:0 3px 14px rgba(247,201,72,.4);
-}
-
-/* ── ONGLETS ENTREPRISE ── */
-.co-tab-btn {
-  display:inline-flex; align-items:center; gap:4px;
-  padding:7px 14px; border-radius:12px; font-size:12px;
-  font-weight:800; border:1px solid var(--border);
-  background:var(--card); color:var(--text2);
-  cursor:pointer; white-space:nowrap; flex-shrink:0;
-  transition:all .2s; font-family:'Nunito',sans-serif;
-}
-.co-tab-btn.active {
-  background:linear-gradient(135deg,#f7c948,#e6b800);
-  color:#000; border-color:transparent;
-  box-shadow:0 2px 12px rgba(247,201,72,.35);
-}
-
-/* ── SUBNAV ── */
-#subnav::-webkit-scrollbar { display:none; }
-.snav-btn {
-  display:inline-flex; align-items:center; gap:4px;
-  padding:8px 18px; border-radius:22px; font-size:12px;
-  font-weight:800; border:1px solid rgba(255,255,255,.1);
-  background:rgba(255,255,255,.06); color:var(--text2);
-  cursor:pointer; margin-right:6px; transition:all .2s;
-  white-space:nowrap; font-family:'Nunito',sans-serif;
-}
-.snav-active {
-  background:rgba(247,201,72,.15) !important;
-  color:var(--accent) !important; border-color:rgba(247,201,72,.35) !important;
-}
-
-/* ── FAMILLE ── */
-.member-card {
-  display:flex; align-items:center; gap:12px;
-  background:var(--card); border-radius:14px; border:1px solid var(--border);
-  padding:12px; margin-bottom:8px;
-}
-.member-avatar-mini {
-  width:44px; height:44px; border-radius:50%;
-  background:var(--card2); display:flex; align-items:center; justify-content:center;
-  font-size:20px; flex-shrink:0; border:2px solid var(--border);
-}
-.member-info { flex:1; min-width:0; }
-.member-name { font-size:14px; font-weight:900; color:var(--text); }
-.member-sub  { font-size:11px; color:var(--text2); margin-top:2px; }
-.member-karma { font-size:12px; font-weight:800; color:var(--accent); }
-</style>
-
 <script>
+(async function() {
+  const tg = window.Telegram?.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
 
-// ════ DEBUG VISIBLE ════
-window._debugLog = [];
-window.onerror = function(msg, src, line, col, err) {
-  window._debugLog.push('❌ ' + msg + ' (ligne ' + line + ')');
-  showDebug();
-  return false;
-};
-function showDebug() {
-  let d = document.getElementById('_debug_box');
-  if (!d) {
-    d = document.createElement('div');
-    d.id = '_debug_box';
-    d.style = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#1a0000;color:#ff6b6b;font-size:11px;padding:8px;max-height:120px;overflow-y:auto;border-bottom:2px solid #ff6b6b;';
-    document.body.prepend(d);
-  }
-  d.innerHTML = window._debugLog.map(l => '<div>'+l+'</div>').join('');
-}
-function dbg(msg) {
-  window._debugLog.push('ℹ️ ' + msg);
-  showDebug();
-}
+  const initData = tg?.initData || '';
+  const userId   = tg?.initDataUnsafe?.user?.id || null;
 
-// ════════════════════════════════════════
-//  TELEGRAM INIT
-// ════════════════════════════════════════
-const tg = window.Telegram?.WebApp;
-if (tg) {
-  tg.ready();
-  tg.expand();
-  tg.setHeaderColor('#0f0f1a');
-  tg.setBackgroundColor('#0f0f1a');
-}
-
-const userId = tg?.initDataUnsafe?.user?.id || null;
-const firstName = tg?.initDataUnsafe?.user?.first_name || 'Joueur';
-const CURRENCY = '$';
-let uid = userId;
-
-// ── Accès restreint ──────────────────────────────────────────────────────────
-// ────────────────────────────────────────────────────────────────────────────
-
-// ════════════════════════════════════════
-//  AVATAR DATA — PREMIUM CHIBI
-// ════════════════════════════════════════
-const SKIN_COLORS = [
-  { base:'#FDDBB4', shadow:'#F0BB8A', highlight:'#FFF0D4', blush:'#F4A0A0' },
-  { base:'#F1C27D', shadow:'#D4995A', highlight:'#FFDDA0', blush:'#E8906A' },
-  { base:'#E8A87C', shadow:'#C97A50', highlight:'#FAC89A', blush:'#D97060' },
-  { base:'#C68642', shadow:'#A06030', highlight:'#DCA060', blush:'#B86840' },
-  { base:'#8D5524', shadow:'#6A3C10', highlight:'#A87040', blush:'#7A4420' },
-  { base:'#4A2912', shadow:'#2E1808', highlight:'#6A3C1E', blush:'#3E2010' },
-];
-const HAIR_COLORS = [
-  { base:'#1a0a00', hi:'#3a1a05' },
-  { base:'#3b2314', hi:'#6b4030' },
-  { base:'#8B4513', hi:'#B06030' },
-  { base:'#D4A017', hi:'#F0C040' },
-  { base:'#F4D03F', hi:'#FFF090' },
-  { base:'#FF6B6B', hi:'#FF9090' },
-  { base:'#A29BFE', hi:'#C8C4FF' },
-  { base:'#00B4D8', hi:'#60D8F8' },
-  { base:'#ffffff', hi:'#e0e8f0' },
-];
-
-const HAIR_STYLES_M = [
-  { id:'buzz',     label:'Buzz'    },
-  { id:'afro',     label:'Afro'    },
-  { id:'straight', label:'Lisse'   },
-  { id:'curly',    label:'Bouclé'  },
-  { id:'long',     label:'Long'    },
-  { id:'mohawk',   label:'Mohawk'  },
-  { id:'fade',     label:'Fade'    },
-  { id:'undercut', label:'Undercut'},
-];
-const HAIR_STYLES_F = [
-  { id:'ponytail', label:'Queue'   },
-  { id:'afro',     label:'Afro'    },
-  { id:'straight', label:'Lisse'   },
-  { id:'curly',    label:'Bouclé'  },
-  { id:'bun',      label:'Chignon' },
-  { id:'long2',    label:'Long'    },
-  { id:'twin',     label:'Couettes'},
-  { id:'bob',      label:'Bob'     },
-];
-
-const TOPS_M = [
-  { id:'tshirt',   label:'T-Shirt', colors:['#e74c3c','#3498db','#2ecc71','#9b59b6','#f39c12','#1a1a2e','#ffffff','#e67e22'] },
-  { id:'hoodie',   label:'Hoodie',  colors:['#2c3e50','#c0392b','#27ae60','#8e44ad','#d35400','#1a1a2e','#7f8c8d','#16a085'] },
-  { id:'jacket',   label:'Veste',   colors:['#1a1a2e','#2c3e50','#922b21','#1a5276','#145a32','#784212','#4a235a','#0e3d20'] },
-  { id:'polo',     label:'Polo',    colors:['#ffffff','#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2','#abebc6','#fad7a0'] },
-  { id:'suit',     label:'Costume', colors:['#1a1a2e','#2c3e50','#4a235a','#0e6655','#6e2f1a','#17202a','#7b241c','#1a5276'] },
-  { id:'kimono',   label:'Kimono',  colors:['#c0392b','#2c3e50','#8e44ad','#1a5276','#145a32','#7b241c','#d4ac0d','#1b2631'] },
-];
-const TOPS_F = [
-  { id:'crop',     label:'Crop',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff','#fd79a8','#74b9ff'] },
-  { id:'hoodie',   label:'Hoodie',  colors:['#2c3e50','#c0392b','#27ae60','#8e44ad','#d35400','#1a1a2e','#7f8c8d','#16a085'] },
-  { id:'jacket',   label:'Veste',   colors:['#1a1a2e','#2c3e50','#922b21','#1a5276','#145a32','#784212','#4a235a','#0e3d20'] },
-  { id:'top',      label:'Débard.', colors:['#ffffff','#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2','#abebc6','#fad7a0'] },
-  { id:'dress',    label:'Robe',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff','#fd79a8','#74b9ff'] },
-  { id:'kimono',   label:'Kimono',  colors:['#c0392b','#ff6b9d','#8e44ad','#a29bfe','#55efc4','#fd79a8','#d4ac0d','#e74c3c'] },
-];
-const BOTTOMS_M = [
-  { id:'jean',    label:'Jean',    colors:['#2c3e50','#1a5276','#6c3483','#1b4f72','#212f3d','#7b7d7d','#0b2559','#1c2357'] },
-  { id:'jogger',  label:'Jogging', colors:['#1a1a2e','#7f8c8d','#922b21','#1a5276','#145a32','#000000','#4a235a','#784212'] },
-  { id:'short',   label:'Short',   colors:['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#ecf0f1','#e67e22','#1abc9c'] },
-  { id:'chino',   label:'Chino',   colors:['#d5b895','#a9c9a0','#f0c9a0','#c9bfa0','#a0a9c9','#c9a0a0','#bdc3c7','#e8d5b0'] },
-];
-const BOTTOMS_F = [
-  { id:'jean',    label:'Jean',    colors:['#2c3e50','#1a5276','#6c3483','#1b4f72','#212f3d','#7b7d7d','#0b2559','#1c2357'] },
-  { id:'jogger',  label:'Jogging', colors:['#1a1a2e','#7f8c8d','#922b21','#1a5276','#145a32','#000000','#4a235a','#784212'] },
-  { id:'skirt',   label:'Jupe',    colors:['#e74c3c','#ff6b9d','#a29bfe','#55efc4','#fdcb6e','#ffffff','#fd79a8','#74b9ff'] },
-  { id:'short',   label:'Short',   colors:['#f8c471','#85c1e9','#a9dfbf','#f1948a','#d7bde2','#e74c3c','#ff6b9d','#a29bfe'] },
-  { id:'miniskirt',label:'Mini',   colors:['#e74c3c','#1a1a2e','#8e44ad','#2c3e50','#ff6b9d','#ffffff','#f39c12','#1a5276'] },
-];
-const SHOES = [
-  { id:'sneaker',   label:'Sneakers', colors:['#ffffff','#e74c3c','#3498db','#1a1a2e','#2ecc71','#f39c12','#9b59b6','#fd79a8'] },
-  { id:'boot',      label:'Boots',    colors:['#2c3e50','#7b241c','#784212','#1a1a2e','#117a65','#6c3483','#4a235a','#0e3d20'] },
-  { id:'claquette', label:'Claquettes',colors:['#f39c12','#e74c3c','#3498db','#1a1a2e','#ffffff','#2ecc71','#ff6b9d','#a29bfe'] },
-  { id:'jordan',    label:'Jordan',   colors:['#e74c3c','#1a1a2e','#000000','#2c3e50','#922b21','#f39c12','#ffffff','#2980b9'] },
-];
-const ACCESSORIES = [
-  { id:'none',      label:'Aucun'    },
-  { id:'glasses',   label:'Lunettes' },
-  { id:'sunglass',  label:'Soleil'   },
-  { id:'cap',       label:'Casquette'},
-  { id:'beanie',    label:'Bonnet'   },
-  { id:'chain',     label:'Chaîne'   },
-  { id:'earring',   label:'Boucles'  },
-  { id:'mask',      label:'Masque'   },
-];
-
-// ════════════════════════════════════════
-//  AVATAR STATE
-// ════════════════════════════════════════
-let avatar = {
-  gender: 'm',
-  skinIndex: 0,
-  hairStyle: 0,
-  hairColorIndex: 0,
-  topStyle: 0,
-  topColorIndex: 0,
-  bottomStyle: 0,
-  bottomColorIndex: 0,
-  shoeStyle: 0,
-  shoeColorIndex: 0,
-  accessory: 0,
-};
-
-// Fallback localStorage (utilisé seulement si l'API n'a pas encore répondu)
-try {
-  const saved = localStorage.getItem('fb_avatar');
-  if (saved) avatar = {...avatar, ...JSON.parse(saved)};
-} catch(e) {}
-
-let currentTab = 'skin';
-
-// ════════════════════════════════════════
-//  PREMIUM CHIBI SVG DRAWING ENGINE
-// ════════════════════════════════════════
-function getAvatarData() {
-  const tops    = avatar.gender === 'm' ? TOPS_M    : TOPS_F;
-  const bottoms = avatar.gender === 'm' ? BOTTOMS_M : BOTTOMS_F;
-  const hairs   = avatar.gender === 'm' ? HAIR_STYLES_M : HAIR_STYLES_F;
-  return {
-    skin:      SKIN_COLORS[avatar.skinIndex] || SKIN_COLORS[0],
-    hairColor: HAIR_COLORS[avatar.hairColorIndex] || HAIR_COLORS[0],
-    hair:      hairs[avatar.hairStyle] || hairs[0],
-    top:       tops[avatar.topStyle] || tops[0],
-    topColor:  (tops[avatar.topStyle] || tops[0]).colors[avatar.topColorIndex] || '#e74c3c',
-    bottom:    bottoms[avatar.bottomStyle] || bottoms[0],
-    bottomColor:(bottoms[avatar.bottomStyle] || bottoms[0]).colors[avatar.bottomColorIndex] || '#2c3e50',
-    shoe:      SHOES[avatar.shoeStyle] || SHOES[0],
-    shoeColor: (SHOES[avatar.shoeStyle] || SHOES[0]).colors[avatar.shoeColorIndex] || '#ffffff',
-    acc:       ACCESSORIES[avatar.accessory] || ACCESSORIES[0],
-    isFemale:  avatar.gender === 'f',
-  };
-}
-
-// Darken a hex color by amount (0–1)
-function darken(hex, amt) {
-  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-  r = Math.max(0, Math.round(r*(1-amt)));
-  g = Math.max(0, Math.round(g*(1-amt)));
-  b = Math.max(0, Math.round(b*(1-amt)));
-  return `rgb(${r},${g},${b})`;
-}
-function lighten(hex, amt) {
-  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-  r = Math.min(255, Math.round(r + (255-r)*amt));
-  g = Math.min(255, Math.round(g + (255-g)*amt));
-  b = Math.min(255, Math.round(b + (255-b)*amt));
-  return `rgb(${r},${g},${b})`;
-}
-
-function drawAvatar(svgId) {
-  const svg = document.getElementById(svgId);
-  if (!svg) return;
-  const d = getAvatarData();
-  const sk = d.skin;
-  const F = d.isFemale;
-  const hc = d.hairColor.base;
-  const hiHc = d.hairColor.hi;
-  const tc = d.topColor;
-  const tc2 = darken(tc, 0.2);
-  const bc = d.bottomColor;
-  const bc2 = darken(bc, 0.22);
-  const sc = d.shoeColor;
-  const sc2 = darken(sc, 0.25);
-
-  const isSmall = svgId === 'profile-avatar-mini';
-
-  // ── DEFS (gradients) ──
-  // Use a timestamp-based uid to guarantee unique IDs even when both SVGs render simultaneously
-  const uid = svgId.replace(/[^a-z]/gi,'') + '_' + Date.now();
-  let defs = `<defs>
-    <radialGradient id="sg${uid}" cx="42%" cy="35%" r="55%">
-      <stop offset="0%" stop-color="${sk.highlight}"/>
-      <stop offset="60%" stop-color="${sk.base}"/>
-      <stop offset="100%" stop-color="${sk.shadow}"/>
-    </radialGradient>
-    <radialGradient id="eg${uid}" cx="50%" cy="40%" r="50%">
-      <stop offset="0%" stop-color="#6ee7ff"/>
-      <stop offset="100%" stop-color="#1a6fa8"/>
-    </radialGradient>
-    <linearGradient id="tg${uid}" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="${lighten(tc,0.15)}"/>
-      <stop offset="100%" stop-color="${tc2}"/>
-    </linearGradient>
-    <linearGradient id="bg${uid}" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="${bc}"/>
-      <stop offset="100%" stop-color="${bc2}"/>
-    </linearGradient>
-    <linearGradient id="hg${uid}" x1="0%" y1="0%" x2="50%" y2="100%">
-      <stop offset="0%" stop-color="${hiHc}"/>
-      <stop offset="40%" stop-color="${hc}"/>
-      <stop offset="100%" stop-color="${darken(hc,0.3)}"/>
-    </linearGradient>
-  </defs>`;
-
-  let h = defs;
-
-  // ──────────────────────────────────────
-  //  SHADOW UNDER BODY
-  // ──────────────────────────────────────
-  h += `<ellipse cx="80" cy="206" rx="35" ry="5" fill="rgba(0,0,0,0.18)"/>`;
-
-  // ──────────────────────────────────────
-  //  SHOES
-  // ──────────────────────────────────────
-  if (d.shoe.id === 'sneaker' || d.shoe.id === 'jordan') {
-    // Left shoe
-    h += `<path d="M52,198 Q52,206 68,206 L68,200 Q58,198 56,194 Z" fill="${sc}"/>
-          <path d="M52,194 L68,200 L68,196 Q60,192 54,192 Z" fill="${darken(sc,0.15)}"/>
-          <path d="M53,196 L67,199" stroke="rgba(255,255,255,0.5)" stroke-width="1.2" fill="none"/>`;
-    // Right shoe
-    h += `<path d="M108,198 Q108,206 92,206 L92,200 Q102,198 104,194 Z" fill="${sc}"/>
-          <path d="M108,194 L92,200 L92,196 Q100,192 106,192 Z" fill="${darken(sc,0.15)}"/>
-          <path d="M107,196 L93,199" stroke="rgba(255,255,255,0.5)" stroke-width="1.2" fill="none"/>`;
-    if (d.shoe.id === 'jordan') {
-      h += `<path d="M55,198 Q60,194 66,196" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-            <path d="M105,198 Q100,194 94,196" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
-    }
-  } else if (d.shoe.id === 'boot') {
-    h += `<path d="M54,174 L62,174 L64,206 Q60,208 52,206 L52,196 Z" fill="${sc}"/>
-          <path d="M54,174 L62,174" stroke="${sc2}" stroke-width="1.5"/>
-          <path d="M106,174 L98,174 L96,206 Q100,208 108,206 L108,196 Z" fill="${sc}"/>
-          <path d="M106,174 L98,174" stroke="${sc2}" stroke-width="1.5"/>
-          <path d="M52,200 L64,202" stroke="${lighten(sc,0.2)}" stroke-width="1" stroke-dasharray="2,2"/>
-          <path d="M108,200 L96,202" stroke="${lighten(sc,0.2)}" stroke-width="1" stroke-dasharray="2,2"/>`;
-  } else { // claquette
-    h += `<rect x="52" y="196" width="18" height="8" rx="4" fill="${sc}"/>
-          <rect x="90" y="196" width="18" height="8" rx="4" fill="${sc}"/>
-          <rect x="57" y="193" width="8" height="5" rx="2" fill="${sc2}"/>
-          <rect x="95" y="193" width="8" height="5" rx="2" fill="${sc2}"/>`;
+  // Pas dans Telegram du tout → page bientôt
+  if (!initData && !userId) {
+    document.getElementById('loader').innerHTML = '<div style="font-size:48px">🚧</div><div style="font-family:sans-serif;font-size:22px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div><div style="color:#a0a0b0;font-size:13px">La Mini App arrive très bientôt !</div>';
+    return;
   }
 
-  // ──────────────────────────────────────
-  //  LEGS
-  // ──────────────────────────────────────
-  const hipY = F ? 134 : 136;
-  const kneeY = 172;
-
-  if (d.bottom.id === 'short' || d.bottom.id === 'miniskirt') {
-    // Exposed legs
-    h += `<path d="M58,${hipY+20} L62,${kneeY} Q62,${kneeY+8} 60,${kneeY+14} Q58,${kneeY+18} 62,${kneeY+20} Q66,${kneeY+16} 66,${kneeY+8} L68,${hipY+20} Z" fill="url(#sg${uid})"/>
-          <path d="M102,${hipY+20} L98,${kneeY} Q98,${kneeY+8} 100,${kneeY+14} Q102,${kneeY+18} 98,${kneeY+20} Q94,${kneeY+16} 94,${kneeY+8} L92,${hipY+20} Z" fill="url(#sg${uid})"/>`;
-  } else {
-    // Pants
-    h += `<path d="M57,${hipY+4} Q58,${kneeY+4} 58,${kneeY+20} Q60,${kneeY+24} 64,${kneeY+22} Q68,${kneeY+20} 68,${kneeY+6} L70,${hipY+4} Z" fill="url(#bg${uid})"/>
-          <path d="M103,${hipY+4} Q102,${kneeY+4} 102,${kneeY+20} Q100,${kneeY+24} 96,${kneeY+22} Q92,${kneeY+20} 92,${kneeY+6} L90,${hipY+4} Z" fill="url(#bg${uid})"/>
-          <path d="M58,${hipY+10} Q59,${kneeY} 59,${kneeY+10}" stroke="${lighten(bc,0.12)}" stroke-width="1" fill="none" opacity="0.5"/>
-          <path d="M102,${hipY+10} Q101,${kneeY} 101,${kneeY+10}" stroke="${lighten(bc,0.12)}" stroke-width="1" fill="none" opacity="0.5"/>`;
-  }
-
-  // ──────────────────────────────────────
-  //  WAIST / BOTTOM GARMENT
-  // ──────────────────────────────────────
-  if (d.bottom.id === 'skirt' || d.bottom.id === 'miniskirt') {
-    const skirtLen = d.bottom.id === 'miniskirt' ? 30 : 48;
-    h += `<path d="M56,${hipY} Q80,${hipY-6} 104,${hipY} L110,${hipY+skirtLen} Q80,${hipY+skirtLen+10} 50,${hipY+skirtLen} Z" fill="url(#bg${uid})"/>
-          <path d="M56,${hipY} Q80,${hipY+8} 104,${hipY}" fill="${lighten(bc,0.15)}" opacity="0.4"/>
-          <path d="M62,${hipY+10} Q80,${hipY+4} 98,${hipY+10}" stroke="${lighten(bc,0.25)}" stroke-width="0.8" fill="none" opacity="0.6"/>`;
-  } else if (d.bottom.id === 'jean') {
-    // Jean details: waistband, pockets, seam
-    h += `<rect x="56" y="${hipY-4}" width="48" height="8" rx="3" fill="${darken(bc,0.15)}"/>
-          <path d="M68,${hipY+4} L72,${hipY+14} L60,${hipY+14} Z" fill="${darken(bc,0.08)}" opacity="0.5"/>
-          <path d="M92,${hipY+4} L88,${hipY+14} L100,${hipY+14} Z" fill="${darken(bc,0.08)}" opacity="0.5"/>
-          <rect x="76" y="${hipY-2}" width="8" height="4" rx="1" fill="${darken(bc,0.3)}" opacity="0.4"/>`;
-  } else if (d.bottom.id === 'jogger' || d.bottom.id === 'short') {
-    h += `<rect x="56" y="${hipY-4}" width="48" height="6" rx="3" fill="${darken(bc,0.12)}"/>
-          <path d="M78,${hipY-2} L82,${hipY-2}" stroke="${lighten(bc,0.3)}" stroke-width="1.5" stroke-linecap="round"/>`;
-  } else {
-    h += `<rect x="56" y="${hipY-4}" width="48" height="6" rx="2" fill="${darken(bc,0.1)}"/>`;
-  }
-
-  // ──────────────────────────────────────
-  //  ARMS + HANDS
-  // ──────────────────────────────────────
-  const shoulderY = F ? 96 : 98;
-  const armW = F ? 10 : 12;
-
-  // Left arm
-  h += `<path d="M${F?52:50},${shoulderY+4} Q${F?42:40},${shoulderY+18} ${F?44:42},${shoulderY+38} Q${F?46:44},${shoulderY+46} ${F?48:46},${shoulderY+40} Q${F?44:42},${shoulderY+30} ${F?54:52},${shoulderY+10} Z" fill="url(#tg${uid})"/>`;
-  // Right arm
-  h += `<path d="M${F?108:110},${shoulderY+4} Q${F?118:120},${shoulderY+18} ${F?116:118},${shoulderY+38} Q${F?114:116},${shoulderY+46} ${F?112:114},${shoulderY+40} Q${F?116:118},${shoulderY+30} ${F?106:108},${shoulderY+10} Z" fill="url(#tg${uid})"/>`;
-  // Hands (chibi round)
-  h += `<ellipse cx="${F?46:44}" cy="${shoulderY+46}" rx="${F?7:8}" ry="${F?7:8}" fill="url(#sg${uid})"/>
-        <ellipse cx="${F?114:116}" cy="${shoulderY+46}" rx="${F?7:8}" ry="${F?7:8}" fill="url(#sg${uid})"/>
-        <path d="M${F?42:40},${shoulderY+44} Q${F?46:44},${shoulderY+40} ${F?50:52},${shoulderY+44}" stroke="${sk.shadow}" stroke-width="0.8" fill="none" opacity="0.5"/>
-        <path d="M${F?118:120},${shoulderY+44} Q${F?114:116},${shoulderY+40} ${F?110:108},${shoulderY+44}" stroke="${sk.shadow}" stroke-width="0.8" fill="none" opacity="0.5"/>`;
-
-  // ──────────────────────────────────────
-  //  BODY / TOP GARMENT
-  // ──────────────────────────────────────
-  const bodyW = F ? 46 : 52;
-  const bodyX = 80 - bodyW/2;
-
-  if (d.top.id === 'tshirt' || d.top.id === 'crop' || d.top.id === 'top' || d.top.id === 'polo') {
-    // Basic top shape
-    h += `<path d="M${bodyX},${shoulderY} Q${bodyX-4},${shoulderY+4} ${bodyX},${shoulderY+20} L${bodyX},${hipY} L${bodyX+bodyW},${hipY} L${bodyX+bodyW},${shoulderY+20} Q${bodyX+bodyW+4},${shoulderY+4} ${bodyX+bodyW},${shoulderY} Q80,${shoulderY-8} ${bodyX},${shoulderY} Z" fill="url(#tg${uid})"/>`;
-    // Collar
-    if (d.top.id === 'polo') {
-      h += `<path d="M72,${shoulderY} L80,${shoulderY+10} L88,${shoulderY} Q84,${shoulderY-6} 80,${shoulderY-4} Q76,${shoulderY-6} 72,${shoulderY} Z" fill="${tc2}"/>`;
-    } else {
-      h += `<path d="M74,${shoulderY} Q80,${shoulderY+6} 86,${shoulderY} Q83,${shoulderY-4} 80,${shoulderY-3} Q77,${shoulderY-4} 74,${shoulderY} Z" fill="${tc2}" opacity="0.7"/>`;
-    }
-    // Crop top is shorter
-    if (d.top.id === 'crop') {
-      h += `<path d="M${bodyX},${shoulderY+30} L${bodyX+bodyW},${shoulderY+30} L${bodyX+bodyW},${hipY} L${bodyX},${hipY} Z" fill="url(#sg${uid})"/>`;
-    }
-    // Highlight stripe
-    h += `<path d="M${bodyX+6},${shoulderY+4} Q${bodyX+10},${shoulderY+10} ${bodyX+8},${shoulderY+22}" stroke="rgba(255,255,255,0.2)" stroke-width="3" fill="none" stroke-linecap="round"/>`;
-  } else if (d.top.id === 'hoodie') {
-    h += `<path d="M${bodyX},${shoulderY} Q${bodyX-6},${shoulderY+6} ${bodyX},${shoulderY+22} L${bodyX},${hipY} L${bodyX+bodyW},${hipY} L${bodyX+bodyW},${shoulderY+22} Q${bodyX+bodyW+6},${shoulderY+6} ${bodyX+bodyW},${shoulderY} Q80,${shoulderY-10} ${bodyX},${shoulderY} Z" fill="url(#tg${uid})"/>`;
-    // Hood outline
-    h += `<path d="M${bodyX+4},${shoulderY+2} Q72,${shoulderY-12} 80,${shoulderY-8} Q88,${shoulderY-12} ${bodyX+bodyW-4},${shoulderY+2}" stroke="${tc2}" stroke-width="2" fill="none"/>`;
-    // Front pocket
-    h += `<rect x="${80-12}" y="${hipY-20}" width="24" height="16" rx="4" fill="${tc2}" opacity="0.5"/>`;
-    // Hoodie strings
-    h += `<path d="M78,${shoulderY-2} L76,${shoulderY+12}" stroke="${tc2}" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M82,${shoulderY-2} L84,${shoulderY+12}" stroke="${tc2}" stroke-width="1.5" stroke-linecap="round"/>`;
-  } else if (d.top.id === 'jacket') {
-    h += `<path d="M${bodyX},${shoulderY} Q${bodyX-6},${shoulderY+6} ${bodyX},${shoulderY+22} L${bodyX},${hipY} L${bodyX+bodyW},${hipY} L${bodyX+bodyW},${shoulderY+22} Q${bodyX+bodyW+6},${shoulderY+6} ${bodyX+bodyW},${shoulderY} Q80,${shoulderY-10} ${bodyX},${shoulderY} Z" fill="url(#tg${uid})"/>`;
-    // Collar lapels
-    h += `<path d="M${bodyX+4},${shoulderY} L74,${shoulderY+18} L80,${shoulderY+8} L${bodyX+4},${shoulderY} Z" fill="${darken(tc,0.25)}"/>
-          <path d="M${bodyX+bodyW-4},${shoulderY} L86,${shoulderY+18} L80,${shoulderY+8} L${bodyX+bodyW-4},${shoulderY} Z" fill="${darken(tc,0.25)}"/>`;
-    // Center zipper/buttons
-    h += `<path d="M80,${shoulderY+8} L80,${hipY}" stroke="${darken(tc,0.3)}" stroke-width="1.5"/>`;
-    // Chest pocket
-    h += `<rect x="${bodyX+6}" y="${shoulderY+12}" width="14" height="10" rx="2" fill="${darken(tc,0.2)}" opacity="0.6"/>`;
-  } else if (d.top.id === 'suit') {
-    h += `<path d="M${bodyX},${shoulderY} Q${bodyX-6},${shoulderY+6} ${bodyX},${shoulderY+22} L${bodyX},${hipY} L${bodyX+bodyW},${hipY} L${bodyX+bodyW},${shoulderY+22} Q${bodyX+bodyW+6},${shoulderY+6} ${bodyX+bodyW},${shoulderY} Q80,${shoulderY-8} ${bodyX},${shoulderY} Z" fill="url(#tg${uid})"/>`;
-    // White shirt + tie
-    h += `<path d="M74,${shoulderY} L80,${hipY-4} L86,${shoulderY}" fill="rgba(255,255,255,0.9)"/>
-          <path d="M79,${shoulderY+2} L80,${shoulderY+22} L81,${shoulderY+2}" fill="#e74c3c"/>
-          <path d="M79,${shoulderY+22} L77,${shoulderY+30} L80,${shoulderY+28} L83,${shoulderY+30} L81,${shoulderY+22} Z" fill="#c0392b"/>`;
-    // Lapels
-    h += `<path d="M${bodyX+2},${shoulderY} L74,${shoulderY+18} L80,${shoulderY+4} Z" fill="${darken(tc,0.2)}"/>
-          <path d="M${bodyX+bodyW-2},${shoulderY} L86,${shoulderY+18} L80,${shoulderY+4} Z" fill="${darken(tc,0.2)}"/>`;
-  } else if (d.top.id === 'dress') {
-    h += `<path d="M${bodyX+4},${shoulderY} Q${bodyX-2},${shoulderY+10} ${bodyX-6},${hipY+20} Q80,${hipY+34} ${bodyX+bodyW+6},${hipY+20} Q${bodyX+bodyW+2},${shoulderY+10} ${bodyX+bodyW-4},${shoulderY} Q80,${shoulderY-8} ${bodyX+4},${shoulderY} Z" fill="url(#tg${uid})"/>`;
-    h += `<path d="M74,${shoulderY} Q80,${shoulderY+6} 86,${shoulderY}" fill="none" stroke="${tc2}" stroke-width="1.5"/>`;
-    h += `<path d="M${bodyX},${hipY+8} Q80,${hipY+18} ${bodyX+bodyW},${hipY+8}" stroke="${lighten(tc,0.2)}" stroke-width="1" fill="none" opacity="0.5"/>`;
-  } else if (d.top.id === 'kimono') {
-    h += `<path d="M${bodyX-4},${shoulderY-4} Q${bodyX-8},${shoulderY+10} ${bodyX-4},${hipY+10} L${bodyX+bodyW+4},${hipY+10} Q${bodyX+bodyW+8},${shoulderY+10} ${bodyX+bodyW+4},${shoulderY-4} Q80,${shoulderY-14} ${bodyX-4},${shoulderY-4} Z" fill="url(#tg${uid})"/>`;
-    // Kimono crossing
-    h += `<path d="M${bodyX+4},${shoulderY} L78,${hipY+10}" stroke="${tc2}" stroke-width="2.5"/>
-          <path d="M${bodyX+bodyW-4},${shoulderY} L82,${hipY+10}" stroke="${tc2}" stroke-width="2.5"/>`;
-    // Obi belt
-    h += `<rect x="${bodyX}" y="${hipY-8}" width="${bodyW}" height="12" rx="4" fill="${darken(tc,0.3)}"/>
-          <rect x="${bodyX+bodyW/2-8}" y="${hipY-6}" width="16" height="8" rx="3" fill="${darken(tc,0.1)}"/>`;
-    // Patterns on kimono
-    h += `<circle cx="${bodyX+10}" cy="${shoulderY+20}" r="4" fill="${lighten(tc,0.3)}" opacity="0.35"/>
-          <circle cx="${bodyX+bodyW-10}" cy="${shoulderY+20}" r="4" fill="${lighten(tc,0.3)}" opacity="0.35"/>`;
-  }
-
-  // Shoulder seam highlights
-  h += `<path d="M${bodyX},${shoulderY} Q${bodyX+4},${shoulderY-2} ${bodyX+12},${shoulderY}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" fill="none"/>
-        <path d="M${bodyX+bodyW},${shoulderY} Q${bodyX+bodyW-4},${shoulderY-2} ${bodyX+bodyW-12},${shoulderY}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" fill="none"/>`;
-
-  // ──────────────────────────────────────
-  //  NECK
-  // ──────────────────────────────────────
-  h += `<path d="M76,${shoulderY-12} Q74,${shoulderY-2} 75,${shoulderY} L85,${shoulderY} Q86,${shoulderY-2} 84,${shoulderY-12} Q82,${shoulderY-14} 80,${shoulderY-14} Q78,${shoulderY-14} 76,${shoulderY-12} Z" fill="url(#sg${uid})"/>`;
-
-  // ──────────────────────────────────────
-  //  HEAD — CHIBI BIG HEAD
-  // ──────────────────────────────────────
-  const headCY = F ? 50 : 52;
-  const headRX = F ? 28 : 30;
-  const headRY = F ? 30 : 32;
-
-  // Head shape (slightly squished at jaw)
-  h += `<path d="M${80-headRX},${headCY} 
-    Q${80-headRX},${headCY-headRY} 80,${headCY-headRY} 
-    Q${80+headRX},${headCY-headRY} ${80+headRX},${headCY}
-    Q${80+headRX},${headCY+headRY-4} ${80+headRX-6},${headCY+headRY}
-    Q80,${headCY+headRY+6} ${80-headRX+6},${headCY+headRY}
-    Q${80-headRX},${headCY+headRY-4} ${80-headRX},${headCY} Z" 
-    fill="url(#sg${uid})"/>`;
-
-  // Ears
-  h += `<path d="M${80-headRX+2},${headCY-2} Q${80-headRX-6},${headCY} ${80-headRX},${headCY+8}" stroke="${sk.shadow}" stroke-width="5" fill="none" stroke-linecap="round"/>
-        <path d="M${80-headRX+2},${headCY-2} Q${80-headRX-6},${headCY} ${80-headRX},${headCY+8}" stroke="${sk.base}" stroke-width="3" fill="none" stroke-linecap="round"/>
-        <path d="M${80+headRX-2},${headCY-2} Q${80+headRX+6},${headCY} ${80+headRX},${headCY+8}" stroke="${sk.shadow}" stroke-width="5" fill="none" stroke-linecap="round"/>
-        <path d="M${80+headRX-2},${headCY-2} Q${80+headRX+6},${headCY} ${80+headRX},${headCY+8}" stroke="${sk.base}" stroke-width="3" fill="none" stroke-linecap="round"/>`;
-
-  // ── EYES (big chibi eyes) ──
-  const eyeY = headCY + 4;
-  const eyeRX = F ? 7.5 : 7;
-  const eyeRY = F ? 9 : 8;
-
-  // Eye whites
-  h += `<ellipse cx="70" cy="${eyeY}" rx="${eyeRX}" ry="${eyeRY}" fill="white"/>
-        <ellipse cx="90" cy="${eyeY}" rx="${eyeRX}" ry="${eyeRY}" fill="white"/>`;
-
-  // Iris gradient
-  h += `<ellipse cx="70" cy="${eyeY+1}" rx="${eyeRX-2}" ry="${eyeRY-2}" fill="url(#eg${uid})"/>
-        <ellipse cx="90" cy="${eyeY+1}" rx="${eyeRX-2}" ry="${eyeRY-2}" fill="url(#eg${uid})"/>`;
-
-  // Pupil
-  h += `<ellipse cx="70" cy="${eyeY+2}" rx="${eyeRX-4}" ry="${eyeRY-3.5}" fill="#0d1b2a"/>
-        <ellipse cx="90" cy="${eyeY+2}" rx="${eyeRX-4}" ry="${eyeRY-3.5}" fill="#0d1b2a"/>`;
-
-  // Sparkle highlights
-  h += `<circle cx="67" cy="${eyeY-1}" r="2.2" fill="rgba(255,255,255,0.95)"/>
-        <circle cx="87" cy="${eyeY-1}" r="2.2" fill="rgba(255,255,255,0.95)"/>
-        <circle cx="72" cy="${eyeY+2}" r="1" fill="rgba(255,255,255,0.6)"/>
-        <circle cx="92" cy="${eyeY+2}" r="1" fill="rgba(255,255,255,0.6)"/>`;
-
-  // Eye top lashes
-  h += `<path d="M${70-eyeRX},${eyeY-eyeRY+1} Q70,${eyeY-eyeRY-3} ${70+eyeRX},${eyeY-eyeRY+1}" fill="${F?'#2d1b00':'#1a0a00'}" opacity="0.9"/>
-        <path d="M${90-eyeRX},${eyeY-eyeRY+1} Q90,${eyeY-eyeRY-3} ${90+eyeRX},${eyeY-eyeRY+1}" fill="${F?'#2d1b00':'#1a0a00'}" opacity="0.9"/>`;
-
-  if (F) {
-    // Female: longer lashes + eyeliner
-    h += `<path d="M${70-eyeRX},${eyeY-eyeRY} L${70-eyeRX-3},${eyeY-eyeRY-3}" stroke="#2d1b00" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M${70+eyeRX},${eyeY-eyeRY} L${70+eyeRX+2},${eyeY-eyeRY-4}" stroke="#2d1b00" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M${90-eyeRX},${eyeY-eyeRY} L${90-eyeRX-3},${eyeY-eyeRY-3}" stroke="#2d1b00" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M${90+eyeRX},${eyeY-eyeRY} L${90+eyeRX+2},${eyeY-eyeRY-4}" stroke="#2d1b00" stroke-width="1.5" stroke-linecap="round"/>`;
-    // Blush
-    h += `<ellipse cx="62" cy="${eyeY+8}" rx="8" ry="4" fill="${sk.blush}" opacity="0.45"/>
-          <ellipse cx="98" cy="${eyeY+8}" rx="8" ry="4" fill="${sk.blush}" opacity="0.45"/>`;
-  }
-
-  // ── EYEBROWS ──
-  if (F) {
-    h += `<path d="M${70-eyeRX+1},${eyeY-eyeRY-5} Q70,${eyeY-eyeRY-9} ${70+eyeRX-1},${eyeY-eyeRY-5}" stroke="#3b2314" stroke-width="2.2" fill="none" stroke-linecap="round"/>
-          <path d="M${90-eyeRX+1},${eyeY-eyeRY-5} Q90,${eyeY-eyeRY-9} ${90+eyeRX-1},${eyeY-eyeRY-5}" stroke="#3b2314" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
-  } else {
-    h += `<path d="M${70-eyeRX},${eyeY-eyeRY-4} Q70,${eyeY-eyeRY-8} ${70+eyeRX},${eyeY-eyeRY-5}" stroke="#2d1b00" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-          <path d="M${90-eyeRX},${eyeY-eyeRY-5} Q90,${eyeY-eyeRY-8} ${90+eyeRX},${eyeY-eyeRY-4}" stroke="#2d1b00" stroke-width="2.5" fill="none" stroke-linecap="round"/>`;
-  }
-
-  // ── NOSE ──
-  h += `<path d="M79,${headCY+13} Q80,${headCY+16} 81,${headCY+13}" stroke="${sk.shadow}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.6"/>`;
-
-  // ── MOUTH ──
-  if (F) {
-    h += `<path d="M75,${headCY+20} Q80,${headCY+24} 85,${headCY+20}" stroke="#d63031" stroke-width="2" fill="none" stroke-linecap="round"/>
-          <path d="M76,${headCY+20} Q80,${headCY+22} 84,${headCY+20}" fill="#e17055" opacity="0.3"/>`;
-  } else {
-    h += `<path d="M75,${headCY+20} Q80,${headCY+24} 85,${headCY+20}" stroke="#922b21" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
-  }
-
-  // ── FACE HIGHLIGHT ──
-  h += `<ellipse cx="68" cy="${headCY-8}" rx="6" ry="8" fill="rgba(255,255,255,0.08)" transform="rotate(-20,68,${headCY-8})"/>`;
-
-  // ──────────────────────────────────────
-  //  HAIR
-  // ──────────────────────────────────────
-  const ht = headCY - headRY; // top of head
-  const hl = 80 - headRX;     // left of head
-  const hr = 80 + headRX;     // right of head
-
-  function hairBase(extra='') {
-    return `<path d="M${hl-2},${headCY-4} Q${hl},${ht-4} 80,${ht-6} Q${hr},${ht-4} ${hr+2},${headCY-4} ${extra}" fill="url(#hg${uid})"/>`;
-  }
-
-  switch(d.hair.id) {
-    case 'buzz':
-      h += `<path d="M${hl-2},${headCY-4} Q${hl},${ht-4} 80,${ht-6} Q${hr},${ht-4} ${hr+2},${headCY-4}" fill="url(#hg${uid})" stroke="${darken(hc,0.3)}" stroke-width="0.5"/>
-            <path d="M${hl},${ht+6} Q80,${ht-2} ${hr},${ht+6}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.5"/>`;
-      break;
-    case 'fade':
-      h += `<path d="M${hl-2},${headCY-4} Q${hl},${ht-4} 80,${ht-6} Q${hr},${ht-4} ${hr+2},${headCY-4}" fill="url(#hg${uid})"/>
-            <path d="M${hl-2},${headCY-4} Q${hl},${headCY-16} ${hl+6},${headCY-20}" stroke="${darken(hc,0.3)}" stroke-width="8" fill="none" opacity="0.4"/>
-            <path d="M${hr+2},${headCY-4} Q${hr},${headCY-16} ${hr-6},${headCY-20}" stroke="${darken(hc,0.3)}" stroke-width="8" fill="none" opacity="0.4"/>`;
-      break;
-    case 'undercut':
-      h += hairBase();
-      h += `<path d="M80,${ht-6} Q88,${ht-2} ${hr+4},${headCY-8} L${hr+4},${headCY-4} Q88,${headCY-14} 80,${headCY-18} Z" fill="${darken(hc,0.25)}"/>`;
-      h += `<path d="M74,${ht-2} Q80,${ht-10} 86,${ht-4}" stroke="${hiHc}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
-      break;
-    case 'afro':
-      h += `<ellipse cx="80" cy="${headCY-12}" rx="${headRX+14}" ry="${headRY+12}" fill="url(#hg${uid})"/>`;
-      // Afro texture circles
-      for(let i=0;i<10;i++) {
-        const ang = (i/10)*Math.PI;
-        const cx2 = 80 + Math.cos(ang)*(headRX+8);
-        const cy2 = headCY-12 + Math.sin(ang-Math.PI)*(headRY+8);
-        h += `<circle cx="${cx2}" cy="${cy2}" r="7" fill="${darken(hc,0.08)}" opacity="0.4"/>`;
-      }
-      h += `<ellipse cx="72" cy="${headCY-22}" rx="5" ry="4" fill="${hiHc}" opacity="0.35"/>`;
-      break;
-    case 'straight':
-      h += hairBase(`L${hr+6},${headCY+14} Q${hr+4},${headCY+18} ${hr},${headCY+16} L${hl},${headCY+16} Q${hl-4},${headCY+18} ${hl-6},${headCY+14}`);
-      h += `<path d="M${hl-4},${headCY-2} L${hl-2},${headCY+14}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.6"/>
-            <path d="M${hr+4},${headCY-2} L${hr+2},${headCY+14}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.6"/>
-            <path d="M76,${ht-4} L77,${headCY+6}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.4"/>`;
-      break;
-    case 'curly':
-      h += hairBase();
-      for(let i=0;i<9;i++) {
-        const cx2 = hl-4 + i*(headRX*2+8)/8;
-        h += `<circle cx="${cx2}" cy="${ht+4}" r="8" fill="url(#hg${uid})"/>`;
-      }
-      for(let i=0;i<5;i++) {
-        const cx2 = hl-2 + i*(headRX*2+4)/4;
-        h += `<circle cx="${cx2}" cy="${ht-4}" r="6" fill="url(#hg${uid})"/>`;
-      }
-      h += `<ellipse cx="68" cy="${ht+2}" rx="4" ry="3" fill="${hiHc}" opacity="0.4"/>`;
-      break;
-    case 'long': case 'long2':
-      h += hairBase(`L${hr+8},${headCY+16} Q${hr+10},${shoulderY+10} ${hr+4},${shoulderY+30} Q${hr},${shoulderY+40} ${hr-6},${shoulderY+36} L${hl+6},${shoulderY+36} Q${hl},${shoulderY+40} ${hl-4},${shoulderY+30} Q${hl-10},${shoulderY+10} ${hl-8},${headCY+16}`);
-      h += `<path d="M${hl-6},${headCY+4} Q${hl-8},${shoulderY} ${hl-6},${shoulderY+24}" stroke="${hiHc}" stroke-width="2" fill="none" opacity="0.5"/>
-            <path d="M${hr+6},${headCY+4} Q${hr+8},${shoulderY} ${hr+6},${shoulderY+24}" stroke="${hiHc}" stroke-width="2" fill="none" opacity="0.5"/>`;
-      break;
-    case 'mohawk':
-      h += hairBase();
-      h += `<path d="M76,${ht-2} Q78,${ht-30} 80,${ht-34} Q82,${ht-30} 84,${ht-2}" fill="url(#hg${uid})"/>
-            <path d="M78,${ht-10} Q80,${ht-28} 82,${ht-10}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.6"/>`;
-      break;
-    case 'ponytail':
-      h += hairBase(`L${hr+8},${headCY+12} Q${hr+12},${headCY+6} ${hr+8},${headCY+2}`);
-      // Ponytail
-      h += `<path d="M${hr+6},${headCY} Q${hr+16},${headCY+20} ${hr+10},${shoulderY+20} Q${hr+4},${shoulderY+36} ${hr+2},${shoulderY+30} Q${hr+8},${shoulderY+14} ${hr+2},${headCY+4} Z" fill="url(#hg${uid})"/>`;
-      h += `<path d="M${hr+8},${headCY+8} Q${hr+14},${headCY+22} ${hr+8},${shoulderY+16}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.5"/>`;
-      break;
-    case 'bun':
-      h += hairBase();
-      h += `<ellipse cx="80" cy="${ht-8}" rx="14" ry="12" fill="url(#hg${uid})"/>
-            <ellipse cx="80" cy="${ht-8}" rx="10" ry="8" fill="${lighten(hc,0.1)}" opacity="0.3"/>
-            <path d="M74,${ht-4} Q80,${ht-18} 86,${ht-4}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.5"/>`;
-      break;
-    case 'twin':
-      h += hairBase(`L${hr+6},${headCY+10} L${hl-6},${headCY+10}`);
-      // Twin tails
-      h += `<path d="M${hl-4},${headCY+4} Q${hl-16},${headCY+14} ${hl-12},${shoulderY+20} Q${hl-8},${shoulderY+34} ${hl-2},${shoulderY+28} Q${hl},${shoulderY+14} ${hl+4},${headCY+10} Z" fill="url(#hg${uid})"/>
-            <path d="M${hr+4},${headCY+4} Q${hr+16},${headCY+14} ${hr+12},${shoulderY+20} Q${hr+8},${shoulderY+34} ${hr+2},${shoulderY+28} Q${hr},${shoulderY+14} ${hr-4},${headCY+10} Z" fill="url(#hg${uid})"/>`;
-      // Ribbons
-      h += `<circle cx="${hl-2}" cy="${headCY+6}" r="5" fill="#ff6b9d" opacity="0.9"/>
-            <circle cx="${hr+2}" cy="${headCY+6}" r="5" fill="#ff6b9d" opacity="0.9"/>`;
-      break;
-    case 'bob':
-      h += `<path d="M${hl-4},${headCY-4} Q${hl},${ht-6} 80,${ht-8} Q${hr},${ht-6} ${hr+4},${headCY-4} L${hr+4},${headCY+16} Q${hr+2},${headCY+20} 80,${headCY+22} Q${hl-2},${headCY+20} ${hl-4},${headCY+16} Z" fill="url(#hg${uid})"/>
-            <path d="M${hl-2},${headCY+10} Q80,${headCY+22} ${hr+2},${headCY+10}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.4"/>
-            <path d="M76,${ht-2} L77,${headCY+12}" stroke="${hiHc}" stroke-width="1.5" fill="none" opacity="0.4"/>`;
-      break;
-    default:
-      h += hairBase();
-  }
-
-  // ──────────────────────────────────────
-  //  ACCESSORY
-  // ──────────────────────────────────────
-  switch(d.acc.id) {
-    case 'glasses':
-      h += `<rect x="61" y="${eyeY-eyeRY}" width="16" height="16" rx="5" fill="none" stroke="#1a0a00" stroke-width="2"/>
-            <rect x="83" y="${eyeY-eyeRY}" width="16" height="16" rx="5" fill="none" stroke="#1a0a00" stroke-width="2"/>
-            <line x1="77" y1="${eyeY}" x2="83" y2="${eyeY}" stroke="#1a0a00" stroke-width="2"/>
-            <line x1="61" y1="${eyeY}" x2="56" y2="${eyeY-2}" stroke="#1a0a00" stroke-width="2"/>
-            <line x1="99" y1="${eyeY}" x2="104" y2="${eyeY-2}" stroke="#1a0a00" stroke-width="2"/>`;
-      break;
-    case 'sunglass':
-      h += `<path d="M61,${eyeY-2} L77,${eyeY-2} L77,${eyeY+8} Q69,${eyeY+12} 61,${eyeY+8} Z" fill="rgba(0,0,0,0.75)"/>
-            <path d="M83,${eyeY-2} L99,${eyeY-2} L99,${eyeY+8} Q91,${eyeY+12} 83,${eyeY+8} Z" fill="rgba(0,0,0,0.75)"/>
-            <path d="M77,${eyeY} L83,${eyeY}" stroke="#333" stroke-width="2.5"/>
-            <line x1="61" y1="${eyeY}" x2="56" y2="${eyeY-2}" stroke="#333" stroke-width="2"/>
-            <line x1="99" y1="${eyeY}" x2="104" y2="${eyeY-2}" stroke="#333" stroke-width="2"/>
-            <path d="M63,${eyeY-1} L75,${eyeY-1}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-            <path d="M85,${eyeY-1} L97,${eyeY-1}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>`;
-      break;
-    case 'cap':
-      h += `<path d="M${hl-4},${headCY-8} Q${hl-2},${ht-2} 80,${ht-4} Q${hr+2},${ht-2} ${hr+4},${headCY-8} L${hr+4},${headCY-14} Q80,${headCY-22} ${hl-4},${headCY-14} Z" fill="${tc}"/>
-            <path d="M${hl-4},${headCY-14} Q80,${headCY-24} ${hr+4},${headCY-14}" fill="${darken(tc,0.15)}"/>
-            <rect x="${hl-10}" y="${headCY-16}" width="${headRX*2+18}" height="6" rx="3" fill="${tc}"/>
-            <circle cx="80" cy="${headCY-18}" r="3" fill="${darken(tc,0.3)}"/>`;
-      break;
-    case 'beanie':
-      h += `<path d="M${hl-4},${headCY-2} Q${hl-2},${ht-4} 80,${ht-6} Q${hr+2},${ht-4} ${hr+4},${headCY-2} L${hr+4},${headCY+6} Q80,${headCY+10} ${hl-4},${headCY+6} Z" fill="${hc}"/>
-            <rect x="${hl-6}" y="${headCY+2}" width="${headRX*2+14}" height="8" rx="4" fill="${darken(hc,0.15)}"/>
-            <ellipse cx="80" cy="${ht-2}" rx="5" ry="5" fill="${hiHc}" opacity="0.7"/>
-            <path d="M${hl-2},${headCY+4} Q80,${headCY+8} ${hr+2},${headCY+4}" stroke="${hiHc}" stroke-width="1" fill="none" opacity="0.5"/>`;
-      break;
-    case 'chain':
-      h += `<path d="M66,${shoulderY+8} Q80,${shoulderY+22} 94,${shoulderY+8}" stroke="#f7c948" stroke-width="3" fill="none" stroke-linecap="round"/>
-            <circle cx="80" cy="${shoulderY+22}" r="5" fill="#f7c948"/>
-            <circle cx="80" cy="${shoulderY+22}" r="3" fill="#f39c12"/>
-            <path d="M68,${shoulderY+12} L72,${shoulderY+10}" stroke="#f0c000" stroke-width="1.5"/>
-            <path d="M92,${shoulderY+12} L88,${shoulderY+10}" stroke="#f0c000" stroke-width="1.5"/>`;
-      break;
-    case 'earring':
-      h += `<circle cx="${80-headRX-2}" cy="${headCY+6}" r="3" fill="#f7c948"/>
-            <path d="M${80-headRX-2},${headCY+9} L${80-headRX-4},${headCY+16}" stroke="#f7c948" stroke-width="1.5"/>
-            <circle cx="${80-headRX-4}" cy="${headCY+18}" r="3" fill="#f0c000"/>
-            <circle cx="${80+headRX+2}" cy="${headCY+6}" r="3" fill="#f7c948"/>
-            <path d="M${80+headRX+2},${headCY+9} L${80+headRX+4},${headCY+16}" stroke="#f7c948" stroke-width="1.5"/>
-            <circle cx="${80+headRX+4}" cy="${headCY+18}" r="3" fill="#f0c000"/>`;
-      break;
-    case 'mask':
-      h += `<path d="M62,${headCY+12} Q80,${headCY+30} 98,${headCY+12} L98,${headCY+20} Q80,${headCY+32} 62,${headCY+20} Z" fill="white" opacity="0.95"/>
-            <path d="M66,${headCY+14} Q80,${headCY+28} 94,${headCY+14}" stroke="#e0e0e0" stroke-width="1" fill="none"/>
-            <path d="M64,${headCY+12} L62,${headCY+14}" stroke="#ccc" stroke-width="1.5"/>
-            <path d="M96,${headCY+12} L98,${headCY+14}" stroke="#ccc" stroke-width="1.5"/>`;
-      break;
-  }
-
-  svg.innerHTML = h;
-
-  // Also update mini avatar in profile — redraw independently to avoid ID conflicts
-  if (!isSmall) {
-    drawAvatar('profile-avatar-mini');
-  }
-}
-
-// ════════════════════════════════════════
-//  CUSTOMIZER UI
-// ════════════════════════════════════════
-function showTab(tab) {
-  currentTab = tab;
-  document.querySelectorAll('.ctab').forEach((b,i) => {
-    const tabs = ['skin','hair','top','bottom','shoes','accessory'];
-    b.classList.toggle('active', tabs[i] === tab);
-  });
-  renderOptions();
-}
-
-function renderOptions() {
-  const tops    = avatar.gender === 'm' ? TOPS_M    : TOPS_F;
-  const bottoms = avatar.gender === 'm' ? BOTTOMS_M : BOTTOMS_F;
-  const hairs   = avatar.gender === 'm' ? HAIR_STYLES_M : HAIR_STYLES_F;
-  const cont = document.getElementById('options-container');
-
-  if (currentTab === 'skin') {
-    cont.innerHTML = `<div class="options-grid">${SKIN_COLORS.map((s,i)=>`
-      <button class="opt-btn ${avatar.skinIndex===i?'selected':''}" onclick="selectSkin(${i})">
-        <div class="color-dot" style="background:${s.base};box-shadow:inset -3px -3px 6px ${s.shadow},inset 2px 2px 4px ${s.highlight}"></div>
-      </button>`).join('')}</div>`;
-  }
-  else if (currentTab === 'hair') {
-    const hairIcons = ['✂️','🌀','〰️','🔄','💈','⚡','🔪','🎭'];
-    // Style picker
-    cont.innerHTML = `
-      <div class="card-title" style="margin-bottom:8px">Coiffure</div>
-      <div class="options-grid" style="margin-bottom:16px">${hairs.map((h,i)=>`
-        <button class="opt-btn ${avatar.hairStyle===i?'selected':''}" onclick="selectHair(${i})">
-          <div style="font-size:20px">${hairIcons[i]||'💇'}</div>
-          <span>${h.label}</span>
-        </button>`).join('')}</div>
-      <div class="card-title" style="margin-bottom:8px">Couleur</div>
-      <div class="options-grid">${HAIR_COLORS.map((c,i)=>`
-        <button class="opt-btn ${avatar.hairColorIndex===i?'selected':''}" onclick="selectHairColor(${i})">
-          <div class="color-dot" style="background:linear-gradient(135deg,${c.hi},${c.base});border-color:rgba(255,255,255,.3)"></div>
-        </button>`).join('')}</div>`;
-  }
-  else if (currentTab === 'top') {
-    cont.innerHTML = tops.map((t,ti)=>`
-      <div style="margin-bottom:12px">
-        <div class="card-title" style="margin-bottom:8px">${t.label}</div>
-        <div class="options-grid">${t.colors.map((c,ci)=>`
-          <button class="opt-btn ${avatar.topStyle===ti&&avatar.topColorIndex===ci?'selected':''}" onclick="selectTop(${ti},${ci})">
-            <div class="color-dot" style="background:${c}"></div>
-            <span>${t.label}</span>
-          </button>`).join('')}</div>
-      </div>`).join('');
-  }
-  else if (currentTab === 'bottom') {
-    cont.innerHTML = bottoms.map((b,bi)=>`
-      <div style="margin-bottom:12px">
-        <div class="card-title" style="margin-bottom:8px">${b.label}</div>
-        <div class="options-grid">${b.colors.map((c,ci)=>`
-          <button class="opt-btn ${avatar.bottomStyle===bi&&avatar.bottomColorIndex===ci?'selected':''}" onclick="selectBottom(${bi},${ci})">
-            <div class="color-dot" style="background:${c}"></div>
-            <span>${b.label}</span>
-          </button>`).join('')}</div>
-      </div>`).join('');
-  }
-  else if (currentTab === 'shoes') {
-    cont.innerHTML = SHOES.map((s,si)=>`
-      <div style="margin-bottom:12px">
-        <div class="card-title" style="margin-bottom:8px">${s.label}</div>
-        <div class="options-grid">${s.colors.map((c,ci)=>`
-          <button class="opt-btn ${avatar.shoeStyle===si&&avatar.shoeColorIndex===ci?'selected':''}" onclick="selectShoe(${si},${ci})">
-            <div class="color-dot" style="background:${c}"></div>
-            <span>${s.label}</span>
-          </button>`).join('')}</div>
-      </div>`).join('');
-  }
-  else if (currentTab === 'accessory') {
-    const accIcons = ['🚫','👓','🕶️','🧢','🎿','⛓️','💎','😷'];
-    cont.innerHTML = `<div class="options-grid">${ACCESSORIES.map((a,i)=>`
-      <button class="opt-btn ${avatar.accessory===i?'selected':''}" onclick="selectAcc(${i})">
-        <div style="font-size:22px">${accIcons[i]||'✨'}</div>
-        <span>${a.label}</span>
-      </button>`).join('')}</div>`;
-  }
-}
-
-function autoSave() {
-  // Sauvegarde locale immédiate (fallback)
-  try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
-  // Sauvegarde distante (source de vérité)
-  if (userId) {
-    fetch('/api/webapp/avatar', {
+  try {
+    const res = await fetch('/api/webapp/load', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, avatar_data: avatar })
-    }).catch(() => {}); // silencieux si pas de réseau
-  }
-}
+      body: JSON.stringify({ init_data: initData, user_id: userId })
+    });
 
-function selectSkin(i)          { avatar.skinIndex=i;        drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
-function selectHair(i)          { avatar.hairStyle=i;        drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
-function selectHairColor(i)     { avatar.hairColorIndex=i;   drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
-function selectTop(ti,ci)       { avatar.topStyle=ti; avatar.topColorIndex=ci;         drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
-function selectBottom(bi,ci)    { avatar.bottomStyle=bi; avatar.bottomColorIndex=ci;   drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
-function selectShoe(si,ci)      { avatar.shoeStyle=si; avatar.shoeColorIndex=ci;       drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
-function selectAcc(i)           { avatar.accessory=i;        drawAvatar('avatar-canvas'); renderOptions(); autoSave(); }
-
-function setGender(g) {
-  avatar.gender = g;
-  document.getElementById('btn-m').classList.toggle('active', g==='m');
-  document.getElementById('btn-f').classList.toggle('active', g==='f');
-  avatar.hairStyle = 0;
-  avatar.topStyle = 0;
-  avatar.bottomStyle = 0;
-  drawAvatar('avatar-canvas');
-  renderOptions();
-  autoSave();
-}
-
-
-function saveAvatar() {
-  autoSave();
-  showToast('✅ Avatar sauvegardé !');
-  drawAvatar('profile-avatar-mini');
-}
-
-// ════════════════════════════════════════
-//  NAV
-// ════════════════════════════════════════
-// ════════════════════════════════════════
-//  NAVIGATION GROUPÉE (5 onglets)
-// ════════════════════════════════════════
-const MAIN_TABS = {
-  moi:    { subs:[], def:'profile' },
-  eco:    { subs:[], def:'eco-hub' },
-  jeux:   { subs:[], def:'games' },
-  social: { subs:[], def:'social-hub' },
-  plus:   { subs:[], def:'plus-hub' },
-};
-let _curMain = 'moi';
-let _curSub  = 'profile';
-
-// ── ECO PUSH NAVIGATION ──────────────────
-const ECO_PAGES = {
-  bank:     { title:'🏦 Banque',     fn:'loadBank'    },
-  market:   { title:'📈 Marché',     fn:'loadMarket'  },
-  company:  { title:'🏢 Entreprise', fn:'loadCompany' },
-  parts:    { title:'📜 Parts',      fn:'loadParts'   },
-  contrats: { title:'📋 Contrats',   fn:'loadContrats'},
-  pay:      { title:'💸 Virement',   fn:'initPay'     },
-};
-let _ecoStack = []; // pages pushées
-
-function ecoGo(pageKey) {
-  const cfg = ECO_PAGES[pageKey];
-  if (!cfg) return;
-  // Injecter ou mettre à jour le header push dans la page
-  const pageEl = document.getElementById('page-'+pageKey);
-  if (!pageEl) return;
-  let hdr = pageEl.querySelector('.eco-push-dyn-header');
-  if (!hdr) {
-    hdr = document.createElement('div');
-    hdr.className = 'eco-push-header eco-push-dyn-header';
-    hdr.innerHTML = `<button class="eco-push-back" onclick="ecoBack()">←</button><div class="eco-push-title">${cfg.title}</div>`;
-    pageEl.prepend(hdr);
-  }
-  // Masquer toutes les autres pages
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  pageEl.classList.add('active', 'eco-slide-in');
-  void pageEl.offsetWidth;
-  document.getElementById('subnav').style.display = 'none';
-  document.getElementById('app').style.paddingBottom = '70px';
-  _ecoStack.push(pageKey);
-  if (cfg.fn && window[cfg.fn]) window[cfg.fn]();
-}
-
-function ecoBack() {
-  _ecoStack.pop();
-  document.querySelectorAll('.page').forEach(p => { p.classList.remove('active'); p.classList.remove('eco-slide-in'); });
-  const hubEl = document.getElementById('page-eco-hub');
-  if (hubEl) { hubEl.classList.add('active'); }
-  document.getElementById('subnav').style.display = 'none';
-  document.getElementById('app').style.paddingBottom = '70px';
-  loadEcoHub();
-}
-// ─────────────────────────────────────────
-
-// ── PLUS PUSH NAVIGATION ─────────────────
-const PLUS_PAGES = {
-  events:   { fn: 'loadEvents'  },
-  encheres: { fn: 'loadEncheres'},
-  boutique: { fn: 'loadBoutique'},
-};
-function plusGo(key) {
-  if (key === 'hub') {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    const hub = document.getElementById('page-plus-hub');
-    if (hub) hub.classList.add('active');
-    document.getElementById('subnav').style.display = 'none';
-    return;
-  }
-  const cfg = PLUS_PAGES[key];
-  if (!cfg) return;
-  const pageEl = document.getElementById('page-' + key);
-  if (!pageEl) return;
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  pageEl.classList.add('active');
-  document.getElementById('subnav').style.display = 'none';
-  if (cfg.fn && window[cfg.fn]) window[cfg.fn]();
-}
-// ─────────────────────────────────────────
-
-function mainTab(key, btn) {
-  _curMain = key;
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  const tab = MAIN_TABS[key];
-  const subnav = document.getElementById('subnav');
-  if (tab.subs.length) {
-    subnav.style.display = 'block';
-    document.getElementById('app').style.paddingBottom = '120px';
-  } else {
-    subnav.style.display = 'none';
-    document.getElementById('app').style.paddingBottom = '70px';
-  }
-  const targetSub = tab.subs.find(s => s.p === _curSub) || tab.subs.find(s => s.p === tab.def) || tab.subs[0];
-  const target = targetSub ? targetSub.p : tab.def;
-  const targetFn = targetSub ? (targetSub.fn || '') : '';
-  subTab(target, targetFn);
-}
-
-function subTab(page, fn) {
-  _curSub = page;
-  const tab = MAIN_TABS[_curMain];
-  const subnav = document.getElementById('subnav');
-  if (tab && tab.subs.length) {
-    subnav.innerHTML = tab.subs.map(s =>
-      `<button class="snav-btn${s.p===page?' snav-active':''}" onclick="subTab('${s.p}','${s.fn||''}')">${s.l}</button>`
-    ).join('');
-  }
-  document.querySelectorAll('.page').forEach(p => { p.classList.remove('active'); p.classList.remove('eco-slide-in'); });
-  const el = document.getElementById('page-'+page);
-  if (el) {
-    el.classList.add('active');
-    if (page === 'eco-hub') loadEcoHub();
-    if (page === 'games') loadCasinoBalance();
-    if (page === 'social-hub') { _shLoaded = false; loadSocialHub(); }
-  }
-  const resolvedFn = fn || (tab && tab.subs.find(s=>s.p===page)?.fn) || '';
-  if (resolvedFn && window[resolvedFn]) window[resolvedFn]();
-}
-
-function showPage(name, btn) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  const el = document.getElementById('page-'+name);
-  if (el) el.classList.add('active');
-  if (btn) btn.classList.add('active');
-}
-
-// ════════════════════════════════════════
-//  HUB ÉCONOMIE
-// ════════════════════════════════════════
-// ── ECO HUB ACCORDION TOGGLE ────────────────
-function ecoAccToggle(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.toggle('open');
-}
-
-// ── LOAD ECO HUB ────────────────────────────
-async function loadEcoHub() {
-  if (!uid) return;
-  try {
-    // Charger bank + portfolio + company en parallèle
-    const [bankData, portfolioData] = await Promise.all([
-      fetchT(`/api/webapp/bank?user_id=${uid}`).then(r=>r.json()).catch(()=>null),
-      fetchT(`/api/webapp/portfolio?user_id=${uid}`).then(r=>r.json()).catch(()=>null),
-    ]);
-
-    const pocket = bankData?.wallet_raw ?? 0;
-    const bank = (bankData?.accounts||[]).reduce((s,a)=>s+(a.balance_raw||0), 0);
-    const portfolio = portfolioData?.total_current ?? 0;
-    const total = pocket + bank + portfolio;
-
-    // Hero amount
-    const amtEl = document.getElementById('hub-wallet-amount');
-    if (amtEl) amtEl.innerHTML = fmt(total) + '<sup>$</sup>';
-
-    // Splits values
-    const sp = document.getElementById('hub-split-pocket');
-    const sb = document.getElementById('hub-split-bank');
-    const spo = document.getElementById('hub-split-portfolio');
-    if (sp) sp.textContent = fmt(pocket) + ' $';
-    if (sb) sb.textContent = fmt(bank) + ' $';
-    if (spo) spo.textContent = fmt(portfolio) + ' $';
-
-    // Barres proportionnelles animées
-    const totalForBars = total || 1;
-    setTimeout(() => {
-      const bp = document.getElementById('ehub-bar-pocket');
-      const bb = document.getElementById('ehub-bar-bank');
-      const bpo = document.getElementById('ehub-bar-portfolio');
-      if (bp)  bp.style.width  = Math.round(pocket/totalForBars*100)+'%';
-      if (bb)  bb.style.width  = Math.round(bank/totalForBars*100)+'%';
-      if (bpo) bpo.style.width = Math.round(portfolio/totalForBars*100)+'%';
-    }, 120);
-
-    // Hero sub
-    const sub = document.getElementById('ehub-hero-sub');
-    if (sub) sub.textContent = `Poche · Banque · Portfolio`;
-
-    // Sections accordéon
-    ecoLoadAccBank(bankData);
-    ecoLoadAccMarket(portfolioData);
-    ecoLoadAccCompany();
-    ecoLoadAccParts();
-    ecoLoadAccContrats();
-    pollEcoNotifs();
-  } catch(e) { console.error('loadEcoHub', e); }
-}
-
-// ── BANQUE ───────────────────────────────────
-async function ecoLoadAccBank(prefetched) {
-  const body = document.getElementById('eco-acc-bank-body');
-  const sub  = document.getElementById('eco-acc-bank-sub');
-  const val  = document.getElementById('eco-acc-bank-val');
-  const splitBank = document.getElementById('hub-split-bank');
-  if (!body) return;
-  try {
-    const d = prefetched || await apiFetch('/bank');
-    const accounts = d?.accounts || [];
-    const loans = d?.loans || [];
-    const totalBank = accounts.reduce((s, a) => s + (a.balance_raw || a.balance || 0), 0);
-    if (val) val.textContent = fmt(totalBank) + ' $';
-    if (splitBank) splitBank.textContent = fmt(totalBank) + ' $';
-    if (sub) sub.textContent = accounts.length ? `${accounts.length} compte${accounts.length>1?'s':''} actif${accounts.length>1?'s':''}` : 'Aucun compte';
-    if (!accounts.length) {
-      body.innerHTML = `<div style="padding:14px 0;text-align:center">
-        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">Aucun compte bancaire</div>
-        <button class="eco-acc-btn" style="background:rgba(85,239,196,.08);color:#55efc4;border:1px solid rgba(85,239,196,.2)" onclick="ecoGo('bank')">Ouvrir un compte →</button>
-      </div>`;
+    if (!res.ok) {
+      document.getElementById('loader').innerHTML = '<div style="font-size:48px">🚧</div><div style="font-family:sans-serif;font-size:22px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div><div style="color:#a0a0b0;font-size:13px">La Mini App arrive très bientôt !</div>';
       return;
     }
-    const accsHtml = accounts.map(a => {
-      const bal = a.balance_raw || a.balance || 0;
-      const cap = a.max_balance || a.cap || 0;
-      const pct = cap ? Math.min(100, Math.round(bal/cap*100)) : 0;
-      return `<div class="eco-mini-item" style="flex-direction:column;align-items:stretch;gap:5px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div style="font-size:12px;font-weight:900;color:#f0f0f0">${a.name||'Compte'}</div>
-            <div class="eco-mini-tag">Taux ${a.interest_rate||0}%${cap?' · cap '+fmt(cap)+' $':''}</div>
-          </div>
-          <div class="eco-mini-val" style="color:#55efc4">${fmt(bal)} $</div>
-        </div>
-        ${cap ? `<div class="eco-prog-bar"><div class="eco-prog-fill" style="width:${pct}%;background:#55efc4"></div></div>` : ''}
-      </div>`;
-    }).join('');
-    const loanHtml = loans.length ? `
-      <div style="height:2px;background:rgba(255,255,255,.04);margin:4px 0"></div>
-      ${loans.map(l => `<div class="eco-stat-row"><span class="eco-stat-key">💳 Prêt — ${l.label||'en cours'}</span><span class="eco-stat-v" style="color:#ff6b6b">−${fmt(l.amount_raw||l.amount||0)} $</span></div>`).join('')}` : '';
-    body.innerHTML = accsHtml + loanHtml + `<button class="eco-acc-btn" style="background:rgba(85,239,196,.08);color:#55efc4;border:1px solid rgba(85,239,196,.2)" onclick="ecoGo('bank')">Gérer la banque →</button>`;
-  } catch(e) { if(body) body.innerHTML = `<button class="eco-acc-btn" style="background:rgba(85,239,196,.08);color:#55efc4;border:1px solid rgba(85,239,196,.2)" onclick="ecoGo('bank')">Voir la banque →</button>`; }
-}
 
-// ── MARCHÉ ───────────────────────────────────
-async function ecoLoadAccMarket(prefetched) {
-  const body = document.getElementById('eco-acc-market-body');
-  const sub  = document.getElementById('eco-acc-market-sub');
-  const val  = document.getElementById('eco-acc-market-val');
-  const pnlEl = document.getElementById('eco-acc-market-pnl');
-  const splitPortfolio = document.getElementById('hub-split-portfolio');
-  if (!body) return;
-  try {
-    const d = prefetched || await apiFetch('/portfolio');
-    const positions = d?.positions || [];
-    const totalVal = d?.total_current ?? positions.reduce((s,p) => s+(p.cur_total_raw||0),0);
-    const totalPnl = d?.total_pnl ?? 0;
-    if (val) val.textContent = fmt(totalVal) + ' $';
-    if (splitPortfolio) splitPortfolio.textContent = fmt(totalVal) + ' $';
-    if (pnlEl) { pnlEl.textContent = (totalPnl>=0?'+':'')+fmt(totalPnl)+' $'; pnlEl.style.color = totalPnl>=0?'#55efc4':'#ff6b6b'; }
-    if (sub) sub.textContent = positions.length ? `${positions.length} position${positions.length>1?'s':''}` : 'Aucune position';
-    if (!positions.length) {
-      body.innerHTML = `<div style="padding:14px 0;text-align:center">
-        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">Portfolio vide</div>
-        <button class="eco-acc-btn" style="background:rgba(116,185,255,.08);color:#74b9ff;border:1px solid rgba(116,185,255,.2)" onclick="ecoGo('market')">Explorer le marché →</button>
-      </div>`;
-      return;
-    }
-    body.innerHTML = positions.slice(0,5).map(p => {
-      const pnlPos = p.pnl_positive ?? (p.pnl_raw>=0);
-      return `<div class="eco-mini-item">
-        <div>
-          <div style="font-size:12px;font-weight:900;color:#f0f0f0">${p.name||'Asset'}</div>
-          <div class="eco-mini-tag">${p.category||''}${p.quantity?' · '+p.quantity+' u':''}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="eco-mini-val" style="color:#74b9ff">${p.cur_total_fmt||fmt(p.cur_total_raw||0)} $</div>
-          <div style="font-size:10px;font-weight:800;color:${pnlPos?'#55efc4':'#ff6b6b'}">${p.pnl_fmt||(p.pnl_raw>=0?'+':'')+fmt(p.pnl_raw||0)+' $'}</div>
-        </div>
-      </div>`;
-    }).join('') + `<button class="eco-acc-btn" style="background:rgba(116,185,255,.08);color:#74b9ff;border:1px solid rgba(116,185,255,.2)" onclick="ecoGo('market')">Voir le catalogue →</button>`;
-  } catch(e) { if(body) body.innerHTML = `<button class="eco-acc-btn" style="background:rgba(116,185,255,.08);color:#74b9ff;border:1px solid rgba(116,185,255,.2)" onclick="ecoGo('market')">Marché →</button>`; }
-}
-
-// ── ENTREPRISE(S) ─────────────────────────────
-async function ecoLoadAccCompany() {
-  const area = document.getElementById('hub-company-area');
-  if (!area) return;
-  try {
-    const d = await apiFetch('/company');
-    const companies = d?.companies || (d?.company ? [d.company] : []);
-    if (!companies.length) {
-      area.innerHTML = `<div class="eco-acc-item" style="border-style:dashed;border-color:rgba(255,255,255,.1)" onclick="ecoGo('company')">
-        <div class="eco-acc-head" style="cursor:pointer">
-          <div class="eco-acc-icon" style="background:rgba(247,201,72,.08);border:1px solid rgba(247,201,72,.15)">🏗️</div>
-          <div class="eco-acc-info">
-            <div class="eco-acc-name" style="color:rgba(240,240,240,.5)">Pas encore d'entreprise</div>
-            <div class="eco-acc-sub">Postuler ou créer la tienne</div>
-          </div>
-        </div>
-      </div>`;
-      return;
-    }
-    const roleMap = { pdg:'👑 PDG', directeur:'🎯 Directeur', manager:'📊 Manager', employe:'👤 Employé', stagiaire:'🎓 Stagiaire' };
-    area.innerHTML = companies.map((co, idx) => {
-      const isPdg = co.is_pdg || co.my_role === 'pdg';
-      const role = isPdg ? '👑 PDG' : roleMap[co.my_role] || '👤 Employé';
-      const emoji = co.sector_emoji || '🏢';
-      const hasTax = co.tax_debt && co.tax_debt > 0;
-      const accId = `eco-acc-co-${idx}`;
-      const accentColor = isPdg ? '#f7c948' : '#a29bfe';
-      const accentBg = isPdg ? 'rgba(247,201,72,.1)' : 'rgba(162,155,254,.1)';
-      const accentBorder = isPdg ? 'rgba(247,201,72,.2)' : 'rgba(162,155,254,.2)';
-      const stripeGrad = isPdg
-        ? 'linear-gradient(90deg,#f7c948,#e17055,#f7c948);background-size:200%;animation:shimmer 3s linear infinite'
-        : 'linear-gradient(90deg,#6c5ce7,#a29bfe)';
-      const bodyHtml = `<div class="eco-acc-inner">
-        ${isPdg ? `<div class="eco-metrics-grid">
-          <div class="eco-metric-cell"><div class="eco-metric-v">${fmt(co.treasury_raw||co.treasury||0)} $</div><div class="eco-metric-l">Tréso</div></div>
-          <div class="eco-metric-cell"><div class="eco-metric-v">${co.nb_employees||0}</div><div class="eco-metric-l">Équipe</div></div>
-          <div class="eco-metric-cell"><div class="eco-metric-v">${'★'.repeat(Math.min(5,co.reputation||0))}</div><div class="eco-metric-l">Réputation</div></div>
-        </div>
-        ${co.contracts_auto_count ? `<div class="eco-stat-row"><span class="eco-stat-key">Contrats auto</span><span class="eco-stat-v" style="color:#fdcb6e">${co.contracts_auto_count}</span></div>` : ''}
-        ${co.pending_applications ? `<div class="eco-stat-row"><span class="eco-stat-key">Candidatures</span><span class="eco-stat-v" style="color:#f7c948">${co.pending_applications}</span></div>` : ''}` :
-        `<div class="eco-stat-row"><span class="eco-stat-key">Salaire hebdo</span><span class="eco-stat-v" style="color:${accentColor}">${fmt(co.salary_raw||co.salary||0)} $</span></div>`}
-        ${hasTax ? `<div class="eco-stat-row"><span class="eco-stat-key">Impôts dus</span><span class="eco-stat-v" style="color:#ff6b6b">−${fmt(co.tax_debt)} $</span></div>` : ''}
-        <div class="eco-badge-row">
-          ${!hasTax ? `<div class="eco-ebadge" style="background:rgba(85,239,196,.1);border:1px solid rgba(85,239,196,.25);color:#55efc4">✓ Fiscal OK</div>` : ''}
-          ${co.level ? `<div class="eco-ebadge" style="background:${accentBg};border:1px solid ${accentBorder};color:${accentColor}">Niv. ${co.level}</div>` : ''}
-        </div>
-        <button class="eco-acc-btn" style="background:${accentBg};color:${accentColor};border:1px solid ${accentBorder}" onclick="ecoGo('company')">${isPdg?'Gérer l\'entreprise':'Voir mon poste'} →</button>
-      </div>`;
-      return `<div class="eco-acc-item" id="${accId}">
-        <div class="eco-acc-head" onclick="ecoAccToggle('${accId}')">
-          <div class="eco-acc-icon" style="background:${accentBg};border:1px solid ${accentBorder};position:relative">
-            ${emoji}
-            <div style="position:absolute;top:0;left:0;right:0;height:2px;border-radius:12px 12px 0 0;background:${stripeGrad}"></div>
-          </div>
-          <div class="eco-acc-info">
-            <div class="eco-acc-name">${co.name||'—'}</div>
-            <div class="eco-acc-sub" style="color:${accentColor}80">${role}</div>
-          </div>
-          <div class="eco-acc-right">
-            <div class="eco-acc-val" style="color:${accentColor}">${fmt(co.value_raw||co.value||0)} $</div>
-            ${hasTax ? `<div style="font-size:9px;color:#ff6b6b;font-weight:800">Impôts dus</div>` : `<div style="font-size:9px;color:#55efc4;font-weight:800">Fiscal OK</div>`}
-          </div>
-          <div class="eco-acc-chevron">⌄</div>
-        </div>
-        <div class="eco-acc-body"><div>${bodyHtml}</div></div>
-      </div>`;
-    }).join('');
-  } catch(e) { if(area) area.innerHTML = ''; }
-}
-
-// ── PARTS ─────────────────────────────────────
-async function ecoLoadAccParts() {
-  const body = document.getElementById('eco-acc-parts-body');
-  const sub  = document.getElementById('eco-acc-parts-sub');
-  const val  = document.getElementById('eco-acc-parts-val');
-  if (!body) return;
-  try {
-    const d = await apiFetch('/parts');
-    const parts = d?.parts || [];
-    if (val) val.textContent = parts.length ? parts.length + ' entreprise' + (parts.length>1?'s':'') : '—';
-    if (sub) sub.textContent = parts.length ? `${parts.length} entreprise${parts.length>1?'s':''} · investisseur` : 'Aucune part détenue';
-    if (!parts.length) {
-      body.innerHTML = `<div style="padding:14px 0;text-align:center">
-        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">Aucune part</div>
-        <button class="eco-acc-btn" style="background:rgba(0,206,201,.08);color:#00cec9;border:1px solid rgba(0,206,201,.2)" onclick="ecoGo('parts')">Acheter des parts →</button>
-      </div>`;
-      return;
-    }
-    body.innerHTML = parts.map(p => `
-      <div class="eco-mini-item">
-        <div>
-          <div style="font-size:12px;font-weight:900;color:#f0f0f0">${p.company||'—'}</div>
-          <div class="eco-mini-tag">${p.quantity||0} parts${p.pct_ownership?' · '+p.pct_ownership+'%':''}</div>
-        </div>
-        <div class="eco-mini-val" style="color:#00cec9">${p.price_per||'—'} $/u</div>
-      </div>`).join('') +
-      `<button class="eco-acc-btn" style="background:rgba(0,206,201,.08);color:#00cec9;border:1px solid rgba(0,206,201,.2)" onclick="ecoGo('parts')">Acheter / vendre →</button>`;
-  } catch(e) { if(body) body.innerHTML = `<button class="eco-acc-btn" style="background:rgba(0,206,201,.08);color:#00cec9;border:1px solid rgba(0,206,201,.2)" onclick="ecoGo('parts')">Parts →</button>`; }
-}
-
-// ── CONTRATS BC ───────────────────────────────
-async function ecoLoadAccContrats() {
-  const body   = document.getElementById('eco-acc-contrats-body');
-  const sub    = document.getElementById('eco-acc-contrats-sub');
-  const right  = document.getElementById('eco-acc-contrats-right');
-  if (!body) return;
-  try {
-    const d = await apiFetch('/contrats/bc');
-    const contrats = d?.contrats || [];
-    const claimable = contrats.filter(c => c.status==='completed' || c.pct>=100).length;
-    if (sub) sub.textContent = contrats.length ? `${contrats.length} actif${contrats.length>1?'s':''} · ${claimable} réclamable${claimable>1?'s':''}` : 'Aucun contrat';
-    if (right) right.innerHTML = claimable ? `<div class="eco-acc-notif">${claimable} !</div>` : `<div class="eco-acc-val" style="color:#fdcb6e">${contrats.length}</div>`;
-    if (!contrats.length) {
-      body.innerHTML = `<div style="padding:14px 0;text-align:center">
-        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">Aucun contrat actif</div>
-        <button class="eco-acc-btn" style="background:rgba(253,203,110,.08);color:#fdcb6e;border:1px solid rgba(253,203,110,.2)" onclick="ecoGo('contrats')">Voir les contrats →</button>
-      </div>`;
-      return;
-    }
-    body.innerHTML = contrats.slice(0,5).map(c => {
-      const canClaim = c.status==='completed' || c.pct>=100;
-      return `<div class="eco-contrat-item">
-        <div class="eco-contrat-title">${(c.title||'Contrat').slice(0,40)}</div>
-        <div class="eco-contrat-row">
-          <span class="eco-contrat-pct">${canClaim ? '✓ Terminé' : `${c.pct||0}% · ${c.days_left||0}j restants`}</span>
-          ${canClaim ? `<span class="eco-claim-badge">Réclamer</span>` : `<span class="eco-contrat-reward">${c.reward||'—'}</span>`}
-        </div>
-        ${!canClaim && (c.pct||0)>0 ? `<div class="eco-prog-bar"><div class="eco-prog-fill" style="width:${Math.min(100,c.pct||0)}%;background:#fdcb6e"></div></div>` : ''}
-      </div>`;
-    }).join('') +
-    `<button class="eco-acc-btn" style="background:rgba(253,203,110,.08);color:#fdcb6e;border:1px solid rgba(253,203,110,.2)" onclick="ecoGo('contrats')">Tous les contrats →</button>`;
-  } catch(e) { if(body) body.innerHTML = `<button class="eco-acc-btn" style="background:rgba(253,203,110,.08);color:#fdcb6e;border:1px solid rgba(253,203,110,.2)" onclick="ecoGo('contrats')">Contrats →</button>`; }
-}
-
-// ── LEGACY STUBS (compat) ─────────────────────
-async function loadHubBank(p) { ecoLoadAccBank(p); }
-async function loadHubMarket(p) { ecoLoadAccMarket(p); }
-async function loadHubCompany() { ecoLoadAccCompany(); }
-async function loadHubParts() { ecoLoadAccParts(); }
-async function loadHubContrats() { ecoLoadAccContrats(); }
-
-// ── NOTIFICATIONS ECO ──────────────────────
-let _ecoNotifInterval = null;
-async function pollEcoNotifs() {
-  clearInterval(_ecoNotifInterval);
-  _updateEcoNotifBadge();
-  _ecoNotifInterval = setInterval(_updateEcoNotifBadge, 30000);
-}
-async function _updateEcoNotifBadge() {
-  try {
-    const d = await apiFetch('/notifications/eco');
-    const count = d?.count || 0;
-    const navBtn = document.querySelector('.nav-btn[onclick*="eco"]');
-    if (!navBtn) return;
-    let badge = navBtn.querySelector('.nav-notif-badge');
-    if (count > 0) {
-      if (!badge) { badge = document.createElement('span'); badge.className='nav-notif-badge'; navBtn.appendChild(badge); }
-      badge.textContent = count > 9 ? '9+' : count;
-    } else {
-      badge?.remove();
-    }
-    // Mettre à jour badges sur cartes contrats du hub
-    const cEl = document.getElementById('hub-contrats-cards');
-    if (cEl && d?.claimable > 0) {
-      const existing = cEl.querySelector('.hub-section-notif');
-      if (!existing) {
-        const sec = document.querySelector('.hub-section:last-child .hub-section-title');
-        if (sec) { const b = document.createElement('span'); b.className='hub-card-badge hub-section-notif'; b.style='position:relative;margin-left:6px;top:0;right:0'; b.textContent=d.claimable; sec.appendChild(b); }
-      }
-    }
-  } catch(e) {}
-}
-
-// ════════════════════════════════════════
-//  TOAST
-// ════════════════════════════════════════
-function showToast(msg) {
-  let t = document.getElementById('toast');
-  if (!t) { t = document.createElement('div'); t.id='toast'; document.body.appendChild(t); }
-  t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:99999;transition:opacity .3s;background:var(--success);color:#fff;opacity:1;';
-  t.textContent = msg;
-  clearTimeout(t._hideTimer);
-  t._hideTimer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
-}
-
-// ════════════════════════════════════════
-//  COPY CMD
-// ════════════════════════════════════════
-function copyCmd(cmd) {
-  navigator.clipboard?.writeText(cmd).catch(()=>{});
-  showToast(`📋 ${cmd} copié !`);
-}
-
-// ════════════════════════════════════════
-//  FORMAT
-// ════════════════════════════════════════
-function fmt(n) {
-  if (!n && n!==0) return '—';
-  n = parseInt(n);
-  if (n >= 1e9) return (n/1e9).toFixed(1)+'Mds $';
-  if (n >= 1e6) return (n/1e6).toFixed(1)+'M $';
-  if (n >= 1e3) return (n/1e3).toFixed(0)+'K $';
-  return n.toLocaleString()+' $';
-}
-function stars(r) {
-  const s = Math.round(r*2)/2;
-  let out='';
-  for(let i=1;i<=5;i++) out += i<=s?'⭐':'☆';
-  return out;
-}
-
-// ════════════════════════════════════════
-//  LOAD DATA FROM API
-// ════════════════════════════════════════
-
-// ════════════════════════════════════════
-//  FETCH WITH TIMEOUT
-// ════════════════════════════════════════
-async function fetchT(url, opts, ms=10000) {
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), ms);
-  // Injecter init_data automatiquement dans chaque requête
-  const initDataEnc = encodeURIComponent(tg?.initData || '');
-  if (opts && opts.method === 'POST' && opts.body) {
-    try {
-      const bodyObj = JSON.parse(opts.body);
-      if (!bodyObj.init_data) bodyObj.init_data = tg?.initData || '';
-      opts = { ...opts, body: JSON.stringify(bodyObj) };
-    } catch(e) {}
-  } else {
-    const sep = url.includes('?') ? '&' : '?';
-    if (!url.includes('init_data=')) url = url + sep + 'init_data=' + initDataEnc;
-  }
-  try {
-    const r = await fetch(url, { ...opts, signal: ctrl.signal });
-    clearTimeout(tid);
-    return r;
+    const html = await res.text();
+    document.open();
+    document.write(html);
+    document.close();
   } catch(e) {
-    clearTimeout(tid);
-    if (e.name === 'AbortError') throw new Error('Timeout — serveur trop lent');
-    throw e;
+    document.getElementById('loader').innerHTML = '<div style="color:#ff6b6b;font-size:13px">Erreur de connexion</div>';
   }
-}
-
-
-// ════════════════════════════════════════
-//  APIFETCH HELPER (hub eco)
-// ════════════════════════════════════════
-async function apiFetch(path, opts) {
-  try {
-    const sep = path.includes('?') ? '&' : '?';
-    const r = await fetchT('/api/webapp'+path+sep+'user_id='+uid, opts);
-    if (!r) return null;
-    return r.json();
-  } catch(e) { return null; }
-}
-
-
-let _cachedUser = null;
-let _cachedFamily = null;
-
-async function loadData() {
-  if (!uid) { fillMock(); return; }
-
-  try {
-    // Charge user ET family en parallèle dès le démarrage — timeout 20s pour Railway cold start
-    const [res, resFam] = await Promise.all([
-      fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`, {}, 20000),
-      fetchT(`/api/webapp/family?user_id=${uid}`, {}, 20000),
-    ]);
-    if (!res.ok) throw new Error('HTTP '+res.status);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    fillProfile(data);
-    _cachedUser = data;
-    if (resFam.ok) {
-      _cachedFamily = await resFam.json();
-    }
-  } catch(e) {
-    console.warn('[loadData]', e.message);
-    fillMock();
-  }
-}
-
-function fillProfile(d) {
-  const _set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-
-  // ── Customisation cover + badges ──
-  _loadProfileCustomization(d);
-
-
-  // ── Photo de profil Telegram ──
-  const wrap = document.getElementById('pf-avatar-wrap');
-  if (wrap && (d.photo_file_id || d.photo_file_type === 'custom_b64')) {
-    wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${Date.now()}" alt="" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>' " style="width:100%;height:100%;object-fit:cover;border-radius:50%"><div style="position:absolute;bottom:2px;right:2px;width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.5)">✏️</div>`;
-  }
-
-  // ── Avatar SVG (pour la page avatar séparée) ──
-  if (d.avatar_data) {
-    try {
-      const serverAvatar = typeof d.avatar_data === 'string'
-        ? JSON.parse(d.avatar_data) : d.avatar_data;
-      avatar = { ...avatar, ...serverAvatar };
-      try { localStorage.setItem('fb_avatar', JSON.stringify(avatar)); } catch(e) {}
-      if (document.getElementById('avatar-canvas')) drawAvatar('avatar-canvas');
-      renderOptions();
-    } catch(e) {}
-  }
-
-  // ── Stats cover overlay ──
-  _set('pf-cover-fortune', fmt(d.fortune_totale));
-  _set('pf-cover-karma',   (d.karma >= 0 ? '+' : '') + d.karma);
-
-  // ── Identité ──
-  _set('pf-name',    d.name || firstName);
-  _set('pf-title',   d.title || 'Citoyen');
-  _set('pf-username', d.username ? '@' + d.username : '');
-  _set('pf-coins',   fmt(d.fortune_totale));
-  _set('pf-cash',    fmt(d.coins));
-  _pfCoinsRaw = (d.coins_raw !== undefined) ? d.coins_raw : (parseInt(d.coins) || 0);  // valeur brute pour la boutique badges
-  _set('pf-bank',    fmt(d.bank_total));
-  _set('pf-debt',    fmt(d.loans_total));
-  _set('pf-total',   fmt(d.fortune_totale));
-  _set('pf-karma',   (d.karma >= 0 ? '+' : '') + d.karma);
-  _set('pf-diplomes', d.diplomes || '—');
-
-  // ── Rang ──
-  const rankBadge = document.getElementById('pf-rank-badge');
-  const rankText  = document.getElementById('pf-rank');
-  const rankStr = '#' + d.rank + ' / ' + d.total_players;
-  if (rankBadge) rankBadge.textContent = '#' + d.rank;
-  if (rankText)  rankText.textContent  = rankStr;
-
-  // ── Entreprise ──
-  const banner    = document.getElementById('pf-company-banner');
-  const noCompany = document.getElementById('pf-no-company');
-  if (d.company) {
-    _set('pf-company', d.company);
-    _set('pf-role',    d.role || '—');
-    if (banner)    banner.style.display    = 'flex';
-    if (noCompany) noCompany.style.display = 'none';
-  } else {
-    if (banner)    banner.style.display    = 'none';
-    if (noCompany) noCompany.style.display = 'block';
-  }
-
-  // ── Données entreprise (onglet Économie) ──
-  _set('co-name',       d.company || '—');
-  _set('co-level',      d.company_level || '—');
-  _set('co-stars',      d.company_rep ? stars(d.company_rep) : '—');
-  _set('co-value',      fmt(d.company_value));
-  _set('co-treasury',   fmt(d.company_treasury));
-  _set('co-revenue',    fmt(d.company_revenue_day));
-  _set('co-employees',  d.company_employees || '—');
-  _set('co-myrole',     d.role || '—');
-  _set('co-owner',      d.company_owner || '—');
-
-  // ── Portfolio ──
-  if (d.portfolio) {
-    const mkInv = document.getElementById('mk-invested');
-    const mkCur = document.getElementById('mk-current');
-    const mkPnl = document.getElementById('mk-pnl');
-    if (mkInv) mkInv.textContent = fmt(d.portfolio.invested);
-    if (mkCur) mkCur.textContent = fmt(d.portfolio.current);
-    if (mkPnl) {
-      const pnl = d.portfolio.pnl;
-      mkPnl.textContent = (pnl >= 0 ? '+' : '') + fmt(Math.abs(pnl));
-      mkPnl.className = 'stat-value ' + (pnl >= 0 ? 'green' : 'red');
-    }
-  }
-
-  // Sections intégrées dans la page profil
-  _loadProfileActivities();
-
-  // Pré-remplir preview photo
-  const photoPreview = document.getElementById('pf-photo-preview');
-  if (photoPreview && d.photo_file_id) {
-    photoPreview.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.innerHTML='👤'">`;
-  }
-}
-
-
-// ════════════════════════════════════════
-//  GAINS (DAILY + WORK)
-// ════════════════════════════════════════
-
-async function loadGains() {
-  if (!uid) return;
-  // Pas de hide/show si déjà visible — évite le clignotement
-  const content = document.getElementById('gains-content');
-  if (content.style.display === 'none') {
-    document.getElementById('gains-loading').style.display = 'block';
-  }
-  try {
-    const r = await fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 15000);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-
-    _applyGainsState(d);
-
-    document.getElementById('gains-loading').style.display = 'none';
-    content.style.display = 'block';
-  } catch(e) {
-    document.getElementById('gains-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
-  }
-}
-
-function _applyGainsState(d) {
-  // Daily
-  const dailyBtn  = document.getElementById('daily-btn');
-  const dBadge    = document.getElementById('daily-badge');
-  const dBadgeW   = document.getElementById('daily-badge-wait');
-  const dIconWrap = document.getElementById('daily-icon-wrap');
-  if (d.daily_available) {
-    dailyBtn.disabled = false;
-    dailyBtn.className = 'gains-action-btn daily-active';
-    dailyBtn.textContent = '🎁 RÉCUPÉRER';
-    dBadge.style.display = '';
-    dBadgeW.style.display = 'none';
-    dIconWrap.classList.add('available');
-  } else {
-    dailyBtn.disabled = true;
-    dailyBtn.className = 'gains-action-btn daily-active';
-    dailyBtn.textContent = '✔ Récupéré';
-    dBadge.style.display = 'none';
-    dBadgeW.style.display = '';
-    document.getElementById('daily-cooldown').textContent = 'Demain';
-    dIconWrap.classList.remove('available');
-  }
-
-  // Work
-  const workBtn  = document.getElementById('work-btn');
-  const wBadge   = document.getElementById('work-badge');
-  const wBadgeW  = document.getElementById('work-badge-wait');
-  const wIconWrap = document.getElementById('work-icon-wrap');
-  if (d.work_available) {
-    workBtn.disabled = false;
-    workBtn.className = 'gains-action-btn work-active';
-    workBtn.textContent = '💼 TRAVAILLER';
-    wBadge.style.display = '';
-    wBadgeW.style.display = 'none';
-    wIconWrap.classList.add('available');
-  } else {
-    workBtn.disabled = true;
-    workBtn.className = 'gains-action-btn work-active';
-    workBtn.textContent = '😴 En repos';
-    wBadge.style.display = 'none';
-    wBadgeW.style.display = '';
-    const h = Math.floor(d.work_wait_min / 60);
-    const m = d.work_wait_min % 60;
-    document.getElementById('work-cooldown').textContent = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
-    wIconWrap.classList.remove('available');
-  }
-}
-
-async function claimDaily() {
-  if (!uid) return;
-  const btn = document.getElementById('daily-btn');
-  btn.disabled = true;
-  btn.textContent = '⏳…';
-  const res = document.getElementById('daily-result');
-  try {
-    const r = await fetchT('/api/webapp/gains/daily', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid})
-    }, 15000);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-    if (d.status === 'already') {
-      res.textContent = '⏳ Déjà récupéré aujourd\'hui !';
-      res.style.color = 'var(--text2)';
-      btn.textContent = '✔ Récupéré';
-    } else {
-      res.textContent = `🎁 +${fmt(d.amount)} $ gagné !`;
-      res.style.color = 'var(--success)';
-      _cachedUser = null;
-      // Mise à jour sur place, pas de reload complet
-      _applyGainsState({daily_available: false, work_available: document.getElementById('work-btn').disabled === false, work_wait_min: 0});
-    }
-  } catch(e) {
-    res.textContent = e.message;
-    res.style.color = 'var(--accent2)';
-    btn.textContent = '🎁 RÉCUPÉRER';
-    btn.disabled = false;
-  }
-}
-
-async function claimWork() {
-  if (!uid) return;
-  const btn = document.getElementById('work-btn');
-  btn.disabled = true;
-  btn.textContent = '⏳…';
-  const res = document.getElementById('work-result');
-  const JOBS = [
-    '👨‍🌾 Tu as travaillé aux champs',
-    '🚗 Tu as conduit un taxi',
-    '👨‍💻 Tu as codé toute la nuit',
-    '🏗️ Tu as construit des maisons',
-    '🎤 Tu as animé une soirée',
-    '🍳 Tu as cuisiné au restaurant',
-    '📦 Tu as livré des colis',
-    '🎨 Tu as vendu tes tableaux',
-    '🚢 Tu as navigué sur des mers lointaines',
-    '💊 Tu as travaillé à la pharmacie',
-  ];
-  try {
-    const r = await fetchT('/api/webapp/gains/work', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid})
-    }, 15000);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-    if (d.status === 'cooldown') {
-      const h = Math.floor(d.wait_min / 60);
-      const m = d.wait_min % 60;
-      const dur = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
-      res.textContent = `😴 Tu es fatigué·e — reviens dans ${dur}`;
-      res.style.color = 'var(--text2)';
-      btn.textContent = '😴 En repos';
-    } else {
-      const job = JOBS[Math.floor(Math.random() * JOBS.length)];
-      res.textContent = `${job} — +${fmt(d.amount)} $ !`;
-      res.style.color = 'var(--success)';
-      _cachedUser = null;
-      // Fetch le vrai cooldown depuis l'API
-      const rd = await fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 10000);
-      const newState = await rd.json();
-      if (!newState.error) _applyGainsState(newState);
-    }
-  } catch(e) {
-    res.textContent = e.message;
-    res.style.color = 'var(--accent2)';
-    btn.textContent = '💼 TRAVAILLER';
-    btn.disabled = false;
-  }
-}
-
-// ════════════════════════════════════════
-//  DIPLÔMES
-// ════════════════════════════════════════
-
-const DIP_COLORS = ['#f7c948','#a78bfa','#ff6b6b','#00c864'];
-
-async function loadDiplomes() {
-  if (!uid) return;
-  const content = document.getElementById('diplomes-content');
-  if (content.style.display === 'none') {
-    document.getElementById('diplomes-loading').style.display = 'block';
-  }
-  try {
-    const r = await fetchT(`/api/webapp/diplomes?user_id=${uid}`, {}, 15000);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-
-    // Domaine
-    const domWrap = document.getElementById('dip-domain-wrap');
-    if (d.domain) {
-      document.getElementById('dip-domain').textContent = d.domain;
-      domWrap.style.display = '';
-    } else {
-      domWrap.style.display = 'none';
-    }
-
-    // Liste
-    const list = document.getElementById('diplomes-list');
-    list.innerHTML = d.diplomes.map((dip, i) => `
-      <div class="dip-node${dip.obtained ? ' obtained' : ''}" style="${dip.obtained ? `border-color:${DIP_COLORS[i]}44;background:${DIP_COLORS[i]}08;` : ''}">
-        <div class="dip-dot${dip.obtained ? ' done' : ''}" style="${dip.obtained ? `border-color:${DIP_COLORS[i]};` : ''}"></div>
-        <div class="dip-emoji" style="${!dip.obtained ? 'filter:grayscale(1);opacity:.4' : ''}">${dip.obtained ? dip.emoji : '🔒'}</div>
-        <div class="dip-info">
-          <div class="dip-name" style="${dip.obtained ? `color:${DIP_COLORS[i]}` : ''}">${dip.label}</div>
-          <div class="dip-sub">${dip.obtained ? `<span style="color:${DIP_COLORS[i]}">✓ Obtenu</span>` : (dip['prerequis'] ? `Nécessite : ${dip['prerequis']}` : 'Disponible')}</div>
-        </div>
-        ${dip.obtained ? `<div class="dip-check" style="color:${DIP_COLORS[i]}">✦</div>` : ''}
-      </div>
-    `).join('');
-
-    if (d.cooldown_left > 0) {
-      const h = Math.floor(d.cooldown_left / 60);
-      const m = d.cooldown_left % 60;
-      document.getElementById('dip-cooldown-val').textContent = h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
-      document.getElementById('diplomes-cooldown-card').style.display = 'block';
-    } else {
-      document.getElementById('diplomes-cooldown-card').style.display = 'none';
-    }
-
-    document.getElementById('diplomes-loading').style.display = 'none';
-    content.style.display = 'block';
-  } catch(e) {
-    document.getElementById('diplomes-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
-  }
-}
-
-
-
-
-// ════════════════════════════════════════
-//  PROFIL — ACTIVITÉS UNIFIÉES (diplômes + gains)
-// ════════════════════════════════════════
-
-async function _loadProfileActivities() {
-  if (!uid) return;
-  const inner = document.getElementById('pf-activities-inner');
-  if (!inner) return;
-
-  // Charge gains + diplômes en parallèle
-  let gains = {}, dips = {};
-  try {
-    const [rg, rd] = await Promise.all([
-      fetchT(`/api/webapp/gains?user_id=${uid}`, {}, 15000),
-      fetchT(`/api/webapp/diplomes?user_id=${uid}`, {}, 15000),
-    ]);
-    gains = await rg.json();
-    dips  = await rd.json();
-  } catch(e) {
-    inner.innerHTML = `<div style="color:var(--text2);font-size:12px;padding:12px 0">Chargement impossible</div>`;
-    return;
-  }
-
-  const dailyAvail = gains.daily_available === true;
-  // FIX: l'API retourne work_wait_min (pas work_cooldown_left)
-  const workAvail  = gains.work_available === true;
-  const workWait   = gains.work_wait_min || 0;
-
-  // Tabs state
-  const tabs = [
-    { id: 'tab-gains',    label: '💰 Gains',    active: true  },
-    { id: 'tab-diplomes', label: '🎓 Diplômes', active: false },
-  ];
-
-  // Diplomes HTML
-  const dipColors = ['#f7c948','#00c864','#6c63ff','#ff6b6b','#00bcd4','#ff9800'];
-  const dipListHTML = (dips.diplomes || []).map((dip, i) => `
-    <div class="dip-node${dip.obtained ? ' obtained' : ''}" style="${dip.obtained ? `border-color:${dipColors[i%dipColors.length]}44;background:${dipColors[i%dipColors.length]}08;` : ''}">
-      <div class="dip-dot${dip.obtained ? ' done' : ''}" style="${dip.obtained ? `border-color:${dipColors[i%dipColors.length]};` : ''}"></div>
-      <div class="dip-emoji" style="${!dip.obtained ? 'filter:grayscale(1);opacity:.4' : ''}">${dip.obtained ? dip.emoji : '🔒'}</div>
-      <div class="dip-info">
-        <div class="dip-name" style="${dip.obtained ? `color:${dipColors[i%dipColors.length]}` : ''}">${dip.label}</div>
-        <div class="dip-sub">${dip.obtained ? `<span style="color:${dipColors[i%dipColors.length]}">✓ Obtenu</span>` : (dip.prerequis ? `Nécessite : ${dip.prerequis}` : 'Disponible')}</div>
-      </div>
-      ${dip.obtained ? `<div class="dip-check" style="color:${dipColors[i%dipColors.length]}">✦</div>` : ''}
-    </div>
-  `).join('');
-
-  const dipCooldownHTML = (dips.cooldown_left > 0) ? `
-    <div style="text-align:center;padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;margin-top:10px">
-      <div style="font-size:20px;margin-bottom:4px">⏳</div>
-      <div style="font-size:11px;color:var(--text2);letter-spacing:1px;text-transform:uppercase">Prochain examen dans</div>
-      <div style="font-size:20px;font-weight:900;color:var(--accent);margin-top:4px;font-family:'Bangers',cursive;letter-spacing:2px">${_fmtCooldown(dips.cooldown_left)}</div>
-    </div>` : '';
-
-  inner.innerHTML = `
-    <!-- Tab pills -->
-    <div style="display:flex;gap:8px;margin-bottom:14px;padding-top:4px">
-      <button id="act-tab-gains" onclick="_actTab('gains')"
-        style="flex:1;padding:9px 0;border-radius:12px;border:none;font-size:12px;font-weight:900;cursor:pointer;
-               background:var(--accent);color:#000;transition:all .2s">
-        💰 Gains
-      </button>
-      <button id="act-tab-diplomes" onclick="_actTab('diplomes')"
-        style="flex:1;padding:9px 0;border-radius:12px;border:none;font-size:12px;font-weight:900;cursor:pointer;
-               background:rgba(255,255,255,0.07);color:var(--text2);transition:all .2s">
-        🎓 Diplômes
-      </button>
-    </div>
-
-    <!-- Panel gains -->
-    <div id="act-panel-gains">
-      <!-- Coffre -->
-      <div style="background:rgba(247,201,72,0.06);border:1px solid rgba(247,201,72,${dailyAvail?'0.35':'0.12'});border-radius:18px;padding:16px;margin-bottom:10px">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <div style="font-size:28px;width:40px;text-align:center;line-height:1">${dailyAvail ? '🎁' : '⏳'}</div>
-          <div style="flex:1">
-            <div style="font-size:14px;font-weight:900;color:var(--text)">Coffre du jour</div>
-            <div style="font-size:11px;color:${dailyAvail ? '#00c864' : 'var(--text2)'};margin-top:2px;font-weight:700">
-              ${dailyAvail ? '✦ Disponible maintenant' : '⏰ Reviens demain'}
-            </div>
-          </div>
-          ${dailyAvail ? '<div style="width:8px;height:8px;border-radius:50%;background:#00c864;box-shadow:0 0 8px #00c864;flex-shrink:0"></div>' : ''}
-        </div>
-        <button onclick="claimDailyFromProfile()" ${dailyAvail ? '' : 'disabled'}
-          style="width:100%;padding:12px;border-radius:13px;border:none;font-size:13px;font-weight:900;
-                 cursor:${dailyAvail ? 'pointer' : 'not-allowed'};
-                 background:${dailyAvail ? 'linear-gradient(135deg,#f7c948,#ffaa00)' : 'rgba(255,255,255,0.05)'};
-                 color:${dailyAvail ? '#000' : 'var(--text2)'};letter-spacing:.3px">
-          🎁 Récupérer
-        </button>
-        <div id="pf-daily-result" style="text-align:center;font-size:12px;font-weight:700;min-height:18px;margin-top:7px"></div>
-      </div>
-
-      <!-- Travail -->
-      <div style="background:rgba(108,99,255,0.06);border:1px solid rgba(108,99,255,${workAvail?'0.35':'0.12'});border-radius:18px;padding:16px">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <div style="font-size:28px;width:40px;text-align:center;line-height:1">${workAvail ? '💼' : '😴'}</div>
-          <div style="flex:1">
-            <div style="font-size:14px;font-weight:900;color:var(--text)">Travail</div>
-            <div style="font-size:11px;color:${workAvail ? '#00c864' : 'var(--text2)'};margin-top:2px;font-weight:700">
-              ${workAvail ? '✦ Prêt à travailler' : `😴 Repos — ${_fmtCooldown(workWait)}`}
-            </div>
-          </div>
-          ${workAvail ? '<div style="width:8px;height:8px;border-radius:50%;background:#6c63ff;box-shadow:0 0 8px #6c63ff;flex-shrink:0"></div>' : ''}
-        </div>
-        <button onclick="claimWorkFromProfile()" ${workAvail ? '' : 'disabled'}
-          style="width:100%;padding:12px;border-radius:13px;border:none;font-size:13px;font-weight:900;
-                 cursor:${workAvail ? 'pointer' : 'not-allowed'};
-                 background:${workAvail ? 'linear-gradient(135deg,#6c63ff,#9d4edd)' : 'rgba(255,255,255,0.05)'};
-                 color:${workAvail ? '#fff' : 'var(--text2)'};letter-spacing:.3px">
-          💼 Travailler
-        </button>
-        <div id="pf-work-result" style="text-align:center;font-size:12px;font-weight:700;min-height:18px;margin-top:7px"></div>
-      </div>
-    </div>
-
-    <!-- Panel diplômes -->
-    <div id="act-panel-diplomes" style="display:none">
-      ${dips.domain ? `<div class="dip-domain-pill" style="margin-bottom:12px">🎓 ${dips.domain}</div>` : ''}
-      <div class="dip-track">${dipListHTML || '<div style="color:var(--text2);font-size:12px;padding:8px 0">Aucun diplôme disponible</div>'}</div>
-      ${dipCooldownHTML}
-    </div>
-  `;
-}
-
-function _actTab(tab) {
-  const isGains = tab === 'gains';
-  document.getElementById('act-panel-gains').style.display    = isGains ? '' : 'none';
-  document.getElementById('act-panel-diplomes').style.display = isGains ? 'none' : '';
-  document.getElementById('act-tab-gains').style.background    = isGains ? 'var(--accent)' : 'rgba(255,255,255,0.07)';
-  document.getElementById('act-tab-gains').style.color         = isGains ? '#000' : 'var(--text2)';
-  document.getElementById('act-tab-diplomes').style.background = !isGains ? 'linear-gradient(135deg,#6c63ff,#9d4edd)' : 'rgba(255,255,255,0.07)';
-  document.getElementById('act-tab-diplomes').style.color      = !isGains ? '#fff' : 'var(--text2)';
-}
-
-// Aliases pour la compatibilité avec les appels existants
-function _loadProfileGains()    { _loadProfileActivities(); }
-function _loadProfileDiplomes() { _loadProfileActivities(); }
-
-function _fmtCooldown(mins) {
-  if (!mins) return '—';
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m} min`;
-}
-
-async function claimDailyFromProfile() {
-  const btns = document.querySelectorAll('#act-panel-gains button');
-  const btn = Array.from(btns).find(b => b.textContent.includes('Récupérer'));
-  if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
-  const res = document.getElementById('pf-daily-result');
-  try {
-    const r = await fetchT('/api/webapp/gains/daily', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
-    const d = await r.json();
-    if (d.status === 'already') {
-      if (res) { res.textContent = '⏰ Déjà récupéré aujourd\'hui !'; res.style.color = 'var(--text2)'; }
-    } else if (d.status === 'ok') {
-      if (res) { res.textContent = `🎁 +${_fmt(d.amount)} $ gagné !`; res.style.color = '#00c864'; }
-      setTimeout(() => _loadProfileActivities(), 1400);
-    } else {
-      if (res) { res.textContent = `❌ ${d.error || d.status}`; res.style.color = 'var(--accent2)'; }
-      if (btn) { btn.disabled = false; btn.textContent = '🎁 Récupérer'; }
-    }
-  } catch(e) {
-    if (res) { res.textContent = `❌ Erreur réseau`; res.style.color = 'var(--accent2)'; }
-    if (btn) { btn.disabled = false; btn.textContent = '🎁 Récupérer'; }
-  }
-}
-
-async function claimWorkFromProfile() {
-  const btns = document.querySelectorAll('#act-panel-gains button');
-  const btn = Array.from(btns).find(b => b.textContent.includes('Travailler'));
-  if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
-  const res = document.getElementById('pf-work-result');
-  const JOBS = [
-    '👨‍🌾 Travail aux champs','🚗 Taxi de nuit',
-    '👨‍💻 Nuit de code','🏗️ Chantier','🎤 Animation soirée',
-    '🍳 Cuisine resto','📦 Livraison express','🎨 Vente tableau',
-  ];
-  try {
-    const r = await fetchT('/api/webapp/gains/work', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
-    const d = await r.json();
-    if (d.status === 'cooldown') {
-      const dur = _fmtCooldown(d.wait_min);
-      if (res) { res.textContent = `😴 Reviens dans ${dur}`; res.style.color = 'var(--text2)'; }
-      if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
-    } else if (d.status === 'ok') {
-      const job = JOBS[Math.floor(Math.random() * JOBS.length)];
-      if (res) { res.textContent = `${job} — +${_fmt(d.amount)} $ !`; res.style.color = '#6c63ff'; }
-      setTimeout(() => _loadProfileActivities(), 1500);
-    } else {
-      if (res) { res.textContent = `❌ ${d.error || d.status}`; res.style.color = 'var(--accent2)'; }
-      if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
-    }
-  } catch(e) {
-    if (res) { res.textContent = `❌ Erreur réseau`; res.style.color = 'var(--accent2)'; }
-    if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
-  }
-}
-
-// ════════════════════════════════════════
-//  PROFIL — PHOTO
-// ════════════════════════════════════════
-
-let _pendingPhotoBase64 = null;
-
-function onPhotoSelected(input) {
-  const file = input.files[0];
-  if (!file) return;
-  if (file.size > 5 * 1024 * 1024) { showToast('Image trop lourde (max 5 Mo)'); return; }
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    _pendingPhotoBase64 = e.target.result; // data:image/jpeg;base64,...
-    const preview = document.getElementById('pf-photo-preview');
-    if (preview) preview.innerHTML = `<img src="${_pendingPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
-    const saveBtn = document.getElementById('pf-photo-save-btn');
-    if (saveBtn) saveBtn.style.display = 'block';
-    const status = document.getElementById('pf-photo-status');
-    if (status) status.textContent = '';
-  };
-  reader.readAsDataURL(file);
-}
-
-async function saveProfilePhoto() {
-  if (!_pendingPhotoBase64 || !uid) return;
-  const saveBtn = document.getElementById('pf-photo-save-btn');
-  const status  = document.getElementById('pf-photo-status');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Envoi…'; }
-  try {
-    const r = await fetchT('/api/webapp/profile/photo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: uid, photo_base64: _pendingPhotoBase64 })
-    });
-    const d = await r.json();
-    if (d.ok) {
-      if (status) status.textContent = '✅ Photo enregistrée !';
-      if (saveBtn) saveBtn.style.display = 'none';
-      _pendingPhotoBase64 = null;
-      // Mettre à jour aussi l'avatar dans le header
-      const wrap = document.getElementById('pf-avatar-wrap');
-      if (wrap) wrap.innerHTML = `<img src="/api/webapp/photo?user_id=${uid}&t=${Date.now()}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.innerHTML='<div class=pf-avatar-placeholder>👤</div>'">`;
-    } else {
-      if (status) status.textContent = `❌ ${d.error || 'Erreur'}`;
-    }
-  } catch(e) {
-    if (status) status.textContent = '❌ Erreur réseau';
-  } finally {
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Enregistrer'; }
-  }
-}
-
-// ════════════════════════════════════════
-//  MARCHÉ
-// ════════════════════════════════════════
-let _mktCatalog   = {};
-let _mktCats      = [];
-let _mktActiveCat = null;
-let _mktLoadedUid = null;
-let _mktModalAsset = null;
-
-function mktTab(tab, btn) {
-  document.querySelectorAll('#market-tabs .mkt-tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('mkt-catalog').style.display   = tab === 'catalog'   ? '' : 'none';
-  document.getElementById('mkt-portfolio').style.display = tab === 'portfolio' ? '' : 'none';
-  if (tab === 'portfolio') loadPortfolio();
-}
-
-// ════════════════════════════════════════
-//  SOCIAL — FAMILLE & CLASSEMENT
-// ════════════════════════════════════════
-
-// ════════════════════════════════════════
-//  👥 SOCIAL HUB
-// ════════════════════════════════════════
-let _shLoaded = false;
-
-async function loadSocialHub() {
-  // Greeting
-  const greet = document.getElementById('sh-greeting');
-  if (greet && firstName) greet.textContent = `Bonjour, ${firstName} 👋`;
-
-  // Remplir depuis cache si dispo
-  if (window._cachedRanking && !_shLoaded) _shFillRanking(window._cachedRanking);
-
-  // Charger ranking coins
-  try {
-    const r = await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=coins`, {}, 12000);
-    const d = await r.json();
-    if (!d.error) {
-      window._cachedRanking = d;
-      _shFillRanking(d);
-    }
-  } catch(e) {}
-
-  // Charger famille pour badge
-  try {
-    const r = await fetchT(`/api/webapp/family?user_id=${uid}`, {}, 12000);
-    const d = await r.json();
-    if (!d.error) {
-      const famBadge = document.getElementById('sh-fam-badge');
-      const famVal   = document.getElementById('sh-fam-val');
-      const name = d.family_name || '—';
-      const count = (d.spouses||[]).length + (d.parents||[]).length + (d.children||[]).length + (d.friends||[]).length;
-      if (famBadge) famBadge.textContent = `👨‍👩‍👧 ${name}`;
-      if (famVal) famVal.textContent = count > 0 ? `${count} membre${count>1?'s':''}` : '—';
-    }
-  } catch(e) {}
-
-  // Invitations count
-  try {
-    const r = await fetchT(`/api/webapp/user?user_id=${uid}`, {}, 10000);
-    const d = await r.json();
-    if (!d.error) {
-      const inv = document.getElementById('sh-inv-val');
-      if (inv) inv.textContent = d.pending_invitations > 0 ? `${d.pending_invitations} en attente` : '—';
-      const coinsEl = document.getElementById('sh-coins');
-      if (coinsEl && d.coins != null) coinsEl.textContent = Number(d.coins).toLocaleString('fr-FR') + ' $';
-    }
-  } catch(e) {}
-
-  _shLoaded = true;
-  loadOnlineUsers();
-}
-
-function _shFillRanking(d) {
-  const rows = d.ranking || [];
-  const me = rows.find(r => r.is_me) || d.my_row;
-
-  // Badge rang
-  const rankBadge = document.getElementById('sh-rank-badge');
-  const rankVal   = document.getElementById('sh-rank-val');
-  if (me) {
-    if (rankBadge) rankBadge.textContent = `🏆 Rang #${me.rank}`;
-    if (rankVal) rankVal.textContent = `#${me.rank}`;
-  }
-
-  // Top 3
-  const top3El = document.getElementById('sh-top3');
-  if (!top3El) return;
-  const top3 = rows.slice(0, 3);
-  if (!top3.length) { top3El.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:20px 0;">—</div>'; return; }
-
-  const medals = ['🥇','🥈','🥉'];
-  const heights = ['56px','44px','36px'];
-  const colors  = ['#f7c948','#c8c8d8','#d4956a'];
-  const order   = [1,0,2]; // podium: 2nd left, 1st center, 3rd right
-
-  const podiumOrder = [top3[1], top3[0], top3[2]].filter(Boolean);
-  const podiumHeights = [heights[1], heights[0], heights[2]];
-  const podiumColors  = [colors[1],  colors[0],  colors[2]];
-  const podiumMedals  = [medals[1],  medals[0],  medals[2]];
-
-  top3El.innerHTML = podiumOrder.map((p, i) => `
-    <div class="sh2-podium-slot">
-      <div class="sh2-podium-medal${i===1?' big':''}">${podiumMedals[i]}</div>
-      <div class="sh2-podium-username" style="color:${podiumColors[i]}">${p.name||p.username||'?'}</div>
-      <div class="sh2-podium-amount">${Number(p.value).toLocaleString('fr-FR')} $</div>
-      <div class="sh2-podium-bar" style="height:${podiumHeights[i]};background:${podiumColors[i]}20;border-color:${podiumColors[i]}40;"></div>
-    </div>
-  `).join('');
-}
-
-(function injectSocialHubCSS() {
-  if (document.getElementById('sh2-css')) return;
-  const s = document.createElement('style');
-  s.id = 'sh2-css';
-  s.textContent = `
-    /* ══ SOCIAL HUB v2 ══ */
-
-    #page-social-hub {
-      padding: 14px 14px 30px;
-      overflow-y: auto;
-    }
-
-    /* ── HERO ── */
-    .sh2-hero {
-      position: relative;
-      background: linear-gradient(145deg, #0d0d2b 0%, #0d1a3a 50%, #0a1628 100%);
-      border: 1px solid rgba(162,155,254,.2);
-      border-radius: 22px;
-      padding: 20px 18px 16px;
-      margin-bottom: 18px;
-      overflow: hidden;
-    }
-    .sh2-hero::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, #a29bfe, #74b9ff, #00cec9, #fd79a8, #a29bfe);
-      background-size: 300%;
-      animation: gradShift 4s linear infinite;
-    }
-    .sh2-hero-orb {
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(50px);
-      pointer-events: none;
-    }
-    .sh2-orb1 { width:120px;height:120px;background:rgba(162,155,254,.18);top:-30px;right:-20px; }
-    .sh2-orb2 { width:80px;height:80px;background:rgba(116,185,255,.12);bottom:-10px;left:20px; }
-    .sh2-orb3 { width:60px;height:60px;background:rgba(253,121,168,.1);top:30px;left:-10px; }
-
-    .sh2-hero-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 16px;
-      position: relative;
-      z-index: 1;
-    }
-    .sh2-hero-eyebrow {
-      font-size: 9px;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      color: #a29bfe;
-      font-weight: 800;
-      margin-bottom: 4px;
-    }
-    .sh2-hero-name {
-      font-size: 22px;
-      font-weight: 900;
-      color: #fff;
-      letter-spacing: -0.5px;
-      line-height: 1.1;
-    }
-    .sh2-hero-pills {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      align-items: flex-end;
-    }
-    .sh2-hero-pill {
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-size: 10px;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-    .sh2-pill-purple { background:rgba(162,155,254,.15);border:1px solid rgba(162,155,254,.3);color:#a29bfe; }
-    .sh2-pill-blue   { background:rgba(116,185,255,.12);border:1px solid rgba(116,185,255,.25);color:#74b9ff; }
-
-    /* Stats row */
-    .sh2-stats-row {
-      display: flex;
-      align-items: center;
-      background: rgba(255,255,255,.04);
-      border: 1px solid rgba(255,255,255,.07);
-      border-radius: 14px;
-      padding: 10px 8px;
-      position: relative;
-      z-index: 1;
-    }
-    .sh2-stat {
-      flex: 1;
-      text-align: center;
-      cursor: pointer;
-    }
-    .sh2-stat:active { opacity: .7; }
-    .sh2-stat-val {
-      font-size: 13px;
-      font-weight: 900;
-      color: var(--text);
-      line-height: 1;
-    }
-    .sh2-stat-lbl {
-      font-size: 9px;
-      color: var(--text2);
-      margin-top: 3px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      font-weight: 700;
-    }
-    .sh2-stat-sep {
-      width: 1px;
-      height: 28px;
-      background: rgba(255,255,255,.08);
-      flex-shrink: 0;
-    }
-    .gold { color: var(--accent) !important; }
-
-    /* Section labels */
-    .sh2-section-label {
-      font-size: 9.5px;
-      letter-spacing: 2.5px;
-      text-transform: uppercase;
-      color: var(--text2);
-      font-weight: 800;
-      margin: 0 2px 10px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .sh2-label-line {
-      flex: 1;
-      height: 1px;
-      background: rgba(255,255,255,.06);
-      display: block;
-    }
-
-    /* ── PODIUM ── */
-    .sh2-podium {
-      display: flex;
-      align-items: flex-end;
-      justify-content: center;
-      gap: 10px;
-      margin-bottom: 4px;
-      min-height: 120px;
-      padding: 0 4px;
-    }
-    .sh2-podium-loading {
-      color: var(--text2);
-      font-size: 12px;
-      padding: 20px 0;
-      align-self: center;
-    }
-    .sh2-podium-slot {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-    }
-    .sh2-podium-medal { font-size: 28px; line-height: 1; margin-bottom: 5px; }
-    .sh2-podium-medal.big { font-size: 36px; }
-    .sh2-podium-username {
-      font-size: 11px;
-      font-weight: 900;
-      max-width: 80px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-align: center;
-      margin-bottom: 3px;
-    }
-    .sh2-podium-amount {
-      font-size: 9.5px;
-      color: var(--text2);
-      margin-bottom: 6px;
-      text-align: center;
-    }
-    .sh2-podium-bar {
-      width: 100%;
-      border-radius: 8px 8px 0 0;
-      border-width: 1px;
-      border-style: solid;
-    }
-
-    /* ── CARD WIDE (Famille / Classement) ── */
-    .sh2-card-wide {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: rgba(255,255,255,.03);
-      border: 1px solid rgba(255,255,255,.08);
-      border-radius: 16px;
-      padding: 14px 16px;
-      margin-bottom: 8px;
-      cursor: pointer;
-      position: relative;
-      overflow: hidden;
-      transition: transform .12s, border-color .15s;
-    }
-    .sh2-card-wide:active { transform: scale(.97); }
-    .sh2-card-wide-glow {
-      position: absolute;
-      left: -20px; top: 50%;
-      transform: translateY(-50%);
-      width: 80px; height: 80px;
-      border-radius: 50%;
-      filter: blur(35px);
-      opacity: .12;
-      pointer-events: none;
-    }
-    .sh2-c-blue:hover, .sh2-c-blue:active { border-color:rgba(116,185,255,.3); }
-    .sh2-c-gold:hover, .sh2-c-gold:active  { border-color:rgba(247,201,72,.3); }
-    .sh2-c-teal:hover, .sh2-c-teal:active  { border-color:rgba(0,206,201,.3); }
-    .sh2-card-wide-left {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      position: relative;
-      z-index: 1;
-    }
-    .sh2-card-wide-icon {
-      width: 46px; height: 46px;
-      border-radius: 14px;
-      border: 1px solid transparent;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 22px;
-      flex-shrink: 0;
-    }
-    .sh2-card-wide-name {
-      font-size: 15px;
-      font-weight: 900;
-      line-height: 1.1;
-    }
-    .sh2-card-wide-sub {
-      font-size: 11px;
-      color: var(--text2);
-      margin-top: 3px;
-    }
-    .sh2-card-wide-arrow {
-      font-size: 22px;
-      color: var(--text2);
-      position: relative;
-      z-index: 1;
-      flex-shrink: 0;
-    }
-
-    /* ── GRID 2 TILES (Emploi) ── */
-    .sh2-grid2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 9px;
-      margin-bottom: 14px;
-    }
-    .sh2-tile {
-      background: rgba(255,255,255,.03);
-      border: 1px solid rgba(255,255,255,.07);
-      border-radius: 16px;
-      padding: 14px 14px 14px;
-      cursor: pointer;
-      position: relative;
-      overflow: hidden;
-      transition: transform .12s, border-color .15s;
-    }
-    .sh2-tile:active { transform: scale(.96); }
-    .sh2-tile-bar {
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 2.5px;
-      border-radius: 0;
-    }
-    .sh2-tile-icon { font-size: 26px; margin-bottom: 8px; margin-top: 4px; line-height: 1; }
-    .sh2-tile-name {
-      font-size: 13px;
-      font-weight: 900;
-      line-height: 1.1;
-      margin-bottom: 3px;
-    }
-    .sh2-tile-sub {
-      font-size: 10px;
-      color: var(--text2);
-      line-height: 1.4;
-    }
-  `;
-  document.head.appendChild(s);
-})();
-
-(function injectSocialCSS() {
-  if (document.getElementById('social-css')) return;
-  const s = document.createElement('style');
-  s.id = 'social-css';
-  s.textContent = `
-    /* ── Famille ── */
-    .fam-header {
-      text-align:center; padding: 10px 0 18px;
-    }
-    .fam-family-name {
-      font-family:'Bangers',cursive; font-size:28px; letter-spacing:3px;
-      color:var(--accent); text-shadow: 0 0 20px rgba(247,201,72,.35);
-    }
-    .fam-section-label {
-      font-size:10px; letter-spacing:2.5px; text-transform:uppercase;
-      color:var(--text2); margin: 18px 0 8px 2px; display:flex; align-items:center; gap:8px;
-    }
-    .fam-section-label::after {
-      content:''; flex:1; height:1px; background:rgba(255,255,255,0.06);
-    }
-    .fam-card {
-      display:flex; align-items:center; gap:13px;
-      background:rgba(255,255,255,0.03);
-      border:1px solid rgba(255,255,255,0.07);
-      border-radius:16px; padding:13px 15px; margin-bottom:8px;
-      animation: famSlideIn 0.3s ease both;
-    }
-    @keyframes famSlideIn {
-      from { opacity:0; transform:translateX(-12px); }
-      to   { opacity:1; transform:translateX(0); }
-    }
-    .fam-av {
-      width:42px; height:42px; border-radius:50%;
-      background:linear-gradient(135deg,#1e1e3a,#2a2a4a);
-      border:2px solid rgba(255,255,255,0.1);
-      display:flex; align-items:center; justify-content:center;
-      font-size:20px; flex-shrink:0;
-    }
-    .fam-info { flex:1; min-width:0; }
-    .fam-nm { font-weight:900; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .fam-un { font-size:11px; color:var(--text2); margin-top:1px; }
-    .fam-kp { font-size:12px; color:var(--accent); font-weight:800; white-space:nowrap; }
-    .fam-empty { text-align:center; padding:18px 0; color:var(--text2); font-size:13px; opacity:.6; }
-
-    /* ── Classement ── */
-    .rank-tabs-wrap {
-      display:flex; gap:6px; margin-bottom:16px; overflow-x:auto; padding-bottom:2px;
-    }
-    .rank-tab-btn {
-      padding:7px 14px; border-radius:20px;
-      border:1px solid rgba(255,255,255,0.1);
-      background:rgba(255,255,255,0.04); color:var(--text2);
-      font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap;
-      transition:all 0.2s; flex-shrink:0; font-family:'Nunito',sans-serif;
-    }
-    .rank-tab-btn.active { background:var(--accent); color:#000; border-color:var(--accent); }
-
-    /* Top 3 podium */
-    .rank-podium {
-      display:flex; justify-content:center; align-items:flex-end;
-      gap:10px; margin-bottom:18px; padding: 0 4px;
-    }
-    .rank-podium-col { display:flex; flex-direction:column; align-items:center; flex:1; }
-    .rank-podium-col.p1 { order:2; }
-    .rank-podium-col.p2 { order:1; }
-    .rank-podium-col.p3 { order:3; }
-    .rank-pod-avatar {
-      width:46px; height:46px; border-radius:50%;
-      display:flex; align-items:center; justify-content:center;
-      font-size:22px; margin-bottom:6px; position:relative;
-    }
-    .rank-pod-avatar.p1 {
-      width:56px; height:56px; font-size:26px;
-      background:linear-gradient(135deg,#f7c948,#ffb347);
-      box-shadow:0 0 20px rgba(247,201,72,.5);
-    }
-    .rank-pod-avatar.p2 {
-      background:linear-gradient(135deg,#a0a0b0,#c8c8d8);
-      box-shadow:0 0 12px rgba(192,192,210,.3);
-    }
-    .rank-pod-avatar.p3 {
-      background:linear-gradient(135deg,#b87333,#d4956a);
-      box-shadow:0 0 12px rgba(184,115,51,.3);
-    }
-    .rank-pod-crown {
-      position:absolute; top:-10px; font-size:16px;
-      animation: crownBob 2s ease-in-out infinite;
-    }
-    @keyframes crownBob {
-      0%,100% { transform:translateY(0) rotate(-5deg); }
-      50%      { transform:translateY(-3px) rotate(5deg); }
-    }
-    .rank-pod-name {
-      font-size:11px; font-weight:800; text-align:center;
-      max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-      color:var(--text);
-    }
-    .rank-pod-val {
-      font-size:10px; font-weight:700; margin-top:2px; text-align:center;
-    }
-    .rank-pod-val.p1 { color:var(--accent); }
-    .rank-pod-val.p2 { color:#c8c8d8; }
-    .rank-pod-val.p3 { color:#d4956a; }
-    .rank-pod-base {
-      width:100%; border-radius:10px 10px 0 0; margin-top:8px;
-    }
-    .rank-pod-base.p1 { height:52px; background:linear-gradient(180deg,rgba(247,201,72,.2),rgba(247,201,72,.05)); border:1px solid rgba(247,201,72,.3); }
-    .rank-pod-base.p2 { height:36px; background:linear-gradient(180deg,rgba(192,192,210,.15),rgba(192,192,210,.03)); border:1px solid rgba(192,192,210,.2); }
-    .rank-pod-base.p3 { height:24px; background:linear-gradient(180deg,rgba(184,115,51,.15),rgba(184,115,51,.03)); border:1px solid rgba(184,115,51,.2); }
-
-    /* Rows 4+ */
-    .rank-row {
-      display:flex; align-items:center; gap:11px;
-      padding:11px 14px; border-radius:14px; margin-bottom:7px;
-      background:rgba(255,255,255,0.03);
-      border:1px solid rgba(255,255,255,0.06);
-      animation: rankIn 0.25s ease both;
-    }
-    .rank-row.me {
-      background:rgba(247,201,72,0.07);
-      border-color:rgba(247,201,72,0.3);
-    }
-    @keyframes rankIn {
-      from { opacity:0; transform:translateY(8px); }
-      to   { opacity:1; transform:translateY(0); }
-    }
-    .rank-pos { font-size:12px; font-weight:900; color:var(--text2); width:26px; text-align:center; flex-shrink:0; }
-    .rank-info { flex:1; min-width:0; }
-    .rank-nm { font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .rank-un { font-size:10px; color:var(--text2); margin-top:1px; }
-    .rank-amount { font-size:13px; font-weight:900; color:var(--accent); white-space:nowrap; }
-    .rank-me-tag {
-      font-size:9px; background:rgba(247,201,72,.15); color:var(--accent);
-      border-radius:6px; padding:1px 5px; margin-left:4px; font-weight:900;
-    }
-    .rank-dotdot { text-align:center; color:var(--text2); font-size:18px; letter-spacing:4px; margin:4px 0 8px; }
-  `;
-  document.head.appendChild(s);
-})();
-
-/* ── Famille ── */
-const GENDER_EMOJI = { m: '👨', f: '👩', '': '👤' };
-const FAM_SECTIONS = [
-  { key:'spouses',  label:'💍 Conjoint(e)s', empty:'Aucun conjoint'  },
-  { key:'parents',  label:'👴 Parents',       empty:'Aucun parent'   },
-  { key:'children', label:'👶 Enfants',       empty:null             },
-  { key:'friends',  label:'🤝 Amis',          empty:'Aucun ami'      },
-];
-
-async function loadFamille() {
-  if (!uid) return;
-  const content = document.getElementById('fam-content');
-  if (content.style.display === 'none') document.getElementById('fam-loading').style.display = 'block';
-  try {
-    const r = await fetchT(`/api/webapp/family?user_id=${uid}`, {}, 15000);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-
-    const nameCard = document.getElementById('fam-name-card');
-    if (d.family_name) {
-      document.getElementById('fam-name').textContent = d.family_name;
-      nameCard.style.display = 'block';
-    } else {
-      nameCard.style.display = 'none';
-    }
-
-    let html = '';
-    for (const sec of FAM_SECTIONS) {
-      const members = d[sec.key] || [];
-      if (!members.length && !sec.empty) continue;
-      html += `<div class="fam-section-label">${sec.label}</div>`;
-      if (!members.length) {
-        html += `<div class="fam-empty">${sec.empty}</div>`;
-      } else {
-        members.forEach((m, i) => {
-          const em = GENDER_EMOJI[m.gender] || '👤';
-          html += `<div class="fam-card" style="animation-delay:${i*0.05}s">
-            <div class="fam-av">${em}</div>
-            <div class="fam-info">
-              <div class="fam-nm">${m.name}</div>
-              <div class="fam-un">${m.username ? '@'+m.username : 'Sans pseudo'}</div>
-            </div>
-            <div class="fam-kp">⭐ ${m.karma}</div>
-          </div>`;
-        });
-      }
-    }
-    document.getElementById('fam-sections').innerHTML = html;
-    document.getElementById('fam-loading').style.display = 'none';
-    content.style.display = 'block';
-  } catch(e) {
-    document.getElementById('fam-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
-  }
-}
-
-/* ── Classement ── */
-let _rankCat = 'coins';
-
-function rankTab(cat, btn) {
-  _rankCat = cat;
-  document.querySelectorAll('.rank-tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  loadRanking();
-}
-
-function _fmtRankVal(val, cat) {
-  if (cat === 'family') return val + ' liens';
-  return fmt(val); // fmt inclut déjà le $
-}
-
-async function loadRanking() {
-  if (!uid) return;
-  document.getElementById('rank-loading').style.display = 'block';
-  document.getElementById('rank-list').style.display = 'none';
-  document.getElementById('rank-myrow').style.display = 'none';
-  try {
-    const r = await fetchT(`/api/webapp/ranking?user_id=${uid}&cat=${_rankCat}`, {}, 15000);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-
-    const rows = d.ranking || [];
-    const top3 = rows.slice(0, 3);
-    const rest  = rows.slice(3);
-
-    let html = '';
-
-    // ── Podium top 3 ──
-    if (top3.length >= 1) {
-      const podOrder = [top3[1], top3[0], top3[2]].filter(Boolean);
-      const podClass = top3[1] ? ['p2','p1','p3'] : ['p1'];
-      const emojis   = ['🥈','🥇','🥉'];
-
-      html += '<div class="rank-podium">';
-      podOrder.forEach((row, i) => {
-        const cls = podClass[i];
-        const isMe = row.is_me;
-        html += `
-          <div class="rank-podium-col ${cls}">
-            <div class="rank-pod-avatar ${cls}">
-              ${cls==='p1' ? '<span class="rank-pod-crown">👑</span>' : ''}
-              ${emojis[i]}
-            </div>
-            <div class="rank-pod-name">${row.name}${isMe?' ✦':''}</div>
-            <div class="rank-pod-val ${cls}">${_fmtRankVal(row.value, _rankCat)}</div>
-            <div class="rank-pod-base ${cls}"></div>
-          </div>`;
-      });
-      html += '</div>';
-    }
-
-    // ── Rows 4+ ──
-    rest.forEach((row, i) => {
-      const isMe = row.is_me;
-      html += `
-        <div class="rank-row${isMe?' me':''}" style="animation-delay:${i*0.04}s">
-          <div class="rank-pos">#${row.rank}</div>
-          <div class="rank-info">
-            <div class="rank-nm">${row.name}${isMe?'<span class="rank-me-tag">MOI</span>':''}</div>
-            ${row.username ? `<div class="rank-un">@${row.username}</div>` : ''}
-          </div>
-          <div class="rank-amount">${_fmtRankVal(row.value, _rankCat)}</div>
-        </div>`;
-    });
-
-    document.getElementById('rank-list').innerHTML = html;
-    document.getElementById('rank-list').style.display = 'block';
-
-    // Ma position si hors top 20
-    if (d.my_row) {
-      document.getElementById('rank-myrow').innerHTML = `
-        <div class="rank-dotdot">• • •</div>
-        <div class="rank-row me">
-          <div class="rank-pos">#${d.my_row.rank}</div>
-          <div class="rank-info">
-            <div class="rank-nm">${d.my_row.name}<span class="rank-me-tag">MOI</span></div>
-          </div>
-          <div class="rank-amount">${_fmtRankVal(d.my_row.value, _rankCat)}</div>
-        </div>`;
-      document.getElementById('rank-myrow').style.display = 'block';
-    }
-
-    document.getElementById('rank-loading').style.display = 'none';
-  } catch(e) {
-    document.getElementById('rank-loading').innerHTML = `<div style="color:var(--accent2);padding:20px;text-align:center">${e.message}</div>`;
-  }
-}
-
-async function loadMarket() {
-  if (_mktCats.length && uid && _mktLoadedUid === uid) return; // déjà chargé pour ce user
-  _mktLoadedUid = uid;
-  if (!uid) { document.getElementById('mkt-assets-list').innerHTML = '<p style="color:var(--text2);text-align:center;">Connexion requise</p>'; return; }
-  try {
-    const r = await fetchT(`/api/webapp/market?user_id=${uid}`);
-    if (!r.ok) throw new Error('HTTP '+r.status);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-    _mktCatalog = d.catalog || {};
-    _mktCats    = d.categories || [];
-    _mktLoadedUid = uid;
-    _buildCatFilter();
-    if (_mktCats.length) mktSetCat(_mktCats[0]);
-  } catch(e) {
-    _mktCats = []; _mktLoadedUid = null; // reset cache pour retry
-    document.getElementById('mkt-assets-list').innerHTML = '<p style="color:var(--text2);text-align:center;">Erreur: '+e.message+'</p>';
-  }
-}
-
-function _buildCatFilter() {
-  const bar = document.getElementById('mkt-cat-filter');
-  bar.innerHTML = '';
-  _mktCats.forEach(cat => {
-    const btn = document.createElement('button');
-    btn.textContent = cat;
-    btn.dataset.cat = cat;
-    btn.style.cssText = 'white-space:nowrap;padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--card);color:var(--text2);font-size:12px;cursor:pointer;flex-shrink:0;';
-    btn.onclick = () => mktSetCat(cat);
-    bar.appendChild(btn);
-  });
-}
-
-function mktSetCat(cat) {
-  _mktActiveCat = cat;
-  document.querySelectorAll('#mkt-cat-filter button').forEach(b => {
-    const active = b.dataset.cat === cat;
-    b.style.background = active ? 'var(--accent)' : 'var(--card)';
-    b.style.color       = active ? '#fff' : 'var(--text2)';
-    b.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
-  });
-  mktFilter();
-}
-
-function mktFilter() {
-  const q = (document.getElementById('mkt-search').value || '').toLowerCase();
-  const list = document.getElementById('mkt-assets-list');
-  list.innerHTML = '';
-
-  let catsToShow = _mktActiveCat ? [_mktActiveCat] : _mktCats;
-  catsToShow.forEach(cat => {
-    const items = (_mktCatalog[cat] || []).filter(a =>
-      !q || a.id.includes(q) || a.name.toLowerCase().includes(q) || a.desc.toLowerCase().includes(q)
-    );
-    if (!items.length) return;
-
-    const header = document.createElement('div');
-    header.style.cssText = 'font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;';
-    header.textContent = cat;
-    list.appendChild(header);
-
-    items.forEach(a => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.style.cssText = 'margin-bottom:8px;cursor:pointer;padding:12px;';
-      card.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-          <div style="flex:1;">
-            <div style="font-weight:700;color:var(--text1);font-size:14px;">${a.emoji} ${a.name.replace(/^[^\s]+\s/, '')}</div>
-            <div style="font-size:12px;color:var(--text2);margin-top:2px;">${a.desc}</div>
-          </div>
-          <div style="text-align:right;margin-left:10px;">
-            <div style="font-weight:700;color:var(--accent);font-size:14px;">${a.price_fmt} <span style="font-size:10px;color:var(--text2);">${CURRENCY}</span></div>
-            <div style="font-size:12px;">${a.risk_emoji} ${a.risk} · ±${a.volatility}%</div>
-          </div>
-        </div>`;
-      card.onclick = () => openMktModal(a);
-      list.appendChild(card);
-    });
-  });
-
-  if (!list.children.length) {
-    list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Aucun asset trouvé</p>';
-  }
-}
-
-function openMktModal(a) {
-  _mktModalAsset = a;
-  document.getElementById('modal-title').textContent  = a.name;
-  document.getElementById('modal-desc').textContent   = a.desc;
-  document.getElementById('modal-price').textContent  = a.price_fmt + ' ' + CURRENCY;
-  document.getElementById('modal-risk').textContent   = a.risk_emoji + ' ' + a.risk;
-  document.getElementById('modal-vol').textContent    = '±' + a.volatility + '%';
-  document.getElementById('modal-qty').value = 1;
-  document.getElementById('modal-msg').textContent = '';
-  mktUpdateTotal();
-  const m = document.getElementById('mkt-modal');
-  m.style.display = 'flex';
-  setTimeout(() => m.style.opacity = '1', 10);
-}
-
-function closeMktModal() {
-  document.getElementById('mkt-modal').style.display = 'none';
-}
-
-function mktQty(delta) {
-  const el = document.getElementById('modal-qty');
-  el.value = Math.max(1, parseInt(el.value || 1) + delta);
-  mktUpdateTotal();
-}
-
-function mktUpdateTotal() {
-  if (!_mktModalAsset) return;
-  const qty = parseInt(document.getElementById('modal-qty').value) || 1;
-  const total = _mktModalAsset.price * qty;
-  document.getElementById('modal-total').textContent = fmtNum(total) + ' ' + CURRENCY;
-}
-
-async function confirmBuy() {
-  if (!_mktModalAsset) return;
-  const qty = parseInt(document.getElementById('modal-qty').value) || 1;
-  const btn = document.getElementById('modal-buy-btn');
-  const msg = document.getElementById('modal-msg');
-  btn.disabled = true;
-  btn.textContent = '⏳ En cours…';
-  try {
-    const r = await fetchT('/api/webapp/market/action', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, action: 'buy', asset_id: _mktModalAsset.id, quantity: qty })
-    });
-    const d = await r.json();
-    if (d.ok) {
-      msg.style.color = 'var(--success)';
-      msg.textContent = d.msg;
-      _mktCatalog = {}; _mktCats = []; // force reload prix
-      setTimeout(() => { closeMktModal(); loadData(); }, 1500);
-    } else {
-      msg.style.color = 'var(--accent2)';
-      msg.textContent = d.error || 'Erreur';
-    }
-  } catch(e) {
-    msg.style.color = 'var(--accent2)';
-    msg.textContent = 'Erreur réseau';
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '✅ Acheter';
-  }
-}
-
-async function loadPortfolio() {
-  const list = document.getElementById('mk-positions-list');
-  if (!uid) { list.innerHTML = '<p style="color:var(--accent2);text-align:center;">Connexion requise</p>'; return; }
-  list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Chargement…</p>';
-  try {
-    const r = await fetchT(`/api/webapp/portfolio?user_id=${uid}`);
-    if (!r.ok) {
-      const errData = await r.json().catch(() => ({}));
-      list.innerHTML = '<p style="color:var(--accent2);text-align:center;font-size:11px;word-break:break-all;">'+r.status+': '+(errData.error||'?')+'<br>'+(errData.trace||'').substring(0,300)+'</p>';
-      return;
-    }
-    const d = await r.json();
-    const s = d.summary || {};
-    document.getElementById('mk-count').textContent    = s.count || '0';
-    document.getElementById('mk-invested').textContent = s.invested || '—';
-    document.getElementById('mk-current').textContent  = s.current || '—';
-    const pnlEl = document.getElementById('mk-pnl');
-    pnlEl.textContent = s.pnl || '—';
-    pnlEl.className   = 'stat-value ' + (s.pnl_positive ? 'green' : 'red');
-
-    list.innerHTML = '';
-    if (!(d.positions || []).length) {
-      list.innerHTML = '<p style="text-align:center;color:var(--text2);padding:20px;">Aucune position active</p>';
-      return;
-    }
-    d.positions.forEach(p => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.style.cssText = 'margin-bottom:8px;padding:12px;';
-      card.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-          <div>
-            <div style="font-weight:700;color:var(--text1);">${p.emoji} ${p.name.replace(/^[^\s]+\s/, '')}</div>
-            <div style="font-size:12px;color:var(--text2);">${p.risk_emoji} ${p.risk} · ${p.quantity}x · Acheté le ${p.bought_at}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-weight:700;color:var(--accent);">${p.cur_total_fmt}</div>
-            <div style="font-size:12px;color:${p.pnl_positive ? 'var(--success)' : 'var(--accent2)'};">${p.pnl_fmt} (${p.pnl_pct > 0 ? '+' : ''}${p.pnl_pct}%)</div>
-          </div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:8px;">
-          <span>Achat unit. : ${p.buy_price_fmt}</span>
-          <span>Actuel : ~${p.cur_price_fmt}</span>
-        </div>
-        <button onclick="sellPosition(${p.id})" style="width:100%;padding:8px;border-radius:8px;border:none;background:var(--accent2);color:#fff;font-size:13px;font-weight:700;cursor:pointer;">
-          💸 Vendre (${p.cur_total_fmt})
-        </button>`;
-      list.appendChild(card);
-    });
-  } catch(e) {
-    list.innerHTML = '<p style="color:var(--accent2);text-align:center;">Erreur chargement</p>';
-  }
-}
-
-async function sellPosition(invId) {
-  const ok = await showConfirmModal('Vendre cette position ?', 'La vente sera immédiate au prix actuel du marché.', '💸 Vendre', 'var(--accent2)');
-  if (!ok) return;
-  try {
-    const r = await fetchT('/api/webapp/market/action', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, action: 'sell', inv_id: invId })
-    });
-    const d = await r.json();
-    if (d.ok) {
-      showToast(d.msg);
-      loadPortfolio();
-      loadData();
-    } else {
-      showToast(d.error || 'Erreur', true);
-    }
-  } catch(e) {
-    showToast('Erreur réseau', true);
-  }
-}
-
-function showToast(msg, isErr = false) {
-  let t = document.getElementById('toast');
-  if (!t) {
-    t = document.createElement('div');
-    t.id = 'toast';
-    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:99999;transition:opacity .3s;';
-    document.body.appendChild(t);
-  }
-  t.style.background = isErr ? 'var(--accent2)' : 'var(--success)';
-  t.style.color = '#fff';
-  t.textContent = msg;
-  t.style.opacity = '1';
-  clearTimeout(t._hideTimer);
-  t._hideTimer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
-}
-
-function fmtNum(n) {
-  if (typeof fmt === 'function') return fmt(n);
-  return n.toLocaleString('fr-FR');
-}
-
-document.getElementById('mkt-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeMktModal();
-});
-
-
-// ════════════════════════════════════════
-//  GAMES — Crash / Roue / Mines
-// ════════════════════════════════════════
-
-async function loadCasinoBalance() {
-  try {
-    const d = await apiFetch('/bank');
-    const el = document.getElementById('casino-balance-display');
-    if (el && d?.wallet) el.textContent = d.wallet;
-  } catch(e) {}
-}
-
-function openGame(name) {
-  document.getElementById('games-selection').style.display = 'none';
-  document.getElementById('game-view').style.display = 'block';
-  document.querySelectorAll('.game-panel').forEach(p => p.style.display = 'none');
-  document.getElementById('game-' + name).style.display = 'block';
-  if (name === 'crash') {
-    setTimeout(() => { initCrashCanvas(); crashPoll(); }, 50);
-  }
-  if (name === 'roue') setTimeout(initRoueCanvas, 50);
-  if (name === 'mines') initMinesGrid();
-}
-
-function backToGameList() {
-  document.getElementById('game-view').style.display = 'none';
-  document.getElementById('games-selection').style.display = 'block';
-  loadCasinoBalance();
-  // Arrêter le polling crash
-  if (crashPollTimer) { clearTimeout(crashPollTimer); crashPollTimer = null; }
-  if (crashRAF) { cancelAnimationFrame(crashRAF); crashRAF = null; }
-}
-
-async function gamePost(payload) {
-  const r = await fetch('/api/webapp/game', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({user_id: uid, ...payload})
-  });
-  return r.json();
-}
-
-// ─── CRASH MULTIJOUEUR ───────────────────────────────────────────────────────
-// État local
-let crashMyMise    = 0;
-let crashMyBet     = false;   // j'ai misé ce round
-let crashCashedOut = false;
-let crashPhase     = 'waiting'; // waiting | flying | crashed
-let crashRoundId   = -1;
-let crashRAF       = null;
-let crashPollTimer = null;
-let crashFlyStart  = null;   // Date.now() quand flying a commencé (estimé)
-let crashLocalMult = 1.0;
-
-// Canvas helpers — identiques à avant
-function initCrashCanvas() {
-  const c = document.getElementById('crash-canvas');
-  if (!c) return;
-  const ctx = c.getContext('2d');
-  const dw = c.clientWidth || 360;
-  const dh = c.clientHeight || 200;
-  c.width = dw; c.height = dh;
-  drawCrashIdle(ctx, c);
-  const plane = document.getElementById('crash-plane-svg');
-  if (plane) plane.style.display = 'none';
-}
-
-function drawCrashIdle(ctx, c) {
-  ctx.clearRect(0, 0, c.width, c.height);
-  ctx.fillStyle = '#070714'; ctx.fillRect(0, 0, c.width, c.height);
-  _crashGrid(ctx, c);
-  ctx.fillStyle = 'rgba(247,201,72,0.15)';
-  ctx.font = 'bold 28px Bangers, cursive'; ctx.textAlign = 'center';
-  ctx.fillText('CRASH', c.width/2, c.height/2 - 10);
-  ctx.font = '13px Nunito, sans-serif'; ctx.fillStyle = 'rgba(160,160,176,0.5)';
-  ctx.fillText('Mises ouvertes — rejoins le round !', c.width/2, c.height/2 + 18);
-  ctx.textAlign = 'left';
-}
-
-function _crashGrid(ctx, c) {
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
-  for (let x = 0; x < c.width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,c.height); ctx.stroke(); }
-  for (let y = 0; y < c.height; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(c.width,y); ctx.stroke(); }
-}
-
-function _crashMult(elapsed) {
-  return parseFloat((1.0 + elapsed * 0.12 + Math.pow(elapsed, 1.5) * 0.04).toFixed(2));
-}
-
-function _crashCurveTip(c, mult) {
-  const progress = Math.min((mult - 1) / 15, 1);
-  const t = progress;
-  const x = 30 + t * (c.width - 60);
-  const y = c.height - 30 - Math.pow(t, 1.5) * (c.height - 60);
-  return {x, y};
-}
-
-function _movePlane(c, tip, angle) {
-  const plane = document.getElementById('crash-plane-svg');
-  if (!plane) return;
-  const rect = c.getBoundingClientRect();
-  const arena = document.getElementById('crash-arena');
-  const ar = arena.getBoundingClientRect();
-  const sx = rect.width / c.width, sy = rect.height / c.height;
-  plane.style.display = 'block';
-  plane.style.left = ((rect.left - ar.left) + tip.x * sx - 30) + 'px';
-  plane.style.top  = ((rect.top  - ar.top)  + tip.y * sy - 20) + 'px';
-  plane.style.transform = 'rotate(' + angle + 'deg)';
-}
-
-function drawCrashFrame(ctx, c, mult, crashed) {
-  ctx.clearRect(0, 0, c.width, c.height);
-  ctx.fillStyle = '#070714'; ctx.fillRect(0, 0, c.width, c.height);
-  _crashGrid(ctx, c);
-
-  const progress = Math.min((mult - 1) / 15, 1);
-  const pts = [];
-  for (let i = 0; i <= 60; i++) {
-    const t = (i / 60) * progress;
-    pts.push({ x: 30 + t*(c.width-60), y: c.height-30 - Math.pow(t,1.5)*(c.height-60) });
-  }
-  if (pts.length >= 2) {
-    const col = crashed ? '#ff4444' : '#f7c948';
-    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.strokeStyle = crashed ? 'rgba(255,68,68,.3)' : 'rgba(247,201,72,.22)';
-    ctx.lineWidth = 10; ctx.shadowColor = col; ctx.shadowBlur = 20; ctx.stroke(); ctx.shadowBlur = 0;
-    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.strokeStyle = col; ctx.lineWidth = 3.5; ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.stroke(); ctx.shadowBlur = 0;
-    ctx.lineTo(pts[pts.length-1].x, c.height-30); ctx.lineTo(pts[0].x, c.height-30); ctx.closePath();
-    ctx.fillStyle = crashed ? 'rgba(255,68,68,.1)' : 'rgba(247,201,72,.07)'; ctx.fill();
-    const tip = pts[pts.length-1];
-    let angle = 0;
-    if (pts.length>=2) { const prev=pts[pts.length-2]; angle=Math.atan2(tip.y-prev.y,tip.x-prev.x)*180/Math.PI; }
-    if (!crashed) { _movePlane(c, tip, angle); }
-    else { const pl=document.getElementById('crash-plane-svg'); if(pl) pl.style.display='none'; const ex=document.getElementById('crash-explosion'); if(ex){ex.style.display='flex';ex.style.position='absolute';ex.style.left=(tip.x-40)+'px';ex.style.top=(tip.y-40)+'px';ex.style.width='80px';ex.style.height='80px';} }
-  }
-  ctx.font = 'bold 36px Bangers, cursive'; ctx.textAlign = 'center';
-  ctx.fillStyle = crashed?'#ff4444':'#f7c948'; ctx.shadowColor=ctx.fillStyle; ctx.shadowBlur=20;
-  ctx.fillText('x'+mult.toFixed(2), c.width/2, 50); ctx.shadowBlur=0; ctx.textAlign='left';
-}
-
-function setCrashMise(factor) {
-  const inp = document.getElementById('crash-mise');
-  const v = parseFloat(inp.value) || 0;
-  inp.value = Math.max(1000, Math.floor(v * factor));
-}
-
-// ── Polling loop ──────────────────────────────────────────────────────────────
-async function crashPoll() {
-  try {
-    const d = await gamePost({game:'crash_state'});
-    crashApplyState(d);
-  } catch(e) {}
-  // Continue polling only if crash panel visible
-  const panel = document.getElementById('game-crash');
-  if (panel && panel.style.display !== 'none') {
-    crashPollTimer = setTimeout(crashPoll, 500);
-  }
-}
-
-function crashApplyState(d) {
-  if (!d) return;
-  const newRound = d.round_id !== crashRoundId;
-  if (newRound) {
-    // Nouveau round — reset état local
-    crashRoundId = d.round_id;
-    if (d.phase === 'waiting') {
-      crashMyBet = false;
-      crashCashedOut = false;
-      crashMyMise = 0;
-      document.getElementById('crash-result').textContent = '';
-      _crashEnableBetUI();
-    }
-  }
-
-  crashPhase = d.phase;
-
-  // Canvas animation via RAF uniquement en flying
-  if (d.phase === 'flying') {
-    const elapsed = d.elapsed;
-    crashLocalMult = _crashMult(elapsed);
-    if (!crashRAF) _crashStartRAF();
-    _crashShowFlyingUI();
-  } else if (d.phase === 'waiting') {
-    if (crashRAF) { cancelAnimationFrame(crashRAF); crashRAF = null; }
-    _crashShowWaitingUI(d.betting_remaining);
-    const c = document.getElementById('crash-canvas');
-    if (c) drawCrashIdle(c.getContext('2d'), c);
-  } else if (d.phase === 'crashed') {
-    if (crashRAF) { cancelAnimationFrame(crashRAF); crashRAF = null; }
-    _crashShowCrashedUI(d.crash_point);
-    const c = document.getElementById('crash-canvas');
-    if (c) drawCrashFrame(c.getContext('2d'), c, d.crash_point, true);
-    if (!crashCashedOut && crashMyBet) {
-      document.getElementById('crash-result').style.color = '#ff4444';
-      document.getElementById('crash-result').textContent = '💸 PERDU — -' + crashMyMise.toLocaleString('fr-FR') + ' $';
-    }
-  }
-
-  // Mettre à jour le multiplicateur affiché
-  if (d.phase === 'flying') {
-    // géré par RAF
-  } else if (d.phase !== 'crashed') {
-    document.getElementById('crash-mult-display').textContent = 'x1.00';
-    document.getElementById('crash-mult-display').style.color = 'var(--accent)';
-  }
-
-  // Joueurs
-  _crashRenderPlayers(d.players);
-
-  // Historique
-  if (d.history) _crashRenderHistory(d.history);
-}
-
-function _crashStartRAF() {
-  const c = document.getElementById('crash-canvas');
-  if (!c) return;
-  const ctx = c.getContext('2d');
-  const start = performance.now() - (crashLocalMult > 1 ? _crashInverseTime(crashLocalMult) * 1000 : 0);
-  function tick() {
-    if (crashPhase !== 'flying') { crashRAF = null; return; }
-    const elapsed = (performance.now() - start) / 1000;
-    crashLocalMult = _crashMult(elapsed);
-    drawCrashFrame(ctx, c, crashLocalMult, false);
-    document.getElementById('crash-mult-display').textContent = 'x' + crashLocalMult.toFixed(2);
-    crashRAF = requestAnimationFrame(tick);
-  }
-  crashRAF = requestAnimationFrame(tick);
-}
-
-function _crashInverseTime(mult) {
-  // approx inverse of mult formula pour resync
-  return Math.max(0, (mult - 1) / 0.15);
-}
-
-function _crashShowWaitingUI(remaining) {
-  const ov = document.getElementById('crash-waiting-overlay');
-  if (ov) { ov.style.display = 'flex'; }
-  const cd = document.getElementById('crash-countdown');
-  if (cd) cd.textContent = remaining.toFixed(1) + 's';
-  const badge = document.getElementById('crash-status-badge');
-  if (badge) { badge.textContent = '⏳ Mises ouvertes'; badge.style.color = 'var(--text2)'; }
-  const pl = document.getElementById('crash-plane-svg');
-  if (pl) pl.style.display = 'none';
-  const ex = document.getElementById('crash-explosion');
-  if (ex) ex.style.display = 'none';
-  document.getElementById('crash-mult-display').style.color = 'var(--accent)';
-}
-
-function _crashShowFlyingUI() {
-  const ov = document.getElementById('crash-waiting-overlay');
-  if (ov) ov.style.display = 'none';
-  const badge = document.getElementById('crash-status-badge');
-  if (badge) { badge.textContent = '🚀 En vol'; badge.style.color = 'var(--accent)'; }
-  document.getElementById('crash-mult-display').style.color = 'var(--accent)';
-  if (crashMyBet && !crashCashedOut) {
-    const co = document.getElementById('crash-cashout-btn');
-    co.disabled = false; co.style.background = 'var(--success)'; co.style.color = '#000'; co.style.cursor = 'pointer';
-  }
-}
-
-function _crashShowCrashedUI(cp) {
-  const ov = document.getElementById('crash-waiting-overlay');
-  if (ov) ov.style.display = 'none';
-  const badge = document.getElementById('crash-status-badge');
-  if (badge) { badge.textContent = '💥 CRASH x'+cp.toFixed(2); badge.style.color = '#ff4444'; }
-  document.getElementById('crash-mult-display').textContent = 'x' + cp.toFixed(2);
-  document.getElementById('crash-mult-display').style.color = '#ff4444';
-  const co = document.getElementById('crash-cashout-btn');
-  co.disabled = true; co.style.background = '#1a0a0a'; co.style.color = '#444'; co.style.cursor = 'not-allowed';
-}
-
-function _crashEnableBetUI() {
-  const btn = document.getElementById('crash-bet-btn');
-  if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
-  const co = document.getElementById('crash-cashout-btn');
-  co.disabled = true; co.style.background = '#1a2a1a'; co.style.color = '#444'; co.style.cursor = 'not-allowed';
-  document.getElementById('crash-mult-display').textContent = 'x1.00';
-  document.getElementById('crash-mult-display').style.color = 'var(--accent)';
-}
-
-function _crashRenderPlayers(players) {
-  const list = document.getElementById('crash-players-list');
-  if (!list) return;
-  if (!players || players.length === 0) {
-    list.innerHTML = '<div style="text-align:center;color:var(--text2);font-size:13px;padding:12px;">Aucun joueur pour l\'instant…</div>';
-    return;
-  }
-  list.innerHTML = players.map(p => {
-    let statusColor, statusLabel;
-    if (p.cashed_out) {
-      statusColor = 'var(--success)'; statusLabel = '✅ x' + p.cashout_mult.toFixed(2);
-    } else if (crashPhase === 'crashed') {
-      statusColor = '#ff4444'; statusLabel = '💸 Perdu';
-    } else {
-      statusColor = 'var(--accent)'; statusLabel = '🚀 En vol';
-    }
-    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:10px;background:var(--card2);">' +
-      '<span style="font-size:20px;">' + (p.avatar||'👤') + '</span>' +
-      '<div style="flex:1;min-width:0;">' +
-        '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + p.name + '</div>' +
-        '<div style="font-size:12px;color:var(--text2);">' + p.mise.toLocaleString('fr-FR') + ' $</div>' +
-      '</div>' +
-      '<span style="font-size:12px;font-weight:700;color:' + statusColor + ';white-space:nowrap;">' + statusLabel + '</span>' +
-    '</div>';
-  }).join('');
-}
-
-function _crashRenderHistory(history) {
-  const bar = document.getElementById('crash-history-bar');
-  if (!bar) return;
-  bar.innerHTML = [...history].reverse().map(h => {
-    const cp = h.crash_point;
-    const color = cp >= 10 ? '#a29bfe' : cp >= 3 ? 'var(--success)' : cp >= 2 ? 'var(--accent)' : '#ff4444';
-    return '<span style="flex-shrink:0;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(255,255,255,0.06);color:' + color + ';border:1px solid ' + color + '40;">x' + cp.toFixed(2) + '</span>';
-  }).join('');
-}
-
-// ── Actions utilisateur ────────────────────────────────────────────────────────
-async function crashBet() {
-  if (crashPhase !== 'waiting') return showToast('Mises fermées pour ce round', true);
-  if (crashMyBet) return showToast('Tu as déjà misé', true);
-  const mise = parseInt(document.getElementById('crash-mise').value);
-  if (!mise || mise < 1000) return showToast('Mise minimum 1 000 $', true);
-
-  const btn = document.getElementById('crash-bet-btn');
-  btn.disabled = true; btn.style.opacity = '.5';
-
-  const d = await gamePost({game:'crash_start', mise});
-  if (!d.ok) {
-    btn.disabled = false; btn.style.opacity = '1';
-    return showToast(d.error || 'Erreur', true);
-  }
-  crashMyBet = true;
-  crashMyMise = mise;
-  crashApplyState(d);
-  loadData();
-}
-
-async function crashCashOut() {
-  if (crashPhase !== 'flying' || crashCashedOut || !crashMyBet) return;
-  crashCashedOut = true;
-  const d = await gamePost({game:'crash_cashout'});
-  if (d.error) {
-    if (d.crashed) {
-      document.getElementById('crash-result').style.color = '#ff4444';
-      document.getElementById('crash-result').textContent = '💥 Trop tard — crash !';
-    } else {
-      showToast(d.error, true);
-      crashCashedOut = false;
-    }
-    return;
-  }
-  if (d.ok) {
-    const sign = d.profit >= 0 ? '+' : '';
-    document.getElementById('crash-result').style.color = d.profit >= 0 ? 'var(--success)' : '#ff4444';
-    document.getElementById('crash-result').textContent = '💰 Cash Out x' + d.mult.toFixed(2) + ' — ' + sign + d.profit.toLocaleString('fr-FR') + ' $';
-    const co = document.getElementById('crash-cashout-btn');
-    co.disabled = true; co.style.opacity = '.5';
-    loadData();
-  }
-}
-
-// ─── ROUE ────────────────────────────────────────────────────────────────────
-const ROUE_SEGS = [
-  {label:'💀 Ruine',   color:'#6b0f0f', light:'#ff4444'},
-  {label:'☠️ x0.1',   color:'#7a1a0a', light:'#ff5722'},
-  {label:'😭 x0.2',   color:'#7a3b00', light:'#ff8c00'},
-  {label:'😞 x0.3',   color:'#6b4400', light:'#ffa726'},
-  {label:'💸 x0.4',   color:'#5c4200', light:'#ffb300'},
-  {label:'😐 x0.5',   color:'#3d3d00', light:'#ffd600'},
-  {label:'🔄 IDEM',   color:'#003366', light:'#29b6f6'},
-  {label:'🙂 x0.8',   color:'#004d3d', light:'#26c6a0'},
-  {label:'💵 +50K',   color:'#1a4726', light:'#43e97b'},
-  {label:'💰 x1.2',   color:'#0d5c23', light:'#66bb6a'},
-  {label:'💵 +200K',  color:'#0d4d35', light:'#1de9b6'},
-  {label:'💰 x1.5',   color:'#0a4a2e', light:'#00e676'},
-  {label:'🎁 +500K',  color:'#3b0d5c', light:'#ce93d8'},
-  {label:'🤑 x2.0',   color:'#4a0d7a', light:'#ba68c8'},
-  {label:'🎯 x3.0',   color:'#00336b', light:'#42a5f5'},
-  {label:'💵 +1M',    color:'#004080', light:'#64b5f6'},
-  {label:'⭐ x5.0',   color:'#5a4700', light:'#ffd54f'},
-  {label:'🔥 x10.0',  color:'#6b0d00', light:'#ff7043'},
-  {label:'🌟 x15.0',  color:'#2d1b6b', light:'#b39ddb'},
-  {label:'💎 x25.0',  color:'#004d4d', light:'#80deea'},
-];
-
-let roueSpin = false;
-let roueAngle = 0;
-
-function initRoueCanvas() {
-  const c = document.getElementById('roue-canvas');
-  if (!c) return;
-  const dw = c.clientWidth || 320;
-  c.width = dw; c.height = dw;
-  drawRoue(c.getContext('2d'), c, roueAngle);
-}
-
-function drawRoue(ctx, c, angle) {
-  const cx = c.width / 2, cy = c.height / 2;
-  const R = cx - 16;  // rayon des segments
-  const N = ROUE_SEGS.length;
-  const step = (Math.PI * 2) / N;
-  ctx.clearRect(0, 0, c.width, c.height);
-
-  // ── Fond sombre sous la roue ──────────────────────────────────────────────
-  ctx.beginPath(); ctx.arc(cx, cy, R + 15, 0, Math.PI * 2);
-  ctx.fillStyle = '#080818'; ctx.fill();
-
-  // ── Anneau extérieur décoratif (biseauté doré) ────────────────────────────
-  const outerRing = ctx.createLinearGradient(cx - R, cy, cx + R, cy);
-  outerRing.addColorStop(0,   '#3a2a00');
-  outerRing.addColorStop(0.25,'#f7c948');
-  outerRing.addColorStop(0.5, '#ffe066');
-  outerRing.addColorStop(0.75,'#c8940a');
-  outerRing.addColorStop(1,   '#3a2a00');
-  ctx.beginPath(); ctx.arc(cx, cy, R + 14, 0, Math.PI * 2);
-  ctx.strokeStyle = outerRing; ctx.lineWidth = 6; ctx.stroke();
-
-  // ── Perles décoratives sur l'anneau ───────────────────────────────────────
-  for (let i = 0; i < N; i++) {
-    const a = angle + i * step + step / 2;
-    const bx = cx + Math.cos(a) * (R + 9);
-    const by = cy + Math.sin(a) * (R + 9);
-    ctx.beginPath(); ctx.arc(bx, by, 4.5, 0, Math.PI * 2);
-    const isPremium = [16,17,18,19].includes(i);
-    ctx.fillStyle = isPremium ? '#f7c948' : '#ffffff22';
-    ctx.shadowColor = isPremium ? '#f7c948' : 'transparent';
-    ctx.shadowBlur = isPremium ? 8 : 0;
-    ctx.fill(); ctx.shadowBlur = 0;
-  }
-
-  // ── Segments ──────────────────────────────────────────────────────────────
-  for (let i = 0; i < N; i++) {
-    const a0 = angle + i * step;
-    const a1 = a0 + step;
-    const midA = a0 + step / 2;
-    const seg = ROUE_SEGS[i];
-
-    // Fill avec dégradé radial "relief"
-    const gx = cx + Math.cos(midA) * R * 0.55;
-    const gy = cy + Math.sin(midA) * R * 0.55;
-    const grad = ctx.createRadialGradient(gx, gy, 0, cx, cy, R);
-    grad.addColorStop(0,   seg.light + 'ee');
-    grad.addColorStop(0.55, seg.color + 'ff');
-    grad.addColorStop(1,   '#05050f');
-    ctx.beginPath(); ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, R, a0, a1); ctx.closePath();
-    ctx.fillStyle = grad; ctx.fill();
-
-    // Séparateur entre segments
-    ctx.beginPath(); ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, R, a0, a1); ctx.closePath();
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1.5; ctx.stroke();
-
-    // Highlight lumineux sur le bord extérieur de chaque segment
-    ctx.beginPath();
-    ctx.arc(cx, cy, R - 1.5, a0 + 0.03, a1 - 0.03);
-    ctx.strokeStyle = seg.light + '55'; ctx.lineWidth = 3; ctx.stroke();
-
-    // Texte du segment
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(midA);
-    ctx.translate(R * 0.63, 0);
-    ctx.rotate(Math.PI / 2);
-    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 5;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 9.5px Nunito, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(seg.label, 0, 3.5);
-    ctx.shadowBlur = 0;
-    ctx.restore();
-  }
-
-  // ── Anneau intérieur doré (bord interne des segments) ─────────────────────
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(247,201,72,0.5)'; ctx.lineWidth = 2; ctx.stroke();
-
-  // ── Anneau interne décoratif ───────────────────────────────────────────────
-  ctx.beginPath(); ctx.arc(cx, cy, R * 0.28, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(247,201,72,0.25)'; ctx.lineWidth = 1; ctx.stroke();
-
-  // ── Hub central (boulon doré 3D) ───────────────────────────────────────────
-  // Ombre portée
-  ctx.beginPath(); ctx.arc(cx + 3, cy + 4, 26, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
-
-  // Corps principal
-  const hubGrad = ctx.createRadialGradient(cx - 8, cy - 8, 2, cx, cy, 26);
-  hubGrad.addColorStop(0,   '#fffae0');
-  hubGrad.addColorStop(0.3, '#f7c948');
-  hubGrad.addColorStop(0.7, '#b8860b');
-  hubGrad.addColorStop(1,   '#4a3500');
-  ctx.beginPath(); ctx.arc(cx, cy, 26, 0, Math.PI * 2);
-  ctx.fillStyle = hubGrad; ctx.fill();
-
-  // Bord du hub
-  ctx.beginPath(); ctx.arc(cx, cy, 26, 0, Math.PI * 2);
-  ctx.strokeStyle = '#000'; ctx.lineWidth = 2.5; ctx.stroke();
-
-  // Reflet
-  ctx.beginPath(); ctx.arc(cx - 7, cy - 7, 8, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fill();
-
-  // Vis centrale
-  ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI * 2);
-  ctx.fillStyle = '#0d0a1f'; ctx.fill();
-  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-  ctx.fillStyle = '#f7c948'; ctx.fill();
-}
-
-// ── Particules victoire ────────────────────────────────────────────────────
-function _roueParticles(isPremium) {
-  const pc = document.getElementById('roue-particles');
-  if (!pc) return;
-  pc.width = pc.offsetWidth || 360;
-  pc.height = pc.offsetHeight || 400;
-  const ctx = pc.getContext('2d');
-  pc.style.opacity = '1';
-  const colors = isPremium
-    ? ['#f7c948','#ffe066','#ff6b6b','#a29bfe','#fff']
-    : ['#f7c948','#ffe066','#43e97b'];
-  const count = isPremium ? 80 : 40;
-  const particles = Array.from({length: count}, () => ({
-    x: pc.width * (0.2 + Math.random() * 0.6),
-    y: pc.height * 0.55,
-    vx: (Math.random() - 0.5) * 6,
-    vy: -(2 + Math.random() * 7),
-    r: 2 + Math.random() * (isPremium ? 5 : 3),
-    color: colors[Math.floor(Math.random() * colors.length)],
-    life: 1, decay: 0.015 + Math.random() * 0.02,
-    shape: Math.random() > 0.5 ? 'circle' : 'rect',
-  }));
-
-  let frame;
-  function tick() {
-    ctx.clearRect(0, 0, pc.width, pc.height);
-    let alive = false;
-    for (const p of particles) {
-      if (p.life <= 0) continue;
-      alive = true;
-      p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= p.decay;
-      ctx.globalAlpha = Math.max(0, p.life);
-      ctx.fillStyle = p.color;
-      if (p.shape === 'circle') {
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-      } else {
-        ctx.fillRect(p.x - p.r, p.y - p.r, p.r * 2, p.r * 1.4);
-      }
-    }
-    ctx.globalAlpha = 1;
-    if (alive) frame = requestAnimationFrame(tick);
-    else { pc.style.opacity = '0'; }
-  }
-  frame = requestAnimationFrame(tick);
-}
-
-async function spinRoue() {
-  if (roueSpin) return;
-  const mise = parseInt(document.getElementById('roue-mise').value);
-  if (!mise || mise < 1000) return showToast('Mise minimum 1 000 $', true);
-  if (mise > 6600000) return showToast('Mise maximum 6 600 000 $', true);
-
-  const btn = document.getElementById('roue-spin-btn');
-  btn.disabled = true; btn.style.opacity = '.6';
-  document.getElementById('roue-result').textContent = '';
-  const lastSeg = document.getElementById('roue-last-seg');
-  if (lastSeg) lastSeg.style.display = 'none';
-  roueSpin = true;
-
-  // Halo pulsant
-  const halo = document.getElementById('roue-halo');
-  if (halo) halo.style.opacity = '1';
-
-  const d = await gamePost({game:'roue', mise});
-  if (!d.ok) {
-    roueSpin = false; btn.disabled = false; btn.style.opacity = '1';
-    if (halo) halo.style.opacity = '';
-    return showToast(d.error || 'Erreur', true);
-  }
-
-  const N = ROUE_SEGS.length;
-  const step = (Math.PI * 2) / N;
-  const targetIdx = d.seg_index;
-  const targetAngle = -Math.PI / 2 - (targetIdx * step + step / 2);
-  const spins = 6 + Math.floor(Math.random() * 4);
-  const normalizedCurrent = ((roueAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  const normalizedTarget = ((targetAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  let delta = normalizedTarget - normalizedCurrent;
-  if (delta <= 0) delta += Math.PI * 2;
-  const finalAngle = roueAngle + spins * Math.PI * 2 + delta;
-
-  const c = document.getElementById('roue-canvas');
-  const ctx = c.getContext('2d');
-  const duration = 5500;
-  const start = Date.now();
-  const startAngle = roueAngle;
-
-  // Easing : accélération rapide, décélération longue (style casino)
-  function ease(t) {
-    if (t < 0.1) return t * t * 50 * 0.1; // acc rapide
-    const t2 = (t - 0.1) / 0.9;
-    return 0.1 + 0.9 * (1 - Math.pow(1 - t2, 4));
-  }
-
-  function animFrame() {
-    const elapsed = Date.now() - start;
-    const t = Math.min(elapsed / duration, 1);
-    roueAngle = startAngle + (finalAngle - startAngle) * ease(t);
-    drawRoue(ctx, c, roueAngle);
-
-    if (t < 1) {
-      requestAnimationFrame(animFrame);
-    } else {
-      roueSpin = false;
-      btn.disabled = false; btn.style.opacity = '1';
-      if (halo) halo.style.opacity = '';
-
-      const isPremium = d.profit > 0 && (d.label.includes('x5') || d.label.includes('x10') || d.label.includes('x15') || d.label.includes('x25') || d.label.includes('+1M') || d.label.includes('+500K'));
-      _roueParticles(isPremium);
-
-      const profit = d.profit;
-      const sign = profit >= 0 ? '+' : '';
-      const color = profit > 0 ? 'var(--success)' : profit === 0 ? 'var(--accent)' : '#ff4444';
-
-      // Badge segment animé
-      if (lastSeg) {
-        lastSeg.style.display = 'block';
-        lastSeg.innerHTML = '<span style="display:inline-block;padding:6px 18px;border-radius:20px;background:' + (profit>0?'rgba(67,233,123,0.15)':'rgba(255,68,68,0.1)') + ';border:1px solid ' + color + '44;font-family:\'Bangers\',cursive;font-size:18px;letter-spacing:2px;color:' + color + ';">' + d.label + '</span>';
-      }
-
-      const el = document.getElementById('roue-result');
-      el.style.color = color;
-      el.textContent = sign + profit.toLocaleString('fr-FR') + ' $ (' + (sign||'') + d.gain.toLocaleString('fr-FR') + ' $ récupérés)';
-      loadData();
-    }
-  }
-  requestAnimationFrame(animFrame);
-}
-
-
-// ─── MINES ────────────────────────────────────────────────────────────────────
-let minesActive = false;
-let minesNb = 3;
-let minesMise = 0;
-let minesRevealed = [];
-
-function initMinesGrid() {
-  const grid = document.getElementById('mines-grid');
-  if (!grid) return;
-  grid.innerHTML = '';
-  for (let i = 0; i < 25; i++) {
-    const cell = document.createElement('div');
-    cell.className = 'mine-cell';
-    cell.id = 'mine-' + i;
-    cell.textContent = '⬜';
-    cell.onclick = () => minesReveal(i);
-    grid.appendChild(cell);
-  }
-}
-
-async function minesStart() {
-  const mise = parseInt(document.getElementById('mines-mise').value);
-  const nb = parseInt(document.getElementById('mines-nb').value);
-  if (!mise || mise < 100) return showToast('Mise minimum 100 $', true);
-
-  const d = await gamePost({game:'mines_start', mise, nb_mines:nb});
-  if (!d.ok) return showToast(d.error || 'Erreur', true);
-
-  minesActive = true;
-  minesMise = mise;
-  minesNb = nb;
-  minesRevealed = [];
-
-  document.getElementById('mines-controls').style.display = 'none';
-  document.getElementById('mines-cashout-btn').style.display = 'block';
-  document.getElementById('mines-result').textContent = '';
-  document.getElementById('mines-mult-label').textContent = 'x1.00';
-  document.getElementById('mines-gain-label').textContent = 'Gain potentiel : 0 $';
-
-  initMinesGrid();
-  loadData();
-}
-
-async function minesReveal(idx) {
-  if (!minesActive) return;
-  if (minesRevealed.includes(idx)) return;
-
-  const cell = document.getElementById('mine-' + idx);
-  cell.style.opacity = '.5';
-
-  const d = await gamePost({game:'mines_reveal', idx});
-  cell.style.opacity = '1';
-
-  if (!d.ok) return;
-
-  minesRevealed.push(idx);
-
-  if (d.mine) {
-    cell.className = 'mine-cell revealed-mine';
-    cell.textContent = '💣';
-    // Show all mines
-    if (d.grid) {
-      d.grid.forEach((type, i) => {
-        if (type === 'mine') {
-          const c = document.getElementById('mine-' + i);
-          c.className = 'mine-cell revealed-mine';
-          c.textContent = '💣';
-        }
-      });
-    }
-    minesActive = false;
-    document.getElementById('mines-cashout-btn').style.display = 'none';
-    document.getElementById('mines-controls').style.display = 'block';
-    document.getElementById('mines-result').style.color = 'var(--accent2)';
-    document.getElementById('mines-result').textContent = `💥 BOOM ! -${minesMise.toLocaleString('fr-FR')} $`;
-    document.getElementById('mines-mult-label').textContent = 'x0.00';
-    loadData();
-  } else {
-    cell.className = 'mine-cell revealed-safe';
-    cell.textContent = '💎';
-    document.getElementById('mines-mult-label').textContent = 'x' + d.mult;
-    document.getElementById('mines-gain-label').textContent = 'Gain potentiel : ' + d.gain_now.toLocaleString('fr-FR') + ' $';
-    if (d.all_safe) {
-      minesActive = false;
-      document.getElementById('mines-cashout-btn').style.display = 'none';
-      document.getElementById('mines-controls').style.display = 'block';
-      document.getElementById('mines-result').style.color = 'var(--success)';
-      document.getElementById('mines-result').textContent = `🏆 PERFECT ! +${(d.gain_now - minesMise).toLocaleString('fr-FR')} $`;
-      loadData();
-    }
-  }
-}
-
-async function minesCashOut() {
-  if (!minesActive) return;
-  const d = await gamePost({game:'mines_cashout'});
-  if (!d.ok) return showToast(d.error || 'Erreur', true);
-
-  minesActive = false;
-  document.getElementById('mines-cashout-btn').style.display = 'none';
-  document.getElementById('mines-controls').style.display = 'block';
-  const sign = d.profit >= 0 ? '+' : '';
-  document.getElementById('mines-result').style.color = d.profit >= 0 ? 'var(--success)' : 'var(--accent2)';
-  document.getElementById('mines-result').textContent = `💰 x${d.mult} — ${sign}${d.profit.toLocaleString('fr-FR')} $`;
-  // Disable remaining cells
-  document.querySelectorAll('.mine-cell').forEach(c => {
-    if (!c.className.includes('revealed')) c.className = 'mine-cell hidden-inactive';
-  });
-  loadData();
-}
-
-// ─── APPLE OF FORTUNE ─────────────────────────────────────────────────────────
-const APPLE_MULTS = {1:1.50,2:2.10,3:3.20,4:4.80,5:7.00,6:12.00,7:22.00,8:45.00,9:100.00,10:500.00};
-let appleActive = false;
-let appleMise = 0;
-let appleLevel = 1;
-
-function appleUpdateUI(level, gainNow) {
-  document.getElementById('apple-level-label').textContent = `Niveau ${level}/10`;
-  const mult = APPLE_MULTS[level] || 1;
-  document.getElementById('apple-mult-label').textContent = `x${mult.toFixed(2)}`;
-  if (gainNow !== undefined && gainNow > 0)
-    document.getElementById('apple-gain-label').textContent = `Encaissable : ${gainNow.toLocaleString('fr-FR')} $`;
-}
-
-function appleRenderRow(disabled) {
-  const row = document.getElementById('apple-row');
-  row.innerHTML = '';
-  for (let i = 0; i < 5; i++) {
-    const btn = document.createElement('button');
-    btn.style.cssText = 'width:52px;height:52px;font-size:28px;border-radius:12px;border:2px solid var(--border);background:var(--card2);cursor:pointer;transition:all .15s;';
-    btn.textContent = '❓';
-    if (!disabled) {
-      btn.onclick = () => applePick(i, btn);
-    } else {
-      btn.disabled = true;
-      btn.style.opacity = '.5';
-    }
-    row.appendChild(btn);
-  }
-}
-
-async function appleStart() {
-  if (appleActive) return;
-  const mise = parseInt(document.getElementById('apple-mise').value);
-  if (!mise || mise < 50000) return showToast('Mise minimum 50 000 $', true);
-  const d = await gamePost({game:'apple_start', mise});
-  if (!d.ok) return showToast(d.error || 'Erreur', true);
-  appleActive = true;
-  appleMise = mise;
-  appleLevel = 1;
-  document.getElementById('apple-controls').style.display = 'none';
-  document.getElementById('apple-cashout-btn').style.display = 'none';
-  document.getElementById('apple-result').textContent = '';
-  appleUpdateUI(1, 0);
-  appleRenderRow(false);
-  loadData();
-}
-
-async function applePick(col, btn) {
-  if (!appleActive) return;
-  // Disable all buttons while waiting
-  document.querySelectorAll('#apple-row button').forEach(b => b.disabled = true);
-  const d = await gamePost({game:'apple_pick', col});
-  if (!d.ok) return showToast(d.error || 'Erreur', true);
-
-  if (d.bomb) {
-    // Reveal the row
-    const btns = document.querySelectorAll('#apple-row button');
-    d.row.forEach((isBomb, i) => {
-      btns[i].textContent = isBomb ? '🍎' : '🍏';
-      btns[i].style.background = isBomb ? '#2a0a0a' : '#0a2a0a';
-      btns[i].style.borderColor = isBomb ? 'var(--accent2)' : 'var(--success)';
-    });
-    btn.style.animation = 'boom .4s ease';
-    appleActive = false;
-    document.getElementById('apple-result').style.color = '#ff4444';
-    document.getElementById('apple-result').textContent = `💣 BOOM ! Tu perds ${appleMise.toLocaleString('fr-FR')} $`;
-    document.getElementById('apple-cashout-btn').style.display = 'none';
-    setTimeout(() => {
-      document.getElementById('apple-controls').style.display = 'block';
-      document.getElementById('apple-result').textContent = '';
-      appleUpdateUI(1, 0);
-      appleRenderRow(true);
-      loadData();
-    }, 2500);
-    return;
-  }
-
-  // Safe
-  const btns = document.querySelectorAll('#apple-row button');
-  d.row.forEach((isBomb, i) => {
-    btns[i].textContent = isBomb ? '🍎' : '🍏';
-    btns[i].style.background = isBomb ? '#2a0a0a' : '#0a2a0a';
-    btns[i].style.borderColor = isBomb ? 'var(--accent2)' : 'var(--success)';
-  });
-
-  if (d.won) {
-    appleActive = false;
-    document.getElementById('apple-result').style.color = 'var(--success)';
-    document.getElementById('apple-result').textContent = `🏆 MAX ! x${d.mult} — +${(d.gain - appleMise).toLocaleString('fr-FR')} $`;
-    document.getElementById('apple-cashout-btn').style.display = 'none';
-    setTimeout(() => { document.getElementById('apple-controls').style.display = 'block'; loadData(); }, 2000);
-    return;
-  }
-
-  appleLevel = d.level;
-  appleUpdateUI(d.level, d.gain_now);
-  document.getElementById('apple-cashout-btn').style.display = 'block';
-  setTimeout(() => appleRenderRow(false), 400);
-}
-
-async function appleCashOut() {
-  if (!appleActive) return;
-  const d = await gamePost({game:'apple_cashout'});
-  if (!d.ok) return showToast(d.error || 'Erreur', true);
-  appleActive = false;
-  const sign = d.profit >= 0 ? '+' : '';
-  document.getElementById('apple-result').style.color = d.profit >= 0 ? 'var(--success)' : 'var(--accent2)';
-  document.getElementById('apple-result').textContent = `💰 x${d.mult} — ${sign}${d.profit.toLocaleString('fr-FR')} $`;
-  document.getElementById('apple-cashout-btn').style.display = 'none';
-  document.getElementById('apple-controls').style.display = 'block';
-  appleUpdateUI(1, 0);
-  appleRenderRow(true);
-  loadData();
-}
-
-// ─── REBET ─────────────────────────────────────────────────────────────────────
-let rebetActive = false;
-let rebetMiseInit = 0;
-let rebetGains = 0;
-
-function rebetUpdateUI(gains, round) {
-  document.getElementById('rebet-round').textContent = round;
-  document.getElementById('rebet-gains').textContent = gains.toLocaleString('fr-FR') + ' $';
-  document.getElementById('rebet-next').textContent = (gains * 2).toLocaleString('fr-FR') + ' $';
-}
-
-async function rebetStart() {
-  if (rebetActive) return;
-  const mise = parseInt(document.getElementById('rebet-mise').value);
-  if (!mise || mise < 5000) return showToast('Mise minimum 5 000 $', true);
-  const d = await gamePost({game:'rebet_start', mise});
-  if (!d.ok) return showToast(d.error || 'Erreur', true);
-  rebetActive = true;
-  rebetMiseInit = mise;
-  rebetGains = d.gains;
-  document.getElementById('rebet-controls').style.display = 'none';
-  document.getElementById('rebet-display').style.display = 'block';
-  document.getElementById('rebet-actions').style.display = 'flex';
-  document.getElementById('rebet-result').textContent = '';
-  rebetUpdateUI(d.gains, d.round);
-  loadData();
-}
-
-async function rebetAction(action) {
-  if (!rebetActive) return;
-  const d = await gamePost({game:'rebet_action', action});
-  if (!d.ok) return showToast(d.error || 'Erreur', true);
-  if (action === 'cash') {
-    rebetActive = false;
-    const profit = d.gained - rebetMiseInit;
-    const sign = profit >= 0 ? '+' : '';
-    document.getElementById('rebet-result').style.color = profit >= 0 ? 'var(--success)' : 'var(--accent2)';
-    document.getElementById('rebet-result').textContent = `💰 Récupéré ! ${sign}${profit.toLocaleString('fr-FR')} $`;
-    document.getElementById('rebet-actions').style.display = 'none';
-    document.getElementById('rebet-display').style.display = 'none';
-    document.getElementById('rebet-controls').style.display = 'block';
-    loadData();
-  } else {
-    if (d.won) {
-      rebetGains = d.gains;
-      rebetUpdateUI(d.gains, d.round);
-      showToast(`🎉 Gagné ! x${d.round} ✅`);
-    } else {
-      rebetActive = false;
-      document.getElementById('rebet-result').style.color = '#ff4444';
-      document.getElementById('rebet-result').textContent = `💸 Perdu ! -${d.lost.toLocaleString('fr-FR')} $`;
-      document.getElementById('rebet-actions').style.display = 'none';
-      document.getElementById('rebet-display').style.display = 'none';
-      document.getElementById('rebet-controls').style.display = 'block';
-      loadData();
-    }
-  }
-}
-
-// ════════════════════════════════════════
-//  🐔 COCKFIGHT
-// ════════════════════════════════════════
-const DICE_EMOJIS = ['⚀','⚁','⚂','⚃','⚄','⚅'];
-
-async function cockfightStart() {
-  const mise = parseInt(document.getElementById('cf-mise').value);
-  if (!mise || mise < 1000) return showToast('❌ Mise minimum 1 000 $');
-  document.getElementById('cockfight-controls').style.display = 'none';
-  document.getElementById('cf-result').textContent = '';
-  document.getElementById('cockfight-arena').style.display = 'block';
-  document.getElementById('cf-log').textContent = '⚔️ Le combat commence…';
-  document.getElementById('cf-coq1-hp').textContent = '100 ❤️';
-  document.getElementById('cf-coq2-hp').textContent = '100 ❤️';
-
-  const res = await gamePost({ game: 'cockfight', mise });
-  if (res.error) {
-    showToast('❌ ' + res.error);
-    document.getElementById('cockfight-controls').style.display = 'block';
-    document.getElementById('cockfight-arena').style.display = 'none';
-    return;
-  }
-  // Animate fight log
-  const logs = res.log || [];
-  let i = 0;
-  const logEl = document.getElementById('cf-log');
-  const anim = setInterval(() => {
-    if (i >= logs.length) {
-      clearInterval(anim);
-      const won = res.winner === 'player';
-      document.getElementById('cf-coq1-hp').textContent = won ? '❤️ WINNER' : '💀';
-      document.getElementById('cf-coq2-hp').textContent = won ? '💀' : '❤️ WINNER';
-      const el = document.getElementById('cf-result');
-      if (won) {
-        el.style.color = 'var(--success)';
-        el.textContent = `🏆 Victoire ! +${res.gain.toLocaleString('fr-FR')} $`;
-      } else {
-        el.style.color = '#ff4444';
-        el.textContent = `💀 Défaite… -${mise.toLocaleString('fr-FR')} $`;
-      }
-      document.getElementById('cockfight-controls').style.display = 'block';
-      document.getElementById('cf-mise').value = '';
-      loadData();
-      return;
-    }
-    logEl.innerHTML = logs.slice(0, i+1).join('<br>');
-    i++;
-  }, 500);
-}
-
-// ════════════════════════════════════════
-//  ✂️ PPC
-// ════════════════════════════════════════
-const PPC_EMOJIS = { pierre: '🪨', papier: '📄', ciseaux: '✂️' };
-let ppcMiseActive = 0;
-
-async function ppcPlay(choice) {
-  const mise = parseInt(document.getElementById('ppc-mise').value);
-  if (!mise || mise < 1000) return showToast('❌ Mise minimum 1 000 $');
-  ppcMiseActive = mise;
-  document.querySelectorAll('#ppc-controls button').forEach(b => b.disabled = true);
-  document.getElementById('ppc-controls').style.opacity = '0.5';
-  document.getElementById('ppc-arena').style.display = 'block';
-  document.getElementById('ppc-p1-icon').textContent = PPC_EMOJIS[choice];
-  document.getElementById('ppc-p1-choice').textContent = choice;
-  document.getElementById('ppc-p2-icon').textContent = '❓';
-  document.getElementById('ppc-p2-choice').textContent = '';
-  document.getElementById('ppc-verdict').textContent = '🤔 Le bot réfléchit…';
-  document.getElementById('ppc-result').textContent = '';
-  document.getElementById('ppc-replay-btn').style.display = 'none';
-
-  const res = await gamePost({ game: 'ppc', mise, choice });
-  if (res.error) {
-    showToast('❌ ' + res.error);
-    ppcReset();
-    return;
-  }
-  setTimeout(() => {
-    document.getElementById('ppc-p2-icon').textContent = PPC_EMOJIS[res.bot_choice];
-    document.getElementById('ppc-p2-choice').textContent = res.bot_choice;
-    const verdict = document.getElementById('ppc-verdict');
-    const result = document.getElementById('ppc-result');
-    if (res.result === 'win') {
-      verdict.style.color = 'var(--success)';
-      verdict.textContent = '🏆 TU GAGNES !';
-      result.style.color = 'var(--success)';
-      result.textContent = `+${res.gain.toLocaleString('fr-FR')} $`;
-    } else if (res.result === 'lose') {
-      verdict.style.color = '#ff4444';
-      verdict.textContent = '💀 T\'AS PERDU !';
-      result.style.color = '#ff4444';
-      result.textContent = `-${mise.toLocaleString('fr-FR')} $`;
-    } else {
-      verdict.style.color = '#f7c948';
-      verdict.textContent = '🤝 ÉGALITÉ !';
-      result.style.color = 'var(--text2)';
-      result.textContent = 'Remboursé.';
-    }
-    document.getElementById('ppc-replay-btn').style.display = 'block';
-    loadData();
-  }, 800);
-}
-
-function ppcReset() {
-  document.getElementById('ppc-arena').style.display = 'none';
-  document.getElementById('ppc-controls').style.opacity = '1';
-  document.getElementById('ppc-controls').style.display = 'block';
-  document.getElementById('ppc-result').textContent = '';
-  document.getElementById('ppc-replay-btn').style.display = 'none';
-  document.getElementById('ppc-mise').value = '';
-  document.querySelectorAll('#ppc-controls button').forEach(b => b.disabled = false);
-}
-
-// ════════════════════════════════════════
-//  🎲 LANCER DE DÉS
-// ════════════════════════════════════════
-async function lancerStart() {
-  const mise = parseInt(document.getElementById('ld-mise').value);
-  if (!mise || mise < 1000) return showToast('❌ Mise minimum 1 000 $');
-  document.getElementById('lancer-controls').style.display = 'none';
-  document.getElementById('ld-result').textContent = '';
-  document.getElementById('ld-replay-btn').style.display = 'none';
-  document.getElementById('lancer-arena').style.display = 'block';
-  ['ld-d1','ld-d2','ld-d3','ld-d4'].forEach(id => document.getElementById(id).textContent = '🎲');
-  document.getElementById('ld-score1').textContent = '?';
-  document.getElementById('ld-score2').textContent = '?';
-  document.getElementById('ld-verdict').textContent = '🎲 Les dés tombent…';
-
-  const res = await gamePost({ game: 'lancer', mise });
-  if (res.error) {
-    showToast('❌ ' + res.error);
-    lancerReset();
-    return;
-  }
-  // Animate dice reveal
-  setTimeout(() => {
-    document.getElementById('ld-d1').textContent = DICE_EMOJIS[res.p1_dice[0]-1];
-    document.getElementById('ld-d2').textContent = DICE_EMOJIS[res.p1_dice[1]-1];
-    document.getElementById('ld-score1').textContent = res.p1_total;
-  }, 400);
-  setTimeout(() => {
-    document.getElementById('ld-d3').textContent = DICE_EMOJIS[res.p2_dice[0]-1];
-    document.getElementById('ld-d4').textContent = DICE_EMOJIS[res.p2_dice[1]-1];
-    document.getElementById('ld-score2').textContent = res.p2_total;
-  }, 900);
-  setTimeout(() => {
-    const verdict = document.getElementById('ld-verdict');
-    const result = document.getElementById('ld-result');
-    if (res.winner === 'player') {
-      verdict.style.color = 'var(--success)';
-      verdict.textContent = '🏆 TU GAGNES !';
-      result.style.color = 'var(--success)';
-      result.textContent = `+${res.gain.toLocaleString('fr-FR')} $`;
-    } else if (res.winner === 'tie') {
-      verdict.style.color = '#f7c948';
-      verdict.textContent = '🤝 ÉGALITÉ !';
-      result.style.color = 'var(--text2)';
-      result.textContent = 'Remboursé.';
-    } else {
-      verdict.style.color = '#ff4444';
-      verdict.textContent = '💀 DÉFAITE !';
-      result.style.color = '#ff4444';
-      result.textContent = `-${mise.toLocaleString('fr-FR')} $`;
-    }
-    document.getElementById('ld-replay-btn').style.display = 'block';
-    loadData();
-  }, 1400);
-}
-
-function lancerReset() {
-  document.getElementById('lancer-arena').style.display = 'none';
-  document.getElementById('lancer-controls').style.display = 'block';
-  document.getElementById('ld-result').textContent = '';
-  document.getElementById('ld-replay-btn').style.display = 'none';
-  document.getElementById('ld-mise').value = '';
-}
-
-function fillMock() {
-  const _s = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
-  _s('pf-name',  firstName);
-  _s('pf-title', 'Citoyen');
-  _s('pf-coins', '—');
-  _s('pf-cash',  '—');
-  _s('pf-bank',  '—');
-  _s('pf-debt',  '—');
-  _s('pf-total', '—');
-  _s('pf-karma', '—');
-  _s('pf-rank',  '—');
-}
-
-// ════════════════════════════════════════
-//  INIT
-// ════════════════════════════════════════
-window.addEventListener('load', () => {
-  if (document.getElementById('avatar-canvas')) drawAvatar('avatar-canvas');
-  renderOptions();
-  loadData();
-  // Précharge en cascade — délais échelonnés pour ne pas saturer le serveur
-  setTimeout(() => { if (uid) fetchT(`/api/webapp/ranking?user_id=${uid}&cat=coins`,{},20000).then(r=>r.ok?r.json():null).then(d=>{ if(d&&!d.error) window._cachedRanking = d; }).catch(()=>{}); }, 1500);
-  setTimeout(() => { if (uid) fetchT(`/api/webapp/journal?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{entries:[]}).then(d=>{ window._cachedJournal = d; }).catch(()=>{}); }, 2500);
-  setTimeout(() => { if (uid) fetchT(`/api/webapp/events?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{events:[]}).then(d=>{ window._cachedEvents = d; }).catch(()=>{}); }, 3500);
-  setTimeout(() => { if (uid) fetchT(`/api/webapp/annonces?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{annonces:[]}).then(d=>{ window._cachedAnnonces = d; }).catch(()=>{}); }, 4500);
-  setTimeout(() => {
-    document.getElementById('loading').style.opacity = '0';
-    setTimeout(() => document.getElementById('loading').style.display = 'none', 300);
-  }, 1200);
-});
-
-// ════════════════════════════════════════
-//  BANQUE
-// ════════════════════════════════════════
-let _bankState = { action: null, bank_id: null, max: 0 };
-
-async function loadBank() {
-  try {
-    const r = await fetchT(`/api/webapp/bank?user_id=${uid}`);
-    const d = await r.json();
-    if (d.error) { showToast(d.error, true); return; }
-
-    document.getElementById('bank-wallet').textContent = d.wallet + ' $';
-
-    // Mes comptes
-    const accEl = document.getElementById('bank-accounts-list');
-    if (!d.accounts.length) {
-      accEl.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:12px 0;text-align:center">Aucun compte. Ouvre-en un ci-dessous.</div>';
-    } else {
-      accEl.innerHTML = d.accounts.map(a => `
-        <div class="bank-card">
-          <div class="bank-card-header">
-            <span class="bank-emoji">${a.emoji}</span>
-            <div><div class="bank-name">${a.name}</div><div class="bank-desc">Intérêts +${a.interest_rate.toFixed(1)}% / 6h</div></div>
-          </div>
-          <div class="bank-stat"><span class="bank-stat-label">Solde</span><span class="bank-stat-value">${a.balance} $</span></div>
-          <div class="bank-stat"><span class="bank-stat-label">Prêt max</span><span class="bank-stat-value">${a.max_loan} $</span></div>
-          <div class="bank-btns">
-            <button class="bank-btn deposit"  onclick="openBankModal('deposit','${a.bank_id}',${a.balance_raw},${d.wallet_raw})">💰 Déposer</button>
-            <button class="bank-btn withdraw" onclick="openBankModal('withdraw','${a.bank_id}',${a.balance_raw},${a.balance_raw})">💸 Retirer</button>
-            <button class="bank-btn loan"     onclick="openBankModal('loan','${a.bank_id}',${a.max_loan_raw},${a.max_loan_raw})">💳 Prêt</button>
-          </div>
-        </div>`).join('');
-    }
-
-    // Prêts
-    const loanSec = document.getElementById('bank-loans-section');
-    const loanEl  = document.getElementById('bank-loans-list');
-    if (d.loans.length) {
-      loanSec.style.display = 'block';
-      loanEl.innerHTML = d.loans.map(l => `
-        <div class="bank-card" style="border-color:${l.overdue?'var(--accent2)':'var(--border)'}">
-          <div class="bank-card-header">
-            <span class="bank-emoji">${l.emoji}</span>
-            <div>
-              <div class="bank-name">${l.name}${l.overdue?'<span class="bank-overdue-badge">EN RETARD</span>':''}</div>
-              <div class="bank-desc">Échéance : ${l.due_at}</div>
-            </div>
-          </div>
-          <div class="bank-stat"><span class="bank-stat-label">Reste à rembourser</span><span class="bank-stat-value" style="color:var(--accent2)">${l.remaining} $</span></div>
-          <button class="bank-btn repay" style="width:100%;margin-top:10px" onclick="openBankModal('repay','${l.bank_id}',${l.remaining_raw},${d.wallet_raw})">🔴 Rembourser</button>
-        </div>`).join('');
-    } else {
-      loanSec.style.display = 'none';
-    }
-
-    // Ouvrir un compte
-    const openEl = document.getElementById('bank-open-list');
-    const toOpen = d.banks.filter(b => !b.has_account);
-    if (!toOpen.length) {
-      openEl.innerHTML = '<div style="color:var(--success);font-size:13px;padding:8px 0;text-align:center">✅ Tu as un compte dans toutes les banques !</div>';
-    } else {
-      openEl.innerHTML = toOpen.map(b => `
-        <div class="bank-card">
-          <div class="bank-card-header">
-            <span class="bank-emoji">${b.emoji}</span>
-            <div><div class="bank-name">${b.name}</div><div class="bank-desc">${b.desc}</div></div>
-          </div>
-          <div class="bank-stat"><span class="bank-stat-label">Dépôt min</span><span class="bank-stat-value">${b.min_deposit} $</span></div>
-          <div class="bank-stat"><span class="bank-stat-label">Intérêts</span><span class="bank-stat-value">+${b.interest_rate.toFixed(1)}% / 6h</span></div>
-          <div class="bank-stat"><span class="bank-stat-label">Taux prêt</span><span class="bank-stat-value">${b.loan_rate.toFixed(0)}% — ${b.loan_days}j</span></div>
-          <button class="bank-btn open-btn" onclick="bankOpenAccount('${b.bank_id}')">🏦 Ouvrir un compte</button>
-        </div>`).join('');
-    }
-  } catch(e) {
-    showToast('Erreur chargement banque', true);
-  }
-}
-
-function openBankModal(action, bank_id, max, walletOrMax) {
-  const titles = { deposit:'💰 Déposer', withdraw:'💸 Retirer', loan:'💳 Prendre un prêt', repay:'🔴 Rembourser' };
-  const infos  = {
-    deposit: `Solde portefeuille : ${fmt(walletOrMax)} $`,
-    withdraw:`Solde compte : ${fmt(max)} $`,
-    loan:    `Prêt maximum : ${fmt(max)} $`,
-    repay:   `Portefeuille : ${fmt(walletOrMax)} $ · Reste : ${fmt(max)} $`,
-  };
-  _bankState = { action, bank_id, max };
-  document.getElementById('bank-modal-title').textContent = titles[action] || action;
-  document.getElementById('bank-modal-info').textContent  = infos[action]  || '';
-  document.getElementById('bank-modal-input').value = '';
-  document.getElementById('bank-modal').style.display = 'flex';
-}
-
-function closeBankModal() {
-  document.getElementById('bank-modal').style.display = 'none';
-}
-
-function bankQuick(pct) {
-  const val = Math.floor(_bankState.max * pct);
-  document.getElementById('bank-modal-input').value = val;
-}
-
-async function confirmBankAction() {
-  const amount = parseInt(document.getElementById('bank-modal-input').value);
-  if (!amount || amount <= 0) { showToast('Montant invalide', true); return; }
-  const { action, bank_id } = _bankState;
-  const endpoints = { deposit:'/api/webapp/bank/deposit', withdraw:'/api/webapp/bank/withdraw', loan:'/api/webapp/bank/loan', repay:'/api/webapp/bank/repay' };
-  const ep = endpoints[action];
-  if (!ep) return;
-  try {
-    const btn = document.getElementById('bank-modal-confirm');
-    btn.textContent = '...'; btn.disabled = true;
-    const r = await fetch(ep, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, bank_id, amount })
-    });
-    const d = await r.json();
-    btn.textContent = 'Confirmer'; btn.disabled = false;
-    if (d.error) { showToast(d.error, true); return; }
-    showToast(d.msg || '✅ OK');
-    closeBankModal();
-    loadBank();
-    loadData();
-  } catch(e) {
-    showToast('Erreur réseau', true);
-  }
-}
-
-async function bankOpenAccount(bank_id) {
-  try {
-    const r = await fetchT('/api/webapp/bank/open', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, bank_id })
-    });
-    const d = await r.json();
-    if (d.error) { showToast(d.error, true); return; }
-    showToast(d.msg || '✅ Compte ouvert !');
-    loadBank();
-  } catch(e) {
-    showToast('Erreur réseau', true);
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-//  ENTREPRISE
-// ══════════════════════════════════════════════════════════════════════════
-let _coData = null;
-
-function coTab(tab, btn) {
-  ['general','equipe','contrats','auto','impots','parts','candidatures','logs'].forEach(t => {
-    const el = document.getElementById('co-tab-'+t);
-    if (el) el.style.display = t===tab ? 'block' : 'none';
-  });
-  document.querySelectorAll('#page-company .co-tab-btn').forEach(b => {
-    b.style.borderBottom = '2.5px solid transparent';
-    b.style.color = 'var(--text2)';
-    b.style.fontWeight = '700';
-  });
-  btn.style.borderBottom = '2.5px solid var(--accent)';
-  btn.style.color = 'var(--accent)';
-  btn.style.fontWeight = '800';
-}
-
-function _coRoleLabel(role) {
-  const map = {pdg:'👑 PDG', directeur:'🎖️ Directeur', manager:'🗂️ Manager', employe:'👷 Employé', stagiaire:'🎓 Stagiaire'};
-  return map[role] || role;
-}
-
-function _coRepStars(rep) {
-  const full = Math.floor(rep);
-  const half = rep % 1 >= 0.5;
-  let s = '';
-  for (let i=0;i<5;i++) {
-    if (i < full) s += '⭐';
-    else if (i === full && half) s += '✨';
-    else s += '☆';
-  }
-  return s;
-}
-
-async function loadCompany() {
-  try {
-    const r = await fetchT(`/api/webapp/company?user_id=${uid}`);
-    const d = await r.json();
-    const co = d.company;
-    if (!co) {
-      document.getElementById('co-none').style.display = 'block';
-      document.getElementById('co-content').style.display = 'none';
-      return;
-    }
-    _coData = co;
-    document.getElementById('co-none').style.display = 'none';
-    document.getElementById('co-content').style.display = 'block';
-    document.getElementById('co-name').textContent = co.name;
-    document.getElementById('co-level').textContent = co.level_label;
-    document.getElementById('co-stars').textContent = _coRepStars(co.reputation);
-    document.getElementById('co-sector').textContent = '🏭 ' + co.sector;
-    document.getElementById('co-role-badge').textContent = _coRoleLabel(co.my_role);
-    document.getElementById('co-frozen-banner').style.display = co.frozen ? 'block' : 'none';
-    document.getElementById('co-value').textContent = fmt(co.value_raw) + ' $';
-    document.getElementById('co-treasury').textContent = fmt(co.treasury_raw) + ' $';
-    document.getElementById('co-taxdebt').textContent = co.tax_debt_raw > 0 ? fmt(co.tax_debt_raw) + ' $' : '—';
-    document.getElementById('co-mycmds').textContent = (co.my_cmds || 0).toLocaleString() + ' cmds';
-    if (co.is_pdg) document.getElementById('co-pdg-actions').style.display = 'block';
-
-    // Nouveaux champs
-    document.getElementById('co-weekly').textContent = co.weekly_revenue || '0 $';
-    document.getElementById('co-legal-reserve').textContent = co.legal_reserve || '0 $';
-    document.getElementById('co-totalcmds').textContent = (co.total_cmds || 0).toLocaleString() + ' cmds';
-    document.getElementById('co-emp-count').textContent = `${co.nb_employees || 0} / ${co.max_employees || 50}`;
-    document.getElementById('co-nb-contrats').textContent = (co.nb_contrats || 0) + ' / 2';
-    document.getElementById('co-total-shares').textContent = `${co.total_shares || 100} parts`;
-
-    // Parts
-    const partsEl = document.getElementById('co-parts-list');
-    if (co.parts && co.parts.length > 0) {
-      partsEl.innerHTML = co.parts.map(p =>
-        `<div class="stat-row" style="${p.is_me?'background:rgba(247,201,72,.08);border-radius:8px;padding:4px 8px;':''}">
-          <div>
-            <span class="stat-label">${p.is_me ? '👤 Moi' : p.name}</span>
-            ${p.username ? `<div style="font-size:11px;color:var(--text2);">@${p.username}</div>` : ''}
-          </div>
-          <span class="stat-value gold">${(p.parts||0).toLocaleString()} parts</span>
-        </div>`).join('');
-    } else {
-      partsEl.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun actionnaire enregistré.</div>';
-    }
-
-    // Équipe
-    const empEl = document.getElementById('co-employees-list');
-    const isPdgOrDir = co.is_pdg || co.my_role === 'directeur';
-    const isManager = isPdgOrDir || co.my_role === 'manager';
-    if (co.employees && co.employees.length > 0) {
-      const ROLE_ORDER = ['stagiaire','secretaire','employe','manager','directeur','pdg'];
-      const myRoleIdx = ROLE_ORDER.indexOf(co.my_role || 'stagiaire');
-      empEl.innerHTML = co.employees.map(e => {
-        const empRoleIdx = ROLE_ORDER.indexOf(e.role || 'employe');
-        const canManage = isManager && !e.is_me && empRoleIdx < myRoleIdx;
-        const actBtns = canManage ? `
-          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-            <select id="role-sel-${e.user_id}" style="flex:1;min-width:100px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 8px;color:var(--text1);font-size:11px;font-family:'Nunito',sans-serif;">
-              <option value="">— Nommer —</option>
-              <option value="secretaire">📋 Secrétaire</option>
-              <option value="employe">💼 Employé</option>
-              <option value="manager">📊 Manager</option>
-              ${isPdgOrDir ? '<option value="directeur">🎯 Directeur</option>' : ''}
-            </select>
-            <button onclick="coNommerEmp(${e.user_id})" style="padding:6px 10px;border-radius:8px;border:none;background:rgba(100,200,100,.15);border:1px solid var(--success);color:var(--success);font-size:11px;font-weight:800;cursor:pointer;font-family:'Nunito',sans-serif;">✅ Nommer</button>
-            ${isPdgOrDir ? `<button onclick="coLicencierEmp(${e.user_id},'${e.name.replace(/'/g,"\\'")}',this)" style="padding:6px 10px;border-radius:8px;border:none;background:rgba(229,85,85,.12);border:1px solid #e55;color:#e55;font-size:11px;font-weight:800;cursor:pointer;font-family:'Nunito',sans-serif;">🚪 Licencier</button>` : ''}
-          </div>
-          <div id="emp-msg-${e.user_id}" style="font-size:11px;color:var(--text2);min-height:14px;margin-top:4px;"></div>` : '';
-        return `<div style="padding:10px 0;border-bottom:1px solid var(--border);${e.is_me?'background:rgba(247,201,72,.06);border-radius:8px;padding:8px;':''}">
-          <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div>
-              <div style="font-weight:700;color:var(--text1)">${e.name}${e.is_me?' <span style="color:var(--accent);font-size:11px;">(moi)</span>':''}</div>
-              <div style="font-size:12px;color:var(--text2)">@${e.username||'—'} · Depuis ${e.joined_at}</div>
-            </div>
-            <div style="text-align:right;">
-              <div style="font-size:12px;color:var(--accent);font-weight:700;">${_coRoleLabel(e.role)}</div>
-              <div style="font-size:11px;color:var(--text2);">${(e.cmd_count||0).toLocaleString()} cmds</div>
-            </div>
-          </div>
-          ${actBtns}
-        </div>`;
-      }).join('');
-
-      // Bouton Démissionner en bas si on est pas PDG ou PDG avec directeur
-      const canQuit = !co.is_pdg || co.employees.some(e => !e.is_me && e.role === 'directeur');
-      empEl.innerHTML += `<div style="text-align:center;margin-top:16px;">
-        <button onclick="coDemissionner()" style="padding:10px 20px;border-radius:12px;border:1px solid #e55;background:rgba(229,85,85,.1);color:#e55;font-weight:800;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;">🚪 Démissionner</button>
-      </div>`;
-    } else {
-      empEl.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun employé.</div>';
-    }
-
-    // Contrats
-    const contratsEl = document.getElementById('co-contrats-list');
-    if (co.contrats && co.contrats.length > 0) {
-      contratsEl.innerHTML = co.contrats.map(c => {
-        const bar = `<div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;margin:8px 0;"><div style="width:${c.pct}%;height:100%;background:${c.pct>=100?'var(--success)':'var(--accent)'};border-radius:6px;"></div></div>`;
-        return `<div class="card" style="margin-bottom:10px;">
-          <div style="font-weight:800;color:var(--text1);margin-bottom:4px;">📋 ${c.title}</div>
-          <div style="font-size:12px;color:var(--text2);">Statut : <span style="color:${c.status==='active'?'var(--success)':'var(--accent)'}">${c.status==='active'?'🟢 En cours':'⏳ En attente'}</span></div>
-          ${bar}
-          <div class="stat-row"><span class="stat-label">Progression</span><span class="stat-value">${(c.cmds_done||0).toLocaleString()} / ${(c.objective||0).toLocaleString()} cmds (${c.pct}%)</span></div>
-          <div class="stat-row"><span class="stat-label">Récompense</span><span class="stat-value gold">${c.reward} $</span></div>
-          <div class="stat-row"><span class="stat-label">Deadline</span><span class="stat-value">${c.ends_at} (${c.days_left}j)</span></div>
-        </div>`;
-      }).join('');
-    } else {
-      contratsEl.innerHTML = `<div class="card" style="text-align:center;padding:30px;"><div style="font-size:36px;">📋</div><div style="color:var(--text2);margin-top:8px;">Aucun contrat actif.</div><div style="color:var(--text2);font-size:12px;margin-top:4px;">Lance <code>/soumettredossier</code> sur le bot.</div></div>`;
-    }
-
-    // Impôts
-    const taxesEl = document.getElementById('co-taxes-list');
-    if (co.taxes && co.taxes.length > 0) {
-      document.getElementById('co-no-taxes').style.display = 'none';
-      if (co.is_pdg) document.getElementById('co-tax-pay-zone').style.display = 'block';
-      taxesEl.innerHTML = co.taxes.map(t =>
-        `<div class="card" style="margin-bottom:8px;border-color:${t.overdue?'#e55':'var(--border)'};">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div style="font-weight:700;color:${t.overdue?'#e55':'var(--text1)'};">${t.overdue?'⚠️ EN RETARD':'🧾 En attente'}</div>
-            <div style="font-size:12px;color:var(--text2);">Échéance : ${t.due_at}</div>
-          </div>
-          <div class="stat-row" style="margin-top:8px;"><span class="stat-label">Montant dû</span><span class="stat-value" style="color:#e55;">${t.amount_due} $</span></div>
-          <div class="stat-row"><span class="stat-label">Déjà payé</span><span class="stat-value green">${t.amount_paid} $</span></div>
-          <div class="stat-row"><span class="stat-label">Reste</span><span class="stat-value gold">${t.remaining} $</span></div>
-        </div>`).join('');
-    } else {
-      taxesEl.innerHTML = '';
-      document.getElementById('co-no-taxes').style.display = 'block';
-      document.getElementById('co-tax-pay-zone').style.display = 'none';
-    }
-
-    // Parts (onglet Parts)
-    const partsEl2 = document.getElementById('co-parts-list2');
-    if (partsEl2) {
-      document.getElementById('co-total-shares2').textContent = (co.total_shares||100) + ' parts';
-      if (co.parts && co.parts.length > 0) {
-        partsEl2.innerHTML = co.parts.map(p =>
-          `<div class="stat-row" style="${p.is_me?'background:rgba(247,201,72,.08);border-radius:8px;padding:4px 8px;':''}">
-            <div><span class="stat-label">${p.is_me?'👤 Moi':p.name}</span>${p.username?`<div style="font-size:11px;color:var(--text2)">@${p.username}</div>`:''}</div>
-            <span class="stat-value gold">${(p.parts||0).toLocaleString()} pts</span>
-          </div>`).join('');
-      } else {
-        partsEl2.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun actionnaire.</div>';
-      }
-
-      // Formulaire achat (si on est pas PDG et qu'il y a des parts dispo)
-      const buyCard = document.getElementById('co-buy-shares-card');
-      const pricePerPart = co.treasury_raw > 0 && co.total_shares > 0 ? Math.floor(co.treasury_raw / co.total_shares) : 1;
-      if (!co.is_pdg && co.owner_shares > 0) {
-        if (buyCard) {
-          buyCard.style.display = 'block';
-          document.getElementById('co-available-shares').textContent = (co.owner_shares||0).toLocaleString() + ' parts';
-          document.getElementById('co-price-per-share').textContent = fmt(pricePerPart) + ' $';
-          const qtyEl = document.getElementById('co-buy-qty');
-          const totalEl = document.getElementById('co-buy-total');
-          if (qtyEl && totalEl) {
-            qtyEl.oninput = () => {
-              const q = parseInt(qtyEl.value)||0;
-              totalEl.textContent = q > 0 ? fmt(q * pricePerPart) + ' $' : '—';
-            };
-          }
-          document.getElementById('co-buy-msg').textContent = '';
-        }
-      } else {
-        if (buyCard) buyCard.style.display = 'none';
-      }
-      // Offres en attente (le PDG voit et peut accepter/refuser)
-      const soEl = document.getElementById('co-share-offers-list');
-      const offersCard = document.getElementById('co-share-offers-card');
-      if (soEl && co.share_offers && co.share_offers.length > 0) {
-        offersCard.style.display = 'block';
-        soEl.innerHTML = co.share_offers.map(so =>
-          `<div class="card" style="margin-bottom:8px;border-color:rgba(247,201,72,.3);" id="offer-card-${so.id}">
-            <div style="font-weight:700;color:var(--text1);">${so.buyer_name}${so.buyer_username?' <span style="color:var(--text2);font-size:12px;">@'+so.buyer_username+'</span>':''}</div>
-            <div class="stat-row" style="margin-top:6px;"><span class="stat-label">Parts demandées</span><span class="stat-value gold">${so.quantity}</span></div>
-            <div class="stat-row"><span class="stat-label">Prix unitaire</span><span class="stat-value">${so.price_each} $</span></div>
-            <div class="stat-row"><span class="stat-label">Total</span><span class="stat-value gold">${so.total_price} $</span></div>
-            <div style="font-size:11px;color:var(--text2);margin-top:4px;">Expire : ${so.expires_at}</div>
-            ${co.is_pdg ? `<div style="display:flex;gap:8px;margin-top:10px;" id="offer-actions-${so.id}">
-              <button onclick="coGererOffre(${so.id},'accept',this)" style="flex:1;padding:8px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--success),#00b894);color:#000;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">✅ Accepter</button>
-              <button onclick="coGererOffre(${so.id},'refuse',this)" style="flex:1;padding:8px;border-radius:10px;border:none;background:rgba(229,85,85,.12);border:1px solid #e55;color:#e55;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">❌ Refuser</button>
-            </div>
-            <div id="offer-msg-${so.id}" style="font-size:11px;color:var(--text2);text-align:center;margin-top:6px;min-height:14px;"></div>` : '<div style="color:var(--text2);font-size:12px;margin-top:8px;">En attente de décision du PDG</div>'}
-          </div>`).join('');
-      } else {
-        if (offersCard) offersCard.style.display = co.is_pdg ? 'block' : 'none';
-        if (soEl) soEl.innerHTML = '<div style="color:var(--text2);font-size:13px;text-align:center;padding:12px;">Aucune offre en attente.</div>';
-      }
-    }
-
-    // Contrats Auto
-    const autoEl = document.getElementById('co-auto-list');
-    if (autoEl) {
-      if (co.auto_contrats && co.auto_contrats.length > 0) {
-        autoEl.innerHTML = co.auto_contrats.map(ac => {
-          const bar = `<div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;margin:8px 0;"><div style="width:${ac.pct}%;height:100%;background:${ac.pct>=100?'var(--success)':'var(--accent4)'};border-radius:6px;transition:width .3s;"></div></div>`;
-          const statusColor = ac.status==='active'?'var(--success)':ac.status==='negotiating'?'var(--accent)':'var(--text2)';
-          const statusLabel = {active:'🟢 En cours',negotiating:'🤝 Négociation',pending:'⏳ En attente'}[ac.status]||ac.status;
-          return `<div class="card" style="margin-bottom:10px;border-color:rgba(162,155,254,.3);">
-            <div style="font-weight:800;color:var(--accent4);margin-bottom:4px;">🤖 ${ac.client}</div>
-            <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">${ac.desc}</div>
-            <div style="font-size:12px;color:${statusColor};margin-bottom:4px;">${statusLabel}</div>
-            ${bar}
-            <div class="stat-row"><span class="stat-label">Progression</span><span class="stat-value">${ac.cmds_done.toLocaleString()} / ${ac.objective.toLocaleString()} cmds (${ac.pct}%)</span></div>
-            <div class="stat-row"><span class="stat-label">Récompense</span><span class="stat-value gold">${ac.reward} $</span></div>
-            <div class="stat-row"><span class="stat-label">Deadline</span><span class="stat-value">${ac.deadline_at} (${ac.days_left}j)</span></div>
-          </div>`;
-        }).join('');
-      } else {
-        autoEl.innerHTML = `<div class="card" style="text-align:center;padding:30px;"><div style="font-size:36px;">🤖</div><div style="color:var(--text2);margin-top:8px;">Aucun contrat IA actif.</div><div style="color:var(--text2);font-size:12px;margin-top:4px;">Attends une proposition automatique du bot.</div></div>`;
-      }
-    }
-
-    // Candidatures
-    const candsEl = document.getElementById('co-cands-list');
-    const noCandsEl = document.getElementById('co-no-cands');
-    if (candsEl) {
-      if (co.candidatures && co.candidatures.length > 0) {
-        noCandsEl.style.display = 'none';
-        candsEl.innerHTML = co.candidatures.map(c =>
-          `<div class="card" style="margin-bottom:10px;" id="cand-card-${c.user_id}">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
-              <div style="width:44px;height:44px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;border:2px solid var(--border);">👤</div>
-              <div style="flex:1;">
-                <div style="font-weight:800;color:var(--text1);">${c.name}</div>
-                ${c.username?`<div style="font-size:12px;color:var(--accent);">@${c.username}</div>`:''}
-                <div style="font-size:11px;color:var(--text2);margin-top:2px;">📅 ${c.date}</div>
-              </div>
-            </div>
-            <div style="display:flex;gap:8px;" id="cand-actions-${c.user_id}">
-              <button onclick="coAccepterCand(${c.user_id})" style="flex:1;padding:10px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--success),#00b894);color:#000;font-weight:800;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;">✅ Accepter</button>
-              <button onclick="coRefuserCand(${c.user_id})" style="flex:1;padding:10px;border-radius:12px;border:none;background:rgba(229,85,85,.15);border:1px solid #e55;color:#e55;font-weight:800;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;">❌ Refuser</button>
-            </div>
-            <div id="cand-msg-${c.user_id}" style="text-align:center;margin-top:8px;font-size:12px;color:var(--text2);min-height:14px;"></div>
-          </div>`).join('');
-      } else {
-        candsEl.innerHTML = '';
-        noCandsEl.style.display = 'block';
-      }
-    }
-
-    // Logs
-    const logsEl = document.getElementById('co-logs-list');
-    if (co.logs && co.logs.length > 0) {
-      const logIcons = {depot:'💰',retrait:'💸',recrutement:'👥',licenciement:'🚪',salaire:'💵',paie:'💵',contrat:'🤝',contrat_bureau:'📋',dissolution:'💥',impot:'🏛️'};
-      logsEl.innerHTML = co.logs.map(l =>
-        `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);align-items:flex-start;">
-          <span style="font-size:20px;">${logIcons[l.event]||'📝'}</span>
-          <div style="flex:1;">
-            <div style="font-size:13px;color:var(--text1);">${l.desc||l.event}</div>
-            <div style="font-size:11px;color:var(--text2);">${l.date}${l.amount?' · '+l.amount+' $':''}</div>
-          </div>
-        </div>`).join('');
-    } else {
-      logsEl.innerHTML = '<div style="color:var(--text2);font-size:13px;">Aucun historique.</div>';
-    }
-  } catch(e) { console.error('loadCompany:', e); }
-}
-
-async function coAccepterCand(targetId) {
-  const msgEl = document.getElementById(`cand-msg-${targetId}`);
-  const actEl = document.getElementById(`cand-actions-${targetId}`);
-  if (msgEl) msgEl.textContent = '⏳ En cours...';
-  try {
-    const r = await fetchT('/api/webapp/company/accepter', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid, target_id: targetId})
-    });
-    const d = await r.json();
-    if (d.error) { if (msgEl) msgEl.textContent = d.error; return; }
-    showToast(d.msg);
-    const card = document.getElementById(`cand-card-${targetId}`);
-    if (card) card.style.opacity = '0.4';
-    if (actEl) actEl.innerHTML = `<div style="text-align:center;color:var(--success);font-size:13px;font-weight:800;width:100%;">✅ Accepté</div>`;
-    if (msgEl) msgEl.textContent = '';
-    setTimeout(() => loadCompany(), 1500);
-  } catch(e) { if (msgEl) msgEl.textContent = 'Erreur réseau'; }
-}
-
-async function coRefuserCand(targetId) {
-  const msgEl = document.getElementById(`cand-msg-${targetId}`);
-  const actEl = document.getElementById(`cand-actions-${targetId}`);
-  if (msgEl) msgEl.textContent = '⏳ En cours...';
-  try {
-    const r = await fetchT('/api/webapp/company/refuser', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid, target_id: targetId})
-    });
-    const d = await r.json();
-    if (d.error) { if (msgEl) msgEl.textContent = d.error; return; }
-    showToast(d.msg);
-    const card = document.getElementById(`cand-card-${targetId}`);
-    if (card) card.style.opacity = '0.4';
-    if (actEl) actEl.innerHTML = `<div style="text-align:center;color:#e55;font-size:13px;font-weight:800;width:100%;">❌ Refusé</div>`;
-    if (msgEl) msgEl.textContent = '';
-    setTimeout(() => loadCompany(), 1500);
-  } catch(e) { if (msgEl) msgEl.textContent = 'Erreur réseau'; }
-}
-
-function coShowDepot() {
-  if (!_coData) return;
-  document.getElementById('co-depot-wallet').textContent = fmt(_cachedUser?.coins||0) + ' $';
-  document.getElementById('co-depot-amount').value = '';
-  document.getElementById('co-depot-msg').textContent = '';
-  document.getElementById('co-depot-modal').style.display = 'flex';
-}
-function coCloseDepot() { document.getElementById('co-depot-modal').style.display = 'none'; }
-async function coConfirmDepot() {
-  const amount = parseInt(document.getElementById('co-depot-amount').value)||0;
-  if (!amount) return;
-  try {
-    const r = await fetchT('/api/webapp/company/depot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
-    const d = await r.json();
-    if (d.error) { document.getElementById('co-depot-msg').textContent = d.error; return; }
-    showToast(d.msg); coCloseDepot(); loadCompany();
-  } catch(e) { document.getElementById('co-depot-msg').textContent = 'Erreur réseau'; }
-}
-
-function coShowRetrait() {
-  if (!_coData) return;
-  document.getElementById('co-retrait-treasury').textContent = fmt(_coData.treasury_raw) + ' $';
-  document.getElementById('co-retrait-amount').value = '';
-  document.getElementById('co-retrait-msg').textContent = '';
-  document.getElementById('co-retrait-modal').style.display = 'flex';
-}
-function coCloseRetrait() { document.getElementById('co-retrait-modal').style.display = 'none'; }
-async function coConfirmRetrait() {
-  const amount = parseInt(document.getElementById('co-retrait-amount').value)||0;
-  if (!amount) return;
-  try {
-    const r = await fetchT('/api/webapp/company/retrait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
-    const d = await r.json();
-    if (d.error) { document.getElementById('co-retrait-msg').textContent = d.error; return; }
-    showToast(d.msg); coCloseRetrait(); loadCompany();
-  } catch(e) { document.getElementById('co-retrait-msg').textContent = 'Erreur réseau'; }
-}
-
-async function coPayerImpots() {
-  const amount = parseInt(document.getElementById('co-tax-amount').value)||0;
-  if (!amount) return;
-  const msgEl = document.getElementById('co-tax-msg');
-  msgEl.textContent = '⏳ En cours...';
-  try {
-    const r = await fetchT('/api/webapp/company/payerimpots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,amount})});
-    const d = await r.json();
-    if (d.error) { msgEl.textContent = d.error; return; }
-    showToast(d.msg); msgEl.textContent = ''; loadCompany();
-  } catch(e) { msgEl.textContent = 'Erreur réseau'; }
-}
-
-async function coNommerEmp(targetId) {
-  const sel = document.getElementById(`role-sel-${targetId}`);
-  const msgEl = document.getElementById(`emp-msg-${targetId}`);
-  const role = sel ? sel.value : '';
-  if (!role) { if(msgEl) msgEl.textContent = 'Choisis un poste'; return; }
-  if(msgEl) msgEl.textContent = '⏳...';
-  try {
-    const r = await fetchT('/api/webapp/company/nommer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,target_id:targetId,role})});
-    const d = await r.json();
-    if (d.error) { if(msgEl) msgEl.textContent = d.error; return; }
-    showToast(d.msg);
-    if(msgEl) msgEl.textContent = '';
-    setTimeout(() => loadCompany(), 1000);
-  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; }
-}
-
-async function coLicencierEmp(targetId, targetName, btn) {
-  const msgEl = document.getElementById(`emp-msg-${targetId}`);
-  if (!confirm(`Licencier ${targetName} ?`)) return;
-  if(btn) btn.disabled = true;
-  if(msgEl) msgEl.textContent = '⏳...';
-  try {
-    const r = await fetchT('/api/webapp/company/licencier',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,target_id:targetId})});
-    const d = await r.json();
-    if (d.error) { if(msgEl) msgEl.textContent = d.error; if(btn) btn.disabled=false; return; }
-    showToast(d.msg);
-    setTimeout(() => loadCompany(), 1000);
-  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
-}
-
-async function coDemissionner() {
-  if (!confirm('Démissionner de cette entreprise ?')) return;
-  try {
-    const r = await fetchT('/api/webapp/company/demissionner',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid})});
-    const d = await r.json();
-    if (d.error) { showToast('❌ ' + d.error); return; }
-    showToast(d.msg);
-    setTimeout(() => loadCompany(), 1200);
-  } catch(e) { showToast('❌ Erreur réseau'); }
-}
-
-async function coSoumettreOffre() {
-  const qty = parseInt(document.getElementById('co-buy-qty').value)||0;
-  const msgEl = document.getElementById('co-buy-msg');
-  if (!qty || qty <= 0) { msgEl.textContent = 'Quantité invalide'; return; }
-  if (!_coData) return;
-  msgEl.textContent = '⏳ Envoi...';
-  try {
-    const r = await fetchT('/api/webapp/company/acheterparts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,company_id:_coData.id,quantity:qty})});
-    const d = await r.json();
-    if (d.error) { msgEl.textContent = d.error; return; }
-    showToast(d.msg); msgEl.textContent = '';
-    document.getElementById('co-buy-qty').value = '';
-    document.getElementById('co-buy-total').textContent = '—';
-    setTimeout(() => loadCompany(), 1200);
-  } catch(e) { msgEl.textContent = 'Erreur réseau'; }
-}
-
-async function coGererOffre(offerId, action, btn) {
-  const msgEl = document.getElementById(`offer-msg-${offerId}`);
-  const actEl = document.getElementById(`offer-actions-${offerId}`);
-  if (action === 'accept' && !confirm('Accepter cette offre ?')) return;
-  if (btn) btn.disabled = true;
-  if (msgEl) msgEl.textContent = '⏳...';
-  try {
-    const r = await fetchT('/api/webapp/company/gereroffre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,offer_id:offerId,action})});
-    const d = await r.json();
-    if (d.error) { if(msgEl) msgEl.textContent = d.error; if(btn) btn.disabled=false; return; }
-    showToast(d.msg);
-    if (actEl) actEl.innerHTML = `<div style="text-align:center;color:${action==='accept'?'var(--success)':'#e55'};font-weight:800;width:100%;">${action==='accept'?'✅ Acceptée':'❌ Refusée'}</div>`;
-    if (msgEl) msgEl.textContent = '';
-    setTimeout(() => loadCompany(), 1500);
-  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
-}
-
-
-// ════════════════════════════════════════
-//  FAMILLE
-// ════════════════════════════════════════
-
-// ════════════════════════════════════════
-//  JARDIN
-// ════════════════════════════════════════
-let _gardenGroupId = 0;
-async function loadGarden() {
-  document.getElementById('garden-loading').style.display='block';
-  document.getElementById('garden-content').style.display='none';
-  try {
-    const r = await fetch(`/api/webapp/garden?user_id=${uid}&group_id=${_gardenGroupId}`);
-    const d = await r.json();
-    document.getElementById('garden-loading').style.display='none';
-    document.getElementById('garden-content').style.display='block';
-
-    const slotsEl = document.getElementById('garden-slots');
-    slotsEl.innerHTML = d.slots.map(s => {
-      if (s.empty) {
-        return `<div class="card" style="display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:8px" onclick="_gardenOpenModal(${s.slot})">
-          <div style="font-size:28px">🟫</div>
-          <div><div style="font-weight:700;color:var(--text2)">Slot ${s.slot+1} — Vide</div>
-          <div style="font-size:12px;color:var(--accent)">Appuie pour planter</div></div>
-        </div>`;
-      }
-      const bar = s.ready ? 100 : Math.min(100, Math.max(0, 100 - (s.remaining_min/(s.remaining_min+1))*100));
-      return `<div class="card" style="margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="font-size:32px">${s.emoji}</div>
-          <div style="flex:1">
-            <div style="font-weight:700">${s.plant_type} — Slot ${s.slot+1}</div>
-            ${s.ready
-              ? `<div style="color:#00b894;font-size:13px;font-weight:700">✅ Prête à récolter !</div>
-                 <button onclick="_gardenHarvest(${s.garden_id})" style="margin-top:6px;padding:8px 16px;border-radius:10px;border:none;background:#00b894;color:#fff;font-weight:700;cursor:pointer">🌾 Récolter +${fmt(s.value*1000)}</button>`
-              : `<div style="font-size:12px;color:var(--text2)">⏳ ${s.remaining_min} min restantes</div>
-                 <div style="margin-top:6px;height:6px;border-radius:3px;background:var(--card2)"><div style="height:100%;width:${bar}%;border-radius:3px;background:var(--accent);transition:.3s"></div></div>`
-            }
-          </div>
-        </div>
-      </div>`;
-    }).join('');
-
-    const cat = document.getElementById('garden-catalog');
-    cat.innerHTML = d.plant_types.map(p =>
-      `<div onclick="_gardenOpenModal(-1,'${p.name}')" style="flex:1;min-width:80px;background:var(--card2);border-radius:12px;padding:10px 8px;text-align:center;cursor:pointer">
-        <div style="font-size:24px">${p.emoji}</div>
-        <div style="font-size:11px;font-weight:700;margin-top:2px">${p.name}</div>
-        <div style="font-size:10px;color:var(--text2)">${p.grow_min < 60 ? p.grow_min+'min' : (p.grow_min/60).toFixed(0)+'h'}</div>
-        <div style="font-size:10px;color:var(--accent);font-weight:700">+${fmt(p.value*1000)}</div>
-      </div>`
-    ).join('');
-
-    window._gardenData = d;
-  } catch(e) {
-    document.getElementById('garden-loading').textContent = 'Erreur chargement';
-  }
-}
-
-let _gardenTargetSlot = -1;
-function _gardenOpenModal(slot, plant='') {
-  _gardenTargetSlot = slot;
-  const d = window._gardenData;
-  if (!d) return;
-  const modal  = document.getElementById('garden-modal');
-  const plants = document.getElementById('garden-modal-plants');
-  const title  = document.getElementById('garden-modal-title');
-  const emptySlots = d.slots.filter(s => s.empty).map(s => s.slot);
-  title.textContent = slot >= 0 ? `Planter dans Slot ${slot+1}` : 'Choisir un slot puis une plante';
-  plants.innerHTML = d.plant_types.map(p =>
-    `<div onclick="_gardenPlant(${slot >= 0 ? slot : emptySlots[0] ?? 0},'${p.name}')" style="background:var(--card2);border-radius:12px;padding:12px;text-align:center;cursor:pointer">
-      <div style="font-size:28px">${p.emoji}</div>
-      <div style="font-size:13px;font-weight:700;margin:4px 0">${p.name}</div>
-      <div style="font-size:11px;color:var(--text2)">${p.grow_min < 60 ? p.grow_min+'min' : (p.grow_min/60).toFixed(0)+'h'}</div>
-      <div style="font-size:12px;color:var(--accent);font-weight:700">+${fmt(p.value*1000)}</div>
-    </div>`
-  ).join('');
-  modal.style.display = 'flex';
-}
-
-async function _gardenPlant(slot, plantType) {
-  document.getElementById('garden-modal').style.display = 'none';
-  try {
-    const r = await fetch('/api/webapp/garden/plant', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({user_id:uid, group_id:_gardenGroupId, slot, plant_type:plantType})
-    });
-    const d = await r.json();
-    if (d.ok) { showToast(`${d.emoji} Planté ! Pousse en ${d.grow_min}min`); loadGarden(); }
-    else showToast(d.error || 'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-async function _gardenHarvest(gardenId) {
-  try {
-    const r = await fetch('/api/webapp/garden/harvest', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({user_id:uid, garden_id:gardenId})
-    });
-    const d = await r.json();
-    if (d.ok) { showToast(`${d.emoji} Récolté ! +${fmt(d.gain)}`); loadGarden(); }
-    else showToast(d.error || 'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-// ════════════════════════════════════════
-//  PLUS — CSS (injected once)
-// ════════════════════════════════════════
-(function injectPlusCSS() {
-  if (document.getElementById('plus-css')) return;
-  const s = document.createElement('style');
-  s.id = 'plus-css';
-  s.textContent = `
-    .plus-loader { text-align:center; color:var(--text2); padding:40px 0; font-size:14px; }
-
-    /* ── BACK BUTTON (social + plus) ── */
-    .sh2-back-bar { padding:10px 0 2px; }
-    .sh2-back-btn { background:none; border:none; color:var(--accent); font-size:13px; font-weight:800; cursor:pointer; letter-spacing:.5px; padding:4px 0; }
-    .sh2-back-btn:hover { opacity:.75; }
-
-    /* ── PLUS HUB ── */
-    .plus-hub-hero { position:relative; overflow:hidden; border-radius:20px; padding:28px 20px 22px; background:linear-gradient(135deg,#0d0a1f 0%,#1a1035 60%,#0a0d20 100%); margin-bottom:16px; }
-    .plus-hub-orbs { position:absolute; inset:0; pointer-events:none; }
-    .plus-hub-orb { position:absolute; border-radius:50%; filter:blur(50px); opacity:.45; }
-    .plus-hub-orb1 { width:160px; height:160px; background:#7c3aed; top:-40px; right:-30px; }
-    .plus-hub-orb2 { width:120px; height:120px; background:#0891b2; bottom:-20px; left:10px; }
-    .plus-hub-hero-inner { position:relative; z-index:1; }
-    .plus-hub-hero-label { font-size:10px; letter-spacing:3px; text-transform:uppercase; color:#a78bfa; margin-bottom:4px; }
-    .plus-hub-hero-title { font-family:'Bangers',cursive; font-size:36px; color:#fff; letter-spacing:2px; line-height:1; margin-bottom:4px; }
-    .plus-hub-hero-sub { font-size:11px; color:#94a3b8; letter-spacing:1px; }
-    .plus-hub-cards { display:flex; flex-direction:column; gap:12px; }
-    .plus-hub-card { display:flex; align-items:center; gap:14px; padding:16px 18px; border-radius:16px; cursor:pointer; position:relative; border-left:4px solid transparent; transition:transform .12s; background:var(--card); }
-    .plus-hub-card:active { transform:scale(.97); }
-    .plus-hub-c-purple { border-left-color:#7c3aed; }
-    .plus-hub-c-gold    { border-left-color:#f59e0b; }
-    .plus-hub-c-teal    { border-left-color:#0891b2; }
-    .plus-hub-card-icon { font-size:26px; min-width:36px; text-align:center; }
-    .plus-hub-card-body { flex:1; min-width:0; }
-    .plus-hub-card-title { font-size:15px; font-weight:900; color:var(--text); }
-    .plus-hub-card-sub { font-size:11px; color:var(--text2); margin-top:2px; }
-    .plus-hub-card-arrow { font-size:22px; color:var(--text2); font-weight:300; }
-    .plus-hub-card-badge { position:absolute; top:10px; right:38px; font-size:9px; font-weight:900; background:#0891b2; color:#fff; border-radius:8px; padding:2px 7px; letter-spacing:.5px; text-transform:uppercase; }
-    .plus-coming-soon { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; }
-
-    /* ══ FAMILY TICKET ══ */
-    .ft-topbar-chip { display:flex;align-items:center;gap:5px;background:rgba(247,201,72,.12);border:1px solid rgba(247,201,72,.3);border-radius:20px;padding:4px 10px 4px 8px;cursor:pointer;transition:background .15s;position:relative; }
-    .ft-topbar-chip:active { background:rgba(247,201,72,.25); }
-    .ft-topbar-chip-icon { font-size:15px;line-height:1; }
-    .ft-topbar-chip-count { font-family:'Bangers',cursive;font-size:16px;color:#f7c948;letter-spacing:.5px;line-height:1; }
-
-    /* Dropdown solde */
-    .ft-dropdown { position:absolute;top:calc(100% + 8px);right:0;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px 14px;min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:500;display:none; }
-    .ft-dropdown.open { display:block; }
-    .ft-dropdown-title { font-size:10px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:10px;font-weight:900; }
-    .ft-dropdown-row { display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06); }
-    .ft-dropdown-row:last-child { border-bottom:none; }
-    .ft-dropdown-label { font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px; }
-    .ft-dropdown-qty { font-family:'Bangers',cursive;font-size:18px;color:#f7c948;letter-spacing:.5px; }
-
-    /* Page boutique */
-    .ft-boutique-wrap { padding:0 14px 80px;overflow-y:auto;height:calc(100vh - 110px);scrollbar-width:none; }
-    .ft-boutique-hero { text-align:center;padding:24px 0 18px; }
-    .ft-boutique-hero-title { font-family:'Bangers',cursive;font-size:32px;letter-spacing:3px;color:var(--accent);margin-bottom:4px; }
-    .ft-boutique-hero-sub { font-size:12px;color:var(--text2); }
-    .ft-buy-section-label { font-size:11px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:18px 0 10px; }
-
-    /* Carte ticket */
-    .ft-ticket-card { display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:transform .12s,border-color .12s; }
-    .ft-ticket-card:active { transform:scale(.97); }
-    .ft-ticket-card.selected { border-color:#f7c948;background:rgba(247,201,72,.06); }
-    .ft-ticket-icon { font-size:36px;flex-shrink:0; }
-    .ft-ticket-info { flex:1; }
-    .ft-ticket-name { font-family:'Bangers',cursive;font-size:20px;letter-spacing:1px;line-height:1; }
-    .ft-ticket-price { font-size:12px;color:var(--text2);margin-top:2px; }
-    .ft-ticket-qty-wrap { display:flex;align-items:center;gap:8px; }
-    .ft-qty-btn { width:28px;height:28px;border-radius:50%;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:16px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0; }
-    .ft-qty-val { font-family:'Bangers',cursive;font-size:20px;color:var(--accent);min-width:24px;text-align:center; }
-
-    /* Bouton achat */
-    .ft-buy-btn { width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-size:15px;font-weight:900;margin-top:18px;cursor:pointer;letter-spacing:.5px; }
-    .ft-buy-btn:disabled { opacity:.4;cursor:not-allowed; }
-
-    /* Section envoyer */
-    .ft-send-section { margin-top:26px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px; }
-    .ft-send-title { font-size:13px;font-weight:900;margin-bottom:12px; }
-    .ft-send-row { display:flex;gap:8px;align-items:center;margin-bottom:10px; }
-    .ft-send-input { flex:1;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-family:'Nunito',sans-serif; }
-    .ft-send-select { padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-family:'Nunito',sans-serif; }
-    .ft-send-btn { padding:10px 16px;border-radius:12px;border:none;background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;font-size:13px;font-weight:900;cursor:pointer;white-space:nowrap; }
-
-    /* Toast achat */
-    .ft-toast { position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;padding:12px 24px;border-radius:14px;font-size:14px;font-weight:900;z-index:3000;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap; }
-    .ft-toast.show { opacity:1; }
-
-    /* ── JOURNAL ── */
-    .journal-entry {
-      display:flex; gap:12px; align-items:flex-start;
-      background:var(--card); border:1px solid var(--border);
-      border-radius:14px; padding:14px; margin-bottom:10px;
-      animation: slideInUp .35s ease both;
-    }
-    .journal-entry-icon {
-      font-size:26px; width:42px; height:42px; border-radius:12px;
-      background:var(--card2); display:flex; align-items:center; justify-content:center;
-      flex-shrink:0;
-    }
-    .journal-entry-body { flex:1; min-width:0; }
-    .journal-entry-title { font-size:13px; font-weight:700; color:var(--text); margin-bottom:3px; }
-    .journal-entry-desc  { font-size:12px; color:var(--accent); font-weight:600; }
-    .journal-entry-date  { font-size:11px; color:var(--text2); margin-top:4px; }
-
-    /* ── ÉVÉNEMENTS ── */
-    .event-card {
-      border-radius:16px; padding:16px; margin-bottom:12px;
-      border-left:4px solid var(--accent);
-      background:var(--card);
-      animation: slideInUp .35s ease both;
-      position:relative; overflow:hidden;
-    }
-    .event-card::before {
-      content:''; position:absolute; top:0; right:0; width:80px; height:80px;
-      border-radius:50%; background:var(--event-color,var(--accent));
-      opacity:.08; transform:translate(25px,-25px);
-    }
-    .event-header { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
-    .event-emoji  { font-size:28px; }
-    .event-title  { font-size:14px; font-weight:800; color:var(--text); }
-    .event-desc   { font-size:12px; color:var(--text2); line-height:1.5; }
-    .event-date   { font-size:11px; color:var(--accent); font-weight:600; margin-top:8px; }
-
-    /* ── ANNONCES ── */
-    .annonce-card {
-      border-radius:16px; padding:16px; margin-bottom:12px;
-      background:var(--card); border:1px solid var(--border);
-      animation: slideInUp .35s ease both;
-    }
-    .annonce-card.important {
-      border-color:#f7c948; background:linear-gradient(135deg,rgba(247,201,72,.07),var(--card));
-    }
-    .annonce-badge {
-      display:inline-block; font-size:10px; font-weight:800; letter-spacing:.5px;
-      padding:2px 8px; border-radius:20px; margin-bottom:8px;
-      background:#f7c948; color:#000;
-    }
-    .annonce-title { font-size:14px; font-weight:800; color:var(--text); margin-bottom:6px; }
-    .annonce-body  { font-size:12px; color:var(--text2); line-height:1.6; }
-    .annonce-date  { font-size:11px; color:var(--text2); margin-top:8px; }
-
-    @keyframes slideInUp {
-      from { opacity:0; transform:translateY(16px); }
-      to   { opacity:1; transform:translateY(0); }
-    }
-
-    /* ── ENCHERES ── */
-    .enc-tab-btn {
-      flex:1; padding:10px; border-radius:12px; border:1px solid var(--border);
-      background:var(--card2); color:var(--text2); font-size:13px; font-weight:700;
-      cursor:pointer; transition:.2s;
-    }
-    .enc-tab-btn.active { background:var(--accent); color:#000; border-color:var(--accent); }
-
-    .auction-card {
-      border-radius:18px; padding:0; margin-bottom:14px; overflow:hidden;
-      background:var(--card); border:1px solid var(--border);
-      animation: slideInUp .35s ease both;
-    }
-    .auction-header {
-      display:flex; align-items:center; gap:14px; padding:16px 16px 12px;
-      border-bottom:1px solid var(--border);
-    }
-    .auction-emoji {
-      font-size:36px; width:56px; height:56px; border-radius:14px;
-      background:var(--card2); display:flex; align-items:center; justify-content:center;
-      flex-shrink:0;
-    }
-    .auction-name  { font-size:15px; font-weight:900; color:var(--text); }
-    .auction-rarity { font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; display:inline-block; margin-top:3px; }
-    .rarity-commun     { background:#636e72; color:#fff; }
-    .rarity-rare       { background:#0984e3; color:#fff; }
-    .rarity-epique     { background:#6c5ce7; color:#fff; }
-    .rarity-legendaire { background:#f7c948; color:#000; }
-    .rarity-mythique   { background:linear-gradient(135deg,#f97316,#ea580c); color:#fff; }
-    .rarity-divin      { background:linear-gradient(135deg,#ef4444,#b91c1c); color:#fff; box-shadow:0 0 8px rgba(239,68,68,.5); }
-    .auction-timer-badge { font-size:11px; font-weight:800; color:#e17055; background:rgba(225,112,85,.12); border-radius:20px; padding:3px 9px; white-space:nowrap; }
-    .auction-body { padding:14px 16px; }
-    .auction-row  { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:13px; }
-    .auction-label { color:var(--text2); }
-    .auction-val   { font-weight:800; color:var(--text); }
-    .auction-val.gold { color:#f7c948; }
-    .auction-leader { font-size:12px; color:var(--text2); margin-bottom:12px; }
-    .auction-timer  { font-size:12px; font-weight:700; color:#e17055; }
-    /* ── LA SALLE — Direction esthétique Dark Auction House ── */
-    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=DM+Mono:wght@400;500&display=swap');
-
-    .salle-root { position:relative; overflow:hidden; }
-    .salle-bg-orb { position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:0; }
-    .salle-bg-orb-1 { width:300px;height:300px; top:-80px;right:-60px; background:radial-gradient(circle,rgba(139,92,246,.18),transparent 70%); }
-    .salle-bg-orb-2 { width:220px;height:220px; bottom:100px;left:-50px; background:radial-gradient(circle,rgba(201,168,76,.12),transparent 70%); }
-
-    /* Gate VIP */
-    .salle-gate { position:relative;z-index:1;padding:8px 0 24px;text-align:center; }
-    .salle-gate-title { font-family:'Cinzel',serif;font-size:32px;font-weight:900;letter-spacing:4px;
-      background:linear-gradient(135deg,#c9a84c,#f0d080,#c9a84c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;
-      background-clip:text;text-shadow:none;margin-bottom:4px; }
-    .salle-gate-sub { font-family:'DM Mono',monospace;font-size:10px;letter-spacing:3px;color:#6b5b9a;text-transform:uppercase;margin-bottom:28px; }
-    .salle-gate-card { background:linear-gradient(145deg,rgba(26,17,48,.95),rgba(13,10,26,.98));
-      border:1px solid rgba(139,92,246,.4);border-radius:24px;padding:28px 24px;
-      box-shadow:0 0 60px rgba(139,92,246,.12),inset 0 1px 0 rgba(201,168,76,.15);
-      position:relative;overflow:hidden; }
-    .salle-gate-card::before { content:'';position:absolute;top:0;left:0;right:0;height:1px;
-      background:linear-gradient(90deg,transparent,#c9a84c44,#c9a84c,#c9a84c44,transparent); }
-    .salle-price-label { font-family:'DM Mono',monospace;font-size:10px;letter-spacing:2px;color:#6b5b9a;text-transform:uppercase;margin-bottom:8px; }
-    .salle-price-val { font-family:'Cinzel',serif;font-size:36px;font-weight:900;color:#c9a84c;margin-bottom:6px; }
-    .salle-wallet-info { font-family:'DM Mono',monospace;font-size:11px;color:#5a4a7a;margin-bottom:24px; }
-    .salle-pay-btn { width:100%;padding:16px;border-radius:16px;border:1px solid rgba(139,92,246,.5);
-      background:linear-gradient(135deg,#4c1d95,#6d28d9,#4c1d95);color:#e9d5ff;
-      font-family:'Cinzel',serif;font-size:14px;font-weight:700;letter-spacing:1px;cursor:pointer;
-      box-shadow:0 8px 32px rgba(109,40,217,.4);transition:all .2s;position:relative;overflow:hidden; }
-    .salle-pay-btn::after { content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(201,168,76,.1),transparent);opacity:0;transition:.2s; }
-    .salle-pay-btn:hover::after { opacity:1; }
-    .salle-pay-btn:active { transform:scale(.97); }
-
-    /* VIP Badge */
-    .salle-vip-badge { display:inline-flex;align-items:center;gap:8px;
-      background:linear-gradient(135deg,rgba(201,168,76,.15),rgba(201,168,76,.05));
-      border:1px solid rgba(201,168,76,.4);border-radius:40px;
-      padding:8px 16px;font-size:11px;font-family:'DM Mono',monospace;
-      color:#c9a84c;letter-spacing:1px;margin-bottom:20px;
-      box-shadow:0 0 20px rgba(201,168,76,.1); }
-    .salle-vip-dot { width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 8px #4ade80;animation:salle-blink 2s ease-in-out infinite; }
-
-    /* Bento Layout — Item Stage */
-    .salle-bento { display:grid;grid-template-columns:1fr;gap:12px;position:relative;z-index:1; }
-    .salle-stage { background:linear-gradient(145deg,rgba(26,17,48,.9),rgba(13,10,26,.95));
-      border-radius:24px;padding:28px 20px;text-align:center;
-      border:1px solid rgba(139,92,246,.35);
-      box-shadow:0 0 80px rgba(139,92,246,.08),inset 0 1px 0 rgba(201,168,76,.1);
-      position:relative;overflow:hidden; }
-    .salle-stage::before { content:'';position:absolute;top:0;left:20%;right:20%;height:1px;
-      background:linear-gradient(90deg,transparent,rgba(201,168,76,.6),transparent); }
-
-    /* Altar */
-    .salle-altar-wrap { position:relative;width:140px;height:140px;margin:0 auto 20px;display:flex;align-items:center;justify-content:center; }
-    .salle-altar-glow { position:absolute;inset:-30px;border-radius:50%;
-      background:radial-gradient(circle,var(--glow,#8b5cf6) 0%,transparent 65%);
-      opacity:.4;animation:salle-pulse 2.5s ease-in-out infinite; }
-    .salle-altar-ring { position:absolute;inset:-4px;border-radius:50%;
-      border:1px solid var(--glow,#8b5cf6);opacity:.5;animation:salle-spin 10s linear infinite; }
-    .salle-altar-ring2 { position:absolute;inset:-12px;border-radius:50%;
-      border:1px dashed var(--glow,#8b5cf6);opacity:.2;animation:salle-spin 18s linear infinite reverse; }
-    .salle-altar-item { font-size:72px;line-height:1;animation:salle-float 3.5s ease-in-out infinite;
-      position:relative;z-index:2;filter:drop-shadow(0 0 20px var(--glow,#8b5cf6)); }
-    .salle-altar-particles { position:absolute;inset:0; }
-    .salle-particle { position:absolute;width:3px;height:3px;border-radius:50%;
-      background:var(--glow,#8b5cf6);top:50%;left:50%;
-      animation:salle-orbit calc(4s + var(--i)*0.5s) linear infinite;
-      transform-origin:0 0;opacity:.6; }
-    .salle-altar-base { width:60px;height:3px;margin:0 auto;
-      background:linear-gradient(90deg,transparent,var(--glow,#8b5cf6),transparent);
-      border-radius:2px;opacity:.4; }
-
-    /* Item name + rarity */
-    .salle-item-name { font-family:'Cinzel',serif;font-size:18px;font-weight:700;color:#e9d5ff;margin-bottom:8px;line-height:1.3; }
-    .salle-rarity-badge { display:inline-flex;align-items:center;gap:4px;
-      border-radius:20px;padding:4px 14px;font-size:10px;font-weight:700;
-      font-family:'DM Mono',monospace;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px; }
-    .salle-rarity-mythique { background:rgba(139,92,246,.2);border:1px solid #8b5cf6;color:#c4b5fd; }
-    .salle-rarity-divin { background:rgba(239,68,68,.15);border:1px solid #ef4444;color:#fca5a5; }
-    .salle-item-desc { font-size:12px;color:#6b5b9a;line-height:1.6;font-style:italic;max-width:280px;margin:0 auto 20px; }
-
-    /* Stats Bento Grid */
-    .salle-stats-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;text-align:left; }
-    .salle-stat-cell { background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
-      border-radius:14px;padding:12px;position:relative;overflow:hidden; }
-    .salle-stat-cell::before { content:'';position:absolute;top:0;left:0;right:0;height:1px;
-      background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent); }
-    .salle-stat-label { font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1.5px;
-      color:#4a3a6a;text-transform:uppercase;margin-bottom:6px; }
-    .salle-stat-value { font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:#e9d5ff; }
-    .salle-stat-value.gold { color:#c9a84c; }
-    .salle-stat-value.green { color:#4ade80; }
-    .salle-stat-value.red { color:#ef4444; }
-
-    /* Countdown */
-    .salle-countdown-wrap { display:flex;align-items:center;justify-content:space-between;
-      background:rgba(0,0,0,.3);border-radius:12px;padding:10px 14px;margin-bottom:16px;
-      border:1px solid rgba(255,255,255,.04); }
-    .salle-countdown { font-family:'DM Mono',monospace;font-size:15px;font-weight:500;color:#8b5cf6; }
-    .salle-rotation-hint { font-family:'DM Mono',monospace;font-size:9px;color:#3a2a5a;letter-spacing:1px; }
-
-    /* Bid Button */
-    .salle-bid-btn { width:100%;padding:17px;border-radius:18px;border:none;
-      font-family:'Cinzel',serif;font-size:14px;font-weight:700;letter-spacing:1px;cursor:pointer;
-      transition:all .2s;position:relative;overflow:hidden; }
-    .salle-bid-btn.active { background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#e9d5ff;
-      box-shadow:0 8px 32px rgba(124,58,237,.45); }
-    .salle-bid-btn.active:hover { box-shadow:0 12px 40px rgba(124,58,237,.6);transform:translateY(-1px); }
-    .salle-bid-btn.active:active { transform:translateY(1px);box-shadow:0 4px 16px rgba(124,58,237,.3); }
-    .salle-bid-btn.leading { background:rgba(26,40,26,.8);border:1px solid #4ade80;color:#4ade80;cursor:default; }
-    .salle-bid-btn.leading:hover { transform:none;box-shadow:none; }
-
-    /* History */
-    .salle-history { background:rgba(13,10,26,.8);border:1px solid rgba(139,92,246,.15);border-radius:18px;padding:18px;margin-top:16px; }
-    .salle-history-title { font-family:'Cinzel',serif;font-size:12px;letter-spacing:2px;color:#4a3a6a;text-transform:uppercase;margin-bottom:14px; }
-    .salle-hist-row { display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04); }
-    .salle-hist-row:last-child { border-bottom:none; }
-    .salle-hist-emoji { font-size:20px;width:28px;text-align:center; }
-    .salle-hist-name { font-size:12px;font-weight:700;color:#a990cc;flex:1; }
-    .salle-hist-bid { font-family:'DM Mono',monospace;font-size:11px;color:#c9a84c; }
-    .salle-hist-winner { font-family:'DM Mono',monospace;font-size:9px;color:#4a3a6a; }
-
-    /* No-access empty state */
-    .salle-empty-stage { padding:32px 0 8px;text-align:center; }
-    .salle-empty-icon { font-size:16px;letter-spacing:6px;color:#3a2a5a;margin-bottom:20px;display:block; }
-
-    @keyframes salle-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
-    @keyframes salle-spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-    @keyframes salle-pulse { 0%,100%{opacity:.3} 50%{opacity:.55} }
-    @keyframes salle-orbit { from{transform:rotate(calc(var(--i)*45deg)) translateX(58px)} to{transform:rotate(calc(var(--i)*45deg + 360deg)) translateX(58px)} }
-    @keyframes salle-blink { 0%,100%{opacity:1} 50%{opacity:.4} }
-    .bid-btn {
-      width:100%; padding:13px; border-radius:12px; border:none;
-      background:linear-gradient(135deg,#f7c948,#e67e22); color:#000;
-      font-weight:900; font-size:14px; cursor:pointer;
-      box-shadow:0 4px 16px rgba(247,201,72,.3);
-      transition:.15s; active:transform:scale(.97);
-    }
-    .bid-btn:disabled { background:var(--card2); color:var(--text2); box-shadow:none; cursor:default; }
-    .bid-btn-leading { background:linear-gradient(135deg,#00b894,#00cec9) !important; color:#fff !important; box-shadow:0 4px 16px rgba(0,184,148,.3) !important; }
-
-    .auction-bid-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:10px; padding:10px 12px; background:var(--card2); border-radius:12px; border:1px solid var(--border); }
-    .auction-bid-val { font-size:18px; font-weight:900; margin-top:3px; }
-    .auction-bid-val.gold { color:#f7c948; }
-    .auction-leader-val { font-size:12px; font-weight:800; color:var(--text); margin-top:3px; }
-
-    .inv-card {
-      display:flex; gap:14px; align-items:center; padding:14px;
-      background:var(--card); border:1px solid var(--border);
-      border-radius:16px; margin-bottom:10px;
-      animation: slideInUp .35s ease both;
-    }
-    .inv-emoji { font-size:32px; width:50px; height:50px; border-radius:12px; background:var(--card2); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-    .inv-name  { font-size:13px; font-weight:800; color:var(--text); }
-    .inv-val   { font-size:12px; color:#f7c948; font-weight:700; margin-top:2px; }
-    .inv-date  { font-size:11px; color:var(--text2); margin-top:2px; }
-  `;
-  document.head.appendChild(s);
-})();
-
-// ════════════════════════════════════════
-//  JOURNAL
-// ════════════════════════════════════════
-async function loadJournal() {
-  const el = document.getElementById('journal-list');
-  if (!el) return;
-  el.innerHTML = '<div class="plus-loader">Chargement…</div>';
-  try {
-    const r = await fetchT(`/api/webapp/journal?user_id=${uid}`, {}, 12000);
-    const d = await r.json();
-    const entries = d.entries || [];
-    if (!entries.length) {
-      el.innerHTML = '<div class="plus-loader">Aucune entrée pour l\'instant.</div>'; return;
-    }
-    el.innerHTML = entries.map((e, i) => `
-      <div class="journal-entry" style="animation-delay:${i*0.05}s">
-        <div class="journal-entry-icon">${e.emoji || '📌'}</div>
-        <div class="journal-entry-body">
-          <div class="journal-entry-title">${e.title || '—'}</div>
-          <div class="journal-entry-desc">${e.body || ''}</div>
-          <div class="journal-entry-date">🕐 ${e.date || ''}</div>
-        </div>
-      </div>
-    `).join('');
-  } catch(e) {
-    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
-  }
-}
-
-// ════════════════════════════════════════
-//  ÉVÉNEMENTS
-// ════════════════════════════════════════
-async function loadEvents() {
-  const el = document.getElementById('events-list');
-  if (!el) return;
-  el.innerHTML = '<div class="plus-loader">Chargement…</div>';
-  try {
-    const r = await fetchT(`/api/webapp/events?user_id=${uid}`, {}, 12000);
-    const d = await r.json();
-    const events = d.events || [];
-    if (!events.length) {
-      el.innerHTML = '<div class="plus-loader">Aucun événement récent.</div>'; return;
-    }
-    el.innerHTML = events.map((ev, i) => `
-      <div class="event-card" style="border-left-color:${ev.color||'var(--accent)'};--event-color:${ev.color||'var(--accent)'};animation-delay:${i*0.06}s">
-        <div class="event-header">
-          <span class="event-emoji">${ev.emoji || '📅'}</span>
-          <span class="event-title">${ev.title || '—'}</span>
-        </div>
-        ${ev.desc ? `<div class="event-desc">${ev.desc}</div>` : ''}
-        <div class="event-date">📆 ${ev.date || ''}</div>
-      </div>
-    `).join('');
-  } catch(e) {
-    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
-  }
-}
-
-// ════════════════════════════════════════
-//  ANNONCES
-// ════════════════════════════════════════
-async function loadAnnonces() {
-  const el = document.getElementById('annonces-list');
-  if (!el) return;
-  el.innerHTML = '<div class="plus-loader">Chargement…</div>';
-  try {
-    const r = await fetchT(`/api/webapp/annonces?user_id=${uid}`, {}, 12000);
-    const d = await r.json();
-    const annonces = d.annonces || [];
-    if (!annonces.length) {
-      el.innerHTML = '<div class="plus-loader">Aucune annonce.</div>'; return;
-    }
-    el.innerHTML = annonces.map((a, i) => `
-      <div class="annonce-card${a.important ? ' important' : ''}" style="animation-delay:${i*0.06}s">
-        ${a.important ? '<span class="annonce-badge">⚡ IMPORTANT</span>' : ''}
-        <div class="annonce-title">${a.title || '—'}</div>
-        <div class="annonce-body">${a.body || ''}</div>
-        <div class="annonce-date">📅 ${a.date || ''}</div>
-      </div>
-    `).join('');
-  } catch(e) {
-    el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>';
-  }
-}
-
-// ════════════════════════════════════════
-//  ENCHÈRES — En cours + La Salle VIP
-// ════════════════════════════════════════
-let _encCurTab = 'live';
-let _encBidAuctionId = null;
-let _encBidIsSalle = false;
-let _salleTimerInterval = null;
-let _salleAuctionData = null;
-let _liveTimerInterval = null;
-let _auctionCache = {}; // id -> {name, emoji, rarity}
-
-function encTab(tab, btn) {
-  _encCurTab = tab;
-  document.querySelectorAll('.enc-tab-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('enc-live').style.display      = tab === 'live'      ? '' : 'none';
-  document.getElementById('enc-salle').style.display     = tab === 'salle'     ? '' : 'none';
-  document.getElementById('enc-inventory').style.display = tab === 'inventory' ? '' : 'none';
-  document.getElementById('enc-market').style.display    = tab === 'market'    ? '' : 'none';
-  if (tab === 'live')      _loadAuctionLive();
-  if (tab === 'salle')     _loadSalle();
-  if (tab === 'inventory') _loadAuctionInventory();
-  if (tab === 'market')    _loadItemMarket();
-}
-
-function _rarityClass(r) {
-  const m = { camelote:'rarity-commun', commun:'rarity-commun', rare:'rarity-rare', epique:'rarity-epique', legendaire:'rarity-legendaire', mythique:'rarity-mythique', divin:'rarity-divin' };
-  return m[(r||'').toLowerCase()] || 'rarity-commun';
-}
-function _rarityLabel(r) {
-  const lc = (r||'').toLowerCase();
-  const m = { camelote:'⚪ Camelote', commun:'🟢 Commun', rare:'🔵 Rare', epique:'🟣 Épique', legendaire:'🟡 Légendaire', mythique:'🟠 Mythique', divin:'🔴 Divin' };
-  return m[lc] || r;
-}
-function _timeLeft(endsAt) {
-  if (!endsAt) return '—';
-  try {
-    // Normalise tous les formats possibles de Neon/PG :
-    // "2026-06-15 22:30:00"  "2026-06-15 22:30:00+00:00"  "2026-06-15T22:30:00Z"
-    let str = String(endsAt).trim();
-    str = str.replace(' ', 'T');                    // espace → T
-    str = str.replace(/([+-]\d{2}:\d{2})$/, '');  // retire +00:00
-    str = str.replace(/Z$/, '');                    // retire Z final
-    // On a maintenant "2026-06-15T22:30:00" → on force UTC
-    const d = new Date(str + 'Z');
-    if (isNaN(d.getTime())) return '?';
-    const diff = d.getTime() - Date.now();
-    if (diff <= 0) return 'Terminé';
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    if (h > 0) return h+'h '+String(m).padStart(2,'0')+'min';
-    return m > 0 ? m+'min '+String(s).padStart(2,'0')+'s' : s+'s';
-  } catch(e) { return '?'; }
-}
-
-// ── EN COURS ──────────────────────────────────────────────────────────────────
-async function _loadAuctionLive() {
-  const el = document.getElementById('enc-live-list');
-  if (!el) return;
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  if (_liveTimerInterval) { clearInterval(_liveTimerInterval); _liveTimerInterval = null; }
-  try {
-    const r = await fetchT('/api/webapp/auctions/live?user_id='+uid, {}, 12000);
-    const d = await r.json();
-    const auctions = d.auctions || [];
-    auctions.forEach(function(a) { _auctionCache[a.id] = {name:a.item_name, emoji:a.item_emoji, rarity:a.rarity}; });
-    if (!auctions.length) {
-      el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🔨</div><div style="font-size:15px;font-weight:700">Aucune enchère en cours</div><div style="font-size:12px;margin-top:6px">Les enchères se lancent automatiquement</div></div>`;
-      return;
-    }
-    el.innerHTML = auctions.map(function(a, i) {
-      const isLeader = String(a.leader_id) === String(uid);
-      const rarLow = (a.rarity||'').toLowerCase();
-      const borderCol = rarLow==='legendaire'||rarLow==='légendaire' ? '#f7c948'
-                      : rarLow==='epique'||rarLow==='épique' ? '#8b5cf6'
-                      : rarLow==='rare' ? '#3b82f6' : 'var(--border)';
-      return `
-      <div class="auction-card" style="animation-delay:${i*0.08}s;border-color:${borderCol}">
-        <div class="auction-header">
-          <div class="auction-emoji">${a.item_emoji||'📦'}</div>
-          <div style="flex:1">
-            <div class="auction-name">${a.item_name}</div>
-            <span class="auction-rarity ${_rarityClass(a.rarity)}">${_rarityLabel(a.rarity)}</span>
-          </div>
-          <div class="auction-timer-badge" id="enc-timer-${a.id}" title="${a.ends_at}">⏱ ${_timeLeft(a.ends_at)} [${(a.ends_at||"null").slice(0,19)}]</div>
-        </div>
-        <div class="auction-body">
-          <div class="auction-bid-row">
-            <div>
-              <div style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Enchère actuelle</div>
-              <div class="auction-bid-val gold" id="enc-bid-val-${a.id}">⚡ ${fmt(a.current_bid)} $</div>
-            </div>
-            <div style="text-align:right">
-              <div style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Meneur</div>
-              <div class="auction-leader-val" id="enc-leader-${a.id}">${isLeader ? '👑 Toi' : (a.leader_name || '💤 Aucun')}</div>
-            </div>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:12px">
-            <span>Départ : ${fmt(a.start_price)} $</span>
-            <span style="font-style:italic;color:var(--text2)">❓ Valeur cachée</span>
-          </div>
-          <button class="bid-btn${isLeader?' bid-btn-leading':''}" id="enc-btn-${a.id}"
-            ${isLeader ? 'disabled' : `onclick="openBidModal(${a.id},${a.current_bid},false)"`}>
-            ${isLeader ? '✅ Tu mènes' : '⚡ Enchérir'}
-          </button>
-        </div>
-      </div>`;
-    }).join('');
-
-    // Timer ticker (1s) + refresh données toutes les 15s
-    let _liveRefreshCountdown = 15;
-    // Copie locale mutable des enchères pour que les timers se mettent à jour
-    let _liveData = auctions.slice();
-    _liveTimerInterval = setInterval(async function() {
-      // Tick timers sur données locales
-      _liveData.forEach(function(a) {
-        const t = document.getElementById('enc-timer-'+a.id);
-        if (t) t.textContent = '⏱ ' + _timeLeft(a.ends_at);
-      });
-      // Refresh prix/meneur toutes les 15s via fetchT
-      _liveRefreshCountdown--;
-      if (_liveRefreshCountdown <= 0) {
-        _liveRefreshCountdown = 15;
-        try {
-          const rr = await fetchT('/api/webapp/auctions/live?user_id='+uid, {}, 10000);
-          if (!rr.ok) return;
-          let dd; try { dd = await rr.json(); } catch(e) { return; }
-          const fresh = dd.auctions || [];
-          _liveData = fresh; // maj locale pour que les timers aient les bonnes dates
-          fresh.forEach(function(a) {
-            const bidEl = document.getElementById('enc-bid-val-'+a.id);
-            const leaderEl = document.getElementById('enc-leader-'+a.id);
-            const btnEl = document.getElementById('enc-btn-'+a.id);
-            const timerEl = document.getElementById('enc-timer-'+a.id);
-            const isL = String(a.leader_id) === String(uid);
-            if (bidEl) bidEl.textContent = '⚡ ' + fmt(a.current_bid) + ' $';
-            if (leaderEl) leaderEl.textContent = isL ? '👑 Toi' : (a.leader_name || '💤 Aucun');
-            if (timerEl) timerEl.textContent = '⏱ ' + _timeLeft(a.ends_at);
-            if (btnEl) {
-              if (isL) { btnEl.disabled = true; btnEl.className = 'bid-btn bid-btn-leading'; btnEl.textContent = '✅ Tu mènes'; btnEl.onclick = null; }
-              else { btnEl.disabled = false; btnEl.className = 'bid-btn'; btnEl.textContent = '⚡ Enchérir'; (function(aid,abid){ btnEl.onclick = function(){ openBidModal(aid, abid, false); }; })(a.id, a.current_bid); }
-            }
-            _auctionCache[a.id] = {name:a.item_name, emoji:a.item_emoji, rarity:a.rarity};
-          });
-        } catch(e) {}
-      }
-    }, 1000);
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-
-// ── LA SALLE VIP ───────────────────────────────────────────────────────────────
-async function _loadSalle() {
-  const el = document.getElementById('enc-salle-content');
-  if (!el) return;
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  if (_salleTimerInterval) { clearInterval(_salleTimerInterval); _salleTimerInterval = null; }
-  try {
-    const r = await fetchT('/api/webapp/salle/status?user_id='+uid, {}, 12000);
-    if (!r.ok) {
-      const txt = await r.text();
-      el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:11px;word-break:break-all"><b>HTTP ' + r.status + '</b><br>' + txt.substring(0,500) + '</div>';
-      return;
-    }
-    const d = await r.json();
-    if (d.error) {
-      el.innerHTML = '<div style="padding:12px;color:#ff6b6b;font-size:11px;word-break:break-all"><b>API Error:</b> ' + d.error + '<br><pre style="font-size:9px;margin-top:8px;white-space:pre-wrap;color:#ffa07a">' + (d.trace||'') + '</pre></div>';
-      return;
-    }
-    _salleAuctionData = d.auction;
-    if (!d.has_access) {
-      el.innerHTML = _buildSalleGate(d);
-      _loadSalleHistory();
-      return;
-    }
-    const secsLeft = d.seconds_left || 0;
-    const sh = Math.floor(secsLeft/3600), sm = Math.floor((secsLeft%3600)/60);
-    const accessStr = sh>0 ? sh+'h '+sm+'min' : sm+'min';
-    const auc = d.auction;
-    el.innerHTML =
-      '<div class="salle-root">' +
-        '<div class="salle-bg-orb salle-bg-orb-1"></div>' +
-        '<div class="salle-bg-orb salle-bg-orb-2"></div>' +
-        '<div style="text-align:center;margin-bottom:16px">' +
-          '<div class="salle-vip-badge"><div class="salle-vip-dot"></div> Accès VIP · encore <b style="color:#e9d5ff">' + accessStr + '</b></div>' +
-        '</div>' +
-        '<div class="salle-bento">' +
-          (auc ? _buildSalleAuctionHTML(auc) : _buildSalleEmpty()) +
-        '</div>' +
-        '<div id="salle-history-section"></div>' +
-      '</div>';
-    _loadSalleHistory();
-    if (auc) {
-      let _salleRefreshCd = 15;
-      _salleTimerInterval = setInterval(async function() {
-        // tick timer
-        const t = document.getElementById('salle-timer');
-        if (t) t.textContent = '⏱ ' + _timeLeft(auc.ends_at);
-        // poll prix/meneur toutes les 15s
-        _salleRefreshCd--;
-        if (_salleRefreshCd <= 0) {
-          _salleRefreshCd = 15;
-          try {
-            const rp = await fetchT('/api/webapp/salle/status?user_id='+uid, {}, 8000);
-            if (!rp.ok) return;
-            let dp; try { dp = await rp.json(); } catch(e) { return; }
-            const na = dp.auction;
-            if (na) {
-              const bidEl = document.getElementById('salle-stat-bid');
-              const leaderEl = document.getElementById('salle-stat-leader');
-              const btnEl = document.getElementById('salle-main-btn');
-              const isL = na.is_leading;
-              const minB = Math.max((na.current_bid||0)+1, Math.floor((na.current_bid||0)*1.05));
-              if (bidEl) bidEl.textContent = fmt(na.current_bid) + ' $';
-              if (leaderEl) leaderEl.innerHTML = isL ? '<span style="color:#4ade80">👑 Toi</span>' : (na.leader_name || 'Personne');
-              if (btnEl) {
-                if (isL) { btnEl.disabled=true; btnEl.className='salle-bid-btn leading'; btnEl.textContent='✅ Tu mènes cette enchère'; }
-                else { btnEl.disabled=false; btnEl.className='salle-bid-btn active'; btnEl.textContent='⚡ Placer une enchère · min '+fmt(minB)+' $'; btnEl.onclick=function(){ openBidModal(na.id,na.current_bid,true); }; }
-              }
-              auc.current_bid = na.current_bid;
-              auc.is_leading = na.is_leading;
-              auc.leader_name = na.leader_name;
-              _auctionCache[na.id] = {name:na.item_name, emoji:na.item_emoji, rarity:na.rarity};
-            }
-          } catch(e) {}
-        }
-      }, 1000);
-    }
-  } catch(e) {
-    console.error('_loadSalle error:', e);
-    el.innerHTML = '<div style="padding:16px;color:#ff6b6b;font-size:12px;word-break:break-all"><b>Erreur:</b> ' + e.message + '</div>';
-  }
-}
-
-function _buildSalleGate(d) {
-  const canAfford = d.wallet >= d.access_price;
-  return '<div class="salle-root">' +
-    '<div class="salle-bg-orb salle-bg-orb-1"></div>' +
-    '<div class="salle-bg-orb salle-bg-orb-2"></div>' +
-    '<div class="salle-gate">' +
-      '<div class="salle-gate-title">LA SALLE</div>' +
-      '<div class="salle-gate-sub">Ventes aux enchères privées</div>' +
-      '<div class="salle-gate-card">' +
-        '<div class="salle-empty-stage">' +
-          '<span class="salle-empty-icon">— ✦ —</span>' +
-          '<div style="font-size:12px;color:#6b5b9a;line-height:1.8;margin-bottom:28px">' +
-            'Objets <span style="color:#c9a84c">Mythiques</span> & <span style="color:#ef4444">Divins</span>.<br>' +
-            'Une pièce exclusive change de mains chaque heure.' +
-          '</div>' +
-        '</div>' +
-        '<div class="salle-price-label">Accès 24 heures</div>' +
-        '<div class="salle-price-val">' + fmt(d.access_price) + ' <span style="font-size:18px">$</span></div>' +
-        '<div class="salle-wallet-info">Solde disponible · ' + fmt(d.wallet) + ' $</div>' +
-        '<button class="salle-pay-btn" onclick="_paySalleAccess()" ' + (canAfford ? '' : 'disabled style="opacity:.4;cursor:not-allowed"') + '>🔑 Obtenir l\'acc\u00e8s VIP</button>' +
-      '</div>' +
-    '</div>' +
-    '<div id="salle-history-section" style="margin-top:4px"></div>' +
-  '</div>';
-}
-
-function _buildSalleEmpty() {
-  return '<div class="salle-stage">' +
-    '<div style="padding:40px 0;text-align:center">' +
-      '<div style="font-size:40px;margin-bottom:14px;opacity:.4">⏳</div>' +
-      '<div class="salle-item-name" style="opacity:.5">Prochain objet bientôt…</div>' +
-      '<div class="salle-item-desc">L\'autel est en cours de préparation.</div>' +
-    '</div>' +
-  '</div>';
-}
-
-function _buildSalleAuctionHTML(auc) {
-  _auctionCache[auc.id] = {name: auc.item_name, emoji: auc.item_emoji, rarity: auc.rarity};
-  const isLeader = auc.is_leading;
-  const rarLow = (auc.rarity||'').toLowerCase();
-  const isDivin = rarLow === 'divin';
-  const glowCol = isDivin ? '#ef4444' : '#8b5cf6';
-  const rarClass = isDivin ? 'salle-rarity-divin' : 'salle-rarity-mythique';
-  const rarLabel = isDivin ? '✦ DIVIN' : '◈ MYTHIQUE';
-  const leaderDisplay = isLeader ? '<span style="color:#4ade80">👑 Tu mènes</span>' : (auc.leader_name || 'Personne');
-  const minBid = Math.max((auc.current_bid||0) + 1, Math.floor((auc.current_bid||0) * 1.05));
-  return '<div class="salle-stage" style="--glow:' + glowCol + '">' +
-    '<div class="salle-altar-wrap">' +
-      '<div class="salle-altar-glow" style="--glow:' + glowCol + '"></div>' +
-      '<div class="salle-altar-ring"></div>' +
-      '<div class="salle-altar-ring2"></div>' +
-      '<div class="salle-altar-item">' + (auc.item_emoji||'💎') + '</div>' +
-      '<div class="salle-altar-particles">' +
-        [0,1,2,3,4,5,6,7].map(function(i){ return '<div class="salle-particle" style="--i:'+i+';--glow:'+glowCol+'"></div>'; }).join('') +
-      '</div>' +
-    '</div>' +
-    '<div class="salle-altar-base"></div>' +
-    '<div style="margin:14px 0 4px"><div class="salle-item-name">' + auc.item_name + '</div></div>' +
-    '<div style="margin-bottom:12px"><span class="salle-rarity-badge ' + rarClass + '">' + rarLabel + '</span></div>' +
-    (auc.custom_desc ? '<div class="salle-item-desc">' + auc.custom_desc + '</div>' : '') +
-    '<div class="salle-stats-grid">' +
-      '<div class="salle-stat-cell">' +
-        '<div class="salle-stat-label">Mise départ</div>' +
-        '<div class="salle-stat-value" style="font-size:11px">' + fmt(auc.start_price) + ' $</div>' +
-      '</div>' +
-      '<div class="salle-stat-cell">' +
-        '<div class="salle-stat-label">Enchère actuelle</div>' +
-        '<div class="salle-stat-value gold" id="salle-stat-bid">' + fmt(auc.current_bid) + ' $</div>' +
-      '</div>' +
-      '<div class="salle-stat-cell">' +
-        '<div class="salle-stat-label">Meneur</div>' +
-        '<div class="salle-stat-value" style="font-size:11px" id="salle-stat-leader">' + leaderDisplay + '</div>' +
-      '</div>' +
-      '<div class="salle-stat-cell">' +
-        '<div class="salle-stat-label">Valeur réelle</div>' +
-        '<div class="salle-stat-value" style="color:#3a2a5a;font-size:11px">— Cachée —</div>' +
-      '</div>' +
-    '</div>' +
-    '<div class="salle-countdown-wrap">' +
-      '<div class="salle-countdown" id="salle-timer">⏱ ' + _timeLeft(auc.ends_at) + '</div>' +
-      '<div class="salle-rotation-hint">ROTATION TOUTES LES HEURES</div>' +
-    '</div>' +
-    '<button id="salle-main-btn" class="salle-bid-btn ' + (isLeader ? 'leading' : 'active') + '" ' +
-      (isLeader ? 'disabled' : 'onclick="openBidModal(' + auc.id + ',' + auc.current_bid + ',true)"') + '>' +
-      (isLeader ? '✅ Tu mènes cette enchère' : '⚡ Placer une enchère · min ' + fmt(minBid) + ' $') +
-    '</button>' +
-  '</div>';
-}
-
-async function _loadSalleHistory() {
-  const el = document.getElementById('salle-history-section');
-  if (!el) return;
-  try {
-    const r = await fetchT('/api/webapp/salle/history?user_id='+uid, {}, 8000);
-    const d = await r.json();
-    const hist = d.history || [];
-    if (!hist.length) return;
-    el.innerHTML = '<div class="salle-history">' +
-      '<div class="salle-history-title">Dernières clôtures</div>' +
-      hist.map(function(h) {
-        const isDivin = (h.rarity||'').toLowerCase() === 'divin';
-        const col = isDivin ? '#ef4444' : '#8b5cf6';
-        return '<div class="salle-hist-row">' +
-          '<div class="salle-hist-emoji" style="filter:drop-shadow(0 0 6px ' + col + ')">' + h.emoji + '</div>' +
-          '<div style="flex:1">' +
-            '<div class="salle-hist-name">' + h.name + '</div>' +
-            '<div class="salle-hist-winner">' + h.winner + '</div>' +
-          '</div>' +
-          '<div style="text-align:right">' +
-            '<div class="salle-hist-bid">' + fmt(h.final_bid) + ' $</div>' +
-            '<div style="font-family:monospace;font-size:9px;color:#3a2a5a">' + (h.closed_at||'').slice(0,16) + '</div>' +
-          '</div>' +
-        '</div>';
-      }).join('') +
-    '</div>';
-  } catch(e) {}
-}
-
-async function _paySalleAccess() {
-  try {
-    const r = await fetchT('/api/webapp/salle/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid }) }, 10000);
-    let d; try { d = await r.json(); } catch(e) { showToast('❌ Erreur serveur'); return; }
-    if (d.ok) { showToast('🏛️ Accès à La Salle accordé !'); _loadSalle(); }
-    else showToast(d.error || 'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-
-// ── INVENTAIRE ────────────────────────────────────────────────────────────────
-async function _loadAuctionInventory() {
-  const el = document.getElementById('enc-inv-list');
-  if (!el) return;
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/auctions/inventory?user_id='+uid, {}, 12000);
-    const d = await r.json();
-    const items = d.items || [];
-    if (!items.length) {
-      el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">🎒</div><div style="font-size:15px;font-weight:700">Inventaire vide</div><div style="font-size:12px;margin-top:6px">Remporte des enchères pour collecter des objets</div></div>`;
-      return;
-    }
-    const frag = document.createDocumentFragment();
-    items.forEach(function(it, i) {
-      const rarLow = (it.rarity||'').toLowerCase();
-      const isVip = rarLow === 'mythique' || rarLow === 'divin';
-      const expertGain = Math.max(1, Math.floor((it.true_value||0) * 0.50));
-      const itemId = it.id;
-
-      const card = document.createElement('div');
-      card.className = 'inv-card';
-      card.style.animationDelay = (i*0.05)+'s';
-      if (isVip) { card.style.border = '1px solid #7c3aed'; card.style.background = 'linear-gradient(145deg,#1a1130,var(--card))'; }
-
-      const emojiDiv = document.createElement('div');
-      emojiDiv.className = 'inv-emoji';
-      emojiDiv.textContent = it.item_emoji||'📦';
-      if (isVip) emojiDiv.style.filter = 'drop-shadow(0 0 8px #8b5cf6)';
-
-      const body = document.createElement('div');
-      body.style.flex = '1';
-
-      const nameDiv = document.createElement('div');
-      nameDiv.className = 'inv-name';
-      nameDiv.textContent = it.item_name||'';
-
-      const valDiv = document.createElement('div');
-      valDiv.className = 'inv-val';
-      valDiv.textContent = '💰 '+fmt(it.true_value)+' $';
-
-      const dateDiv = document.createElement('div');
-      dateDiv.className = 'inv-date';
-      dateDiv.textContent = '📅 '+(it.acquired_at||'').slice(0,10);
-
-      const btnRow = document.createElement('div');
-      btnRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;flex-wrap:wrap';
-
-      if (it.for_sale) {
-        // Déjà en vente — bouton retirer
-        const saleInfo = document.createElement('div');
-        saleInfo.style.cssText = 'font-size:11px;color:#00b894;font-weight:700;margin-bottom:4px;width:100%';
-        saleInfo.textContent = '🏷️ En vente : '+fmt(it.sale_price)+' $';
-        btnRow.appendChild(saleInfo);
-
-        const btnRemove = document.createElement('button');
-        btnRemove.style.cssText = 'padding:6px 12px;border-radius:8px;border:1px solid #e17055;background:transparent;color:#e17055;font-weight:800;font-size:11px;cursor:pointer';
-        btnRemove.textContent = '❌ Retirer du marché';
-        btnRemove.onclick = function() { itemRemoveMarket(itemId); };
-        btnRow.appendChild(btnRemove);
-      } else {
-        const btnExpert = document.createElement('button');
-        btnExpert.style.cssText = 'padding:6px 12px;border-radius:8px;border:none;background:#e17055;color:#fff;font-weight:800;font-size:11px;cursor:pointer';
-        btnExpert.textContent = '🧑‍💼 Expert ('+fmt(expertGain)+' $)';
-        btnExpert.onclick = function() { invSellExpert(itemId, it.item_name, it.item_emoji, expertGain); };
-
-        const btnMarket = document.createElement('button');
-        btnMarket.style.cssText = 'padding:6px 12px;border-radius:8px;border:none;background:#00b894;color:#fff;font-weight:800;font-size:11px;cursor:pointer';
-        btnMarket.textContent = '🏪 Vendre';
-        btnMarket.onclick = function() { invOpenPriceModal(itemId, it.item_name, it.item_emoji, it.rarity, it.true_value); };
-
-        const btnDel = document.createElement('button');
-        btnDel.style.cssText = 'padding:6px 10px;border-radius:8px;border:1px solid #636e72;background:transparent;color:#636e72;font-weight:800;font-size:11px;cursor:pointer';
-        btnDel.textContent = '🗑️';
-        btnDel.title = 'Supprimer définitivement';
-        btnDel.onclick = function() { invDeleteItem(itemId, it.item_name, it.item_emoji); };
-
-        btnRow.appendChild(btnExpert);
-        btnRow.appendChild(btnMarket);
-        btnRow.appendChild(btnDel);
-      }
-
-      body.appendChild(nameDiv);
-      body.appendChild(valDiv);
-      body.appendChild(dateDiv);
-      body.appendChild(btnRow);
-
-      const rarBadge = document.createElement('span');
-      rarBadge.className = 'auction-rarity '+_rarityClass(it.rarity);
-      rarBadge.textContent = _rarityLabel(it.rarity);
-
-      card.appendChild(emojiDiv);
-      card.appendChild(body);
-      card.appendChild(rarBadge);
-      frag.appendChild(card);
-    });
-    el.innerHTML = '';
-    el.appendChild(frag);
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-
-async function invSellExpert(itemId, name, emoji, gain) {
-  const ok = await showConfirmModal(
-    `Vendre à l'expert ?`,
-    `${emoji} <b>${name}</b><br>Tu recevras <b>${fmt(gain)} $</b> (50% de la valeur). L'objet sera définitivement supprimé.`,
-    '🧑‍💼 Confirmer', '#e17055'
-  );
-  if (!ok) return;
-  try {
-    const r = await fetchT('/api/webapp/items/sell_expert', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
-    const d = await r.json();
-    if (d.ok) { showToast(d.msg); _loadAuctionInventory(); refreshCoins && refreshCoins(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-async function invDeleteItem(itemId, name, emoji) {
-  const ok = await showConfirmModal(
-    '🗑️ Supprimer cet objet ?',
-    `${emoji} <b>${name}</b><br><span style="color:#e17055;font-weight:700">Cette action est irréversible.</span> L'objet sera définitivement supprimé sans remboursement.`,
-    '🗑️ Supprimer', '#d63031'
-  );
-  if (!ok) return;
-  try {
-    const r = await fetchT('/api/webapp/items/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
-    const d = await r.json();
-    if (d.ok) { showToast(d.msg); _loadAuctionInventory(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-// ── Modal prix inventaire ────────────────────────────────────────────────────
-let _ipmData = null;
-function invOpenPriceModal(itemId, name, emoji, rarity, trueValue) {
-  _ipmData = { itemId, name, emoji, trueValue };
-  const modal = document.getElementById('inv-price-modal');
-  document.getElementById('ipm-emoji').textContent = emoji||'📦';
-  document.getElementById('ipm-name').textContent = name||'';
-  document.getElementById('ipm-value').textContent = fmt(trueValue)+' $';
-  // Rarity badge
-  const rarEl = document.getElementById('ipm-rarity');
-  rarEl.textContent = _rarityLabel(rarity)||'';
-  rarEl.style.color = rarity&&rarity.toLowerCase()==='mythique'?'#f59e0b':rarity&&rarity.toLowerCase()==='divin'?'#8b5cf6':rarity&&rarity.toLowerCase()==='rare'?'#3b82f6':'var(--text2)';
-  // Suggestion labels
-  [0.5,0.7,0.8,1.0].forEach(function(pct) {
-    const lbl = document.getElementById('ipm-lbl-'+Math.round(pct*100));
-    if (lbl) lbl.textContent = fmt(Math.floor(trueValue*pct))+' $';
-  });
-  // Valeur par défaut = 80%
-  const input = document.getElementById('ipm-input');
-  input.value = Math.floor(trueValue * 0.80);
-  _ipmOnInput();
-  modal.style.display = 'flex';
-  setTimeout(function(){ input.focus(); }, 100);
-}
-function _ipmSetPct(pct) {
-  if (!_ipmData) return;
-  document.getElementById('ipm-input').value = Math.floor(_ipmData.trueValue * pct);
-  _ipmOnInput();
-}
-function _ipmOnInput() {
-  if (!_ipmData) return;
-  const val = parseInt(document.getElementById('ipm-input').value)||0;
-  const hint = document.getElementById('ipm-hint');
-  const input = document.getElementById('ipm-input');
-  const btn = document.getElementById('ipm-confirm');
-  if (val < 1) {
-    hint.textContent = '❌ Prix invalide';
-    hint.style.color = '#e17055';
-    input.style.borderColor = '#e17055';
-    btn.disabled = true; btn.style.opacity = '.5';
-  } else {
-    const pct = Math.round(val / _ipmData.trueValue * 100);
-    const discount = 100 - pct;
-    hint.textContent = discount > 0 ? '📉 -'+discount+'% de la valeur estimée' : discount < 0 ? '📈 +'+ (-discount)+'% au-dessus de la valeur' : '✅ Au prix estimé';
-    hint.style.color = discount > 40 ? '#e17055' : discount > 0 ? 'var(--text2)' : '#00b894';
-    input.style.borderColor = val < 1 ? '#e17055' : 'var(--accent)';
-    btn.disabled = false; btn.style.opacity = '1';
-  }
-}
-function _ipmClose() {
-  document.getElementById('inv-price-modal').style.display = 'none';
-  _ipmData = null;
-  const btn = document.getElementById('ipm-confirm');
-  if (btn) { btn._pending = false; btn.disabled = false; btn.textContent = '🏪 Mettre en vente'; }
-}
-async function _ipmConfirm() {
-  if (!_ipmData) return;
-  const price = parseInt(document.getElementById('ipm-input').value)||0;
-  if (price < 1) { showToast('❌ Prix invalide'); return; }
-  const btn = document.getElementById('ipm-confirm');
-  // Empêche double-clic
-  if (btn._pending) return;
-  btn._pending = true;
-  btn.disabled = true; btn.textContent = '⏳ En cours…';
-  const savedData = _ipmData;
-  try {
-    const r = await fetchT('/api/webapp/items/put_market', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({user_id:uid, item_id:savedData.itemId, price})
-    }, 15000);
-    let d;
-    try { d = await r.json(); }
-    catch(e) { showToast('❌ Erreur serveur ('+r.status+')'); btn._pending=false; btn.disabled=false; btn.textContent='🏪 Mettre en vente'; return; }
-    if (d.ok) {
-      _ipmClose();
-      showToast(d.msg||'✅ Mis en vente !');
-      _loadAuctionInventory();
-      if (typeof _loadItemMarket === 'function') _loadItemMarket();
-    } else {
-      showToast('❌ '+(d.error||'Erreur'));
-      btn._pending=false; btn.disabled=false; btn.textContent='🏪 Mettre en vente';
-    }
-  } catch(e) {
-    showToast('❌ '+e.message);
-    btn._pending=false; btn.disabled=false; btn.textContent='🏪 Mettre en vente';
-  }
-}
-// Alias legacy
-function invPutMarket(itemId, name, emoji, trueValue) {
-  invOpenPriceModal(itemId, name, emoji, '', trueValue);
-}
-
-// ── MARCHÉ DES OBJETS ────────────────────────────────────────────────────────
-async function _loadItemMarket() {
-  const el = document.getElementById('enc-market-list');
-  if (!el) return;
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/items/market?user_id='+uid, {}, 12000);
-    let d; try { d = await r.json(); } catch(e) { el.innerHTML='<div class="plus-loader">❌ Erreur serveur</div>'; return; }
-    const items = d.items || [];
-    if (!items.length) {
-      el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text2)">
-        <div style="font-size:48px;margin-bottom:12px">🏪</div>
-        <div style="font-size:15px;font-weight:700">Marché vide</div>
-        <div style="font-size:12px;margin-top:6px">Aucun objet en vente pour l'instant<br>Mets tes objets en vente depuis l'onglet Inventaire !</div>
-      </div>`;
-      return;
-    }
-    el.innerHTML = `<div style="margin-bottom:12px;font-size:12px;color:var(--text2);font-weight:700">${items.length} objet(s) disponible(s)</div>` +
-    items.map(function(it, i) {
-      const rarLow = (it.rarity||'').toLowerCase();
-      const isVip = rarLow === 'mythique' || rarLow === 'divin';
-      const isMine = it.is_mine;
-      const discount = it.true_value > 0 ? Math.round((1 - it.sale_price/it.true_value)*100) : 0;
-      return `<div style="background:var(--card);border-radius:16px;border:1px solid ${isVip?'#7c3aed':'var(--border)'};padding:14px;margin-bottom:10px;display:flex;align-items:flex-start;gap:12px;${isVip?'background:linear-gradient(145deg,#1a1130,var(--card))':''}">
-        <div style="font-size:36px;line-height:1;${isVip?'filter:drop-shadow(0 0 8px #8b5cf6)':''}">${it.item_emoji}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:900;font-size:14px;color:var(--text1)">${it.item_name}</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px">Valeur estimée : ${fmt(it.true_value)} $</div>
-          <div style="margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="font-size:16px;font-weight:900;color:var(--accent)">${fmt(it.sale_price)} $</span>
-            ${discount > 0 ? `<span style="background:#00b894;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:8px">-${discount}%</span>` : ''}
-          </div>
-          <div style="font-size:11px;color:var(--text2);margin-top:3px">Vendeur : ${it.seller_name}${it.seller_username?' (@'+it.seller_username+')':''}</div>
-          <div style="margin-top:10px">
-            ${isMine
-              ? `<button onclick="itemRemoveMarket(${it.id})" style="padding:7px 16px;border-radius:9px;border:1px solid var(--accent2);background:var(--card2);color:var(--accent2);font-weight:800;font-size:12px;cursor:pointer">❌ Retirer</button>`
-              : `<button onclick="itemBuy(${it.id},'${(it.item_name||'').replace(/'/g,"\\'")}','${it.item_emoji}',${it.sale_price})"
-                  style="padding:7px 16px;border-radius:9px;border:none;background:linear-gradient(135deg,#f7c948,#e6b800);color:#000;font-weight:900;font-size:12px;cursor:pointer">
-                  🛒 Acheter ${fmt(it.sale_price)} $
-                </button>`
-            }
-          </div>
-        </div>
-        <span class="auction-rarity ${_rarityClass(it.rarity)}">${_rarityLabel(it.rarity)}</span>
-      </div>`;
-    }).join('');
-  } catch(e) { el.innerHTML = '<div class="plus-loader">❌ '+e.message+'</div>'; }
-}
-
-async function itemRemoveMarket(itemId) {
-  try {
-    const r = await fetchT('/api/webapp/items/remove_market', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
-    const d = await r.json();
-    if (d.ok) { showToast(d.msg); _loadItemMarket(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-async function itemBuy(itemId, name, emoji, price) {
-  const ok = await showConfirmModal(
-    "Confirmer l'achat ?",
-    `${emoji} <b>${name}</b><br>Prix : <b>${fmt(price)} $</b><br>L'objet sera ajouté à ton inventaire immédiatement.`,
-    '🛒 Acheter', 'var(--accent)'
-  );
-  if (!ok) return;
-  try {
-    const r = await fetchT('/api/webapp/items/buy', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
-    const d = await r.json();
-    if (d.ok) { showToast(d.msg); _loadItemMarket(); refreshCoins && refreshCoins(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-// ══════════════════════════════════════════════════
-//  💸 PAY — Transfert entre joueurs
-// ══════════════════════════════════════════════════
-let _payTargetUid = null;
-function initPay() { _payTargetUid = null; document.getElementById('pay-form').style.display='none'; document.getElementById('pay-search-results').innerHTML=''; document.getElementById('pay-search-input').value=''; }
-async function paySearchPlayer(q) {
-  if (q.length < 2) { document.getElementById('pay-search-results').innerHTML=''; return; }
-  try {
-    const r = await fetchT('/api/webapp/players/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 5000);
-    const d = await r.json();
-    const players = d.players || [];
-    document.getElementById('pay-search-results').innerHTML = players.length
-      ? players.map(p => {
-          const photoUrl = `/api/webapp/photo?user_id=${p.user_id}&size=50`;
-          const sub = p.username ? '@'+p.username : (p.company ? p.company+(p.role?' · '+p.role:'') : '');
-          return `<div onclick="selectPayTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}','${(p.username||'').replace(/'/g,"\\'")}')" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
-            <div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);background:var(--card);">
-              <img src="${photoUrl}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:22px;line-height:44px;display:block;text-align:center;&quot;>${p.avatar_emoji||'👤'}</span>'">
-            </div>
-            <div style="flex:1;min-width:0;">
-              <div style="font-weight:800;font-size:14px;color:var(--text1);">${p.name}</div>
-              <div style="font-size:11px;color:var(--text2);margin-top:2px;">${sub||'&nbsp;'}</div>
-            </div>
-            <span style="color:var(--accent);font-size:18px;">→</span>
-          </div>`;
-        }).join('')
-      : '<div style="text-align:center;color:var(--text2);padding:16px;font-size:13px;">Aucun résultat</div>';
-  } catch(e) {}
-}
-function selectPayTarget(id, name, username) {
-  _payTargetUid = id;
-  document.getElementById('pay-search-results').innerHTML='';
-  document.getElementById('pay-search-input').value='';
-  const photoUrl = `/api/webapp/photo?user_id=${id}&size=50`;
-  document.getElementById('pay-target-info').innerHTML = `
-    <div style="width:48px;height:48px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--accent);background:var(--card);">
-      <img src="${photoUrl}" width="48" height="48" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:26px;line-height:48px;display:block;text-align:center;&quot;>👤</span>'">
-    </div>
-    <div><div style="font-weight:900;font-size:15px;color:var(--text1);">${name}</div><div style="font-size:11px;color:var(--text2);">${username?'@'+username:''}</div></div>`;
-  document.getElementById('pay-form').style.display='block';
-}
-function cancelPay() { _payTargetUid = null; document.getElementById('pay-form').style.display='none'; }
-async function submitPay() {
-  const amount = parseInt(document.getElementById('pay-amount').value);
-  const note = document.getElementById('pay-note').value.trim();
-  if (!_payTargetUid || !amount || amount <= 0) { showToast('Montant ou destinataire invalide'); return; }
-  try {
-    const r = await fetchT('/api/webapp/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _payTargetUid, amount, note }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('💸 Virement effectué !'); cancelPay(); document.getElementById('pay-amount').value=''; document.getElementById('pay-note').value=''; }
-    else showToast(d.error || 'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-// ══════════════════════════════════════════════════
-//  🏢 ENTREPRISES — Liste + postuler
-// ══════════════════════════════════════════════════
-let _coSearchTimer = null;
-async function loadEntreprises() {
-  const el = document.getElementById('co-list');
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/companies/list?user_id='+uid, {}, 10000);
-    const d = await r.json();
-    renderCoList(d.companies || []);
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-function searchCompanies(q) {
-  clearTimeout(_coSearchTimer);
-  _coSearchTimer = setTimeout(async () => {
-    if (!q.trim()) { loadEntreprises(); return; }
-    try {
-      const r = await fetchT('/api/webapp/actions/companies/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 8000);
-      const d = await r.json();
-      renderCoList(d.companies || []);
-    } catch(e) {}
-  }, 350);
-}
-function renderCoList(companies) {
-  const el = document.getElementById('co-list');
-  if (!companies.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">🏢 Aucune entreprise trouvée</div>'; return; }
-  el.innerHTML = companies.map(co => {
-    const stars = Math.round((co.reputation||0)*2)/2;
-    const starsHtml = Array.from({length:5},(_,i)=>i+1<=stars?'⭐':'☆').join('');
-    return `<div onclick="openCOModal(${co.id})" class="card" style="cursor:pointer;margin-bottom:8px">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div style="font-size:36px">${co.emoji||'🏢'}</div>
-        <div style="flex:1">
-          <div style="font-weight:900;font-size:15px">${co.name}</div>
-          <div style="font-size:11px;color:var(--text2)">${co.sector||'Secteur inconnu'} · Niv. ${co.level||1}</div>
-          <div style="font-size:12px;color:var(--accent);margin-top:2px">${starsHtml} ${co.reputation||0}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:12px;font-weight:800;color:var(--success)">${co.employee_count||0}/${co.max_employees||10} emp.</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px">${co.is_hiring?'✅ Recrute':'—'}</div>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-}
-let _coModalId = null;
-async function openCOModal(coId) {
-  _coModalId = coId;
-  const modal = document.getElementById('co-detail-modal');
-  modal.style.display = 'flex';
-  document.getElementById('co-detail-content').innerHTML = '<div class="plus-loader" style="padding:40px">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/companies/search?user_id='+uid+'&id='+coId, {}, 8000);
-    const d = await r.json();
-    const co = (d.companies||[])[0];
-    if (!co) { document.getElementById('co-detail-content').innerHTML='<div style="color:var(--text2)">Entreprise introuvable</div>'; return; }
-    document.getElementById('co-detail-content').innerHTML = `
-      <div style="text-align:center;padding:16px 0">
-        <div style="font-size:56px">${co.emoji||'🏢'}</div>
-        <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--accent);letter-spacing:2px;margin-top:8px">${co.name}</div>
-        <div style="font-size:12px;color:var(--text2)">${co.sector||''} · Niveau ${co.level||1}</div>
-        ${co.description?`<div style="margin-top:10px;font-size:13px;color:var(--text2);line-height:1.5">${co.description}</div>`:''}
-      </div>
-      <div class="card" style="margin-bottom:10px">
-        <div class="stat-row"><span class="stat-label">💰 Capital</span><span class="stat-value gold">${fmt(co.capital)}</span></div>
-        <div class="stat-row"><span class="stat-label">👷 Employés</span><span class="stat-value">${co.employee_count||0}/${co.max_employees||10}</span></div>
-        <div class="stat-row"><span class="stat-label">💵 Salaire moyen</span><span class="stat-value">${fmt(co.avg_salary||0)}</span></div>
-        <div class="stat-row"><span class="stat-label">⭐ Réputation</span><span class="stat-value">${co.reputation||0}/5</span></div>
-      </div>
-      ${co.is_hiring ? `
-      <div style="background:rgba(85,239,196,.08);border:1px solid var(--success);border-radius:14px;padding:14px;margin-bottom:10px">
-        <div style="font-weight:800;color:var(--success);margin-bottom:10px">✅ Cette entreprise recrute !</div>
-        <input id="postuler-salary" type="number" placeholder="Salaire demandé ($)" min="0"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-weight:700;margin-bottom:8px"/>
-        <input id="postuler-message" type="text" placeholder="Message de candidature (optionnel)" maxlength="120"
-          style="width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;margin-bottom:8px"/>
-        <button onclick="submitPostuler(${co.id})" style="width:100%;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--accent),#e6b800);color:#000;font-weight:900;font-size:14px;cursor:pointer">📨 Postuler</button>
-      </div>` : '<div style="text-align:center;padding:12px;color:var(--text2);font-size:13px">🔒 Recrutement fermé actuellement</div>'}`;
-  } catch(e) { document.getElementById('co-detail-content').innerHTML='<div style="color:var(--accent2)">Erreur de chargement</div>'; }
-}
-function closeCOModal() { document.getElementById('co-detail-modal').style.display='none'; _coModalId=null; }
-async function submitPostuler(coId) {
-  const salary = parseInt(document.getElementById('postuler-salary').value)||0;
-  const message = document.getElementById('postuler-message').value.trim();
-  try {
-    const r = await fetchT('/api/webapp/actions/postuler', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_id: coId, salary_request: salary, message }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('📨 Candidature envoyée !'); closeCOModal(); }
-    else showToast(d.error || 'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-// ══════════════════════════════════════════════════
-//  📬 INVITATIONS
-// ══════════════════════════════════════════════════
-let _counterInvId = null;
-async function loadInvitations() {
-  const el = document.getElementById('inv-list');
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/invitations?user_id='+uid, {}, 10000);
-    const d = await r.json();
-    const invs = d.invitations || [];
-    if (!invs.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">📬</div><div style="font-size:15px;font-weight:700">Aucune invitation</div></div>'; return; }
-    el.innerHTML = invs.map(inv => `
-      <div class="card" style="margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-          <span style="font-size:32px">${inv.company_emoji||'🏢'}</span>
-          <div>
-            <div style="font-weight:900;font-size:15px">${inv.company_name||'Entreprise'}</div>
-            <div style="font-size:11px;color:var(--text2)">Poste : <b style="color:var(--accent4)">${inv.poste||'Employé'}</b> · Salaire : <b style="color:var(--accent)">${fmt(inv.salary||0)}</b></div>
-            ${inv.message?`<div style="font-size:12px;color:var(--text2);margin-top:4px;font-style:italic">"${inv.message}"</div>`:''}
-          </div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button onclick="acceptInvitation(${inv.id})" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--success);color:#000;font-weight:900;font-size:13px;cursor:pointer">✅ Accepter</button>
-          <button onclick="openCounterModal(${inv.id},${inv.salary||0})" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--accent4);background:none;color:var(--accent4);font-weight:800;font-size:13px;cursor:pointer">💬 Contre</button>
-          <button onclick="refuseInvitation(${inv.id})" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--card2);color:var(--accent2);font-weight:800;font-size:13px;cursor:pointer">❌ Refuser</button>
-        </div>
-      </div>`).join('');
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-async function acceptInvitation(invId) {
-  try {
-    const r = await fetchT('/api/webapp/actions/invitations/accepter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('✅ Invitation acceptée !'); loadInvitations(); }
-    else showToast(d.error || 'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-async function refuseInvitation(invId) {
-  try {
-    const r = await fetchT('/api/webapp/actions/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('❌ Invitation refusée.'); loadInvitations(); }
-    else showToast(d.error || 'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-function openCounterModal(invId, currentSalary) {
-  _counterInvId = invId;
-  document.getElementById('inv-counter-info').textContent = 'Salaire proposé : ' + fmt(currentSalary);
-  document.getElementById('inv-counter-salary').value = '';
-  document.getElementById('inv-counter-modal').style.display = 'flex';
-}
-function closeCounterModal() { document.getElementById('inv-counter-modal').style.display='none'; _counterInvId=null; }
-async function submitCounterOffer() {
-  const salary = parseInt(document.getElementById('inv-counter-salary').value);
-  if (!salary || salary <= 0 || !_counterInvId) { showToast('Montant invalide'); return; }
-  try {
-    const r = await fetchT('/api/webapp/actions/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: _counterInvId, counter_salary: salary }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('💬 Contre-proposition envoyée !'); closeCounterModal(); loadInvitations(); }
-    else showToast(d.error || 'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-// ══════════════════════════════════════════════════
-//  📊 PRÉSENCES
-// ══════════════════════════════════════════════════
-async function loadPresences() {
-  const el = document.getElementById('presences-content');
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/presences?user_id='+uid, {}, 10000);
-    const d = await r.json();
-    if (!d.ok) { el.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2)">${d.error||'Pas accès aux présences'}</div>`; return; }
-    const members = d.members || [];
-    if (!members.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun membre à afficher</div>'; return; }
-    el.innerHTML = `
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-title">TABLEAU DES PRÉSENCES — ${d.company_name||''}</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Période : ${d.period_label||'Ce mois'}</div>
-        ${members.map(m => `
-          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-            <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${m.avatar_emoji||'👤'}</div>
-            <div style="flex:1">
-              <div style="font-weight:800;font-size:13px">${m.name}</div>
-              <div style="font-size:11px;color:var(--text2)">${m.poste||'Employé'}</div>
-            </div>
-            <div style="text-align:right">
-              <div style="font-weight:900;font-size:14px;color:var(--accent)">${m.days_active||0}j actifs</div>
-              <div style="font-size:11px;color:var(--text2)">${m.cmds_done||0} cmds</div>
-            </div>
-          </div>`).join('')}
-      </div>`;
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-
-// ══════════════════════════════════════════════════
-//  📜 PARTS
-// ══════════════════════════════════════════════════
-function partsTab(tab, btn) {
-  document.querySelectorAll('.parts-tab-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  ['mes','offres','vendre','acheter'].forEach(t => document.getElementById('parts-'+t).style.display = t===tab ? '' : 'none');
-  if (tab === 'mes') loadPartsMes();
-  else if (tab === 'offres') loadPartsOffres();
-}
-async function loadParts() { partsTab('mes', document.querySelector('.parts-tab-btn')); }
-async function loadPartsMes() {
-  const el = document.getElementById('parts-mes');
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/parts?user_id='+uid, {}, 10000);
-    const d = await r.json();
-    const parts = d.parts || [];
-    if (!parts.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">📜</div><div>Aucune part détenue</div></div>'; return; }
-    el.innerHTML = parts.map(p => `
-      <div class="card" style="margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:32px">${p.company_emoji||'🏢'}</span>
-          <div style="flex:1">
-            <div style="font-weight:900;font-size:15px">${p.company_name}</div>
-            <div style="font-size:12px;color:var(--text2)">Parts détenues : <b style="color:var(--accent)">${p.quantity}</b></div>
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:13px;font-weight:800;color:var(--success)">${fmt(p.value_per_part)} / part</div>
-            <div style="font-size:11px;color:var(--text2)">Total : ${fmt((p.quantity||0)*(p.value_per_part||0))}</div>
-          </div>
-        </div>
-      </div>`).join('');
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-async function loadPartsOffres() {
-  const el = document.getElementById('parts-offres');
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/parts?user_id='+uid, {}, 10000);
-    const d = await r.json();
-    const offres = d.pending_offers || [];
-    if (!offres.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucune offre en attente</div>'; return; }
-    el.innerHTML = offres.map(o => `
-      <div class="card" style="margin-bottom:8px">
-        <div style="font-weight:800;margin-bottom:6px">${o.company_name}</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:10px">${o.quantity} parts à ${fmt(o.price_per_part)}/part de <b>${o.seller_name||'?'}</b></div>
-        <div style="display:flex;gap:8px">
-          <button onclick="acceptPartsOffer(${o.id})" style="flex:1;padding:9px;border-radius:10px;border:none;background:var(--success);color:#000;font-weight:900;font-size:13px;cursor:pointer">✅ Accepter</button>
-          <button onclick="refusePartsOffer(${o.id})" style="flex:1;padding:9px;border-radius:10px;border:none;background:var(--card2);color:var(--accent2);font-weight:800;font-size:13px;cursor:pointer">❌ Refuser</button>
-        </div>
-      </div>`).join('');
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-async function acceptPartsOffer(offerId) {
-  try {
-    const r = await fetchT('/api/webapp/actions/parts/accepteroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('✅ Offre acceptée !'); loadPartsOffres(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-async function refusePartsOffer(offerId) {
-  try {
-    const r = await fetchT('/api/webapp/actions/parts/refuseroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('❌ Offre refusée.'); loadPartsOffres(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-async function submitVendreParts() {
-  const company = document.getElementById('parts-sell-company').value.trim();
-  const qty = parseInt(document.getElementById('parts-sell-qty').value);
-  const price = parseInt(document.getElementById('parts-sell-price').value);
-  const target = document.getElementById('parts-sell-target').value.trim();
-  if (!company || !qty || !price) { showToast('Remplis tous les champs obligatoires'); return; }
-  try {
-    const r = await fetchT('/api/webapp/actions/parts/vendre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, price_per_part: price, target_name: target||null }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('📤 Parts mises en vente !'); document.getElementById('parts-sell-company').value=''; document.getElementById('parts-sell-qty').value=''; document.getElementById('parts-sell-price').value=''; document.getElementById('parts-sell-target').value=''; }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-async function submitAcheterParts() {
-  const company = document.getElementById('parts-buy-company').value.trim();
-  const qty = parseInt(document.getElementById('parts-buy-qty').value);
-  const price = parseInt(document.getElementById('parts-buy-price').value);
-  if (!company || !qty || !price) { showToast('Remplis tous les champs'); return; }
-  try {
-    const r = await fetchT('/api/webapp/actions/parts/acheter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, max_price_per_part: price }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('🛒 Offre d\'achat soumise !'); document.getElementById('parts-buy-company').value=''; document.getElementById('parts-buy-qty').value=''; document.getElementById('parts-buy-price').value=''; }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-// ══════════════════════════════════════════════════
-//  📋 CONTRATS
-// ══════════════════════════════════════════════════
-function contratsTab(tab, btn) {
-  document.querySelectorAll('.contrat-tab-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('contrats-bc').style.display = tab==='bc' ? '' : 'none';
-  document.getElementById('contrats-auto').style.display = tab==='auto' ? '' : 'none';
-  if (tab==='bc') loadContratsBc();
-  else loadContratsAuto();
-}
-async function loadContrats() { contratsTab('bc', document.querySelector('.contrat-tab-btn')); }
-async function loadContratsBc() {
-  const el = document.getElementById('contrats-bc');
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/contrats/bc?user_id='+uid, {}, 10000);
-    const d = await r.json();
-    const contrats = d.contrats || [];
-    if (!contrats.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun contrat BC actif</div>'; return; }
-    el.innerHTML = contrats.map(c => `
-      <div class="card" style="margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <div style="font-weight:900;font-size:14px">${c.partner_name||'Partenaire'}</div>
-          <span class="badge" style="background:${c.status==='actif'?'var(--success)':'var(--accent2)'}">${c.status||'actif'}</span>
-        </div>
-        <div class="stat-row"><span class="stat-label">💰 Commission</span><span class="stat-value gold">${c.commission_rate||0}%</span></div>
-        <div class="stat-row"><span class="stat-label">📅 Expiration</span><span class="stat-value">${(c.expires_at||'').slice(0,10)||'—'}</span></div>
-        <div class="stat-row"><span class="stat-label">💵 Total perçu</span><span class="stat-value green">${fmt(c.total_earned||0)}</span></div>
-      </div>`).join('');
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-async function loadContratsAuto() {
-  const el = document.getElementById('contrats-auto');
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/contrats/auto?user_id='+uid, {}, 10000);
-    const d = await r.json();
-    const contrats = d.contrats || [];
-    if (!contrats.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun contrat auto actif</div>'; return; }
-    el.innerHTML = contrats.map(c => `
-      <div class="card" style="margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <div style="font-weight:900;font-size:14px">${c.partner_name||'Partenaire'}</div>
-          <span class="badge">${c.type||'auto'}</span>
-        </div>
-        <div class="stat-row"><span class="stat-label">💰 Montant/cycle</span><span class="stat-value gold">${fmt(c.amount_per_cycle||0)}</span></div>
-        <div class="stat-row"><span class="stat-label">🔄 Fréquence</span><span class="stat-value">${c.frequency||'—'}</span></div>
-        <div class="stat-row"><span class="stat-label">📅 Prochain paiement</span><span class="stat-value">${(c.next_payment||'').slice(0,10)||'—'}</span></div>
-      </div>`).join('');
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
-}
-
-// ══════════════════════════════════════════════════
-//  👥 RECRUTER (PDG)
-// ══════════════════════════════════════════════════
-let _recTargetUid = null;
-async function loadRecruter() {
-  _recTargetUid = null;
-  document.getElementById('rec-form').style.display='none';
-  document.getElementById('rec-search-results').innerHTML='';
-  document.getElementById('rec-search-input').value='';
-  // Charger l'équipe actuelle
-  const el = document.getElementById('team-manage-list');
-  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
-  try {
-    const r = await fetchT('/api/webapp/actions/presences?user_id='+uid, {}, 10000);
-    const d = await r.json();
-    if (!d.ok) { el.innerHTML = `<div style="font-size:13px;color:var(--text2);padding:10px">${d.error||'Accès PDG requis'}</div>`; return; }
-    const members = d.members || [];
-    if (!members.length) { el.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:10px">Aucun membre pour l\'instant</div>'; return; }
-    el.innerHTML = members.map(m => `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:18px">${m.avatar_emoji||'👤'}</div>
-        <div style="flex:1"><div style="font-weight:800;font-size:13px">${m.name}</div><div style="font-size:11px;color:var(--text2)">${m.poste||'Employé'}</div></div>
-        <button onclick="openTeamModal(${m.user_id},'${(m.name||'').replace(/'/g,"\\'")}','${m.poste||'employe'}')" style="padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-weight:800;font-size:12px;cursor:pointer">⚙️</button>
-      </div>`).join('');
-  } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur.</div>'; }
-}
-async function recSearchPlayer(q) {
-  if (q.length < 2) { document.getElementById('rec-search-results').innerHTML=''; return; }
-  try {
-    const r = await fetchT('/api/webapp/players/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 5000);
-    const d = await r.json();
-    const players = d.players || [];
-    document.getElementById('rec-search-results').innerHTML = players.length
-      ? players.map(p => { const pu=`/api/webapp/photo?user_id=${p.user_id}&size=44`; const sub = p.username ? '@'+p.username : (p.company ? p.company+(p.role?' · '+p.role:'') : ''); return `<div onclick="selectRecTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}','${(p.username||'').replace(/'/g,"\\'")}')" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;"><div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);"><img src="${pu}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:20px;line-height:44px;display:block;text-align:center;&quot;>${p.avatar_emoji||'👤'}</span>'"></div><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">${sub||'&nbsp;'}</div></div></div>`; }).join('')
-      : '<div style="text-align:center;color:var(--text2);padding:12px;font-size:13px">Aucun résultat</div>';
-  } catch(e) {}
-}
-function selectRecTarget(id, name, username) {
-  _recTargetUid = id;
-  document.getElementById('rec-search-results').innerHTML='';
-  document.getElementById('rec-search-input').value='';
-  document.getElementById('rec-target-info').innerHTML = `<span style="font-size:28px">👤</span><div><div style="font-weight:900;font-size:15px">${name}</div><div style="font-size:11px;color:var(--text2)">${username?'@'+username:''}</div></div>`;
-  document.getElementById('rec-form').style.display='block';
-}
-function cancelRec() { _recTargetUid=null; document.getElementById('rec-form').style.display='none'; }
-async function submitRecruter() {
-  const salary = parseInt(document.getElementById('rec-salary').value)||0;
-  const poste = document.getElementById('rec-poste').value;
-  if (!_recTargetUid) { showToast('Sélectionne un joueur'); return; }
-  try {
-    const r = await fetchT('/api/webapp/actions/recruter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _recTargetUid, salary, poste }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('📨 Invitation envoyée !'); cancelRec(); loadRecruter(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-let _teamModalUid = null, _teamModalPoste = null;
-function openTeamModal(userId, name, poste) {
-  _teamModalUid = userId; _teamModalPoste = poste;
-  document.getElementById('team-action-name').textContent = '👤 ' + name;
-  const btns = [];
-  const postes = ['employe','manager','directeur'];
-  postes.filter(p => p !== poste).forEach(p => {
-    const labels = {employe:'👷 Rétrogader → Employé', manager:'📋 Nommer Manager', directeur:'🎩 Nommer Directeur'};
-    btns.push(`<button onclick="teamNommer('${p}')" style="padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-weight:800;cursor:pointer">${labels[p]}</button>`);
-  });
-  btns.push(`<button onclick="teamLicencier()" style="padding:11px;border-radius:12px;border:none;background:var(--accent2);color:#fff;font-weight:900;cursor:pointer">🚫 Licencier</button>`);
-  document.getElementById('team-action-btns').innerHTML = btns.join('');
-  document.getElementById('team-action-modal').style.display = 'flex';
-}
-function closeTeamModal() { document.getElementById('team-action-modal').style.display='none'; _teamModalUid=null; }
-async function teamNommer(newPoste) {
-  try {
-    const r = await fetchT('/api/webapp/actions/nommer', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid, new_poste: newPoste }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('✅ Poste mis à jour !'); closeTeamModal(); loadRecruter(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-async function teamLicencier() {
-  try {
-    const r = await fetchT('/api/webapp/actions/licencier', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast('🚫 Employé licencié.'); closeTeamModal(); loadRecruter(); }
-    else showToast(d.error||'Erreur');
-  } catch(e) { showToast('Erreur réseau'); }
-}
-
-// ══════════════════════════════════════════════════
-//  STYLES NOUVEAUX ONGLETS
-// ══════════════════════════════════════════════════
-(function addNewStyles() {
-  const s = document.createElement('style');
-  s.textContent = `
-.parts-tab-btn,.contrat-tab-btn {
-  display:inline-flex;align-items:center;gap:4px;
-  padding:7px 14px;border-radius:12px;font-size:12px;
-  font-weight:800;border:1px solid var(--border);
-  background:var(--card);color:var(--text2);
-  cursor:pointer;white-space:nowrap;flex-shrink:0;
-  transition:all .2s;font-family:'Nunito',sans-serif;
-}
-.parts-tab-btn.active,.contrat-tab-btn.active {
-  background:linear-gradient(135deg,#f7c948,#e6b800);
-  color:#000;border-color:transparent;
-  box-shadow:0 2px 12px rgba(247,201,72,.35);
-}
-  `;
-  document.head.appendChild(s);
-})();
-
-async function loadEncheres() {
-  _encCurTab = 'live';
-  document.querySelectorAll('.enc-tab-btn').forEach(function(b,i){ b.classList.toggle('active', i===0); });
-  document.getElementById('enc-live').style.display = '';
-  document.getElementById('enc-salle').style.display = 'none';
-  document.getElementById('enc-inventory').style.display = 'none';
-  document.getElementById('enc-market').style.display = 'none';
-  _loadAuctionLive();
-}
-
-// ── MODALS ────────────────────────────────────────────────────────────────────
-function openBidModal(auctionId, currentBid, isSalle) {
-  _encBidAuctionId = auctionId;
-  _encBidIsSalle = isSalle;
-  const cached = _auctionCache[auctionId] || {name:'Objet', emoji:'📦'};
-  const minBid = Math.max(currentBid + 1, Math.floor(currentBid * 1.05));
-  if (isSalle) {
-    document.getElementById('salle-bid-title').textContent = cached.emoji + ' ' + cached.name;
-    document.getElementById('salle-bid-current').innerHTML =
-      'Enchère actuelle : <b style="color:#e9d5ff">' + fmt(currentBid) + ' $</b><br>' +
-      '<span style="font-size:11px">Minimum requis : <b style="color:#a78bfa">' + fmt(minBid) + ' $</b></span>';
-    document.getElementById('salle-bid-input').value = minBid;
-    document.getElementById('salle-bid-modal').style.display = 'flex';
-  } else {
-    document.getElementById('enc-bid-title').innerHTML =
-      '<span style="font-size:22px">' + cached.emoji + '</span> ' + cached.name;
-    document.getElementById('enc-bid-current').innerHTML =
-      'Enchère actuelle : <b style="color:var(--accent)">⚡ ' + fmt(currentBid) + ' $</b><br>' +
-      '<span style="font-size:11px;color:var(--text2)">Minimum requis : <b>' + fmt(minBid) + ' $</b></span>';
-    document.getElementById('enc-bid-input').value = minBid;
-    document.getElementById('enc-bid-input').min = minBid;
-    document.getElementById('enc-bid-modal').style.display = 'flex';
-    document.getElementById('enc-bid-input').focus();
-  }
-}
-function closeBidModal() { document.getElementById('enc-bid-modal').style.display = 'none'; _encBidAuctionId = null; }
-function closeSalleBidModal() { document.getElementById('salle-bid-modal').style.display = 'none'; _encBidAuctionId = null; }
-async function submitBid(isSalle) {
-  const inputId = isSalle ? 'salle-bid-input' : 'enc-bid-input';
-  const amount = parseInt(document.getElementById(inputId).value)||0;
-  if (amount <= 0) { showToast('❌ Montant invalide'); return; }
-  if (!_encBidAuctionId) { showToast('❌ Enchère introuvable'); return; }
-  const btn = document.getElementById(isSalle ? null : 'enc-bid-submit-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
-  const endpoint = isSalle ? '/api/webapp/salle/bid' : '/api/webapp/auctions/bid';
-  const savedId = _encBidAuctionId;
-  try {
-    const r = await fetchT(endpoint, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, auction_id: savedId, amount })
-    }, 15000);
-    let d;
-    try { d = await r.json(); }
-    catch(e) { showToast('❌ Erreur serveur ('+r.status+')'); if (btn) { btn.disabled=false; btn.textContent='⚡ Confirmer'; } return; }
-    if (d.ok) {
-      showToast('⚡ Mise de ' + fmt(amount) + ' $ placée !');
-      if (isSalle) { closeSalleBidModal(); _loadSalle(); }
-      else {
-        closeBidModal();
-        const bidEl = document.getElementById('enc-bid-val-' + savedId);
-        const leaderEl = document.getElementById('enc-leader-' + savedId);
-        const btnEl = document.getElementById('enc-btn-' + savedId);
-        if (bidEl) bidEl.textContent = '⚡ ' + fmt(amount) + ' $';
-        if (leaderEl) leaderEl.textContent = '👑 Toi';
-        if (btnEl) { btnEl.disabled = true; btnEl.className = 'bid-btn bid-btn-leading'; btnEl.textContent = '✅ Tu mènes'; btnEl.onclick = null; }
-        refreshCoins && refreshCoins();
-      }
-    } else {
-      showToast('❌ ' + (d.error || 'Erreur'));
-      if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmer'; }
-    }
-  } catch(e) {
-    showToast('❌ ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmer'; }
-  }
-}
-
-// Attacher les listeners customize — appelé depuis fillProfile une fois le DOM réel prêt
-// document.addEventListener('DOMContentLoaded', _attachCustomizeListeners); // pas fiable après document.write
-
-// ════════════════════════════════════════
-//  PERSONNALISATION PROFIL
-// ════════════════════════════════════════
-
-/* ═══════════════════════════════════════════════
-   CUSTOMIZE — catalogue + état + fonctions
-   ═══════════════════════════════════════════════ */
-const COVER_THEMES = [
-  { id:'purple',  label:'Violet',      swatch:'#6c5ce7', bg:'linear-gradient(135deg,#1a1a3e,#0f0f2a,#1a0a2e)', overlay:'linear-gradient(135deg,rgba(162,155,254,.25),rgba(78,205,196,.12))' },
-  { id:'gold',    label:'Or',          swatch:'#f9ca24', bg:'linear-gradient(135deg,#2a1a00,#1a1000,#2a1500)', overlay:'linear-gradient(135deg,rgba(247,201,72,.3),rgba(255,180,0,.18))' },
-  { id:'teal',    label:'Vert',        swatch:'#00b894', bg:'linear-gradient(135deg,#0a2a2a,#051515,#0a2015)', overlay:'linear-gradient(135deg,rgba(85,239,196,.25),rgba(0,200,150,.15))' },
-  { id:'red',     label:'Rouge',       swatch:'#e84040', bg:'linear-gradient(135deg,#2a0a0a,#1a0505,#2a0505)', overlay:'linear-gradient(135deg,rgba(255,107,107,.25),rgba(200,0,0,.15))' },
-  { id:'blue',    label:'Bleu',        swatch:'#0984e3', bg:'linear-gradient(135deg,#0a1a2e,#050f1f,#0a1528)', overlay:'linear-gradient(135deg,rgba(100,180,255,.25),rgba(0,100,255,.15))' },
-  { id:'pink',    label:'Rose',        swatch:'#fd79a8', bg:'linear-gradient(135deg,#2a0a1e,#1a0512,#2a0520)', overlay:'linear-gradient(135deg,rgba(253,121,168,.28),rgba(200,0,100,.15))' },
-  { id:'orange',  label:'Orange',      swatch:'#e17055', bg:'linear-gradient(135deg,#2a1500,#1a0c00,#221000)', overlay:'linear-gradient(135deg,rgba(255,160,0,.25),rgba(255,100,0,.15))' },
-  { id:'black',   label:'Noir',        swatch:'#636e72', bg:'linear-gradient(135deg,#0a0a0a,#050505,#0f0f0f)', overlay:'linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.02))' },
-  { id:'silver',  label:'Argent',      swatch:'#b2bec3', bg:'linear-gradient(135deg,#1a1a22,#0f0f18,#16161e)', overlay:'linear-gradient(135deg,rgba(200,200,255,.18),rgba(180,180,255,.1))' },
-  { id:'rainbow', label:'Arc-en-ciel', swatch:null,      bg:'linear-gradient(135deg,#1a0a2e,#0a1a2e,#0a2a1e)', overlay:'linear-gradient(90deg,rgba(255,107,107,.18),rgba(247,201,72,.18),rgba(85,239,196,.18))' },
-];
-
-const BADGE_CATALOG = [
-  { id:'gold_star',  emoji:'\u{1F31F}', name:'Étoile d\'Or',    price:500000,   desc:'Joueur fortuné' },
-  { id:'diamond',    emoji:'\u{1F48E}', name:'Diamant',          price:2000000,  desc:'Élite du bot' },
-  { id:'fire',       emoji:'\u{1F525}', name:'Enflammé',         price:300000,   desc:'Actif en jeu' },
-  { id:'crown',      emoji:'\u{1F451}', name:'Couronne',         price:5000000,  desc:'Roi de la fortune' },
-  { id:'rocket',     emoji:'\u{1F680}', name:'Fusée',            price:1000000,  desc:'Investisseur fou' },
-  { id:'skull',      emoji:'\u{1F480}', name:'Skull',            price:800000,   desc:'Parieur extrême' },
-  { id:'trophy',     emoji:'\u{1F3C6}', name:'Trophée',          price:1500000,  desc:'Champion' },
-  { id:'unicorn',    emoji:'\u{1F984}', name:'Licorne',          price:3000000,  desc:'Rarissime' },
-];
-
-let _pfCustom = { cover_theme:'purple', cover_fx:'', badges_owned:[], badges_equipped:[] };
-let _pfCoins  = 0;
-let _pfCoinsRaw = 0;   // valeur brute (non formatée) mise à jour par fillProfile
-let _custPhotoBase64 = null;
-
-/* ── Ouvrir le modal ── */
-function openCustomize(tab) {
-  _pfCoins = _pfCoinsRaw;  // utiliser la valeur brute stockée au chargement du profil
-
-  const modal = document.getElementById('modal-customize');
-  if (!modal) return;
-  modal.style.display = 'flex';
-  _custPhotoBase64 = null;
-  const statusEl = document.getElementById('cust-photo-status');
-  if (statusEl) { statusEl.textContent = ''; statusEl.style.color = ''; }
-
-  _custSwitchTab(tab || 'colors');
-  _renderCoverColors();
-  _renderFxButtons();
-  _renderBadgeShop();
-
-  const avatar = document.querySelector('#pf-avatar-wrap img');
-  const prev   = document.getElementById('cust-photo-preview');
-  if (prev) {
-    prev.innerHTML = (avatar && avatar.src)
-      ? `<img src="${avatar.src}" style="width:100%;height:100%;object-fit:cover">`
-      : '👤';
-  }
-}
-
-/* ── Fermer ── */
-function closeCustomize() {
-  const modal = document.getElementById('modal-customize');
-  if (modal) modal.style.display = 'none';
-}
-
-/* ── Switch onglet ── */
-function _custSwitchTab(name) {
-  document.querySelectorAll('.cust-tab').forEach(b =>
-    b.classList.toggle('active', b.dataset.tab === name)
-  );
-  document.querySelectorAll('.cust-panel').forEach(p =>
-    p.style.display = (p.id === 'cust-panel-' + name) ? '' : 'none'
-  );
-}
-
-/* ── Couleurs cover ── */
-function _renderCoverColors() {
-  const grid = document.getElementById('cover-colors-grid');
-  if (!grid) return;
-  grid.innerHTML = COVER_THEMES.map(t => {
-    const bgStyle = t.swatch
-      ? `background:${t.swatch}`
-      : 'background:linear-gradient(90deg,#e84393,#f9ca24,#00b894,#0984e3)';
-    return `<div class="cover-color-btn ${t.id===_pfCustom.cover_theme?'selected':''}"
-      style="${bgStyle}" title="${t.label}" data-theme="${t.id}"></div>`;
-  }).join('');
-  grid.querySelectorAll('.cover-color-btn').forEach(btn =>
-    btn.addEventListener('click', () => _selectTheme(btn.dataset.theme))
-  );
-}
-function _selectTheme(id) {
-  _pfCustom.cover_theme = id;
-  _applyCustomToCover();
-  _renderCoverColors();
-}
-
-/* ── Effets FX ── */
-function _renderFxButtons() {
-  document.querySelectorAll('.fx-btn').forEach(b =>
-    b.classList.toggle('selected', b.dataset.fx === _pfCustom.cover_fx)
-  );
-}
-function _selectFx(fx) {
-  _pfCustom.cover_fx = fx;
-  _applyCustomToCover();
-  _renderFxButtons();
-}
-
-/* ── Appliquer au cover ── */
-function _applyCustomToCover() {
-  const cover = document.getElementById('pf-cover');
-  const blur  = document.getElementById('pf-cover-blur');
-  const theme = COVER_THEMES.find(t => t.id === _pfCustom.cover_theme) || COVER_THEMES[0];
-  if (cover) {
-    cover.style.background = theme.bg;
-    cover.className = 'pf-cover' + (_pfCustom.cover_fx ? ' fx-' + _pfCustom.cover_fx : '');
-  }
-  if (blur) blur.style.background = theme.overlay;
-}
-
-/* ── Boutique badges ── */
-function _renderBadgeShop() {
-  const owned    = _pfCustom.badges_owned    || [];
-  const equipped = _pfCustom.badges_equipped || [];
-  const grid     = document.getElementById('badge-shop-grid');
-  if (!grid) return;
-
-  grid.innerHTML = BADGE_CATALOG.map(b => {
-    const isOwned    = owned.includes(b.id);
-    const isEquipped = equipped.includes(b.id);
-    const canAfford  = _pfCoinsRaw >= b.price;
-
-    let priceHtml, btnHtml;
-    if (isOwned) {
-      priceHtml = `<div class="badge-price-tag owned-tag">${isEquipped ? '✅ Équipé' : '✔ Possédé'}</div>`;
-      btnHtml   = isEquipped
-        ? `<button class="badge-buy-btn btn-unequip badge-action" data-action="unequip" data-badge="${b.id}">Retirer</button>`
-        : `<button class="badge-buy-btn btn-equip badge-action" data-action="equip" data-badge="${b.id}">Équiper</button>`;
-    } else {
-      priceHtml = `<div class="badge-price-tag">💰 ${fmt(b.price)} $</div>`;
-      btnHtml   = canAfford
-        ? `<button class="badge-buy-btn btn-buy badge-action" data-action="buy" data-badge="${b.id}" data-price="${b.price}">Acheter</button>`
-        : `<button class="badge-buy-btn" disabled title="Fonds insuffisants">🔒</button>`;
-    }
-
-    return `<div class="badge-shop-item ${isOwned ? 'owned' : ''}">
-      <div class="badge-emoji-wrap">${b.emoji}</div>
-      <div class="badge-info">
-        <div class="badge-name">${b.name}</div>
-        <div class="badge-desc">${b.desc}</div>
-        ${priceHtml}
-      </div>
-      ${btnHtml}
-    </div>`;
-  }).join('');
-}
-
-/* ── Équiper / Déséquiper (auto-save) ── */
-async function _toggleBadge(id, action) {
-  const eq  = _pfCustom.badges_equipped || [];
-  const idx = eq.indexOf(id);
-  if (action === 'unequip') {
-    if (idx >= 0) eq.splice(idx, 1);
-  } else {
-    if (idx < 0) {
-      if (eq.length >= 5) { showToast('Max 5 badges équipés'); return; }
-      eq.push(id);
-    }
-  }
-  _pfCustom.badges_equipped = eq;
-  _renderBadgeShop();
-  _renderProfileBadges();
-
-  // Auto-save en base
-  try {
-    const r = await fetchT('/api/webapp/profile/customize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id:         uid,
-        cover_theme:     _pfCustom.cover_theme,
-        cover_fx:        _pfCustom.cover_fx,
-        badges_equipped: _pfCustom.badges_equipped
-      })
-    });
-    const d = await r.json();
-    if (d.ok) {
-      showToast(action === 'equip' ? '✅ Badge équipé !' : '✅ Badge retiré !');
-    } else {
-      showToast('❌ ' + (d.error || 'Erreur'));
-    }
-  } catch(e) {
-    showToast('❌ Erreur réseau');
-  }
-}
-
-/* ── Acheter un badge ── */
-async function buyBadge(id, price, clickedBtn) {
-  if (!uid) return;
-  if (clickedBtn) { clickedBtn.disabled = true; clickedBtn.textContent = '⏳'; }
-  try {
-    const r = await fetchT('/api/webapp/profile/badge/buy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: uid, badge_id: id, price })
-    });
-    let d;
-    try { d = await r.json(); } catch(e) { showToast('❌ Erreur serveur (' + r.status + ')'); return; }
-    if (d.ok) {
-      _pfCustom.badges_owned = d.badges_owned || [];
-      _pfCoinsRaw -= price;
-      const cashEl = document.getElementById('pf-cash');
-      if (cashEl) cashEl.textContent = fmt(_pfCoinsRaw);
-      showToast('✅ Badge acheté !');
-    } else {
-      showToast('❌ ' + (d.error || 'Erreur achat'));
-    }
-  } catch(e) {
-    console.error('[buyBadge]', e);
-    showToast('❌ ' + (e.message || 'Erreur réseau'));
-  } finally {
-    _renderBadgeShop();
-  }
-}
-
-/* ── Sélection photo locale ── */
-function onCustPhotoSelected(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const statusEl = document.getElementById('cust-photo-status');
-  if (file.size > 10 * 1024 * 1024) {
-    if (statusEl) { statusEl.textContent = '⚠️ Image trop lourde (max 10 Mo)'; statusEl.style.color = 'var(--accent2)'; }
-    return;
-  }
-  if (statusEl) { statusEl.textContent = '⏳ Chargement…'; statusEl.style.color = 'var(--text2)'; }
-  const reader = new FileReader();
-  reader.onerror = function() {
-    if (statusEl) { statusEl.textContent = '❌ Erreur lecture fichier'; statusEl.style.color = 'var(--accent2)'; }
-  };
-  reader.onload = function(e) {
-    const originalB64 = e.target.result;
-    // Afficher preview immédiatement avec l'original
-    const prev = document.getElementById('cust-photo-preview');
-    if (prev) prev.innerHTML = `<img src="${originalB64}" style="width:100%;height:100%;object-fit:cover">`;
-    if (statusEl) { statusEl.textContent = '⏳ Compression…'; statusEl.style.color = 'var(--text2)'; }
-
-    // Tenter compression via canvas
-    try {
-      const img = new Image();
-      img.onerror = function() {
-        // Canvas a échoué, utiliser l'original directement
-        _custPhotoBase64 = originalB64;
-        if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
-      };
-      img.onload = function() {
-        try {
-          const MAX = 800;
-          let w = img.width, h = img.height;
-          if (w > MAX || h > MAX) {
-            if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
-            else       { w = Math.round(w * MAX / h); h = MAX; }
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-          const compressed = canvas.toDataURL('image/jpeg', 0.82);
-          _custPhotoBase64 = compressed || originalB64;
-          if (prev) prev.innerHTML = `<img src="${_custPhotoBase64}" style="width:100%;height:100%;object-fit:cover">`;
-          if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
-        } catch(err) {
-          _custPhotoBase64 = originalB64;
-          if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
-        }
-      };
-      img.src = originalB64;
-    } catch(err) {
-      _custPhotoBase64 = originalB64;
-      if (statusEl) { statusEl.textContent = '✅ Photo prête — appuie sur Enregistrer'; statusEl.style.color = 'var(--success)'; }
-    }
-  };
-  reader.readAsDataURL(file);
-  input.value = '';
-}
-
-/* ── Enregistrer tout ── */
-async function saveCustomize() {
-  if (!uid) return;
-  const btn = document.getElementById('btn-customize-save');
-  const setBtn = (txt, dis) => { if (btn) { btn.disabled = dis; btn.innerHTML = txt; } };
-
-  setBtn('⏳ Enregistrement…', true);
-  try {
-    const r = await fetchT('/api/webapp/profile/customize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id:         uid,
-        cover_theme:     _pfCustom.cover_theme,
-        cover_fx:        _pfCustom.cover_fx,
-        badges_equipped: _pfCustom.badges_equipped
-      })
-    });
-    const d = await r.json();
-    if (!d.ok) { showToast('❌ ' + (d.error || 'Erreur')); setBtn('💾 Enregistrer les modifications', false); return; }
-
-    if (_custPhotoBase64) {
-      const statusEl = document.getElementById('cust-photo-status');
-      if (statusEl) { statusEl.textContent = '📤 Upload en cours…'; statusEl.style.color = 'var(--text2)'; }
-      const rp = await fetchT('/api/webapp/profile/photo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: uid, photo_b64: _custPhotoBase64 })
-      });
-      const dp = await rp.json();
-      if (dp.ok) {
-        _custPhotoBase64 = null;
-        const ts  = Date.now();
-        const url = `/api/webapp/photo?user_id=${uid}&t=${ts}`;
-        const wrap = document.getElementById('pf-avatar-wrap');
-        if (wrap) {
-          wrap.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.parentNode.innerHTML='👤'"><div style="position:absolute;bottom:2px;right:2px;width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.5)">✏️</div>`;
-        }
-        const custPrev = document.getElementById('cust-photo-preview');
-        if (custPrev) custPrev.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover">`;
-        if (statusEl) { statusEl.textContent = '✅ Photo mise à jour !'; statusEl.style.color = 'var(--success)'; }
-      } else {
-        showToast('❌ ' + (dp.error || 'Erreur photo'));
-        setBtn('💾 Enregistrer les modifications', false);
-        return;
-      }
-    }
-
-    setBtn('✅ Sauvegardé !', true);
-    setTimeout(() => { closeCustomize(); setBtn('💾 Enregistrer les modifications', false); }, 1200);
-  } catch(e) {
-    showToast('❌ Erreur réseau');
-    setBtn('💾 Enregistrer les modifications', false);
-  }
-}
-
-/* ── Badges page profil ── */
-function _renderProfileBadges() {
-  const row = document.getElementById('pf-badges-row');
-  if (!row) return;
-  const equipped = _pfCustom.badges_equipped || [];
-  const owned    = _pfCustom.badges_owned    || [];
-  row.innerHTML = equipped
-    .filter(id => owned.includes(id))
-    .map(id => {
-      const b = BADGE_CATALOG.find(x => x.id === id);
-      return b ? `<div class="pf-badge" title="${b.name}">${b.emoji}</div>` : '';
-    }).join('');
-}
-
-/* ── Chargement initial ── */
-function _loadProfileCustomization(d) {
-  if (!d.customization) return;
-  try {
-    const c = typeof d.customization === 'string' ? JSON.parse(d.customization) : d.customization;
-    _pfCustom.cover_theme     = c.cover_theme     || 'purple';
-    _pfCustom.cover_fx        = c.cover_fx        || '';
-    _pfCustom.badges_owned    = Array.isArray(c.badges_owned)    ? c.badges_owned    : [];
-    _pfCustom.badges_equipped = Array.isArray(c.badges_equipped) ? c.badges_equipped : [];
-    _applyCustomToCover();
-    _renderProfileBadges();
-  } catch(e) { console.warn('customization parse error', e); }
-}
-
-/* ── Délégation d'événements globale (une seule fois) ── */
-(function _attachCustomizeListeners() {
-  document.addEventListener('click', function(e) {
-    const t = e.target;
-    if (t.closest('#btn-cover-edit'))      { openCustomize();  return; }
-    if (t.closest('#btn-customize-save'))  { saveCustomize();  return; }
-    if (t.closest('#btn-customize-cancel') || t.id === 'modal-customize') { closeCustomize(); return; }
-    const tab = t.closest('.cust-tab');
-    if (tab && tab.dataset.tab)            { _custSwitchTab(tab.dataset.tab); return; }
-    const fxBtn = t.closest('.fx-btn');
-    if (fxBtn && fxBtn.closest('#cover-effects-btns')) { _selectFx(fxBtn.dataset.fx); return; }
-    const badgeBtn = t.closest('.badge-action');
-    if (badgeBtn) {
-      e.stopPropagation();
-      const action  = badgeBtn.dataset.action;
-      const badgeId = badgeBtn.dataset.badge;
-      const price   = parseInt(badgeBtn.dataset.price || '0');
-      if (action === 'buy') buyBadge(badgeId, price, badgeBtn);
-      else _toggleBadge(badgeId, action);
-    }
-  });
 })();
 </script>
+</body>
+</html>"""
+    return web.Response(text=skeleton, content_type='text/html')
 
-<!-- ── SLIDES + NOTIFICATIONS STYLES & JS ── -->
-<style>
-/* ── SLIDES ZONE ── */
-#home-slides {
-  margin: -16px -16px 16px;
-  position: relative;
-  border-radius: 0 0 28px 28px;
-  overflow: hidden;
-}
-#home-slides.visible { display: block !important; height: auto !important; }
-.slides-track {
-  display: flex;
-  transition: transform .4s cubic-bezier(.4,0,.2,1);
-}
-.slide-item {
-  min-width: 100%; position: relative;
-  height: 170px; overflow: hidden; flex-shrink: 0;
-  cursor: pointer;
-}
-.slide-item-bg {
-  position: absolute; inset: 0;
-  background-size: cover; background-position: center;
-}
-.slide-item-overlay {
-  position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.75) 100%);
-}
-.slide-item-content {
-  position: absolute; bottom: 20px; left: 20px; right: 60px;
-}
-.slide-item-label {
-  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;
-  color: rgba(255,255,255,.65); margin-bottom: 5px;
-}
-.slide-item-title {
-  font-family: 'Bangers', cursive; font-size: 26px; letter-spacing: 1.5px; color: #fff;
-  text-shadow: 0 2px 12px rgba(0,0,0,.6); line-height: 1; margin-bottom: 4px;
-}
-.slide-item-sub {
-  font-size: 12px; color: rgba(255,255,255,.65); font-weight: 600;
-}
-.slides-dots {
-  position: absolute; bottom: 12px; right: 16px;
-  display: flex; gap: 5px; align-items: center;
-}
-.slides-dot {
-  width: 6px; height: 6px; border-radius: 3px;
-  background: rgba(255,255,255,.35); transition: all .3s cubic-bezier(.4,0,.2,1);
-}
-.slides-dot.active { width: 20px; background: rgba(255,255,255,.9); border-radius: 3px; }
 
-/* ── NOTIFICATION PANEL ── */
-#notif-panel {
-  display: none; position: fixed; top: 52px; right: 0; left: 0; bottom: 0;
-  z-index: 200; background: rgba(0,0,0,.6);
-  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-}
-#notif-panel.open { display: block; }
-#notif-sheet {
-  position: absolute; top: 0; right: 0; width: min(360px, 100%);
-  height: 100%; background: var(--card);
-  border-left: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  animation: slideInRight .25s cubic-bezier(.4,0,.2,1);
-}
-@keyframes slideInRight {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
-}
-#notif-sheet-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
-}
-#notif-sheet-title { font-size: 16px; font-weight: 900; flex: 1; }
-#notif-close-btn, #notif-clear-btn {
-  width: 32px; height: 32px; border-radius: 50%;
-  background: rgba(255,255,255,.08); border: none;
-  color: var(--text); font-size: 16px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-}
-#notif-clear-btn { margin-right: 6px; font-size: 14px; }
-#notif-clear-btn:active { background: rgba(255,80,80,.25); }
-#notif-list { flex: 1; overflow-y: auto; padding: 12px; }
-.notif-item {
-  padding: 12px 14px; border-radius: 14px; margin-bottom: 8px;
-  background: var(--card2); border: 1px solid var(--border);
-  display: flex; gap: 12px; align-items: flex-start;
-  transition: background .15s; position: relative;
-}
-.notif-item:active { background: rgba(255,255,255,.08); }
-.notif-item.unread { border-color: rgba(247,201,72,.25); background: rgba(247,201,72,.05); }
-.notif-item-icon { font-size: 24px; flex-shrink: 0; line-height: 1.2; }
-.notif-item-body { flex: 1; min-width: 0; }
-.notif-item-title { font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 3px; }
-.notif-item-text { font-size: 12px; color: var(--text2); line-height: 1.4; }
-.notif-item-time { font-size: 10px; color: rgba(255,255,255,.3); margin-top: 5px; }
-.notif-delete-btn {
-  flex-shrink: 0; background: none; border: none; color: rgba(255,255,255,.25);
-  font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 8px;
-  transition: color .15s, background .15s; align-self: center;
-}
-.notif-delete-btn:hover, .notif-delete-btn:active { color: #ff5050; background: rgba(255,80,80,.15); }
-#notif-empty {
-  text-align: center; padding: 48px 24px; color: var(--text2); font-size: 13px;
-}
-#notif-empty .notif-empty-icon { font-size: 48px; margin-bottom: 12px; }
+async def webapp_load_app(request: web.Request) -> web.Response:
+    """POST /api/webapp/load — valide initData Telegram et sert le vrai HTML si autorisé."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(text="Bad request", status=400)
 
-/* ── UPDATED CARD STYLE ── */
-.card {
-  background: var(--card); border-radius: 20px; border: 1px solid rgba(255,255,255,0.07);
-  padding: 16px; margin-bottom: 12px;
-}
-.card-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text2); margin-bottom: 12px; }
+    uid       = body.get('user_id')
+    init_data = body.get('init_data', '')
 
-/* ── BTN SUCCESS / OUTLINE ── */
-.btn-success {
-  padding: 13px 20px; border-radius: 24px; border: none;
-  background: #00b894; color: #fff; font-size: 14px; font-weight: 900;
-  cursor: pointer; transition: transform .15s; box-shadow: 0 2px 10px rgba(0,184,148,.3);
-}
-.btn-success:active { transform: scale(.96); }
-.btn-primary {
-  padding: 13px 20px; border-radius: 24px; border: none;
-  background: var(--accent); color: #000; font-size: 14px; font-weight: 900;
-  cursor: pointer; transition: transform .15s; box-shadow: 0 2px 10px rgba(247,201,72,.3);
-}
-.btn-primary:active { transform: scale(.96); }
-.btn-outline {
-  padding: 13px 20px; border-radius: 24px;
-  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.15);
-  color: var(--text); font-size: 14px; font-weight: 800;
-  cursor: pointer; transition: background .15s;
-}
-.btn-outline:active { background: rgba(255,255,255,.12); }
+    valid_init = _verify_init_data(init_data)
+    try:
+        is_admin = uid is not None and int(uid) in WEBAPP_ADMIN_IDS
+    except (ValueError, TypeError):
+        is_admin = False
 
-/* ── NAV NOTIF BADGE ── */
-.nav-notif-badge {
-  position: absolute; top: 1px; right: 6px;
-  background: #ff6b6b; color: #fff;
-  font-size: 8px; font-weight: 900;
-  min-width: 14px; height: 14px; border-radius: 7px;
-  display: flex; align-items: center; justify-content: center;
-  padding: 0 3px; pointer-events: none;
-  border: 1.5px solid var(--bg);
-  box-shadow: 0 2px 6px rgba(255,107,107,.6);
-}
+    if not (valid_init or is_admin):
+        return web.json_response({'error': 'access denied'}, status=403)
 
-/* ── SETTINGS ── */
-.settings-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px; border-radius: 14px; cursor: pointer;
-  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06);
-  transition: background .15s; gap: 12px;
-}
-.settings-row:active { background: rgba(255,255,255,.08); }
-.settings-label { font-size: 14px; font-weight: 700; color: var(--text); }
-.settings-sub   { font-size: 11px; color: var(--text2); margin-top: 2px; }
-.settings-toggle {
-  width: 46px; height: 26px; border-radius: 13px; flex-shrink: 0;
-  background: rgba(255,255,255,.12); position: relative; transition: background .2s;
-}
-.settings-toggle::after {
-  content: ''; position: absolute; top: 3px; left: 3px;
-  width: 20px; height: 20px; border-radius: 50%; background: #fff;
-  transition: transform .2s; box-shadow: 0 1px 4px rgba(0,0,0,.3);
-}
-.settings-toggle.on { background: #00c864; }
-.settings-toggle.on::after { transform: translateX(20px); }
+    import os
+    path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
+    with open(path, 'r', encoding='utf-8') as f:
+        real_html = f.read()
+    return web.Response(text=real_html, content_type='text/html')
 
-/* Mode nuit renforcé */
-body.darkplus { filter: brightness(.75) contrast(1.05); }
-/* Texte agrandi */
-body.bigtext { font-size: 16px; }
-body.bigtext .pf-stat-val, body.bigtext .game-card-name { font-size: 120%; }
-/* Pas d'animations */
-body.no-animations *, body.no-animations *::before, body.no-animations *::after {
-  animation-duration: 0.01ms !important;
-  transition-duration: 0.01ms !important;
-}
-/* Masquer solde */
-body.hide-balance .pf-fortune-hero,
-body.hide-balance .eco-balance-amount,
-body.hide-balance #casino-balance-display,
-body.hide-balance .pf-stat-val { filter: blur(6px); user-select: none; }
-</style>
 
-<script>
-// ── NOTIFICATION PANEL ──
-function openNotifications() {
-  const panel = document.getElementById('notif-panel');
-  panel.classList.add('open');
-  loadNotifications();
-  // Marquer toutes comme lues à l'ouverture
-  if (uid) apiFetch('/notifications/read', {method:'POST', body: JSON.stringify({user_id: uid})}).catch(()=>{});
-}
-function closeNotifications() {
-  document.getElementById('notif-panel').classList.remove('open');
-}
-async function deleteNotification(notifId, e) {
-  if (e) e.stopPropagation();
-  const el = document.getElementById('notif-' + notifId);
-  if (el) { el.style.opacity = '0.3'; el.style.pointerEvents = 'none'; }
-  try {
-    await apiFetch('/notifications/delete', {method:'POST', body: JSON.stringify({user_id: uid, notif_id: notifId})});
-    if (el) el.remove();
-    // Si plus aucune notif, afficher vide
-    const list = document.getElementById('notif-list');
-    if (list && !list.querySelector('.notif-item')) {
-      list.innerHTML = `<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Aucune notification</div></div>`;
-      updateBellBadge(0);
-    }
-  } catch(err) {
-    if (el) { el.style.opacity = '1'; el.style.pointerEvents = ''; }
-  }
-}
-async function deleteAllNotifications() {
-  if (!uid) return;
-  try {
-    await apiFetch('/notifications/delete', {method:'POST', body: JSON.stringify({user_id: uid})});
-    const list = document.getElementById('notif-list');
-    if (list) list.innerHTML = `<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Aucune notification</div></div>`;
-    updateBellBadge(0);
-  } catch(err) {}
-}
-async function loadNotifications() {
-  const list = document.getElementById('notif-list');
-  list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2);font-size:12px;">Chargement...</div>';
-  try {
-    const d = await apiFetch('/notifications/all');
-    if (!d || !d.notifications || d.notifications.length === 0) {
-      list.innerHTML = `<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Aucune notification</div></div>`;
-      updateBellBadge(0);
-      return;
-    }
-    list.innerHTML = d.notifications.map(n => `
-      <div class="notif-item${n.unread ? ' unread' : ''}" id="notif-${n.id || ''}">
-        <div class="notif-item-icon">${n.icon || '📢'}</div>
-        <div class="notif-item-body">
-          <div class="notif-item-title">${n.title || ''}</div>
-          <div class="notif-item-text">${n.text || n.body || ''}</div>
-          <div class="notif-item-time">${n.time || ''}</div>
-        </div>
-        ${n.id ? `<button class="notif-delete-btn" onclick="deleteNotification(${n.id}, event)" title="Supprimer">🗑️</button>` : ''}
-      </div>
-    `).join('');
-    const unreadCount = d.count || d.notifications.filter(n => n.unread).length;
-    updateBellBadge(unreadCount);
-  } catch(e) {
-    list.innerHTML = '<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Notifications non disponibles</div></div>';
-  }
-}
-function updateBellBadge(count) {
-  const dot = document.getElementById('notif-bell-dot');
-  const badge = document.getElementById('notif-bell-count');
-  if (count > 0) {
-    dot.style.display = 'block';
-    badge.style.display = 'flex';
-    badge.textContent = count > 9 ? '9+' : count;
-  } else {
-    dot.style.display = 'none';
-    badge.style.display = 'none';
-  }
-}
-// Polling auto toutes les 30s pour mettre à jour le badge sans ouvrir le panel
-async function _pollNotifBadge() {
-  if (!uid) return;
-  try {
-    const d = await apiFetch('/notifications/all');
-    if (d && typeof d.count === 'number') updateBellBadge(d.count);
-  } catch(e) {}
-}
-setInterval(_pollNotifBadge, 30000);
-setTimeout(_pollNotifBadge, 3000);
-
-// ── SLIDES ENGINE ──
-let _slideCurrent = 0, _slideTimer = null, _slides = [];
-function initSlides(slidesData) {
-  _slides = slidesData;
-  const zone = document.getElementById('home-slides');
-  const track = document.getElementById('slides-track');
-  const dots = document.getElementById('slides-dots');
-  if (!slidesData || slidesData.length === 0) { if(zone) zone.style.display = 'none'; return; }
-  zone.classList.add('visible');
-  track.innerHTML = slidesData.map(s => `
-    <div class="slide-item" onclick="${s.action || ''}">
-      <div class="slide-item-bg" style="background:${s.gradient || 'linear-gradient(135deg,#1a1a2e,#16213e)'}"></div>
-      <div class="slide-item-overlay"></div>
-      <div class="slide-item-content">
-        ${s.label ? `<div class="slide-item-label">${s.label}</div>` : ''}
-        <div class="slide-item-title">${s.title}</div>
-        ${s.sub ? `<div class="slide-item-sub">${s.sub}</div>` : ''}
-      </div>
-    </div>
-  `).join('');
-  dots.innerHTML = slidesData.map((_,i) => `<div class="slides-dot${i===0?' active':''}"></div>`).join('');
-  _slideCurrent = 0;
-  _startSlideTimer(slidesData.length);
-}
-function _startSlideTimer(count) {
-  if (_slideTimer) clearInterval(_slideTimer);
-  if (count > 1) _slideTimer = setInterval(() => {
-    _slideCurrent = (_slideCurrent + 1) % count;
-    _slideGoTo(_slideCurrent);
-  }, 4000);
-}
-function _slideGoTo(i) {
-  const track = document.getElementById('slides-track');
-  const dots = document.querySelectorAll('.slides-dot');
-  if (track) track.style.transform = `translateX(-${i * 100}%)`;
-  dots.forEach((d, idx) => d.classList.toggle('active', idx === i));
-}
-
-// Close notif panel on backdrop click
-document.addEventListener('DOMContentLoaded', () => {
-  // Auto-start static slides
-  const staticSlides = document.querySelectorAll('#slides-track .slide-item');
-  if (staticSlides.length > 1) {
-    _slides = Array.from(staticSlides);
-    _startSlideTimer(staticSlides.length);
-    document.querySelectorAll('.slides-dot').forEach((dot, i) => {
-      dot.addEventListener('click', () => { _slideCurrent = i; _slideGoTo(i); });
-    });
-  }
-
-  const panel = document.getElementById('notif-panel');
-  if (panel) {
-    panel.addEventListener('click', e => { if (e.target === panel) closeNotifications(); });
-  }
-  // Inject notif panel into DOM if not present
-  if (!document.getElementById('notif-panel')) {
-    const p = document.createElement('div');
-    p.id = 'notif-panel';
-    p.innerHTML = `
-      <div id="notif-sheet">
-        <div id="notif-sheet-header">
-          <div id="notif-sheet-title">🔔 Notifications</div>
-          <button id="notif-close-btn" onclick="closeNotifications()">✕</button>
-        </div>
-        <div id="notif-list"></div>
-      </div>`;
-    document.body.appendChild(p);
-  }
-});
-</script>
-
-<!-- ── NOTIFICATION PANEL HTML ── -->
-<div id="notif-panel">
-  <div id="notif-sheet">
-    <div id="notif-sheet-header">
-      <div id="notif-sheet-title">🔔 Notifications</div>
-      <button id="notif-clear-btn" onclick="deleteAllNotifications()" title="Tout supprimer">🗑️</button>
-      <button id="notif-close-btn" onclick="closeNotifications()">✕</button>
-    </div>
-    <div id="notif-list">
-      <div id="notif-empty">
-        <div class="notif-empty-icon">🔔</div>
-        <div>Aucune notification</div>
-      </div>
-    </div>
+def _build_locked_page() -> str:
+    return """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;background:#0f0f1a;display:flex;align-items:center;justify-content:center;font-family:sans-serif}</style>
+</head><body>
+<div style="text-align:center;padding:32px;max-width:320px">
+  <div style="font-size:72px">🚧</div>
+  <div style="font-size:26px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div>
+  <div style="color:#a0a0b0;font-size:14px;line-height:1.8">
+    La Mini App <b style="color:#f0f0f0">Family Bot</b><br>arrive très bientôt !
   </div>
 </div>
+</body></html>"""
 
-<!-- ── MODAL PROFIL UTILISATEUR EN LIGNE ── -->
-<div id="online-user-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);align-items:flex-end;justify-content:center;" onclick="if(event.target===this)closeOnlineModal()">
-  <div style="width:100%;max-width:480px;background:#1a1a2e;border-radius:24px 24px 0 0;padding:24px 20px 36px;border-top:1px solid rgba(255,255,255,.08);transform:translateY(100%);transition:transform .35s cubic-bezier(.4,0,.2,1);" id="online-modal-sheet">
-    <!-- Handle -->
-    <div style="width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.15);margin:0 auto 20px;"></div>
-    <!-- Photo + infos -->
-    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
-      <div id="om-photo-wrap" style="width:72px;height:72px;border-radius:50%;overflow:hidden;background:#2a2a4a;border:2px solid rgba(255,255,255,.1);flex-shrink:0;">
-        <img id="om-photo" src="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';document.getElementById('om-photo-fallback').style.display='flex'">
-        <div id="om-photo-fallback" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:32px;">👤</div>
-      </div>
-      <div style="flex:1;min-width:0;">
-        <div id="om-name" style="font-family:'Bangers',cursive;font-size:22px;color:#f0f0f0;line-height:1.1;"></div>
-        <div id="om-username" style="font-size:12px;color:var(--text2);margin-top:2px;"></div>
-        <div id="om-relation-badge" style="display:inline-block;margin-top:6px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:900;"></div>
-      </div>
-      <div style="text-align:right;">
-        <div style="font-size:10px;color:rgba(255,255,255,.35);margin-bottom:2px;">FORTUNE</div>
-        <div id="om-coins" style="font-family:'Bangers',cursive;font-size:16px;color:#f7c948;"></div>
-      </div>
-    </div>
-    <!-- Status en ligne -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;padding:10px 14px;background:rgba(85,239,196,.06);border-radius:10px;border:1px solid rgba(85,239,196,.15);">
-      <div style="width:8px;height:8px;border-radius:50%;background:#55efc4;box-shadow:0 0 6px #55efc4;flex-shrink:0;"></div>
-      <span id="om-lastseen" style="font-size:12px;color:rgba(255,255,255,.5);">En ligne récemment</span>
-    </div>
-    <!-- Actions -->
-    <div id="om-actions" style="display:flex;flex-direction:column;gap:10px;"></div>
-  </div>
-</div>
 
-<script>
-// ── ONLINE USERS ────────────────────────────────────────────────────────────
-let _onlineUsers = [];
 
-async function loadOnlineUsers() {
-  try {
-    const r = await fetchT(`/api/webapp/online?user_id=${uid}`, {}, 10000);
-    const d = await r.json();
-    if (d.error) return;
-    _onlineUsers = d.users || [];
-    renderOnlineUsers();
-  } catch(e) {}
+# ── Route : Catalogue marché ─────────────────────────────────────────────────
+async def webapp_market_catalog(request: web.Request) -> web.Response:
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    catalog = {}
+    for cat in CATEGORIES:
+        items = []
+        for asset_id, a in ASSETS.items():
+            if a['category'] != cat:
+                continue
+            price = _current_price(asset_id)
+            items.append({
+                'id': asset_id,
+                'name': a['name'],
+                'emoji': a['emoji'],
+                'category': cat,
+                'risk': a['risk'],
+                'risk_emoji': _risk_emoji(a['risk']),
+                'desc': a['desc'],
+                'price': price,
+                'price_fmt': _fmt(price),
+                'base_price': a['base_price'],
+                'volatility': int(a['volatility'] * 100),
+            })
+        catalog[cat] = items
+
+    return web.json_response({'catalog': catalog, 'categories': CATEGORIES})
+
+
+# ── Route : Portfolio détaillé ───────────────────────────────────────────────
+async def webapp_market_portfolio(request: web.Request) -> web.Response:
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    try:
+        return await _webapp_market_portfolio_inner(uid)
+    except Exception as e:
+        import traceback
+        return web.json_response({'error': str(e), 'trace': traceback.format_exc()}, status=500)
+
+
+async def _webapp_market_portfolio_inner(uid: int) -> web.Response:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Investment).where(Investment.user_id == uid, Investment.status == 'active')
+        )
+        investments = result.scalars().all()
+
+        positions = []
+        total_invested = 0
+        total_current = 0
+        for inv in investments:
+            try:
+                a = ASSETS.get(inv.asset_id, {})
+                if not a:
+                    continue
+                buy_price = inv.buy_price or 0
+                quantity  = inv.quantity or 0
+                buy_total = buy_price * quantity
+                cur_price = _current_price(inv.asset_id)
+                cur_total = cur_price * quantity
+                pnl = cur_total - buy_total
+                pnl_pct = round((pnl / buy_total) * 100, 1) if buy_total else 0
+                total_invested += buy_total
+                total_current += cur_total
+                positions.append({
+                    'id': inv.id,
+                    'asset_id': inv.asset_id,
+                    'name': a.get('name', inv.asset_id),
+                    'emoji': a.get('emoji', '📊'),
+                    'risk': a.get('risk', 'medium'),
+                    'risk_emoji': _risk_emoji(a.get('risk', 'medium')),
+                    'quantity': quantity,
+                    'buy_price': buy_price,
+                    'buy_price_fmt': _fmt(buy_price),
+                    'cur_price': cur_price,
+                    'cur_price_fmt': _fmt(cur_price),
+                    'buy_total_fmt': _fmt(buy_total),
+                    'cur_total_fmt': _fmt(cur_total),
+                    'pnl': pnl,
+                    'pnl_fmt': ('+' if pnl >= 0 else '') + str(_fmt(abs(pnl))),
+                    'pnl_pct': pnl_pct,
+                    'pnl_positive': pnl >= 0,
+                    'bought_at': inv.bought_at.strftime('%d/%m/%Y') if inv.bought_at else '—',
+                })
+            except Exception:
+                continue
+
+        total_pnl = total_current - total_invested
+        return web.json_response({
+            'positions': positions,
+            'summary': {
+                'invested': _fmt(total_invested),
+                'current': _fmt(total_current),
+                'pnl': ('+' if total_pnl >= 0 else '') + str(_fmt(abs(total_pnl))),
+                'pnl_positive': total_pnl >= 0,
+                'count': len(positions),
+            }
+        })
+
+
+# ── Route : Acheter/Vendre ────────────────────────────────────────────────────
+async def webapp_market_action(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    action = body.get('action')  # 'buy' ou 'sell'
+    asset_id = body.get('asset_id', '')
+    qty = int(body.get('quantity', 1))
+
+    # Pour la vente par inv_id, pas besoin d'asset_id
+    if action != 'sell' or not body.get('inv_id'):
+        if asset_id not in ASSETS:
+            return web.json_response({'error': 'Asset inconnu'}, status=400)
+        if qty < 1:
+            return web.json_response({'error': 'Quantité invalide'}, status=400)
+
+    a = ASSETS.get(asset_id, {})
+    price = _current_price(asset_id) if asset_id else 0
+
+    async with AsyncSessionLocal() as session:
+        user_result = await session.execute(select(User).where(User.user_id == uid))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'Utilisateur introuvable'}, status=404)
+
+        if action == 'buy':
+            total_cost = price * qty
+            if user.coins < total_cost:
+                return web.json_response({'error': f'Fonds insuffisants — il te faut {_fmt(total_cost)} {CURRENCY}'})
+            user.coins -= total_cost
+            inv = Investment(user_id=uid, asset_id=asset_id, quantity=qty, buy_price=price)
+            session.add(inv)
+            await session.commit()
+            return web.json_response({
+                'ok': True,
+                'msg': f"✅ Acheté {qty}x {a['emoji']} {a['name']} pour {_fmt(total_cost)} {CURRENCY}"
+            })
+
+        elif action == 'sell':
+            inv_id = body.get('inv_id')
+            if inv_id:
+                result = await session.execute(
+                    select(Investment).where(Investment.id == inv_id, Investment.user_id == uid, Investment.status == 'active')
+                )
+                inv = result.scalar_one_or_none()
+                if not inv:
+                    return web.json_response({'error': 'Position introuvable'})
+                sell_price = _current_price(inv.asset_id)
+                proceeds = sell_price * inv.quantity
+                user.coins += proceeds
+                inv.status = 'sold'
+                inv.sell_price = sell_price
+                from datetime import datetime
+                inv.sold_at = datetime.utcnow()
+                await session.commit()
+                pnl = proceeds - inv.buy_price * inv.quantity
+                return web.json_response({
+                    'ok': True,
+                    'msg': f"{'✅' if pnl>=0 else '⚠️'} Vendu pour {_fmt(proceeds)} {CURRENCY} (PnL: {'+' if pnl>=0 else ''}{_fmt(pnl)})"
+                })
+            else:
+                return web.json_response({'error': 'inv_id requis pour vendre'})
+
+        return web.json_response({'error': 'Action invalide'}, status=400)
+
+
+import random as _random_game
+import asyncio as _asyncio_game
+
+# ── Routes Jeux ──────────────────────────────────────────────────────────────
+
+async def webapp_game(request: web.Request) -> web.Response:
+    """POST /api/webapp/game — Jouer à un jeu depuis la webapp."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    game = body.get('game')  # 'crash_start', 'crash_cashout', 'roue', 'mines_start', 'mines_reveal', 'mines_cashout'
+    mise = int(body.get('mise', 0))
+
+    async with AsyncSessionLocal() as session:
+        user_result = await session.execute(select(User).where(User.user_id == uid))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # ── ROUE DE FORTUNE ──────────────────────────────────────────────────
+        if game == 'roue':
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if mise > 6_600_000:
+                return web.json_response({'error': 'Mise maximum 6 600 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': f'Fonds insuffisants (solde: {int(user.coins):,} $)'})
+
+            WHEEL_SEGMENTS = [
+                ("💀 Ruine totale",        "ruine",   0,          6),
+                ("☠️ x0.1",               "mult",    0.1,        10),
+                ("😭 x0.2",               "mult",    0.2,         9),
+                ("😞 x0.3",               "mult",    0.3,        10),
+                ("💸 x0.4",               "mult",    0.4,         9),
+                ("😐 x0.5",               "mult",    0.5,         9),
+                ("🔄 IDEM",               "idem",    0,          10),
+                ("🙂 x0.8",               "mult",    0.8,         9),
+                ("💵 +50 000 $",          "fixed",   50_000,      6),
+                ("💰 x1.2",               "mult",    1.2,         8),
+                ("💵 +200 000 $",         "fixed",   200_000,     6),
+                ("💰 x1.5",               "mult",    1.5,        10),
+                ("🎁 +500 000 $",         "fixed",   500_000,     4),
+                ("🤑 x2.0",               "mult",    2.0,         7),
+                ("🎯 x3.0",               "mult",    3.0,         5),
+                ("💵 +1 000 000 $",       "fixed",   1_000_000,   3),
+                ("⭐ x5.0",               "mult",    5.0,         3),
+                ("🔥 x10.0",              "mult",    10.0,        2),
+                ("🌟 MÉGA CHANCE x15.0",  "mult",    15.0,        1),
+                ("💎 JACKPOT x25.0",      "mult",    25.0,        1),
+            ]
+
+            total_w = sum(s[3] for s in WHEEL_SEGMENTS)
+            r = _random_game.uniform(0, total_w)
+            cum = 0
+            label, kind, val = WHEEL_SEGMENTS[-1][:3]
+            for seg in WHEEL_SEGMENTS:
+                cum += seg[3]
+                if r <= cum:
+                    label, kind, val = seg[0], seg[1], seg[2]
+                    break
+
+            # Trouver l'index du segment pour l'animation
+            seg_index = next(i for i, s in enumerate(WHEEL_SEGMENTS) if s[0] == label)
+
+            if kind == 'ruine':
+                gain = 0
+            elif kind == 'idem':
+                gain = mise
+            elif kind == 'fixed':
+                gain = min(int(val), 100_000_000)
+            else:
+                gain = min(int(mise * val), 100_000_000)
+
+            user.coins -= mise
+            user.coins += gain
+            await session.commit()
+
+            profit = gain - mise
+            return web.json_response({
+                'ok': True,
+                'label': label,
+                'kind': kind,
+                'val': val,
+                'gain': gain,
+                'profit': profit,
+                'seg_index': seg_index,
+                'total_segs': len(WHEEL_SEGMENTS),
+            })
+
+        # ── CRASH ─────────────────────────────────────────────────────────────
+        if game == 'crash_state':
+            # Polling public — pas besoin d'auth mais on l'a déjà
+            _crash_tick_lobby()
+            return web.json_response(_crash_lobby_public())
+
+        if game == 'crash_start':
+            _crash_tick_lobby()
+            if _CRASH_LOBBY['phase'] != 'waiting':
+                return web.json_response({'error': 'Mises fermées — round en cours'})
+            if uid in _CRASH_LOBBY['players']:
+                return web.json_response({'error': 'Tu as déjà misé ce round'})
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            user.coins -= mise
+            await session.commit()
+
+            display_name = (user.first_name or user.username or f'User{uid}')[:20]
+            avatar = getattr(user, 'avatar_emoji', '👤') or '👤'
+            _CRASH_LOBBY['players'][uid] = {
+                'name': display_name,
+                'avatar': avatar,
+                'mise': mise,
+                'cashed_out': False,
+                'cashout_mult': None,
+            }
+            return web.json_response({'ok': True, **_crash_lobby_public()})
+
+        if game == 'crash_cashout':
+            _crash_tick_lobby()
+            lobby = _CRASH_LOBBY
+            p = lobby['players'].get(uid)
+            if not p:
+                return web.json_response({'error': 'Tu n\'as pas misé ce round'})
+            if p['cashed_out']:
+                return web.json_response({'error': 'Déjà cash out'})
+            if lobby['phase'] != 'flying':
+                return web.json_response({'error': 'Pas en vol actuellement', 'crashed': lobby['phase'] == 'crashed'})
+
+            now = _time_mod.time()
+            elapsed = now - lobby['phase_start']
+            mult = _crash_compute_mult(elapsed)
+            if mult >= lobby['crash_point']:
+                return web.json_response({'error': 'Trop tard — crash !', 'crashed': True})
+
+            p['cashed_out'] = True
+            p['cashout_mult'] = round(mult, 2)
+            gain = int(p['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - p['mise'], 'mult': round(mult, 2)})
+
+        # ── MINES ─────────────────────────────────────────────────────────────
+        if game == 'mines_start':
+            nb_mines = int(body.get('nb_mines', 3))
+            if nb_mines < 1 or nb_mines > 24:
+                return web.json_response({'error': 'Mines : 1-24'})
+            if mise < 100:
+                return web.json_response({'error': 'Mise minimum 100 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            grid = ['safe'] * 25
+            for pos in _random_game.sample(range(25), nb_mines):
+                grid[pos] = 'mine'
+
+            user.coins -= mise
+            await session.commit()
+            _MINES_SESSIONS[uid] = {'mise': mise, 'nb_mines': nb_mines, 'grid': grid, 'revealed': []}
+            return web.json_response({'ok': True})
+
+        if game == 'mines_reveal':
+            idx = int(body.get('idx', 0))
+            sess = _MINES_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            if idx in sess['revealed']:
+                return web.json_response({'error': 'Déjà révélé'})
+
+            sess['revealed'].append(idx)
+            is_mine = sess['grid'][idx] == 'mine'
+
+            if is_mine:
+                full_grid = sess['grid']
+                _MINES_SESSIONS.pop(uid, None)
+                return web.json_response({'ok': True, 'mine': True, 'grid': full_grid})
+
+            nb_revealed = len(sess['revealed'])
+            nb_mines = sess['nb_mines']
+            safe = 25 - nb_mines
+            try:
+                prob = 1.0
+                for i in range(nb_revealed):
+                    prob *= (safe - i) / (25 - i)
+                mult = round(0.97 / prob, 2) if prob > 0 else 1.0
+            except Exception:
+                mult = 1.0
+
+            gain_now = int(sess['mise'] * mult)
+            all_safe = nb_revealed >= safe
+            if all_safe:
+                _MINES_SESSIONS.pop(uid, None)
+                user.coins += gain_now
+                await session.commit()
+
+            return web.json_response({'ok': True, 'mine': False, 'mult': mult, 'gain_now': gain_now, 'all_safe': all_safe})
+
+        if game == 'mines_cashout':
+            sess = _MINES_SESSIONS.pop(uid, None)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            nb_revealed = len(sess['revealed'])
+            nb_mines = sess['nb_mines']
+            safe = 25 - nb_mines
+            try:
+                prob = 1.0
+                for i in range(nb_revealed):
+                    prob *= (safe - i) / (25 - i)
+                mult = round(0.97 / prob, 2) if prob > 0 else 1.0
+            except Exception:
+                mult = 1.0
+            gain = int(sess['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise'], 'mult': mult})
+
+        # ── APPLE OF FORTUNE ──────────────────────────────────────────────────
+        if game == 'apple_start':
+            if mise < _APPLE_MIN:
+                return web.json_response({'error': f'Mise minimum {_APPLE_MIN:,} $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            user.coins -= mise
+            await session.commit()
+            row = _apple_gen_row(1)
+            _APPLE_SESSIONS[uid] = {'mise': mise, 'level': 1, 'row': row}
+            return web.json_response({'ok': True, 'level': 1, 'bombs': _apple_bombs(1)})
+
+        if game == 'apple_pick':
+            col = int(body.get('col', 0))
+            sess = _APPLE_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            row = sess['row']
+            is_bomb = row[col]
+            if is_bomb:
+                _APPLE_SESSIONS.pop(uid, None)
+                return web.json_response({'ok': True, 'bomb': True, 'row': row})
+            # Safe — avance au niveau suivant
+            level = sess['level']
+            mult = _APPLE_MULTS.get(level, 1.0)
+            gain_now = int(sess['mise'] * mult)
+            if level >= 10:
+                # Gagné tout !
+                _APPLE_SESSIONS.pop(uid, None)
+                user.coins += gain_now
+                await session.commit()
+                return web.json_response({'ok': True, 'bomb': False, 'won': True, 'mult': mult, 'gain': gain_now, 'row': row})
+            # Prochain niveau
+            new_level = level + 1
+            new_row = _apple_gen_row(new_level)
+            sess['level'] = new_level
+            sess['row'] = new_row
+            next_mult = _APPLE_MULTS.get(new_level, 1.0)
+            return web.json_response({'ok': True, 'bomb': False, 'won': False, 'level': new_level, 'mult': mult, 'gain_now': gain_now, 'next_mult': next_mult, 'bombs_next': _apple_bombs(new_level), 'row': row})
+
+        if game == 'apple_cashout':
+            sess = _APPLE_SESSIONS.pop(uid, None)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            level = sess['level'] - 1  # le level passé
+            mult = _APPLE_MULTS.get(level, 1.0)
+            gain = int(sess['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise'], 'mult': mult})
+
+        # ── REBET — Quitte ou Double ──────────────────────────────────────────
+        if game == 'rebet_start':
+            MIN_REBET = 5000
+            if mise < MIN_REBET:
+                return web.json_response({'error': f'Mise minimum {MIN_REBET:,} $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            user.coins -= mise
+            await session.commit()
+            _REBET_SESSIONS[uid] = {'mise': mise, 'gains': mise, 'round': 1}
+            return web.json_response({'ok': True, 'gains': mise, 'round': 1})
+
+        if game == 'rebet_action':
+            action = body.get('action')  # 'cash' ou 'double'
+            sess = _REBET_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            if action == 'cash':
+                gains = sess['gains']
+                _REBET_SESSIONS.pop(uid, None)
+                user.coins += gains
+                await session.commit()
+                return web.json_response({'ok': True, 'gained': gains, 'profit': gains - sess['mise']})
+            elif action == 'double':
+                won = _random_game.random() < 0.5
+                if won:
+                    sess['gains'] *= 2
+                    sess['round'] += 1
+                    return web.json_response({'ok': True, 'won': True, 'gains': sess['gains'], 'round': sess['round']})
+                else:
+                    _REBET_SESSIONS.pop(uid, None)
+                    return web.json_response({'ok': True, 'won': False, 'lost': sess['gains']})
+            return web.json_response({'error': 'Action invalide'})
+
+        # ── COCKFIGHT ─────────────────────────────────────────────────────────
+        if game == 'cockfight':
+            mise = int(body.get('mise', 0))
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            import random as _cr
+            def _gen_coq():
+                return {'hp': 100, 'atk': _cr.randint(15, 35), 'def': _cr.randint(5, 20)}
+
+            coq1 = _gen_coq()
+            coq2 = _gen_coq()
+            log = []
+            round_n = 1
+            while coq1['hp'] > 0 and coq2['hp'] > 0 and round_n <= 10:
+                # Player attacks bot
+                dmg1 = max(1, coq1['atk'] - _cr.randint(0, coq2['def']))
+                coq2['hp'] = max(0, coq2['hp'] - dmg1)
+                log.append(f"🐔 Tour {round_n} : Ton coq inflige {dmg1} dégâts (bot : {coq2['hp']} ❤️)")
+                if coq2['hp'] <= 0:
+                    break
+                # Bot attacks player
+                dmg2 = max(1, coq2['atk'] - _cr.randint(0, coq1['def']))
+                coq1['hp'] = max(0, coq1['hp'] - dmg2)
+                log.append(f"🐓 Bot riposte : {dmg2} dégâts (toi : {coq1['hp']} ❤️)")
+                round_n += 1
+
+            if coq1['hp'] > coq2['hp']:
+                winner = 'player'
+                gain = int(mise * 1.8)
+                user.coins += gain - mise
+            elif coq2['hp'] > coq1['hp']:
+                winner = 'bot'
+                gain = 0
+                user.coins -= mise
+            else:
+                winner = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'winner': winner, 'gain': gain if winner == 'player' else 0, 'log': log})
+
+        # ── PPC ───────────────────────────────────────────────────────────────
+        if game == 'ppc':
+            mise = int(body.get('mise', 0))
+            choice = body.get('choice', '')
+            choices = ['pierre', 'papier', 'ciseaux']
+            beats = {'pierre': 'ciseaux', 'papier': 'pierre', 'ciseaux': 'papier'}
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            if choice not in choices:
+                return web.json_response({'error': 'Choix invalide'})
+
+            import random as _pr
+            bot_choice = _pr.choice(choices)
+            if beats[choice] == bot_choice:
+                result = 'win'
+                gain = int(mise * 1.9)
+                user.coins += gain - mise
+            elif beats[bot_choice] == choice:
+                result = 'lose'
+                gain = 0
+                user.coins -= mise
+            else:
+                result = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'result': result, 'bot_choice': bot_choice, 'gain': gain if result == 'win' else 0})
+
+        # ── LANCER DE DÉS ────────────────────────────────────────────────────
+        if game == 'lancer':
+            mise = int(body.get('mise', 0))
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            import random as _lr
+            p1 = [_lr.randint(1, 6), _lr.randint(1, 6)]
+            p2 = [_lr.randint(1, 6), _lr.randint(1, 6)]
+            t1, t2 = sum(p1), sum(p2)
+            if t1 > t2:
+                winner = 'player'
+                gain = int(mise * 1.9)
+                user.coins += gain - mise
+            elif t2 > t1:
+                winner = 'bot'
+                gain = 0
+                user.coins -= mise
+            else:
+                winner = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'winner': winner, 'p1_dice': p1, 'p2_dice': p2,
+                                      'p1_total': t1, 'p2_total': t2, 'gain': gain if winner == 'player' else 0})
+
+    return web.json_response({'error': 'Jeu inconnu'}, status=400)
+
+
+_CRASH_SESSIONS: dict = {}   # legacy, kept for compat
+_MINES_SESSIONS: dict = {}
+_APPLE_SESSIONS: dict = {}
+_REBET_SESSIONS: dict = {}
+
+# ── Crash Multijoueur ─────────────────────────────────────────────────────────
+import time as _time_mod
+
+_CRASH_LOBBY: dict = {
+    # phase: 'waiting' | 'flying' | 'crashed'
+    'phase': 'waiting',
+    'round_id': 0,
+    'phase_start': 0.0,      # timestamp début de la phase courante
+    'betting_duration': 10.0, # secondes d'ouverture des mises
+    'crash_point': 1.0,
+    'players': {},  # uid -> {name, avatar, mise, cashed_out, cashout_mult}
 }
+_CRASH_LOBBY_HISTORY: list = []  # derniers rounds [{round_id, crash_point, ts}]
 
-function renderOnlineUsers() {
-  const el = document.getElementById('sh-online-list');
-  if (!el) return;
-  if (!_onlineUsers.length) {
-    el.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:10px 0;">Aucun utilisateur en ligne récemment.</div>';
-    return;
-  }
-  el.innerHTML = _onlineUsers.map(u => {
-    const photoUrl = `/api/webapp/photo?user_id=${u.user_id}`;
-    const relIcon = u.relation === 'spouse' ? '💍' : u.relation === 'friend' ? '🤝' : '';
-    return `
-      <div onclick="openOnlineModal(${u.user_id})" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-width:64px;max-width:72px;">
-        <div style="position:relative;width:56px;height:56px;">
-          <div style="width:56px;height:56px;border-radius:50%;overflow:hidden;background:#2a2a4a;border:2px solid rgba(255,255,255,.1);">
-            <img src="${photoUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='<div style=\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px;background:#2a2a4a;border-radius:50%;\\'>👤</div>'">
-          </div>
-          <div style="position:absolute;bottom:1px;right:1px;width:12px;height:12px;border-radius:50%;background:#55efc4;border:2px solid #0f0f1a;"></div>
-          ${relIcon ? `<div style="position:absolute;top:-2px;left:-2px;font-size:14px;">${relIcon}</div>` : ''}
-        </div>
-        <div style="font-size:11px;font-weight:700;color:var(--text);text-align:center;max-width:64px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.name}</div>
-      </div>
-    `;
-  }).join('');
-}
+def _crash_compute_mult(elapsed: float) -> float:
+    """Même formule que le front : 1 + t*0.12 + t^1.5*0.04"""
+    return round(1.0 + elapsed * 0.12 + (elapsed ** 1.5) * 0.04, 2)
 
-function openOnlineModal(userId) {
-  const u = _onlineUsers.find(x => x.user_id === userId);
-  if (!u) return;
+def _crash_tick_lobby() -> None:
+    """Avancer le lobby selon l'heure. Appelé avant chaque lecture/écriture."""
+    lobby = _CRASH_LOBBY
+    now = _time_mod.time()
+    elapsed = now - lobby['phase_start']
 
-  const photoUrl = `/api/webapp/photo?user_id=${userId}`;
-  const imgEl = document.getElementById('om-photo');
-  const fallback = document.getElementById('om-photo-fallback');
-  imgEl.style.display = 'block';
-  fallback.style.display = 'none';
-  imgEl.src = photoUrl;
-  imgEl.onerror = () => { imgEl.style.display='none'; fallback.style.display='flex'; };
+    if lobby['phase'] == 'waiting':
+        if elapsed >= lobby['betting_duration']:
+            # Lancer le vol
+            r = _random_game.random()
+            if r < 0.05:
+                cp = 1.0
+            else:
+                cp = round(min(0.99 / (1 - r * 0.95), 100.0), 2)
+            lobby['crash_point'] = cp
+            lobby['phase'] = 'flying'
+            lobby['phase_start'] = now
 
-  document.getElementById('om-name').textContent = u.name;
-  document.getElementById('om-username').textContent = u.username ? `@${u.username}` : '';
-  document.getElementById('om-coins').textContent = Number(u.coins).toLocaleString('fr-FR') + ' $';
+    elif lobby['phase'] == 'flying':
+        mult = _crash_compute_mult(elapsed)
+        if mult >= lobby['crash_point']:
+            # Crash !
+            lobby['phase'] = 'crashed'
+            lobby['phase_start'] = now
+            # Ajouter à l'historique
+            _CRASH_LOBBY_HISTORY.append({
+                'round_id': lobby['round_id'],
+                'crash_point': lobby['crash_point'],
+                'ts': now,
+            })
+            if len(_CRASH_LOBBY_HISTORY) > 20:
+                _CRASH_LOBBY_HISTORY.pop(0)
 
-  // Badge relation
-  const badge = document.getElementById('om-relation-badge');
-  if (u.relation === 'spouse') {
-    badge.style.display = 'inline-block';
-    badge.style.background = 'rgba(253,121,168,.15)';
-    badge.style.color = '#fd79a8';
-    badge.style.border = '1px solid rgba(253,121,168,.3)';
-    badge.textContent = '💍 Marié(e)';
-  } else if (u.relation === 'friend') {
-    badge.style.display = 'inline-block';
-    badge.style.background = 'rgba(116,185,255,.15)';
-    badge.style.color = '#74b9ff';
-    badge.style.border = '1px solid rgba(116,185,255,.3)';
-    badge.textContent = '🤝 Ami(e)';
-  } else {
-    badge.style.display = 'none';
-  }
+    elif lobby['phase'] == 'crashed':
+        if elapsed >= 5.0:
+            # Nouveau round
+            lobby['round_id'] += 1
+            lobby['phase'] = 'waiting'
+            lobby['phase_start'] = now
+            lobby['crash_point'] = 1.0
+            lobby['players'] = {}
 
-  // Last seen
-  const lsEl = document.getElementById('om-lastseen');
-  if (u.last_seen) {
-    const diff = Math.floor((Date.now() - new Date(u.last_seen+'Z').getTime()) / 60000);
-    lsEl.textContent = diff < 2 ? '🟢 En ligne maintenant' : `🟡 Vu il y a ${diff} min`;
-  }
+def _crash_lobby_public() -> dict:
+    """Renvoie l'état public du lobby (sans crash_point si flying)."""
+    lobby = _CRASH_LOBBY
+    now = _time_mod.time()
+    elapsed = now - lobby['phase_start']
+    mult = _crash_compute_mult(elapsed) if lobby['phase'] == 'flying' else 1.0
 
-  // Actions
-  const actions = document.getElementById('om-actions');
-  const hasRel = u.relation === 'spouse' || u.relation === 'friend';
+    players_list = []
+    for uid, p in lobby['players'].items():
+        players_list.append({
+            'name': p['name'],
+            'avatar': p['avatar'],
+            'mise': p['mise'],
+            'cashed_out': p['cashed_out'],
+            'cashout_mult': p.get('cashout_mult'),
+        })
 
-  let btns = '';
-  if (!hasRel) {
-    btns += `
-      <button onclick="sendSocialCmd('/ami @${u.username || u.user_id}')" style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#74b9ff,#0077b6);color:#fff;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">🤝 Demande d'ami</button>
-      <button onclick="sendSocialCmd('/mariage @${u.username || u.user_id}')" style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#fd79a8,#e84393);color:#fff;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💍 Proposer le mariage</button>
-    `;
-  } else if (u.relation === 'friend') {
-    btns += `<div style="text-align:center;padding:12px;background:rgba(116,185,255,.08);border-radius:10px;border:1px solid rgba(116,185,255,.2);font-size:13px;color:#74b9ff;">🤝 Vous êtes déjà amis</div>`;
-    btns += `<button onclick="sendSocialCmd('/mariage @${u.username || u.user_id}')" style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#fd79a8,#e84393);color:#fff;font-family:'Bangers',cursive;font-size:18px;letter-spacing:1px;cursor:pointer;">💍 Proposer le mariage</button>`;
-  } else {
-    btns += `<div style="text-align:center;padding:12px;background:rgba(253,121,168,.08);border-radius:10px;border:1px solid rgba(253,121,168,.2);font-size:13px;color:#fd79a8;">💍 Vous êtes mariés</div>`;
-  }
-  btns += `<button onclick="closeOnlineModal()" style="padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:none;color:var(--text2);font-size:14px;cursor:pointer;">Fermer</button>`;
-  actions.innerHTML = btns;
-
-  // Show modal
-  const modal = document.getElementById('online-user-modal');
-  modal.style.display = 'flex';
-  requestAnimationFrame(() => {
-    document.getElementById('online-modal-sheet').style.transform = 'translateY(0)';
-  });
-}
-
-function closeOnlineModal() {
-  const sheet = document.getElementById('online-modal-sheet');
-  sheet.style.transform = 'translateY(100%)';
-  setTimeout(() => { document.getElementById('online-user-modal').style.display = 'none'; }, 350);
-}
-
-function sendSocialCmd(cmd) {
-  closeOnlineModal();
-  showToast(`💬 Envoie la commande dans le bot :\n${cmd}`, false, 4000);
-  if (tg && tg.switchInlineQuery) {
-    try { tg.close(); } catch(e) {}
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  ⚙️ PARAMÈTRES
-// ════════════════════════════════════════════════════════════════════════════
-const SETTINGS_DEFAULTS = {
-  sfx: true, music: true, darkplus: false, bigtext: false,
-  animations: true, notif_gain: true, notif_bid: true,
-  hide_balance: false, hide_rank: false, volume: 70
-};
-let _settings = {};
-
-function _loadSettings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('fb_settings') || '{}');
-    _settings = { ...SETTINGS_DEFAULTS, ...saved };
-  } catch(e) { _settings = { ...SETTINGS_DEFAULTS }; }
-  _applySettings();
-}
-
-function _saveSettings() {
-  try { localStorage.setItem('fb_settings', JSON.stringify(_settings)); } catch(e) {}
-}
-
-function _applySettings() {
-  const b = document.body;
-  b.classList.toggle('darkplus',    !!_settings.darkplus);
-  b.classList.toggle('bigtext',     !!_settings.bigtext);
-  b.classList.toggle('no-animations', !_settings.animations);
-  b.classList.toggle('hide-balance', !!_settings.hide_balance);
-}
-
-function openSettings() {
-  SFX.open();
-  document.getElementById('settings-uid-val').textContent = uid ? '#' + uid : '—';
-  // Sync toggles
-  Object.keys(SETTINGS_DEFAULTS).forEach(k => {
-    const el = document.getElementById('toggle-' + k);
-    if (el) el.classList.toggle('on', !!_settings[k]);
-  });
-  const vol = document.getElementById('settings-vol');
-  if (vol) vol.value = _settings.volume ?? 70;
-  document.getElementById('modal-settings').style.display = 'block';
-}
-
-function closeSettings() {
-  SFX.close();
-  document.getElementById('modal-settings').style.display = 'none';
-}
-
-function settingsToggle(key) {
-  SFX.click();
-  _settings[key] = !_settings[key];
-  const el = document.getElementById('toggle-' + key);
-  if (el) el.classList.toggle('on', !!_settings[key]);
-  _saveSettings();
-  _applySettings();
-
-  // Actions spéciales
-  if (key === 'sfx') {
-    if (!_settings.sfx) SFX.stopMusic();
-    // Sync SFX engine
-    try { SFX._setEnabled(_settings.sfx); } catch(e) {}
-  }
-  if (key === 'music' && !_settings.music) SFX.stopMusic();
-  if (key === 'darkplus') showToast(_settings.darkplus ? '🌙 Mode nuit activé' : '☀️ Mode nuit désactivé');
-  if (key === 'bigtext') showToast(_settings.bigtext ? '🔡 Texte agrandi' : '🔡 Texte normal');
-  if (key === 'hide_balance') showToast(_settings.hide_balance ? '🔒 Solde masqué' : '👁 Solde visible');
-}
-
-function settingsVolume(val) {
-  _settings.volume = parseInt(val);
-  _saveSettings();
-}
-
-function settingsResetCache() {
-  SFX.click();
-  _cachedUser = null;
-  _cachedFamily = null;
-  showToast('♻️ Cache vidé — rechargement…');
-  setTimeout(() => loadData(), 800);
-  closeSettings();
-}
-
-// Fermer en cliquant dehors
-document.getElementById('modal-settings')?.addEventListener('click', function(e) {
-  if (e.target === this) closeSettings();
-});
-
-// Patch mainTab pour ouvrir settings
-const _origMainTabSettings = window.mainTab;
-window.mainTab = function(key, el) {
-  if (key === 'settings') { openSettings(); return; }
-  return _origMainTabSettings(key, el);
-};
-
-// Init settings au démarrage
-_loadSettings();
-
-// ════════════════════════════════════════════════════════════════════════════
-//  🔊 SOUND ENGINE — Web Audio API (zéro fichier externe)
-// ════════════════════════════════════════════════════════════════════════════
-const SFX = (() => {
-  let ctx = null;
-  let enabled = true;
-  let musicNode = null, musicGain = null;
-
-  function _ctx() {
-    if (!ctx) {
-      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { return null; }
+    result = {
+        'phase': lobby['phase'],
+        'round_id': lobby['round_id'],
+        'elapsed': round(elapsed, 2),
+        'mult': round(mult, 2),
+        'betting_remaining': max(0.0, round(lobby['betting_duration'] - elapsed, 1)) if lobby['phase'] == 'waiting' else 0.0,
+        'players': players_list,
+        'history': _CRASH_LOBBY_HISTORY[-10:],
     }
-    if (ctx.state === 'suspended') ctx.resume();
-    return ctx;
-  }
+    if lobby['phase'] == 'crashed':
+        result['crash_point'] = lobby['crash_point']
+    return result
 
-  function _osc(freq, type, duration, vol=0.3, delay=0) {
-    if (!enabled) return;
-    const c = _ctx(); if (!c) return;
-    const o = c.createOscillator();
-    const g = c.createGain();
-    o.connect(g); g.connect(c.destination);
-    o.type = type; o.frequency.value = freq;
-    const t = c.currentTime + delay;
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vol, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.001, t + duration);
-    o.start(t); o.stop(t + duration + 0.05);
-  }
+# ── Apple of Fortune constants ────────────────────────────────────────────────
+_APPLE_MULTS = {1:1.50,2:2.10,3:3.20,4:4.80,5:7.00,6:12.00,7:22.00,8:45.00,9:100.00,10:500.00}
+_APPLE_MIN   = 50_000
 
-  function _noise(duration, vol=0.15, delay=0) {
-    if (!enabled) return;
-    const c = _ctx(); if (!c) return;
-    const buf = c.createBuffer(1, c.sampleRate * duration, c.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-    const src = c.createBufferSource();
-    const g = c.createGain();
-    const filt = c.createBiquadFilter();
-    src.buffer = buf;
-    filt.type = 'bandpass'; filt.frequency.value = 800;
-    src.connect(filt); filt.connect(g); g.connect(c.destination);
-    const t = c.currentTime + delay;
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + duration);
-    src.start(t); src.stop(t + duration + 0.05);
-  }
+def _apple_bombs(level: int) -> int:
+    if level <= 2: return 2
+    if level <= 8: return 3
+    return 4
 
-  function _chord(freqs, type, duration, vol=0.2) {
-    freqs.forEach((f, i) => _osc(f, type, duration, vol, i * 0.03));
-  }
+def _apple_gen_row(level: int) -> list:
+    import random as _r
+    n = _apple_bombs(level)
+    row = [False]*5
+    for pos in _r.sample(range(5), n):
+        row[pos] = True
+    return row  # True = bombe
 
-  const sounds = {
-    // UI générique
-    click()     { _osc(880, 'sine', 0.06, 0.15); },
-    tap()       { _osc(660, 'sine', 0.05, 0.1); },
-    back()      { _osc(440, 'sine', 0.08, 0.12); },
-    open()      { _osc(523, 'sine', 0.05, 0.1); _osc(659, 'sine', 0.08, 0.1, 0.05); },
-    close()     { _osc(659, 'sine', 0.05, 0.1); _osc(523, 'sine', 0.08, 0.1, 0.05); },
-    toast()     { _osc(800, 'sine', 0.04, 0.08); _osc(1000, 'sine', 0.07, 0.1, 0.04); },
 
-    // Succès / gains
-    coin()      {
-      [523, 659, 784, 1047].forEach((f, i) => _osc(f, 'sine', 0.12, 0.2, i * 0.05));
-    },
-    win()       {
-      [523, 659, 784, 1047, 1319].forEach((f, i) => _osc(f, 'triangle', 0.18, 0.25, i * 0.06));
-    },
-    bigwin()    {
-      [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => _osc(f, 'triangle', 0.25, 0.35, i * 0.055));
-      setTimeout(() => _noise(0.3, 0.08), 350);
-    },
-    jackpot()   {
-      const seq = [523,659,784,1047,1319,1568,2093];
-      seq.forEach((f, i) => { _osc(f,'triangle', 0.3, 0.4, i*0.07); _osc(f*2,'sine', 0.15, 0.1, i*0.07+0.01); });
-      setTimeout(() => { for(let i=0;i<5;i++) _noise(0.1, 0.12, i*0.06); }, 500);
-    },
-    daily()     {
-      [523, 784, 1047].forEach((f,i) => _osc(f, 'triangle', 0.2, 0.3, i*0.08));
-      setTimeout(() => _osc(1568, 'sine', 0.3, 0.25), 280);
-    },
+async def webapp_profile_customize(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/customize — Sauvegarder thème cover + badges équipés."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
 
-    // Pertes / erreurs
-    lose()      { _osc(300, 'sawtooth', 0.15, 0.2); _osc(220, 'sawtooth', 0.2, 0.15, 0.1); },
-    error()     { _osc(200, 'square', 0.08, 0.15); _osc(180, 'square', 0.12, 0.1, 0.08); },
-    denied()    { _osc(250, 'sawtooth', 0.12, 0.18); },
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
 
-    // ── CRASH GAME ──
-    crashTick() {
-      const mult = parseFloat(document.getElementById('crash-mult-display')?.textContent) || 1;
-      const freq = Math.min(200 + mult * 80, 1800);
-      _osc(freq, 'sine', 0.04, 0.06);
-    },
-    crashRise() {
-      // Son qui monte en continu pendant le crash (lancé en boucle)
-      _osc(400, 'sawtooth', 0.08, 0.05);
-    },
-    crashExplode() {
-      // BOOM réaliste — comme 1xBet Crash
-      const c = _ctx(); if (!c) return;
-      // Couche 1 : sub-bass punch (le "thud" de l'impact)
-      const sub = c.createOscillator();
-      const subG = c.createGain();
-      sub.connect(subG); subG.connect(c.destination);
-      sub.type = 'sine'; sub.frequency.setValueAtTime(120, c.currentTime);
-      sub.frequency.exponentialRampToValueAtTime(30, c.currentTime + 0.4);
-      subG.gain.setValueAtTime(0, c.currentTime);
-      subG.gain.linearRampToValueAtTime(0.9, c.currentTime + 0.01);
-      subG.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.5);
-      sub.start(c.currentTime); sub.stop(c.currentTime + 0.55);
-      // Couche 2 : mid punch
-      const mid = c.createOscillator();
-      const midG = c.createGain();
-      mid.connect(midG); midG.connect(c.destination);
-      mid.type = 'sawtooth'; mid.frequency.setValueAtTime(200, c.currentTime);
-      mid.frequency.exponentialRampToValueAtTime(50, c.currentTime + 0.3);
-      midG.gain.setValueAtTime(0.5, c.currentTime);
-      midG.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.35);
-      mid.start(c.currentTime); mid.stop(c.currentTime + 0.4);
-      // Couche 3 : bruit blanc filtré (le "crunch")
-      const bufSize = c.sampleRate * 0.8;
-      const buf = c.createBuffer(1, bufSize, c.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
-      const noise = c.createBufferSource();
-      const noiseG = c.createGain();
-      const lowp = c.createBiquadFilter();
-      lowp.type = 'lowpass'; lowp.frequency.value = 1200;
-      noise.buffer = buf;
-      noise.connect(lowp); lowp.connect(noiseG); noiseG.connect(c.destination);
-      noiseG.gain.setValueAtTime(0.6, c.currentTime);
-      noiseG.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.7);
-      noise.start(c.currentTime); noise.stop(c.currentTime + 0.8);
-      // Couche 4 : réverbération courte (écho du boom)
-      setTimeout(() => {
-        const buf2 = c.createBuffer(1, c.sampleRate * 0.3, c.sampleRate);
-        const d2 = buf2.getChannelData(0);
-        for (let i = 0; i < d2.length; i++) d2[i] = (Math.random() * 2 - 1) * Math.exp(-i / (c.sampleRate * 0.08));
-        const n2 = c.createBufferSource();
-        const g2 = c.createGain();
-        n2.buffer = buf2; n2.connect(g2); g2.connect(c.destination);
-        g2.gain.value = 0.2;
-        n2.start(); n2.stop(c.currentTime + 0.35);
-      }, 80);
-    },
-    crashCashout() {
-      // Cash out réussi
-      [784, 1047, 1319].forEach((f,i) => _osc(f, 'triangle', 0.15, 0.3, i*0.06));
-      setTimeout(() => _osc(1568, 'sine', 0.2, 0.2), 220);
-    },
-    crashBet()  { _osc(523, 'sine', 0.06, 0.15); _osc(659, 'sine', 0.08, 0.12, 0.05); },
-    crashCount(){ _osc(440, 'sine', 0.04, 0.08); },
+    cover_theme     = body.get('cover_theme', 'purple')
+    cover_fx        = body.get('cover_fx', '')
+    badges_equipped = body.get('badges_equipped', [])
 
-    // ── MINES ──
-    mineReveal()  { _osc(700 + Math.random()*200, 'sine', 0.07, 0.15); },
-    mineSafe()    { _osc(880, 'triangle', 0.1, 0.2); },
-    mineBoom()    {
-      _noise(0.8, 0.5);
-      _osc(60, 'sawtooth', 0.6, 0.5);
-      _osc(40, 'square', 0.5, 0.4, 0.08);
-      setTimeout(() => _noise(0.4, 0.25), 300);
-    },
-    mineCash()    { [659, 784, 1047].forEach((f,i) => _osc(f, 'triangle', 0.15, 0.25, i*0.06)); },
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
 
-    // ── ROUE ──
-    wheelSpin()  {
-      // Tick qui accélère
-      let delay = 0, interval = 0.18;
-      for (let i = 0; i < 20; i++) {
-        _osc(600 + i*20, 'square', 0.03, 0.08, delay);
-        delay += interval;
-        interval *= 0.88;
-      }
-    },
-    wheelTick()  { _osc(800, 'square', 0.03, 0.1); },
-    wheelStop()  {
-      _osc(523, 'triangle', 0.12, 0.3);
-      setTimeout(() => sounds.win(), 200);
-    },
+        # Lire la customisation actuelle — PRÉSERVER badges_owned
+        try:
+            current = json.loads(user.profile_color) if user.profile_color and user.profile_color.startswith('{') else {}
+        except Exception:
+            current = {}
 
-    // ── APPLE / GRILLE ──
-    appleFlip()  { _osc(500 + Math.random()*400, 'sine', 0.08, 0.12); },
-    appleMatch() { [784, 1047].forEach((f,i) => _osc(f, 'triangle', 0.12, 0.25, i*0.05)); },
-    appleFail()  { _osc(250, 'sawtooth', 0.15, 0.2); },
+        current['cover_theme']     = cover_theme
+        current['cover_fx']        = cover_fx
+        current['badges_equipped'] = badges_equipped
+        # badges_owned est préservé tel quel — on ne l'écrase jamais ici
 
-    // ── COCKFIGHT ──
-    fightStart() { _noise(0.2, 0.2); _osc(300, 'sawtooth', 0.15, 0.2, 0.1); },
-    fightWin()   { sounds.win(); },
-    fightLose()  { sounds.lose(); },
+        user.profile_color = json.dumps(current)
+        session.add(user)
+        await session.commit()
 
-    // ── PPC (Pierre Papier Ciseaux) ──
-    ppcThrow()   { _noise(0.12, 0.15); },
-    ppcWin()     { sounds.win(); },
-    ppcLose()    { sounds.lose(); },
+    return web.json_response({'ok': True})
 
-    // ── LANCER ──
-    lancerThrow()  { _osc(400, 'sawtooth', 0.06, 0.2); _osc(800, 'sine', 0.08, 0.12, 0.04); },
-    lancerLand()   { _noise(0.1, 0.2); },
 
-    // ── REBET ──
-    rebetFlip()  { _osc(600, 'square', 0.05, 0.12); },
-    rebetWin()   { sounds.win(); },
-    rebetLose()  { sounds.lose(); },
+async def webapp_profile_badge_buy(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/badge/buy — Acheter un badge avec des coins."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
 
-    // ── ENCHÈRES ──
-    bid()        { [523, 659].forEach((f,i) => _osc(f, 'triangle', 0.1, 0.2, i*0.05)); },
-    bidWon()     { sounds.bigwin(); },
-    bidTimer()   { _osc(880, 'sine', 0.04, 0.08); },
+    uid      = int(body.get('user_id', 0))
+    badge_id = body.get('badge_id', '')
+    price    = int(body.get('price', 0))
 
-    // ── PROFIL / BADGES ──
-    badge()      { [784, 1047, 1319].forEach((f,i) => _osc(f, 'triangle', 0.2, 0.3, i*0.07)); },
-    levelUp()    { sounds.jackpot(); },
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not badge_id or price < 0:
+        return web.json_response({'error': 'Paramètres invalides'}, status=400)
 
-    // ── ÉCONOMIE ──
-    buy()        { [523, 784].forEach((f,i) => _osc(f, 'sine', 0.12, 0.2, i*0.06)); },
-    sell()       { _osc(659, 'triangle', 0.1, 0.2); _osc(523, 'triangle', 0.12, 0.15, 0.07); },
-    invest()     { sounds.coin(); },
-    bankDeposit(){ [523, 659, 784].forEach((f,i) => _osc(f,'sine', 0.12, 0.2, i*0.05)); },
+    VALID_BADGES = {'gold_star','diamond','fire','crown','rocket','skull','trophy','unicorn'}
+    if badge_id not in VALID_BADGES:
+        return web.json_response({'error': 'Badge inconnu'}, status=400)
 
-    // ── GARDEN ──
-    plant()      { _osc(523, 'sine', 0.08, 0.15); _osc(659, 'sine', 0.1, 0.12, 0.06); },
-    harvest()    { sounds.coin(); },
-  };
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
 
-  // Musique d'ambiance casino (boucle générée)
-  function startCasinoMusic() {
-    if (!enabled) return;
-    const c = _ctx(); if (!c) return;
-    stopMusic();
-    musicGain = c.createGain();
-    musicGain.gain.value = 0.04;
-    musicGain.connect(c.destination);
+        try:
+            current = json.loads(user.profile_color or '{}') if user.profile_color and user.profile_color.startswith('{') else {}
+        except Exception:
+            current = {}
 
-    const notes = [261, 293, 329, 349, 392, 440, 493, 523];
-    let step = 0;
-    const playNote = () => {
-      if (!musicGain) return;
-      const o = c.createOscillator();
-      const g = c.createGain();
-      o.connect(g); g.connect(musicGain);
-      o.type = 'triangle';
-      o.frequency.value = notes[step % notes.length] * (step % 16 < 8 ? 1 : 1.5);
-      const t = c.currentTime;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.5, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-      o.start(t); o.stop(t + 0.4);
-      step++;
-    };
-    musicNode = setInterval(playNote, 380);
-  }
+        owned = current.get('badges_owned', [])
+        if badge_id in owned:
+            return web.json_response({'error': 'Badge déjà possédé'})
 
-  function stopMusic() {
-    if (musicNode) { clearInterval(musicNode); musicNode = null; }
-    if (musicGain) { try { musicGain.disconnect(); } catch(e) {} musicGain = null; }
-  }
+        if (user.coins or 0) < price:
+            return web.json_response({'error': f'Fonds insuffisants ({_fmt(user.coins)} $ disponible)'})
 
-  function toggle() {
-    enabled = !enabled;
-    if (!enabled) stopMusic();
-    localStorage.setItem('sfx_enabled', enabled ? '1' : '0');
-    return enabled;
-  }
+        user.coins -= price
+        owned.append(badge_id)
+        current['badges_owned'] = owned
+        user.profile_color = json.dumps(current)
+        session.add(user)
+        await session.commit()
 
-  // Init
-  try { enabled = localStorage.getItem('sfx_enabled') !== '0'; } catch(e) {}
+    return web.json_response({'ok': True, 'badges_owned': owned})
 
-  return { ...sounds, startCasinoMusic, stopMusic, toggle, isEnabled: () => enabled,
-    _setEnabled: (v) => { enabled = v; if (!v) stopMusic(); },
-    setVolume: (v) => { /* volume global via masterGain si implémenté */ }
-  };
-})();
 
-// Déclenchement du contexte audio au premier tap (obligatoire mobile)
-document.addEventListener('touchstart', () => { SFX.click(); }, { once: true, passive: true });
-document.addEventListener('click', () => { }, { once: true });
+async def webapp_profile_photo(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/photo — Sauvegarder une photo de profil personnalisée (base64).
+    Stocke le contenu en tant que données brutes dans un champ dédié, servi ensuite
+    par /api/webapp/photo comme fallback si photo_file_id Telegram est absent.
+    """
+    import base64 as _b64
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
 
-// ── Patch showToast pour son ──
-const _origShowToast = showToast;
-window.showToast = function(msg, dur) {
-  const isErr = msg && (msg.includes('❌') || msg.includes('Erreur') || msg.includes('erreur'));
-  const isWin = msg && (msg.includes('✅') || msg.includes('🎁') || msg.includes('+') || msg.includes('gagné'));
-  if (isErr) SFX.error(); else if (isWin) SFX.coin(); else SFX.toast();
-  return _origShowToast(msg, dur);
-};
+    uid          = int(body.get('user_id', 0))
+    photo_b64    = body.get('photo_b64', '') or body.get('photo_base64', '')  # les deux clés acceptées
 
-// ── Patch navigation pour sons ──
-const _origMainTab = window.mainTab;
-window.mainTab = function(key, el) {
-  SFX.tap();
-  return _origMainTab(key, el);
-};
-const _origPlusGo = window.plusGo;
-window.plusGo = function(key) {
-  key === 'hub' ? SFX.back() : SFX.open();
-  return _origPlusGo(key);
-};
-const _origOpenGame = window.openGame;
-window.openGame = function(name) {
-  SFX.open();
-  if (name === 'crash') SFX.startCasinoMusic();
-  return _origOpenGame(name);
-};
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not photo_b64:
+        return web.json_response({'error': 'Photo manquante'})
 
-// ── Patch crash ──
-const _origCrashBet = window.crashBet;
-window.crashBet = function() { SFX.crashBet(); return _origCrashBet(); };
-const _origCrashCashOut = window.crashCashOut;
-window.crashCashOut = function() { SFX.crashCashout(); return _origCrashCashOut(); };
-const _origCrashApplyState = window.crashApplyState;
-window.crashApplyState = function(d) {
-  const wasCrashed = window._lastCrashStatus === 'crashed';
-  const prev = window._lastCrashStatus;
-  window._lastCrashStatus = d.status;
-  if (d.status === 'flying' && prev !== 'flying') SFX.startCasinoMusic();
-  if (d.status === 'crashed' && !wasCrashed) { SFX.stopMusic(); SFX.crashExplode(); }
-  if (d.status === 'waiting' && prev === 'crashed') SFX.stopMusic();
-  return _origCrashApplyState(d);
-};
+    # Extraire le contenu brut
+    try:
+        if ',' in photo_b64:
+            header, data = photo_b64.split(',', 1)
+        else:
+            data = photo_b64
+        img_bytes = _b64.b64decode(data)
+    except Exception:
+        return web.json_response({'error': 'Image invalide'})
 
-// Tick son crash pendant le vol
-const _origDrawCrashFrame = window.drawCrashFrame;
-window.drawCrashFrame = function(ctx, c, mult, crashed) {
-  if (!crashed && mult > 1 && Math.round(mult * 10) % 3 === 0) SFX.crashTick();
-  return _origDrawCrashFrame(ctx, c, mult, crashed);
-};
+    # Limite 5 Mo
+    if len(img_bytes) > 5 * 1024 * 1024:
+        return web.json_response({'error': 'Image trop lourde (max 5 Mo)'})
 
-// ── Patch mines ──
-const _origMinesReveal = window.minesReveal;
-window.minesReveal = function(idx) {
-  SFX.mineReveal();
-  return _origMinesReveal(idx);
-};
-const _origMinesStart = window.minesStart;
-window.minesStart = function() { SFX.crashBet(); return _origMinesStart(); };
-const _origMinesCashOut = window.minesCashOut;
-window.minesCashOut = function() { SFX.mineCash(); return _origMinesCashOut(); };
+    # Stocker en base : on réutilise photo_file_id avec un préfixe spécial
+    # "custom:<base64>" — le proxy /photo détecte ce préfixe et renvoie les bytes directement
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'Utilisateur introuvable'}, status=404)
 
-// ── Patch roue ──
-const _origOpenRoue = window.openGame;
-// Roue spin son via patch du bouton
-document.addEventListener('click', function(e) {
-  const t = e.target.closest('button');
-  if (!t) return;
-  const id = t.id || '';
-  const txt = t.textContent || '';
+        # Stocker le base64 encodé dans photo_file_id avec préfixe custom:
+        user.photo_file_id   = 'custom:' + data[:2000]  # tronqué pour la clé
+        user.photo_file_type = 'custom_b64'
+        # Stocker le base64 complet dans avatar_data.photo si possible (champ Text)
+        try:
+            existing = json.loads(user.avatar_data or '{}') if user.avatar_data else {}
+        except Exception:
+            existing = {}
+        existing['_custom_photo'] = data  # base64 complet
+        user.avatar_data = json.dumps(existing)
+        session.add(user)
+        await session.commit()
 
-  // Sons navigation
-  if (t.classList.contains('nav-btn') || t.classList.contains('sh2-back-btn')) SFX.tap();
-  if (t.classList.contains('back-btn')) SFX.back();
+    return web.json_response({'ok': True})
 
-  // Sons jeux
-  if (id === 'roue-spin-btn' || txt.includes('Tourner')) SFX.wheelSpin();
-  if (id === 'apple-start-btn' || id === 'apple-cashout-btn') SFX.appleFlip();
-  if (id === 'cockfight-start-btn' || txt.includes('Parier')) SFX.fightStart();
-  if (id.startsWith('ppc-btn') || t.dataset.action === 'ppc') SFX.ppcThrow();
-  if (id === 'lancer-start-btn' || txt.includes('Lancer')) SFX.lancerThrow();
-  if (id === 'rebet-start-btn' || txt.includes('Doubler')) SFX.rebetFlip();
 
-  // Sons économie
-  if (txt.includes('Acheter') || txt.includes('Investir')) SFX.buy();
-  if (txt.includes('Vendre') || txt.includes('Expert')) SFX.sell();
-  if (txt.includes('Déposer') || txt.includes('Épargner')) SFX.bankDeposit();
+def setup_webapp_routes(app: web.Application):
+    """Enregistre les routes de la Mini App."""
+    app.router.add_get('/',                       webapp_index)
+    app.router.add_get('/webapp',                 webapp_index)
+    app.router.add_post('/api/webapp/load',       webapp_load_app)
+    app.router.add_post('/api/webapp/profile/customize',   webapp_profile_customize)
+    app.router.add_post('/api/webapp/profile/badge/buy',   webapp_profile_badge_buy)
+    app.router.add_post('/api/webapp/profile/photo',       webapp_profile_photo)
+    app.router.add_get('/api/webapp/user',        webapp_user)
+    app.router.add_get('/api/webapp/photo',       webapp_photo_proxy)
+    app.router.add_post('/api/webapp/avatar',     webapp_save_avatar)
+    app.router.add_get('/api/webapp/market',      webapp_market_catalog)
+    app.router.add_get('/api/webapp/portfolio',   webapp_market_portfolio)
+    app.router.add_post('/api/webapp/market/action', webapp_market_action)
+    app.router.add_post('/api/webapp/game',       webapp_game)
+    # ── Banque ──────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/bank',         webapp_bank_data)
+    app.router.add_post('/api/webapp/bank/open',   webapp_bank_open)
+    app.router.add_post('/api/webapp/bank/deposit',webapp_bank_deposit)
+    app.router.add_post('/api/webapp/bank/withdraw',webapp_bank_withdraw)
+    app.router.add_post('/api/webapp/bank/loan',   webapp_bank_loan)
+    app.router.add_post('/api/webapp/bank/repay',  webapp_bank_repay)
+    # ── Famille ─────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/family', webapp_family)
+    # ── Jardin ──────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/garden',        webapp_garden)
+    app.router.add_post('/api/webapp/garden/plant', webapp_garden_plant)
+    app.router.add_post('/api/webapp/garden/harvest', webapp_garden_harvest)
+    # ── Classement ──────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/ranking', webapp_ranking)
+    # ── Journal / Événements / Annonces ─────────────────────────────────────
+    app.router.add_get('/api/webapp/journal',   webapp_journal)
+    app.router.add_get('/api/webapp/events',    webapp_events)
+    app.router.add_get('/api/webapp/annonces',  webapp_annonces)
+    app.router.add_get('/api/webapp/auctions/live',      webapp_auctions_live)
+    app.router.add_get('/api/webapp/auctions/inventory', webapp_auctions_inventory)
+    app.router.add_post('/api/webapp/auctions/bid',      webapp_auctions_bid)
+    # ── La Salle VIP ────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/salle/status',  webapp_salle_status)
+    app.router.add_post('/api/webapp/salle/pay',    webapp_salle_pay)
+    app.router.add_post('/api/webapp/salle/bid',    webapp_salle_bid)
+    app.router.add_get('/api/webapp/salle/history', webapp_salle_history)
+    app.router.add_get('/api/webapp/company',              webapp_company_data)
+    app.router.add_post('/api/webapp/company/depot',       webapp_company_depot)
+    app.router.add_post('/api/webapp/company/retrait',     webapp_company_retrait)
+    app.router.add_post('/api/webapp/company/payerimpots', webapp_company_payerimpots)
+    app.router.add_post('/api/webapp/company/accepter',    webapp_company_accepter)
+    app.router.add_post('/api/webapp/company/refuser',     webapp_company_refuser)
+    app.router.add_post('/api/webapp/company/licencier',   webapp_company_licencier)
+    app.router.add_post('/api/webapp/company/nommer',      webapp_company_nommer)
+    app.router.add_post('/api/webapp/company/demissionner',webapp_company_demissionner)
+    app.router.add_post('/api/webapp/company/acheterparts',webapp_company_acheter_parts)
+    app.router.add_post('/api/webapp/company/gereroffre',  webapp_company_gerer_offre)
 
-  // Sons enchères
-  if (txt.includes('Enchérir') || txt.includes('Confirmer la mise')) SFX.bid();
+    app.router.add_get('/api/webapp/gains',        webapp_gains)
+    app.router.add_post('/api/webapp/gains/daily', webapp_gains_daily)
+    app.router.add_post('/api/webapp/gains/work',  webapp_gains_work)
+    app.router.add_get('/api/webapp/diplomes',     webapp_diplomes)
+    app.router.add_get('/api/webapp/online',       webapp_online_users)
 
-  // Sons profil
-  if (txt.includes('Enregistrer')) SFX.coin();
-  if (txt.includes('RÉCUPÉRER') || txt.includes('Coffre')) SFX.daily();
-  if (txt.includes('TRAVAILLER') || txt.includes('Travailler')) SFX.coin();
+    # ── Notifications persistantes ───────────────────────────────────────────
+    app.router.add_post('/api/webapp/notifications/read',     webapp_notifications_read)
+    app.router.add_post('/api/webapp/notifications/delete',   webapp_notifications_delete)
+    app.router.add_post('/api/webapp/notifications/announce', webapp_notifications_announce)
+    app.router.add_get('/api/webapp/notifications/debug',     webapp_notifications_debug)
 
-  // Sons jardin
-  if (t.closest('#page-garden')) SFX.plant();
-}, { passive: true });
+    # ── Nouvelles routes webapp (isolées du bot) ──────────────────────────────
+    from api.webapp_actions import setup_actions_routes
+    setup_actions_routes(app)
 
-// Résultats jeux patchés via réponses API
-const _origApplePick = window.applePick;
-window.applePick = async function(col, btn) {
-  SFX.appleFlip();
-  const result = await _origApplePick(col, btn);
-  return result;
-};
-const _origCockfightStart = window.cockfightStart;
-window.cockfightStart = async function() {
-  SFX.fightStart();
-  return _origCockfightStart();
-};
-const _origPpcPlay = window.ppcPlay;
-window.ppcPlay = async function(choice) {
-  SFX.ppcThrow();
-  return _origPpcPlay(choice);
-};
-const _origLancerStart = window.lancerStart;
-window.lancerStart = async function() {
-  SFX.lancerThrow();
-  return _origLancerStart();
-};
-const _origRebetAction = window.rebetAction;
-window.rebetAction = async function(action) {
-  SFX.rebetFlip();
-  return _origRebetAction(action);
-};
-const _origSubmitBid = window.submitBid;
-window.submitBid = async function(isSalle) {
-  SFX.bid();
-  return _origSubmitBid(isSalle);
-};
+    # ── Family Tickets ────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/tickets/owned',   webapp_tickets_owned)
+    app.router.add_post('/api/webapp/tickets/invoice', webapp_tickets_invoice)
+    app.router.add_post('/api/webapp/tickets/send',    webapp_tickets_send)
 
-// Sons gains profil
-const _origActClaimDaily = window.actClaimDaily;
-window.actClaimDaily = async function() {
-  SFX.daily();
-  return _origActClaimDaily();
-};
-const _origActClaimWork = window.actClaimWork;
-window.actClaimWork = async function() {
-  SFX.coin();
-  return _origActClaimWork();
-};
 
-// ── BOUTON SON ON/OFF dans le header casino ──
-function _injectSoundToggle() {
-  const header = document.querySelector('.casino-header');
-  if (!header || document.getElementById('sfx-toggle')) return;
-  const btn = document.createElement('button');
-  btn.id = 'sfx-toggle';
-  btn.style.cssText = 'position:absolute;top:12px;right:12px;background:rgba(255,255,255,.12);border:none;border-radius:50%;width:34px;height:34px;font-size:16px;cursor:pointer;z-index:10;transition:all .2s';
-  btn.title = 'Sons On/Off';
-  btn.textContent = SFX.isEnabled() ? '🔊' : '🔇';
-  btn.onclick = function(e) {
-    e.stopPropagation();
-    const on = SFX.toggle();
-    btn.textContent = on ? '🔊' : '🔇';
-    if (on) SFX.toast();
-  };
-  header.style.position = 'relative';
-  header.appendChild(btn);
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GAINS — Daily & Work
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_gains(request: web.Request) -> web.Response:
+    """GET /api/webapp/gains?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from datetime import datetime
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+        now = datetime.utcnow()
+        now_key = now.strftime('%Y-%m-%d')
+        daily_available = (user.last_daily != now_key)
+        work_available = True
+        work_wait_min = 0
+        if user.last_work:
+            from database.db import get_karma_level
+            level = get_karma_level(user.karma or 0)
+            base_cd = 8 * 3600
+            reduction = level.get('work_red', 0) / 100
+            cooldown = int(base_cd * (1 - reduction))
+            elapsed = (now - user.last_work).total_seconds()
+            if elapsed < cooldown:
+                work_available = False
+                work_wait_min = int((cooldown - elapsed) / 60)
+    return web.json_response({
+        'daily_available': daily_available,
+        'work_available':  work_available,
+        'work_wait_min':   work_wait_min,
+    })
+
+
+async def webapp_gains_daily(request: web.Request) -> web.Response:
+    """POST /api/webapp/gains/daily"""
+    data = await request.json()
+    uid = int(data.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from database.db import claim_daily
+    async with AsyncSessionLocal() as session:
+        result = await claim_daily(session, uid)
+    return web.json_response(result)
+
+
+async def webapp_gains_work(request: web.Request) -> web.Response:
+    """POST /api/webapp/gains/work"""
+    data = await request.json()
+    uid = int(data.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from database.db import claim_work
+    async with AsyncSessionLocal() as session:
+        result = await claim_work(session, uid)
+    return web.json_response(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOURNAL — dernières actions de l'utilisateur
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_journal(request: web.Request) -> web.Response:
+    """GET /api/webapp/journal?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _ddt
+    entries = []
+
+    async with AsyncSessionLocal() as session:
+        # Dernières transactions banque
+        try:
+            r = await session.execute(
+                text("""
+                    SELECT 'Dépôt banque' as title, '🏦' as emoji, amount, created_at
+                    FROM bank_transactions
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC LIMIT 5
+                """), {'uid': uid}
+            )
+            for row in r.fetchall():
+                entries.append({
+                    'emoji': '🏦',
+                    'title': 'Transaction bancaire',
+                    'body': f'{_fmt(row[2])} $',
+                    'date': str(row[3])[:10] if row[3] else '',
+                })
+        except Exception:
+            pass
+
+        # Derniers investissements
+        try:
+            invs = (await session.execute(
+                select(Investment).where(Investment.user_id == uid).order_by(Investment.bought_at.desc()).limit(5)
+            )).scalars().all()
+            for inv in invs:
+                a = ASSETS.get(inv.asset_id, {})
+                entries.append({
+                    'emoji': a.get('emoji', '📈'),
+                    'title': f"Achat {a.get('name', inv.asset_id)}",
+                    'body': f"{inv.quantity}x à {_fmt(inv.buy_price)} $ l'unité",
+                    'date': inv.bought_at.strftime('%d/%m/%Y') if inv.bought_at else '',
+                })
+        except Exception:
+            pass
+
+    # Trier par date décroissante
+    entries.sort(key=lambda e: e.get('date', ''), reverse=True)
+    return web.json_response({'entries': entries[:15]})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉVÉNEMENTS — événements globaux du bot
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_events(request: web.Request) -> web.Response:
+    """GET /api/webapp/events?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _ddt
+    events = []
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(
+                text("SELECT * FROM bot_events ORDER BY created_at DESC LIMIT 20")
+            )
+            for row in r.fetchall():
+                events.append({
+                    'emoji': getattr(row, 'emoji', '📅'),
+                    'title': getattr(row, 'title', '—'),
+                    'desc':  getattr(row, 'description', ''),
+                    'date':  str(getattr(row, 'created_at', ''))[:10],
+                    'color': getattr(row, 'color', 'var(--accent)'),
+                })
+        except Exception:
+            pass
+
+    if not events:
+        # Fallback : événements génériques basés sur les données dispo
+        from datetime import date
+        today = date.today().strftime('%d/%m/%Y')
+        events = [
+            {'emoji':'🌅','title':'Bienvenue sur Family Bot','desc':'La Mini App est maintenant disponible !','date':today,'color':'#a29bfe'},
+            {'emoji':'💰','title':'Marché actif','desc':'Des dizaines d\'assets disponibles à l\'achat.','date':today,'color':'#f7c948'},
+        ]
+
+    return web.json_response({'events': events})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ANNONCES
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_annonces(request: web.Request) -> web.Response:
+    """GET /api/webapp/annonces?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import date
+    annonces = []
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(
+                text("SELECT * FROM announcements ORDER BY created_at DESC LIMIT 20")
+            )
+            for row in r.fetchall():
+                annonces.append({
+                    'title':     getattr(row, 'title', '—'),
+                    'body':      getattr(row, 'body', ''),
+                    'date':      str(getattr(row, 'created_at', ''))[:10],
+                    'important': getattr(row, 'important', False),
+                })
+        except Exception:
+            pass
+
+    if not annonces:
+        today = date.today().strftime('%d/%m/%Y')
+        annonces = [
+            {'title':'Mini App lancée 🎉','body':'La webapp Family Bot est désormais en ligne. Profites-en pour consulter tes stats, gérer ta banque et jouer au casino !','date':today,'important':True},
+        ]
+
+    return web.json_response({'annonces': annonces})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉTAPE 1 — BANQUE
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ENCHÈRES — Live + Inventaire + Mise
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_auctions_live(request: web.Request) -> web.Response:
+    """GET /api/webapp/auctions/live?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    auctions = []
+    async with AsyncSessionLocal() as session:
+        try:
+            from datetime import datetime as _dt_now
+            _now = _dt_now.utcnow()
+
+            # Auto-clôturer les enchères expirées (bot restart peut rater les run_once jobs)
+            await session.execute(text("""
+                UPDATE auction_sessions
+                SET status = 'closed'
+                WHERE status = 'active' AND ends_at <= NOW()
+            """))
+            await session.commit()
+
+            r = await session.execute(text("""
+                SELECT id, item_id, item_name, item_emoji, rarity, true_value,
+                       start_price, current_bid, leader_id, leader_name, ends_at
+                FROM auction_sessions
+                WHERE status = 'active' AND ends_at > NOW()
+                ORDER BY ends_at ASC
+                LIMIT 20
+            """))
+            for row in r.fetchall():
+                ends_at_val = row[10]
+                # Toujours sérialiser proprement sans timezone
+                if ends_at_val is not None:
+                    if hasattr(ends_at_val, 'strftime'):
+                        ends_at_str = ends_at_val.strftime('%Y-%m-%dT%H:%M:%S')
+                    else:
+                        # string de Neon — normaliser
+                        s = str(ends_at_val).replace(' ', 'T')
+                        # Retirer offset +00:00 ou -HH:MM
+                        import re as _re
+                        s = _re.sub(r'[+-]\d{2}:\d{2}$', '', s)
+                        s = s.rstrip('Z')
+                        ends_at_str = s[:19]
+                else:
+                    ends_at_str = None
+
+                auctions.append({
+                    'id':          row[0],
+                    'item_id':     row[1],
+                    'item_name':   row[2],
+                    'item_emoji':  row[3],
+                    'rarity':      row[4],
+                    'start_price': row[6],
+                    'current_bid': row[7],
+                    'leader_id':   row[8],
+                    'leader_name': row[9],
+                    'ends_at':     ends_at_str,
+                })
+        except Exception as e:
+            return web.json_response({'auctions': [], 'error': str(e)})
+
+    return web.json_response({'auctions': auctions})
+
+
+async def webapp_auctions_inventory(request: web.Request) -> web.Response:
+    """GET /api/webapp/auctions/inventory?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    items = []
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(text("""
+                SELECT id, item_id, item_name, item_emoji, rarity, true_value, acquired_at, for_sale, sale_price
+                FROM auction_inventory
+                WHERE user_id = :uid
+                ORDER BY acquired_at DESC
+                LIMIT 50
+            """), {'uid': uid})
+            for row in r.fetchall():
+                items.append({
+                    'id':          row[0],
+                    'item_id':     row[1],
+                    'item_name':   row[2],
+                    'item_emoji':  row[3],
+                    'rarity':      row[4],
+                    'true_value':  row[5],
+                    'acquired_at': str(row[6])[:10] if row[6] else '',
+                    'for_sale':    bool(row[7]),
+                    'sale_price':  row[8],
+                })
+        except Exception as e:
+            return web.json_response({'items': [], 'error': str(e)})
+
+    return web.json_response({'items': items})
+
+
+async def webapp_auctions_bid(request: web.Request) -> web.Response:
+    """POST /api/webapp/auctions/bid  body: {user_id, auction_id, amount}"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'ok': False, 'error': 'JSON invalide'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    auction_id = int(body.get('auction_id', 0))
+    amount     = int(body.get('amount', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'ok': False, 'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(text("""
+                SELECT id, current_bid, leader_id, status
+                FROM auction_sessions WHERE id = :aid
+            """), {'aid': auction_id})
+            row = r.fetchone()
+            if not row:
+                return web.json_response({'ok': False, 'error': 'Enchère introuvable'})
+            _, current_bid, leader_id, status = row
+            if status != 'active':
+                return web.json_response({'ok': False, 'error': 'Enchère terminée'})
+            if leader_id == uid:
+                return web.json_response({'ok': False, 'error': 'Tu mènes déjà !'})
+            if amount <= current_bid:
+                return web.json_response({'ok': False, 'error': f'Mise trop basse (min {current_bid + 1} $)'})
+
+            # Récupérer le nom du leader
+            ru = await session.execute(text("SELECT username FROM users WHERE user_id = :uid"), {'uid': uid})
+            row_u = ru.fetchone()
+            leader_name = row_u[0] if row_u else str(uid)
+
+            # Vérifier les fonds
+            rc = await session.execute(text("SELECT coins FROM users WHERE user_id = :uid"), {'uid': uid})
+            row_c = rc.fetchone()
+            if not row_c or row_c[0] < amount:
+                return web.json_response({'ok': False, 'error': 'Fonds insuffisants'})
+
+            # Débiter + update enchère
+            await session.execute(text("UPDATE users SET coins = coins - :amt WHERE user_id = :uid"), {'amt': amount, 'uid': uid})
+            # Rembourser l'ancien leader
+            if leader_id:
+                await session.execute(text("UPDATE users SET coins = coins + :amt WHERE user_id = :lid"), {'amt': current_bid, 'lid': leader_id})
+            await session.execute(text("""
+                UPDATE auction_sessions
+                SET current_bid = :amt, leader_id = :uid, leader_name = :name
+                WHERE id = :aid
+            """), {'amt': amount, 'uid': uid, 'name': leader_name, 'aid': auction_id})
+            await session.commit()
+            return web.json_response({'ok': True})
+        except Exception as e:
+            await session.rollback()
+            return web.json_response({'ok': False, 'error': str(e)})
+
+
+BANKS_DEF = {
+    "bronze":   {"name":"🥉 Banque Bronze","emoji":"🥉","rank":1,"desc":"Banque populaire, accessible à tous","min_deposit":1_000,"max_deposit":100_000_000_000,"interest_rate":0.01,"max_loan":5_000_000,"loan_rate":0.08,"loan_days":7},
+    "silver":   {"name":"🥈 Banque Silver","emoji":"🥈","rank":2,"desc":"Pour les épargnants sérieux","min_deposit":10_000,"max_deposit":100_000_000_000,"interest_rate":0.015,"max_loan":5_000_000,"loan_rate":0.06,"loan_days":14},
+    "gold":     {"name":"🥇 Banque Gold","emoji":"🥇","rank":3,"desc":"Banque des investisseurs fortunés","min_deposit":100_000,"max_deposit":100_000_000_000,"interest_rate":0.02,"max_loan":5_000_000,"loan_rate":0.05,"loan_days":21},
+    "platinum": {"name":"💠 Banque Platinum","emoji":"💠","rank":4,"desc":"Réservée aux élites financières","min_deposit":500_000,"max_deposit":100_000_000_000,"interest_rate":0.025,"max_loan":5_000_000,"loan_rate":0.04,"loan_days":30},
+    "diamond":  {"name":"💎 Banque Diamond","emoji":"💎","rank":5,"desc":"La banque des milliardaires","min_deposit":2_000_000,"max_deposit":100_000_000_000,"interest_rate":0.03,"max_loan":5_000_000,"loan_rate":0.03,"loan_days":60},
 }
-// Injecter au chargement de la page jeux
-const _origOpenGameFinal = window.openGame;
-window.openGame = function(name) {
-  setTimeout(_injectSoundToggle, 100);
-  return _origOpenGameFinal(name);
-};
+BANK_KEYS_ORDER = ["bronze","silver","gold","platinum","diamond"]
 
-// ══════════════════════════════════════════════
-// FAMILY TICKET SYSTEM
-// ══════════════════════════════════════════════
+from datetime import datetime as _dt
 
-const FT_INFO = {
-  basique: { icon: '🎫', name: 'Ticket Basique',  price: 3  },
-  premium: { icon: '🎟️', name: 'Ticket Premium', price: 5  },
-  vip:     { icon: '👑', name: 'Ticket VIP',      price: 10 },
-};
 
-let _ftSelected = 'basique';
-let _ftQtys = { basique: 1, premium: 1, vip: 1 };
-let _ftOwned = { basique: 0, premium: 0, vip: 0 };
+async def webapp_bank_data(request: web.Request) -> web.Response:
+    """GET /api/webapp/bank — Comptes + prêts + catalogue banques."""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
 
-// ── Dropdown topbar ──────────────────────────────────────────────────────────
-function ftToggleDropdown(e) {
-  e.stopPropagation();
-  const dd = document.getElementById('ft-dropdown');
-  if (!dd) return;
-  dd.classList.toggle('open');
-  if (dd.classList.contains('open')) _ftUpdateDropdown();
-}
-document.addEventListener('click', () => {
-  const dd = document.getElementById('ft-dropdown');
-  if (dd) dd.classList.remove('open');
-});
-function _ftUpdateDropdown() {
-  const keys = ['basique','premium','vip'];
-  keys.forEach(k => {
-    const el = document.getElementById('ft-dd-' + k);
-    if (el) el.textContent = _ftOwned[k] || 0;
-  });
-}
-function _ftUpdateTopbar() {
-  const total = (_ftOwned.basique||0) + (_ftOwned.premium||0) + (_ftOwned.vip||0);
-  const el = document.getElementById('ft-topbar-count');
-  if (el) el.textContent = total;
-}
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount, Loan
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
 
-// ── Sélection carte ──────────────────────────────────────────────────────────
-function ftSelect(type) {
-  _ftSelected = type;
-  ['basique','premium','vip'].forEach(k => {
-    const c = document.getElementById('ft-card-' + k);
-    if (c) c.classList.toggle('selected', k === type);
-  });
-  _ftUpdateTotal();
-}
+        accounts_raw = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid)
+        )).scalars().all()
 
-// ── Quantité ─────────────────────────────────────────────────────────────────
-function ftQty(type, delta, e) {
-  if (e) e.stopPropagation();
-  _ftQtys[type] = Math.max(1, Math.min(99, (_ftQtys[type] || 1) + delta));
-  const el = document.getElementById('ft-qty-' + type);
-  if (el) el.textContent = _ftQtys[type];
-  if (_ftSelected === type) _ftUpdateTotal();
-}
+        loans_raw = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == 'active')
+        )).scalars().all()
 
-function _ftUpdateTotal() {
-  const t = FT_INFO[_ftSelected];
-  const qty = _ftQtys[_ftSelected] || 1;
-  const total = t.price * qty;
-  const el = document.getElementById('ft-total-display');
-  if (el) el.textContent = total + ' ⭐';
-}
+        accounts = []
+        account_ids = set()
+        for acc in accounts_raw:
+            b = BANKS_DEF.get(acc.bank_id, {})
+            account_ids.add(acc.bank_id)
+            accounts.append({
+                'bank_id':       acc.bank_id,
+                'name':          b.get('name', acc.bank_id),
+                'emoji':         b.get('emoji', '🏦'),
+                'balance':       _fmt(acc.balance or 0),
+                'balance_raw':   int(acc.balance or 0),
+                'interest_rate': b.get('interest_rate', 0) * 100,
+                'max_loan':      _fmt(b.get('max_loan', 0)),
+                'max_loan_raw':  b.get('max_loan', 0),
+            })
 
-// ── Charger tickets depuis API ────────────────────────────────────────────────
-async function _ftLoadOwned() {
-  try {
-    const d = await fetchT('/api/webapp/tickets/owned');
-    _ftOwned = { basique: 0, premium: 0, vip: 0 };
-    (d.tickets || []).forEach(t => { if (_ftOwned[t.type] !== undefined) _ftOwned[t.type] = t.qty; });
-    _ftUpdateTopbar();
-    _ftUpdateDropdown();
-  } catch(e) {}
-}
+        loans = []
+        for loan in loans_raw:
+            b = BANKS_DEF.get(loan.bank_id, {})
+            overdue = _dt.utcnow() > loan.due_at if loan.due_at else False
+            loans.append({
+                'bank_id':   loan.bank_id,
+                'name':      b.get('name', loan.bank_id),
+                'emoji':     b.get('emoji', '🏦'),
+                'remaining': _fmt(loan.remaining or 0),
+                'remaining_raw': int(loan.remaining or 0),
+                'due_at':    loan.due_at.strftime('%d/%m/%Y') if loan.due_at else '—',
+                'overdue':   overdue,
+            })
 
-// ── Achat ────────────────────────────────────────────────────────────────────
-async function ftBuy() {
-  const type = _ftSelected;
-  const qty  = _ftQtys[type] || 1;
-  const t    = FT_INFO[type];
-  const btn  = document.getElementById('ft-buy-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
+        # Banques disponibles (toutes, pour ouvrir un compte)
+        all_banks = []
+        for key in BANK_KEYS_ORDER:
+            b = BANKS_DEF[key]
+            all_banks.append({
+                'bank_id':       key,
+                'name':          b['name'],
+                'emoji':         b['emoji'],
+                'desc':          b['desc'],
+                'rank':          b['rank'],
+                'min_deposit':   _fmt(b['min_deposit']),
+                'min_deposit_raw': b['min_deposit'],
+                'interest_rate': b['interest_rate'] * 100,
+                'loan_rate':     b['loan_rate'] * 100,
+                'loan_days':     b['loan_days'],
+                'max_loan':      _fmt(b['max_loan']),
+                'has_account':   key in account_ids,
+            })
 
-  if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openInvoice) {
-    try {
-      const d = await fetchT('/api/webapp/tickets/invoice', {
-        method: 'POST',
-        body: JSON.stringify({ ticket_type: type, qty })
-      });
-      if (d.invoice_url) {
-        Telegram.WebApp.openInvoice(d.invoice_url, (status) => {
-          if (status === 'paid') {
-            _ftOwned[type] = (_ftOwned[type] || 0) + qty;
-            _ftUpdateTopbar();
-            _ftUpdateDropdown();
-            _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' !');
-          }
-        });
-      } else {
-        _ftShowToast('❌ ' + (d.error || 'Erreur'));
-      }
-    } catch(e) {
-      _ftShowToast('❌ Erreur réseau');
-    }
-  } else {
-    // Dev fallback
-    _ftOwned[type] = (_ftOwned[type] || 0) + qty;
-    _ftUpdateTopbar();
-    _ftUpdateDropdown();
-    _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' ! (démo)');
-  }
+        return web.json_response({
+            'wallet':   _fmt(user.coins or 0),
+            'wallet_raw': int(user.coins or 0),
+            'accounts': accounts,
+            'loans':    loans,
+            'banks':    all_banks,
+        })
 
-  if (btn) { btn.disabled = false; btn.textContent = '⭐ Acheter'; }
-}
 
-// ── Envoyer à un joueur ───────────────────────────────────────────────────────
-async function ftSend() {
-  const targetId = document.getElementById('ft-send-userid')?.value?.trim();
-  const type     = document.getElementById('ft-send-type')?.value;
-  const qty      = parseInt(document.getElementById('ft-send-qty')?.value) || 1;
+async def webapp_bank_open(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/open"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
 
-  if (!targetId || !targetId.match(/^\d+$/)) { _ftShowToast('❌ ID joueur invalide'); return; }
-  if ((_ftOwned[type] || 0) < qty) { _ftShowToast('❌ Pas assez de tickets ' + FT_INFO[type].name); return; }
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
 
-  try {
-    const d = await fetchT('/api/webapp/tickets/send', {
-      method: 'POST',
-      body: JSON.stringify({ to_user_id: parseInt(targetId), ticket_type: type, qty })
-    });
-    if (d.status === 'ok') {
-      _ftOwned[type] = Math.max(0, (_ftOwned[type] || 0) - qty);
-      _ftUpdateTopbar();
-      _ftUpdateDropdown();
-      _ftShowToast('📨 ' + qty + '× ' + FT_INFO[type].icon + ' envoyé' + (qty>1?'s':'') + ' !');
-      document.getElementById('ft-send-userid').value = '';
-      document.getElementById('ft-send-qty').value = '1';
-    } else {
-      _ftShowToast('❌ ' + (d.error || 'Erreur envoi'));
-    }
-  } catch(e) {
-    _ftShowToast('❌ Erreur réseau');
-  }
-}
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        existing = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if existing:
+            return web.json_response({'error': 'Compte déjà ouvert dans cette banque'})
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
-function _ftShowToast(msg) {
-  const t = document.getElementById('ft-toast');
-  if (!t) return;
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
+        acc = BankAccount(user_id=uid, bank_id=bank_id, balance=0, last_interest=_dt.utcnow())
+        session.add(acc)
+        await session.commit()
 
-// ── loadBoutique ──────────────────────────────────────────────────────────────
-function loadBoutique() {
-  _ftUpdateTotal();
-  _ftLoadOwned();
-}
+    b = BANKS_DEF[bank_id]
+    return web.json_response({'ok': True, 'msg': f"✅ Compte ouvert à la {b['name']} !"})
 
-// ── Chargement initial topbar ─────────────────────────────────────────────────
-window.addEventListener('load', () => {
-  setTimeout(_ftLoadOwned, 1500);
-});
 
-</script>
+async def webapp_bank_deposit(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/deposit"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    b = BANKS_DEF[bank_id]
+    if amount < b['min_deposit']:
+        return web.json_response({'error': f"Dépôt minimum : {_fmt(b['min_deposit'])} $"})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Ouvre un compte d\'abord'})
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user or user.coins < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        if acc.balance + amount > b['max_deposit']:
+            return web.json_response({'error': 'Plafond de dépôt atteint'})
+
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) + CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Dépôt de {_fmt(amount)} $ effectué !"})
+
+
+async def webapp_bank_withdraw(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/withdraw"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Compte introuvable'})
+        if acc.balance < amount:
+            return web.json_response({'error': f"Solde insuffisant ({_fmt(acc.balance)} $ disponible)"})
+
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) - CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
+        )
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Retrait de {_fmt(amount)} $ effectué !"})
+
+
+async def webapp_bank_loan(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/loan"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    b = BANKS_DEF[bank_id]
+    if amount > b['max_loan']:
+        return web.json_response({'error': f"Prêt maximum : {_fmt(b['max_loan'])} $"})
+
+    from datetime import timedelta
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount, Loan
+
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Ouvre un compte dans cette banque d\'abord'})
+
+        existing_loan = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == 'active')
+        )).scalar_one_or_none()
+        if existing_loan:
+            return web.json_response({'error': 'Tu as déjà un prêt actif à rembourser'})
+
+        required = int(amount * 0.25)
+        if acc.balance < required:
+            return web.json_response({'error': f"Garantie insuffisante (besoin de {_fmt(required)} $ dans ce compte)"})
+
+        interest  = int(amount * b['loan_rate'])
+        total_due = amount + interest
+        due_at    = _dt.utcnow() + timedelta(days=b['loan_days'])
+
+        loan = Loan(user_id=uid, bank_id=bank_id, amount=amount, remaining=total_due,
+                    interest_rate=b['loan_rate'], due_at=due_at)
+        session.add(loan)
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Prêt de {_fmt(amount)} $ accordé ! À rembourser {_fmt(total_due)} $ avant le {due_at.strftime('%d/%m/%Y')}."})
+
+
+async def webapp_bank_repay(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/repay"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import Loan
+        loan = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.bank_id == bank_id, Loan.status == 'active')
+        )).scalar_one_or_none()
+        if not loan:
+            return web.json_response({'error': 'Aucun prêt actif dans cette banque'})
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user or user.coins < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        pay = min(amount, loan.remaining)
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": pay, "uid": uid}
+        )
+        loan.remaining -= pay
+        if loan.remaining <= 0:
+            loan.status = 'paid'
+            msg = f"✅ Prêt entièrement remboursé ({_fmt(pay)} $) !"
+        else:
+            msg = f"✅ Remboursement de {_fmt(pay)} $. Reste : {_fmt(loan.remaining)} $."
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': msg})
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉTAPE 2 — FAMILLE
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_family(request: web.Request) -> web.Response:
+    """GET /api/webapp/family?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from database.models import Relationship, RelationType
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        rels = (await session.execute(
+            select(Relationship).where(Relationship.user_id == uid)
+        )).scalars().all()
+
+        spouses, parents, children, friends = [], [], [], []
+
+        for rel in rels:
+            ru = (await session.execute(
+                select(User).where(User.user_id == rel.related_user_id)
+            )).scalar_one_or_none()
+            if not ru:
+                continue
+            member = {
+                'user_id':  ru.user_id,
+                'name':     ru.first_name,
+                'username': ru.username or '',
+                'karma':    ru.karma or 0,
+                'gender':   ru.gender or '',
+            }
+            if rel.relation_type == RelationType.SPOUSE:
+                spouses.append(member)
+            elif rel.relation_type == RelationType.PARENT:
+                # Si l'autre user est mon parent → je suis l'enfant
+                # La relation PARENT dans user_id = moi signifie "je suis parent de related_user_id"
+                children.append(member)
+            elif rel.relation_type == RelationType.FRIEND:
+                friends.append(member)
+
+        # Parents = ceux qui ont une relation PARENT pointant vers moi
+        parent_rels = (await session.execute(
+            select(Relationship).where(
+                Relationship.related_user_id == uid,
+                Relationship.relation_type == RelationType.PARENT
+            )
+        )).scalars().all()
+        for rel in parent_rels:
+            pu = (await session.execute(
+                select(User).where(User.user_id == rel.user_id)
+            )).scalar_one_or_none()
+            if pu:
+                parents.append({
+                    'user_id':  pu.user_id,
+                    'name':     pu.first_name,
+                    'username': pu.username or '',
+                    'karma':    pu.karma or 0,
+                    'gender':   pu.gender or '',
+                })
+
+    return web.json_response({
+        'family_name': user.family_name or '',
+        'spouses':  spouses,
+        'parents':  parents,
+        'children': children,
+        'friends':  friends,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JARDIN
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_garden(request: web.Request) -> web.Response:
+    """GET /api/webapp/garden?user_id=xxx&group_id=xxx"""
+    uid      = int(request.rel_url.query.get('user_id', 0))
+    group_id = int(request.rel_url.query.get('group_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES, GARDEN_SLOTS
+    from database.models import Garden
+    from datetime import timedelta
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Récupérer les plantes du jardin
+        if group_id:
+            result = await session.execute(
+                select(Garden).where(Garden.user_id == uid, Garden.group_id == group_id, Garden.harvested == False)
+            )
+        else:
+            result = await session.execute(
+                select(Garden).where(Garden.user_id == uid, Garden.harvested == False)
+            )
+        plants = list(result.scalars().all())
+
+        slots = []
+        for slot_i in range(GARDEN_SLOTS):
+            g = next((p for p in plants if p.slot == slot_i), None)
+            if g:
+                pt        = PLANT_TYPES.get(g.plant_type, {})
+                grow_time = pt.get('grow_time', 3600)
+                ready_at  = g.planted_at + timedelta(seconds=grow_time)
+                now       = datetime.utcnow()
+                ready     = now >= ready_at
+                remaining = max(0, int((ready_at - now).total_seconds() / 60))
+                slots.append({
+                    'slot':       slot_i,
+                    'empty':      False,
+                    'plant_type': g.plant_type,
+                    'emoji':      pt.get('emoji', '🌱'),
+                    'value':      pt.get('value', 0),
+                    'ready':      ready,
+                    'remaining_min': remaining,
+                    'planted_at': g.planted_at.isoformat(),
+                    'garden_id':  g.id,
+                })
+            else:
+                slots.append({'slot': slot_i, 'empty': True})
+
+        plant_catalog = [
+            {'name': k, 'emoji': v['emoji'], 'grow_min': v['grow_time']//60, 'value': v['value']}
+            for k, v in PLANT_TYPES.items()
+        ]
+
+    return web.json_response({
+        'coins':       user.coins,
+        'slots':       slots,
+        'plant_types': plant_catalog,
+        'group_id':    group_id,
+    })
+
+
+async def webapp_garden_plant(request: web.Request) -> web.Response:
+    """POST /api/webapp/garden/plant  body: {user_id, group_id, slot, plant_type}"""
+    data      = await request.json()
+    uid       = int(data.get('user_id', 0))
+    group_id  = int(data.get('group_id', 0))
+    slot      = int(data.get('slot', 0))
+    plant_type = data.get('plant_type', '')
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES, GARDEN_SLOTS
+    from database.models import Garden
+
+    if plant_type not in PLANT_TYPES:
+        return web.json_response({'error': 'Plante inconnue'}, status=400)
+    if slot < 0 or slot >= GARDEN_SLOTS:
+        return web.json_response({'error': 'Slot invalide'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        existing = (await session.execute(
+            select(Garden).where(Garden.user_id == uid, Garden.slot == slot, Garden.harvested == False)
+        )).scalar_one_or_none()
+        if existing:
+            return web.json_response({'error': 'Ce slot est déjà occupé'}, status=400)
+
+        g = Garden(user_id=uid, group_id=group_id or 0, slot=slot, plant_type=plant_type)
+        session.add(g)
+        await session.commit()
+
+    pt = PLANT_TYPES[plant_type]
+    return web.json_response({'ok': True, 'emoji': pt['emoji'], 'grow_min': pt['grow_time']//60})
+
+
+async def webapp_garden_harvest(request: web.Request) -> web.Response:
+    """POST /api/webapp/garden/harvest  body: {user_id, garden_id}"""
+    data      = await request.json()
+    uid       = int(data.get('user_id', 0))
+    garden_id = int(data.get('garden_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES
+    from database.models import Garden
+    from datetime import timedelta
+
+    async with AsyncSessionLocal() as session:
+        g = (await session.execute(
+            select(Garden).where(Garden.id == garden_id, Garden.user_id == uid, Garden.harvested == False)
+        )).scalar_one_or_none()
+        if not g:
+            return web.json_response({'error': 'Plante introuvable'}, status=404)
+
+        pt       = PLANT_TYPES.get(g.plant_type, {})
+        grow_time = pt.get('grow_time', 3600)
+        ready_at = g.planted_at + timedelta(seconds=grow_time)
+        if datetime.utcnow() < ready_at:
+            return web.json_response({'error': 'Pas encore prête'}, status=400)
+
+        gain    = pt.get('value', 0) * 1000
+        g.harvested = True
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if user:
+            user.coins = (user.coins or 0) + gain
+        await session.commit()
+
+    return web.json_response({'ok': True, 'gain': gain, 'emoji': pt.get('emoji', '🌱')})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CLASSEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_ranking(request: web.Request) -> web.Response:
+    """GET /api/webapp/ranking?user_id=xxx&cat=coins|family|company"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    cat = request.rel_url.query.get('cat', 'coins')
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        ranking = []
+        my_row = None
+
+        if cat == 'coins':
+            result = await session.execute(
+                select(User).where(User.is_banned == False).order_by(User.coins.desc()).limit(20)
+            )
+            users = list(result.scalars().all())
+            for i, u in enumerate(users):
+                ranking.append({
+                    'rank': i + 1, 'user_id': u.user_id,
+                    'name': u.first_name, 'username': u.username or '',
+                    'value': u.coins or 0, 'is_me': u.user_id == uid,
+                })
+            if not any(r['is_me'] for r in ranking):
+                me = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+                if me:
+                    cnt = (await session.execute(
+                        select(func.count()).where(User.is_banned == False, User.coins > (me.coins or 0))
+                    )).scalar() or 0
+                    my_row = {'rank': cnt + 1, 'user_id': me.user_id, 'name': me.first_name,
+                              'username': me.username or '', 'value': me.coins or 0, 'is_me': True}
+
+        elif cat == 'family':
+            # Classement par taille de famille
+            rows = (await session.execute(
+                text("""
+                    SELECT u.user_id, u.first_name, u.username,
+                           COUNT(r.id) AS fam_size
+                    FROM users u
+                    LEFT JOIN relationships r ON r.user_id = u.user_id
+                    WHERE u.is_banned = false
+                    GROUP BY u.user_id, u.first_name, u.username
+                    ORDER BY fam_size DESC
+                    LIMIT 20
+                """)
+            )).fetchall()
+            for i, row in enumerate(rows):
+                ranking.append({
+                    'rank': i + 1, 'user_id': row[0],
+                    'name': row[1] or '—', 'username': row[2] or '',
+                    'value': row[3] or 0, 'is_me': row[0] == uid,
+                })
+
+        elif cat == 'company':
+            # Classement entreprises par valeur
+            result = await session.execute(
+                select(Company).where(Company.is_active == True).order_by(Company.value.desc()).limit(20)
+            )
+            companies = list(result.scalars().all())
+            for i, co in enumerate(companies):
+                # Trouver le PDG
+                pdg_emp = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == co.id,
+                        CompanyEmployee.role == 'pdg',
+                        CompanyEmployee.left_at == None
+                    )
+                )).scalar_one_or_none()
+                pdg_name = '—'
+                is_me = False
+                if pdg_emp:
+                    pdg_user = await session.get(User, pdg_emp.user_id)
+                    if pdg_user:
+                        pdg_name = pdg_user.first_name
+                        is_me = pdg_emp.user_id == uid
+                ranking.append({
+                    'rank': i + 1, 'user_id': co.id,
+                    'name': co.name, 'username': f'PDG: {pdg_name}',
+                    'value': co.value or 0, 'is_me': is_me,
+                })
+
+    return web.json_response({'ranking': ranking, 'my_row': my_row})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CRIME
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_crime(request: web.Request) -> web.Response:
+    """GET /api/webapp/crime?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Vérifier prison (table raw SQL)
+        in_prison = False
+        prison_data = None
+        try:
+            r = await session.execute(
+                text("SELECT * FROM crime_prison WHERE user_id = :uid"),
+                {'uid': uid}
+            )
+            row = r.fetchone()
+            if row:
+                released_at = row.released_at
+                if isinstance(released_at, str):
+                    released_at = datetime.fromisoformat(released_at)
+                if datetime.utcnow() < released_at:
+                    in_prison   = True
+                    minutes_left = max(0, int((released_at - datetime.utcnow()).total_seconds() / 60))
+                    prison_data = {
+                        'bail_amount':   row.bail_amount,
+                        'minutes_left':  minutes_left,
+                        'released_at':   released_at.isoformat(),
+                    }
+        except Exception:
+            pass
+
+        # Historique crimes récents
+        crimes = []
+        try:
+            cr = await session.execute(
+                text("SELECT * FROM crime_log WHERE user_id = :uid ORDER BY committed_at DESC LIMIT 10"),
+                {'uid': uid}
+            )
+            for row in cr.fetchall():
+                crimes.append({
+                    'type':         row.crime_type if hasattr(row, 'crime_type') else '?',
+                    'result':       row.result if hasattr(row, 'result') else '?',
+                    'amount':       row.amount if hasattr(row, 'amount') else 0,
+                    'committed_at': str(row.committed_at) if hasattr(row, 'committed_at') else '',
+                })
+        except Exception:
+            pass
+
+        # Sécurité
+        security = 0
+        try:
+            sr = await session.execute(
+                text("SELECT level FROM crime_security WHERE user_id = :uid"),
+                {'uid': uid}
+            )
+            srow = sr.fetchone()
+            if srow:
+                security = srow.level
+        except Exception:
+            pass
+
+    return web.json_response({
+        'coins':      user.coins or 0,
+        'in_prison':  in_prison,
+        'prison':     prison_data,
+        'crimes':     crimes,
+        'security':   security,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ARENA
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_arena(request: web.Request) -> web.Response:
+    """GET /api/webapp/arena?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Historique combats
+        fights = []
+        for table in ('arena_cockfight_log', 'arena_ppc_log', 'arena_lancer_log'):
+            try:
+                r = await session.execute(
+                    text(f"SELECT * FROM {table} WHERE user_id = :uid ORDER BY played_at DESC LIMIT 5"),
+                    {'uid': uid}
+                )
+                for row in r.fetchall():
+                    fights.append({
+                        'type':      table.replace('arena_','').replace('_log',''),
+                        'result':    row.result if hasattr(row, 'result') else '?',
+                        'gain':      row.gain if hasattr(row, 'gain') else 0,
+                        'played_at': str(row.played_at) if hasattr(row, 'played_at') else '',
+                    })
+            except Exception:
+                pass
+
+        # Stats wins/losses
+        stats = {'wins': 0, 'losses': 0, 'total_gain': 0}
+        try:
+            r = await session.execute(
+                text("SELECT COUNT(*) FROM arena_cockfight_log WHERE user_id=:uid AND result='win'"), {'uid': uid}
+            )
+            stats['wins'] = r.scalar() or 0
+        except Exception:
+            pass
+
+    return web.json_response({
+        'coins':  user.coins or 0,
+        'fights': fights,
+        'stats':  stats,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DIPLÔMES
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_diplomes(request: web.Request) -> web.Response:
+    """GET /api/webapp/diplomes?user_id=xxx"""
+    import traceback as _tb
+    try:
+        uid = int(request.rel_url.query.get('user_id', 0))
+        if not _is_allowed(uid):
+            return web.json_response({'error': 'unauthorized'}, status=403)
+
+        DIPLOMES_INFO = [
+            {'key': 'bac',     'label': 'Baccalaureat', 'emoji': '📜', 'prerequis': None},
+            {'key': 'licence', 'label': 'Licence',       'emoji': '🎓', 'prerequis': 'bac'},
+            {'key': 'master',  'label': 'Master',        'emoji': '🏛', 'prerequis': 'licence'},
+            {'key': 'mba',     'label': 'MBA',           'emoji': '💼', 'prerequis': 'master'},
+        ]
+
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+            if not user:
+                return web.json_response({'error': 'user not found'}, status=404)
+
+            cooldown_left = 0
+            if user.exam_cooldown:
+                from datetime import datetime as _dt_now
+                cooldown_left = max(0, int((user.exam_cooldown - _dt_now.utcnow()).total_seconds() / 60))
+
+            diplomes = []
+            for d in DIPLOMES_INFO:
+                key      = d['key']
+                field    = f'diplome_{key}'
+                obtained = bool(getattr(user, field, False))
+                diplomes.append({
+                    'key':       key,
+                    'label':     d['label'],
+                    'emoji':     d['emoji'],
+                    'obtained':  obtained,
+                    'prerequis': d['prerequis'],
+                })
+
+            payload = {
+                'diplomes':      diplomes,
+                'domain':        user.diplome_domain or '',
+                'cooldown_left': cooldown_left,
+                'coins':         int(user.coins or 0),
+            }
+
+        return web.json_response(payload)
+
+    except Exception as _e:
+        return web.json_response({'error': 'DIPLOMES_ERR: ' + str(_e), 'trace': _tb.format_exc()[-600:]})
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ENTREPRISE — système complet
+# ══════════════════════════════════════════════════════════════════════════════
+from database.models import TaxRecord, BureauContrat, CompanyApplication, CompanyAutoContract, CompanyShareOffer
+
+
+async def _get_user_company(session, uid: int):
+    """Retourne (Company, CompanyEmployee) pour l utilisateur, ou (None, None)."""
+    emp = (await session.execute(
+        select(CompanyEmployee).where(
+            CompanyEmployee.user_id == uid,
+            CompanyEmployee.left_at == None,
+        )
+    )).scalar_one_or_none()
+    if not emp:
+        return None, None
+    company = await session.get(Company, emp.company_id)
+    if not company or not company.is_active:
+        return None, None
+    return company, emp
+
+
+async def webapp_company_data(request: web.Request) -> web.Response:
+    """GET /api/webapp/company — données complètes entreprise"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        # Trouver l'entreprise du user (PDG ou employé)
+        emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.user_id == uid,
+                CompanyEmployee.left_at == None,
+            ).order_by(
+                CompanyEmployee.role == 'pdg',
+            ).limit(1)
+        )).scalar_one_or_none()
+
+        if not emp:
+            return web.json_response({'company': None})
+
+        company = await session.get(Company, emp.company_id)
+        if not company or not company.is_active:
+            return web.json_response({'company': None})
+
+        # Employés
+        all_emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalars().all()
+
+        employees = []
+        for e in all_emps:
+            eu = await session.get(__import__('database.models', fromlist=['User']).User, e.user_id)
+            employees.append({
+                'user_id':     e.user_id,
+                'name':        eu.first_name if eu else '—',
+                'username':    eu.username if eu else '',
+                'role':        e.role,
+                'cmd_count':   e.command_count or 0,
+                'joined_at':   e.joined_at.strftime('%d/%m/%Y') if e.joined_at else '—',
+                'is_me':       e.user_id == uid,
+            })
+
+        # Parts
+        parts_data = []
+        try:
+            from database.models import CompanyShare
+            shares = (await session.execute(
+                select(CompanyShare).where(CompanyShare.company_id == company.id)
+            )).scalars().all()
+            UserModel2 = __import__('database.models', fromlist=['User']).User
+            for s in shares:
+                su = await session.get(UserModel2, s.owner_id)
+                parts_data.append({
+                    'user_id': s.owner_id,
+                    'name':    (su.first_name or su.username or '—') if su else '—',
+                    'username': su.username if su else '',
+                    'parts':   s.quantity,
+                    'is_me':   s.owner_id == uid,
+                })
+        except Exception:
+            pass
+
+        # Contrats Bureau
+        contrats = (await session.execute(
+            select(BureauContrat).where(
+                BureauContrat.company_id == company.id,
+                BureauContrat.status.in_(['active', 'pending']),
+            )
+        )).scalars().all()
+
+        from sqlalchemy import func as _func
+        total_cmds = (await session.execute(
+            select(_func.sum(CompanyEmployee.command_count)).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar() or 0
+
+        contrats_data = []
+        from datetime import datetime as _dtnow
+        now = _dtnow.utcnow()
+        for c in contrats:
+            cmds_done = max(0, total_cmds - (c.cmds_at_start or 0))
+            obj = c.objective_cmds or 1
+            pct = min(100, int(cmds_done / obj * 100))
+            remaining_days = (c.ends_at - now).days if c.ends_at else 0
+            contrats_data.append({
+                'id':            c.id,
+                'title':         c.title,
+                'reward':        _fmt(c.reward),
+                'reward_raw':    c.reward,
+                'objective':     c.objective_cmds,
+                'cmds_done':     cmds_done,
+                'pct':           pct,
+                'status':        c.status,
+                'days_left':     max(0, remaining_days),
+                'ends_at':       c.ends_at.strftime('%d/%m à %H:%M') if c.ends_at else '—',
+            })
+
+        # Impôts
+        tax_records = (await session.execute(
+            select(TaxRecord).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == 'pending',
+            ).order_by(TaxRecord.created_at.desc())
+        )).scalars().all()
+
+        tax_data = []
+        for t in tax_records:
+            tax_data.append({
+                'id':          t.id,
+                'amount_due':  _fmt(t.amount_due),
+                'amount_due_raw': t.amount_due,
+                'amount_paid': _fmt(t.amount_paid or 0),
+                'remaining':   _fmt((t.amount_due or 0) - (t.amount_paid or 0)),
+                'remaining_raw': (t.amount_due or 0) - (t.amount_paid or 0),
+                'due_at':      t.due_at.strftime('%d/%m à %H:%M') if t.due_at else '—',
+                'overdue':     now > t.due_at if t.due_at else False,
+            })
+
+        # Logs
+        from database.models import CompanyLog
+        logs = []
+        try:
+            log_rows = (await session.execute(
+                select(CompanyLog).where(
+                    CompanyLog.company_id == company.id,
+                ).order_by(CompanyLog.created_at.desc()).limit(20)
+            )).scalars().all()
+            for l in log_rows:
+                logs.append({
+                    'event': l.event_type,
+                    'desc':  l.description or '',
+                    'amount': _fmt(l.amount) if l.amount else '',
+                    'date':  l.created_at.strftime('%d/%m %H:%M') if l.created_at else '',
+                })
+        except Exception:
+            pass
+
+        # Candidatures (PDG only)
+        candidatures = []
+        if emp.role == 'pdg':
+            try:
+                apps = (await session.execute(
+                    select(CompanyApplication).where(
+                        CompanyApplication.company_id == company.id,
+                        CompanyApplication.status == 'pending',
+                    ).order_by(CompanyApplication.created_at.desc())
+                )).scalars().all()
+                UserModel3 = __import__('database.models', fromlist=['User']).User
+                for a in apps:
+                    au = await session.get(UserModel3, a.user_id)
+                    candidatures.append({
+                        'id':       a.id,
+                        'user_id':  a.user_id,
+                        'name':     (au.first_name or au.username or '—') if au else '—',
+                        'username': au.username if au else '',
+                        'date':     a.created_at.strftime('%d/%m à %H:%M') if a.created_at else '—',
+                    })
+            except Exception:
+                pass
+
+        # Contrats automatiques (IA)
+        auto_contrats = []
+        try:
+            ac_rows = (await session.execute(
+                select(CompanyAutoContract).where(
+                    CompanyAutoContract.company_id == company.id,
+                    CompanyAutoContract.status.in_(['active', 'pending', 'negotiating']),
+                ).order_by(CompanyAutoContract.created_at.desc())
+            )).scalars().all()
+            for ac in ac_rows:
+                cmds_done_ac = max(0, int(total_cmds) - (ac.cmds_at_start or 0))
+                obj_ac = ac.objective_cmds or 1
+                pct_ac = min(100, int(cmds_done_ac / obj_ac * 100))
+                deadline_left = (ac.deadline_at - now).days if ac.deadline_at else 0
+                auto_contrats.append({
+                    'id':          ac.id,
+                    'client':      ac.client_name,
+                    'desc':        ac.description,
+                    'objective':   ac.objective_cmds,
+                    'cmds_done':   cmds_done_ac,
+                    'pct':         pct_ac,
+                    'reward':      _fmt(ac.negotiated_reward or ac.reward),
+                    'reward_raw':  ac.negotiated_reward or ac.reward,
+                    'status':      ac.status,
+                    'deadline_at': ac.deadline_at.strftime('%d/%m à %H:%M') if ac.deadline_at else '—',
+                    'days_left':   max(0, deadline_left),
+                })
+        except Exception:
+            pass
+
+        # Offres de parts en attente
+        share_offers = []
+        try:
+            so_rows = (await session.execute(
+                select(CompanyShareOffer).where(
+                    CompanyShareOffer.company_id == company.id,
+                    CompanyShareOffer.status == 'pending',
+                ).order_by(CompanyShareOffer.created_at.desc())
+            )).scalars().all()
+            UserModel4 = __import__('database.models', fromlist=['User']).User
+            for so in so_rows:
+                bu = await session.get(UserModel4, so.buyer_id)
+                share_offers.append({
+                    'id':          so.id,
+                    'buyer_name':  (bu.first_name or bu.username or '—') if bu else '—',
+                    'buyer_username': bu.username if bu else '',
+                    'quantity':    so.quantity,
+                    'price_each':  _fmt(so.price_each),
+                    'total_price': _fmt(so.total_price),
+                    'expires_at':  so.expires_at.strftime('%d/%m à %H:%M') if so.expires_at else '—',
+                })
+        except Exception:
+            pass
+
+        # Niveau
+        LEVELS = {1:('⭐','Startup'),2:('⭐⭐','PME'),3:('⭐⭐⭐','ETI'),4:('⭐⭐⭐⭐','Grande Entreprise'),5:('⭐⭐⭐⭐⭐','Multinationale')}
+        lvl_emoji, lvl_name = LEVELS.get(company.level or 1, ('⭐','Startup'))
+
+        return web.json_response({
+            'company': {
+                'id':            company.id,
+                'name':          company.name,
+                'sector':        company.sector or '—',
+                'level':         company.level or 1,
+                'level_label':   f"{lvl_emoji} {lvl_name}",
+                'reputation':    company.reputation or 0,
+                'value':         _fmt(company.value),
+                'value_raw':     company.value or 0,
+                'treasury':      _fmt(company.treasury),
+                'treasury_raw':  company.treasury or 0,
+                'frozen':        company.treasury_frozen or False,
+                'tax_debt':      _fmt(company.tax_debt or 0),
+                'tax_debt_raw':  company.tax_debt or 0,
+                'is_pdg':        emp.role == 'pdg',
+                'my_role':       emp.role,
+                'my_cmds':       emp.command_count or 0,
+                'employees':     employees,
+                'nb_employees':  len(employees),
+                'max_employees': {1:5,2:10,3:50,4:100,5:200}.get(company.level or 1, 50) + (company.extra_slots or 0),
+                'parts':         parts_data,
+                'total_shares':  company.total_shares or 100,
+                'owner_shares':  company.owner_shares or 100,
+                'contrats':      contrats_data,
+                'nb_contrats':   len(contrats_data),
+                'taxes':         tax_data,
+                'logs':          logs,
+                'candidatures':  candidatures,
+                'nb_candidatures': len(candidatures),
+                'auto_contrats': auto_contrats,
+                'share_offers':  share_offers,
+                'total_cmds':    int(total_cmds),
+                'owner_id':      company.owner_id,
+                'weekly_revenue': _fmt(company.weekly_revenue or 0),
+                'weekly_revenue_raw': company.weekly_revenue or 0,
+                'legal_reserve': _fmt(company.legal_reserve or 0),
+                'legal_reserve_raw': company.legal_reserve or 0,
+            }
+        })
+
+
+async def webapp_company_depot(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/depot"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
+
+        from database.models import User as UserModel
+        user = await session.get(UserModel, uid)
+        if not user or (user.coins or 0) < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        user.coins -= amount
+        company.treasury = (company.treasury or 0) + amount
+        company.value = company.treasury
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f'✅ {_fmt(amount)} $ déposés en trésorerie !'})
+
+
+async def webapp_company_retrait(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/retrait"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
+        if company.treasury_frozen:
+            return web.json_response({'error': '🔒 Trésorerie gelée — paie tes impôts d\'abord'})
+        if (company.treasury or 0) < amount:
+            return web.json_response({'error': f'Trésorerie insuffisante ({_fmt(company.treasury)} $ disponible)'})
+
+        from database.models import User as UserModel
+        user = await session.get(UserModel, uid)
+        if not user:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        # Cooldown 24h
+        from datetime import timedelta
+        from database.models import CompanyLog
+        last_retrait = (await session.execute(
+            select(CompanyLog).where(
+                CompanyLog.company_id == company.id,
+                CompanyLog.event_type == 'retrait',
+            ).order_by(CompanyLog.created_at.desc()).limit(1)
+        )).scalar_one_or_none()
+
+        if last_retrait and last_retrait.created_at:
+            from datetime import datetime as _dtnow2
+            since = (_dtnow2.utcnow() - last_retrait.created_at).total_seconds()
+            if since < 86400:
+                h = int((86400 - since) // 3600)
+                m = int(((86400 - since) % 3600) // 60)
+                return web.json_response({'error': f'⏳ Cooldown retrait : encore {h}h{m:02d}m à attendre'})
+
+        company.treasury -= amount
+        company.value = company.treasury
+        user.coins = (user.coins or 0) + amount
+
+        log = CompanyLog(
+            company_id=company.id,
+            event_type='retrait',
+            description=f'Retrait PDG via webapp',
+            amount=amount,
+        )
+        session.add(log)
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f'✅ {_fmt(amount)} $ retirés de la trésorerie !'})
+
+
+async def webapp_company_payerimpots(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/payerimpots"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
+        if (company.treasury or 0) < amount:
+            return web.json_response({'error': 'Trésorerie insuffisante'})
+
+        # Payer sur les factures pendantes
+        pending = (await session.execute(
+            select(TaxRecord).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == 'pending',
+            ).order_by(TaxRecord.created_at.asc())
+        )).scalars().all()
+
+        remaining_payment = amount
+        for record in pending:
+            if remaining_payment <= 0:
+                break
+            owed = (record.amount_due or 0) - (record.amount_paid or 0)
+            pay = min(owed, remaining_payment)
+            record.amount_paid = (record.amount_paid or 0) + pay
+            remaining_payment -= pay
+            if record.amount_paid >= record.amount_due:
+                record.status = 'paid'
+
+        company.treasury -= amount
+        company.value = company.treasury
+        company.tax_debt = max(0, (company.tax_debt or 0) - amount)
+
+        # Vérifier si dette soldée → dégeler
+        total_remaining = sum(
+            (r.amount_due or 0) - (r.amount_paid or 0)
+            for r in pending if r.status == 'pending'
+        )
+        if total_remaining <= 0 and company.treasury_frozen:
+            company.treasury_frozen = False
+
+        # Ajouter à la caisse d'État
+        from database.models import StateCaisse
+        caisse = (await session.execute(select(StateCaisse))).scalar_one_or_none()
+        if caisse:
+            caisse.total = (caisse.total or 0) + amount
+
+        await session.commit()
+
+    msg = f'✅ {_fmt(amount)} $ d\'impôts payés !'
+    if not company.treasury_frozen:
+        msg += ' Trésorerie dégelée !'
+    return web.json_response({'ok': True, 'msg': msg})
+
+
+async def webapp_company_accepter(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/accepter"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        app = (await session.execute(
+            select(CompanyApplication).where(
+                CompanyApplication.company_id == company.id,
+                CompanyApplication.user_id == target_id,
+                CompanyApplication.status == 'pending',
+            )
+        )).scalar_one_or_none()
+        if not app:
+            return web.json_response({'error': 'Candidature introuvable ou déjà traitée'})
+
+        # Vérifier capacité
+        from sqlalchemy import func as _func2
+        nb_emp = (await session.execute(
+            select(_func2.count()).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar()
+        max_emp = {1:5,2:10,3:50,4:100,5:200}.get(company.level or 1, 50) + (company.extra_slots or 0)
+        if nb_emp >= max_emp:
+            return web.json_response({'error': f'Entreprise au complet ({nb_emp}/{max_emp})'})
+
+        candidate = await session.get(User, target_id)
+
+        # Rôle selon diplôme
+        role = 'stagiaire'
+        if candidate:
+            if candidate.diplome_mba:       role = 'directeur'
+            elif candidate.diplome_master:  role = 'manager'
+            elif candidate.diplome_licence: role = 'employe'
+            elif candidate.diplome_bac:     role = 'employe'
+            # PDG ailleurs → forcer employe
+            own_co = (await session.execute(
+                select(Company).where(
+                    Company.owner_id == candidate.user_id,
+                    Company.is_active == True,
+                    Company.is_bot_company == False,
+                )
+            )).scalar_one_or_none()
+            if own_co:
+                role = 'employe'
+
+        app.status = 'accepted'
+        new_emp = CompanyEmployee(company_id=company.id, user_id=target_id, role=role)
+        session.add(new_emp)
+
+        from database.models import CompanyLog as _CLog
+        session.add(_CLog(
+            company_id=company.id,
+            event_type='recrutement',
+            description=f"{candidate.first_name if candidate else target_id} recruté comme {role}",
+        ))
+        await session.commit()
+
+        # Notifier le candidat via Telegram
+        if candidate:
+            try:
+                import aiohttp as _aiohttp
+                from config import BOT_TOKEN as _BT
+                async with _aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f'https://api.telegram.org/bot{_BT}/sendMessage',
+                        json={
+                            'chat_id': candidate.user_id,
+                            'text': f"🎉 Ta candidature chez <b>{company.name}</b> a été <b>acceptée</b> ! Tu es désormais <b>{role.capitalize()}</b>.",
+                            'parse_mode': 'HTML',
+                        }, timeout=_aiohttp.ClientTimeout(total=5)
+                    )
+            except Exception:
+                pass
+
+        name = candidate.first_name if candidate else str(target_id)
+        return web.json_response({'ok': True, 'msg': f'✅ {name} recruté(e) comme {role.capitalize()} !'})
+
+
+async def webapp_company_refuser(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/refuser"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        app = (await session.execute(
+            select(CompanyApplication).where(
+                CompanyApplication.company_id == company.id,
+                CompanyApplication.user_id == target_id,
+                CompanyApplication.status == 'pending',
+            )
+        )).scalar_one_or_none()
+        if not app:
+            return web.json_response({'error': 'Candidature introuvable ou déjà traitée'})
+
+        app.status = 'rejected'
+        candidate = await session.get(User, target_id)
+        await session.commit()
+
+        if candidate:
+            try:
+                import aiohttp as _aiohttp
+                from config import BOT_TOKEN as _BT
+                async with _aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f'https://api.telegram.org/bot{_BT}/sendMessage',
+                        json={
+                            'chat_id': candidate.user_id,
+                            'text': f"😔 Ta candidature chez <b>{company.name}</b> a été <b>refusée</b>.\n💡 Tu peux postuler ailleurs avec /listeboites.",
+                            'parse_mode': 'HTML',
+                        }, timeout=_aiohttp.ClientTimeout(total=5)
+                    )
+            except Exception:
+                pass
+
+        name = candidate.first_name if candidate else str(target_id)
+        return web.json_response({'ok': True, 'msg': f'❌ Candidature de {name} refusée.'})
+
+
+async def webapp_company_licencier(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/licencier"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        if company.is_bot_company:
+            return web.json_response({'error': 'Impossible dans une entreprise officielle'})
+
+        if target_id == uid:
+            return web.json_response({'error': 'Utilise Démissionner pour quitter toi-même'})
+
+        target = await session.get(User, target_id)
+        if not target:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        target_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target_id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar_one_or_none()
+        if not target_emp:
+            return web.json_response({'error': f'{target.first_name} ne fait pas partie de cette entreprise'})
+
+        ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg"]
+        if emp.role == 'directeur' and target_emp.role in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Tu ne peux pas licencier quelqu\'un de rang égal ou supérieur'})
+
+        target_emp.left_at = datetime.utcnow()
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company.id, 'licenciement',
+                      f'{target.first_name} a été licencié')
+        await session.commit()
+
+        try:
+            import aiohttp as _aiohttp
+            from config import BOT_TOKEN as _BT
+            async with _aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f'https://api.telegram.org/bot{_BT}/sendMessage',
+                    json={'chat_id': target.user_id,
+                          'text': f'🚨 Tu as été licencié de <b>{company.name}</b> par la direction.',
+                          'parse_mode': 'HTML'},
+                    timeout=_aiohttp.ClientTimeout(total=5)
+                )
+        except Exception:
+            pass
+
+        return web.json_response({'ok': True, 'msg': f'✅ {target.first_name} a été licencié.'})
+
+
+async def webapp_company_nommer(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/nommer"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    new_role  = str(body.get('role', '')).lower()
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg"]
+    MANAGEMENT_ROLES = ("pdg", "directeur", "manager")
+    ROLE_DIPLOMA = {"secretaire": "brevet", "employe": "brevet",
+                    "manager": "licence", "directeur": "master"}
+
+    if new_role not in ROLES_ORDER or new_role in ('pdg', 'stagiaire'):
+        return web.json_response({'error': 'Poste invalide. Choix : secretaire | employe | manager | directeur'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in MANAGEMENT_ROLES:
+            return web.json_response({'error': 'Tu dois être au moins Manager'})
+
+        if ROLES_ORDER.index(new_role) >= ROLES_ORDER.index(emp.role):
+            return web.json_response({'error': 'Tu ne peux pas nommer quelqu\'un à un rang égal ou supérieur au tien'})
+
+        target = await session.get(User, target_id)
+        if not target:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        target_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target_id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar_one_or_none()
+        if not target_emp:
+            return web.json_response({'error': f'{target.first_name} ne fait pas partie de cette entreprise'})
+
+        from handlers.company import _has_diploma as _hd, _add_log as _co_log
+        required = ROLE_DIPLOMA.get(new_role)
+        if required and not _hd(target, required):
+            return web.json_response({'error': f'{target.first_name} n\'a pas le diplôme requis ({required}) pour ce poste'})
+
+        old_role = target_emp.role
+        target_emp.role = new_role
+        await _co_log(session, company.id, 'promotion',
+                      f'{target.first_name} : {old_role} → {new_role}')
+        await session.commit()
+
+        ROLE_EMOJI = {"pdg":"👑","directeur":"🎯","manager":"📊","employe":"💼",
+                      "secretaire":"📋","stagiaire":"🌱"}
+        emoji = ROLE_EMOJI.get(new_role, '👤')
+        return web.json_response({'ok': True, 'msg': f'✅ {target.first_name} est désormais {emoji} {new_role.capitalize()} !'})
+
+
+async def webapp_company_demissionner(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/demissionner"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or not emp:
+            return web.json_response({'error': 'Tu ne fais partie d\'aucune entreprise'})
+
+        if emp.role == 'pdg':
+            director = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.role == 'directeur',
+                    CompanyEmployee.left_at == None,
+                ).limit(1)
+            )).scalar_one_or_none()
+            if not director:
+                return web.json_response({'error': 'En tant que PDG, nomme un Directeur avant de partir'})
+
+        emp.left_at = datetime.utcnow()
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company.id, 'demission',
+                      f'Un employé a démissionné')
+        await session.commit()
+
+        return web.json_response({'ok': True, 'msg': f'✅ Tu as quitté {company.name}.'})
+
+
+async def webapp_company_acheter_parts(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/acheterparts — soumet une offre d'achat de parts"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    company_id = int(body.get('company_id', 0))
+    qty        = int(body.get('quantity', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if qty <= 0:
+        return web.json_response({'error': 'Quantité invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = await session.get(Company, company_id)
+        if not company or not company.is_active:
+            return web.json_response({'error': 'Entreprise introuvable'})
+        if company.is_bot_company:
+            return web.json_response({'error': 'Les parts de cette entreprise ne sont pas cessibles'})
+        available = company.owner_shares or 0
+        if available <= 0:
+            return web.json_response({'error': 'Aucune part disponible à l\'achat'})
+        if qty > available:
+            return web.json_response({'error': f'Seulement {available} parts disponibles'})
+
+        price_per = company.treasury // company.total_shares if (company.total_shares or 0) > 0 else 1
+        total = qty * price_per
+
+        buyer = await session.get(User, uid)
+        if not buyer:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+        if buyer.coins < total:
+            return web.json_response({'error': f'Solde insuffisant. Coût total : {total:,} $'})
+
+        # Vérifier offre en attente existante
+        existing = (await session.execute(
+            select(CompanyShareOffer).where(
+                CompanyShareOffer.company_id == company_id,
+                CompanyShareOffer.buyer_id == uid,
+                CompanyShareOffer.status == 'pending',
+            )
+        )).scalar_one_or_none()
+        if existing:
+            return web.json_response({'error': 'Tu as déjà une offre en attente sur cette entreprise (48h)'})
+
+        buyer.coins -= total
+        offer = CompanyShareOffer(
+            company_id=company_id, buyer_id=uid,
+            quantity=qty, price_each=price_per, total_price=total,
+            status='pending',
+            expires_at=datetime.utcnow() + timedelta(hours=48),
+        )
+        session.add(offer)
+        await session.flush()
+
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company_id, 'offre_parts',
+                      f'{buyer.first_name} soumet une offre pour {qty} parts', amount=total)
+        await session.commit()
+
+        try:
+            import aiohttp as _aiohttp
+            from config import BOT_TOKEN as _BT
+            async with _aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f'https://api.telegram.org/bot{_BT}/sendMessage',
+                    json={'chat_id': company.owner_id,
+                          'text': f'💼 <b>Offre d\'achat de parts !</b>\n👤 {buyer.first_name} veut acheter <b>{qty} parts</b> de <b>{company.name}</b>\n💰 Offre : <b>{total:,} $</b>\n\nAccepter : <code>/accepteroffre {offer.id}</code>\nRefuser : <code>/refuseroffre {offer.id}</code>',
+                          'parse_mode': 'HTML'},
+                    timeout=_aiohttp.ClientTimeout(total=5)
+                )
+        except Exception:
+            pass
+
+        return web.json_response({'ok': True, 'msg': f'📩 Offre envoyée ! {total:,} $ bloqués (remboursés si refus).'})
+
+
+async def webapp_company_gerer_offre(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/gereroffre — PDG accepte ou refuse une offre"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid      = int(body.get('user_id', 0))
+    offer_id = int(body.get('offer_id', 0))
+    action   = str(body.get('action', ''))  # 'accept' ou 'refuse'
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        offer = await session.get(CompanyShareOffer, offer_id)
+        if not offer or offer.status != 'pending':
+            return web.json_response({'error': 'Offre introuvable ou déjà traitée'})
+
+        company = await session.get(Company, offer.company_id)
+        if not company or company.owner_id != uid:
+            return web.json_response({'error': 'Seul le PDG peut gérer cette offre'})
+
+        buyer = await session.get(User, offer.buyer_id)
+
+        if action == 'accept':
+            if datetime.utcnow() > offer.expires_at:
+                offer.status = 'expired'
+                if buyer: buyer.coins += offer.total_price
+                await session.commit()
+                return web.json_response({'error': 'Offre expirée — acheteur remboursé'})
+            available = company.owner_shares or 0
+            if offer.quantity > available:
+                offer.status = 'rejected'
+                if buyer: buyer.coins += offer.total_price
+                await session.commit()
+                return web.json_response({'error': 'Plus assez de parts disponibles — acheteur remboursé'})
+            company.treasury += offer.total_price
+            company.owner_shares -= offer.quantity
+            # Mettre à jour ou créer la ligne actionnaire
+            existing_shares = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.user_id == offer.buyer_id,
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar_one_or_none()
+            if existing_shares:
+                existing_shares.shares = (existing_shares.shares or 0) + offer.quantity
+            offer.status = 'accepted'
+            from handlers.company import _add_log as _co_log
+            await _co_log(session, company.id, 'vente_parts',
+                          f'Offre #{offer_id} acceptée — {offer.quantity} parts', amount=offer.total_price)
+            await session.commit()
+            return web.json_response({'ok': True, 'msg': f'✅ Offre acceptée ! {offer.total_price:,} $ reçus en trésorerie.'})
+        else:
+            offer.status = 'rejected'
+            if buyer: buyer.coins += offer.total_price
+            from handlers.company import _add_log as _co_log
+            await _co_log(session, company.id, 'refus_offre',
+                          f'Offre #{offer_id} refusée')
+            await session.commit()
+            return web.json_response({'ok': True, 'msg': f'❌ Offre refusée. Acheteur remboursé.'})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  🏛️ LA SALLE — Routes API
+# ══════════════════════════════════════════════════════════════════════════════
+
+SALLE_ACCESS_PRICE = 1_000_000
+
+async def webapp_salle_status(request: web.Request) -> web.Response:
+    """GET /api/webapp/salle/status?user_id=xxx — accès + enchère active"""
+    import traceback as _tb2
+    try:
+        return await _webapp_salle_status_inner(request)
+    except Exception as _e2:
+        return web.json_response({'error': str(_e2), 'trace': _tb2.format_exc()[-1000:]}, status=500)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SYSTÈME DE NOTIFICATIONS PERSISTANTES
+# ══════════════════════════════════════════════════════════════════════════════
+
+_notif_table_ready = False
+
+async def _ensure_notif_table():
+    """Crée la table user_notifications si elle n'existe pas (idempotent)."""
+    global _notif_table_ready
+    if _notif_table_ready:
+        return
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_notifications (
+                    id          SERIAL PRIMARY KEY,
+                    user_id     BIGINT NOT NULL,
+                    icon        VARCHAR(10) DEFAULT '🔔',
+                    title       VARCHAR(200) NOT NULL,
+                    body        TEXT NOT NULL,
+                    is_read     BOOLEAN DEFAULT FALSE,
+                    created_at  TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            await session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_notif_user ON user_notifications(user_id, is_read)"
+            ))
+            await session.commit()
+        _notif_table_ready = True
+    except Exception as e:
+        import logging as _nlog
+        _nlog.getLogger(__name__).error(f"_ensure_notif_table error: {e}", exc_info=True)
+
+
+async def push_db_notif(user_id: int, icon: str, title: str, body: str):
+    """Insère une notification persistante pour un joueur."""
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("""
+                INSERT INTO user_notifications (user_id, icon, title, body)
+                VALUES (:uid, :icon, :title, :body)
+            """), {"uid": user_id, "icon": icon, "title": title, "body": body})
+            await session.commit()
+    except Exception as e:
+        import logging as _nlog
+        _nlog.getLogger(__name__).error(f"push_db_notif error: {e}", exc_info=True)
+
+
+async def webapp_notifications_debug(request: web.Request) -> web.Response:
+    """GET /api/webapp/notifications/debug?user_id=xxx — diagnostic complet"""
+    try:
+        uid = int(request.rel_url.query.get("user_id", 0))
+    except Exception:
+        uid = 0
+    result = {"uid": uid, "table_ready": _notif_table_ready}
+    try:
+        async with AsyncSessionLocal() as session:
+            # Table existe ?
+            tbl = await session.execute(text(
+                "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='user_notifications')"
+            ))
+            result["table_exists"] = tbl.scalar()
+            if result["table_exists"]:
+                # Compter les notifs de cet user
+                cnt = await session.execute(text(
+                    "SELECT COUNT(*) FROM user_notifications WHERE user_id = :uid"
+                ), {"uid": uid})
+                result["notif_count"] = cnt.scalar()
+                # Les 5 dernières
+                rows = (await session.execute(text(
+                    "SELECT id, icon, title, body, is_read, created_at FROM user_notifications WHERE user_id = :uid ORDER BY created_at DESC LIMIT 5"
+                ), {"uid": uid})).fetchall()
+                result["last_5"] = [
+                    {"id": r[0], "icon": r[1], "title": r[2], "body": r[3], "is_read": r[4], "created_at": str(r[5])}
+                    for r in rows
+                ]
+                # Total toutes notifs
+                total = await session.execute(text("SELECT COUNT(*) FROM user_notifications"))
+                result["total_all_users"] = total.scalar()
+    except Exception as e:
+        result["error"] = str(e)
+    return web.json_response(result)
+
+
+async def webapp_notifications_read(request: web.Request) -> web.Response:
+    """POST /api/webapp/notifications/read — body: {user_id, notif_id?}
+    Si notif_id absent : marque toutes comme lues."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    uid = int(body.get("user_id", 0))
+    if not _is_allowed(uid):
+        return web.json_response({"error": "unauthorized"}, status=403)
+    notif_id = body.get("notif_id")
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            if notif_id:
+                await session.execute(text(
+                    "UPDATE user_notifications SET is_read = TRUE WHERE id = :nid AND user_id = :uid"
+                ), {"nid": int(notif_id), "uid": uid})
+            else:
+                await session.execute(text(
+                    "UPDATE user_notifications SET is_read = TRUE WHERE user_id = :uid"
+                ), {"uid": uid})
+            await session.commit()
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def webapp_notifications_delete(request: web.Request) -> web.Response:
+    """POST /api/webapp/notifications/delete — body: {user_id, notif_id}
+    Supprime une notification. Si notif_id absent : supprime toutes."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    uid = int(body.get("user_id", 0))
+    if not _is_allowed(uid):
+        return web.json_response({"error": "unauthorized"}, status=403)
+    notif_id = body.get("notif_id")
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            if notif_id:
+                await session.execute(text(
+                    "DELETE FROM user_notifications WHERE id = :nid AND user_id = :uid"
+                ), {"nid": int(notif_id), "uid": uid})
+            else:
+                await session.execute(text(
+                    "DELETE FROM user_notifications WHERE user_id = :uid"
+                ), {"uid": uid})
+            await session.commit()
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def webapp_notifications_announce(request: web.Request) -> web.Response:
+    """POST /api/webapp/notifications/announce — body: {admin_id, title, body, icon?}
+    Admin uniquement : envoie une notif à tous les joueurs."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    admin_id = int(body.get("admin_id", 0))
+    # Vérifier que c'est un admin
+    try:
+        from config import ADMIN_IDS
+        if admin_id not in ADMIN_IDS:
+            return web.json_response({"error": "unauthorized"}, status=403)
+    except Exception:
+        return web.json_response({"error": "unauthorized"}, status=403)
+
+    title = str(body.get("title", "")).strip()
+    msg   = str(body.get("body", "")).strip()
+    icon  = str(body.get("icon", "📢")).strip() or "📢"
+    if not title or not msg:
+        return web.json_response({"error": "title et body requis"}, status=400)
+
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            # Récupérer tous les user_id actifs
+            rows = (await session.execute(
+                text("SELECT user_id FROM users WHERE is_banned = FALSE")
+            )).fetchall()
+            count = 0
+            for row in rows:
+                await session.execute(text("""
+                    INSERT INTO user_notifications (user_id, icon, title, body)
+                    VALUES (:uid, :icon, :title, :body)
+                """), {"uid": row[0], "icon": icon, "title": title, "body": msg})
+                count += 1
+            await session.commit()
+        return web.json_response({"ok": True, "sent": count})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def _ensure_salle_tables():
+    """Crée les tables Salle si elles n'existent pas (idempotent)."""
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS salle_auctions (
+                    id           SERIAL PRIMARY KEY,
+                    item_id      VARCHAR(50)  NOT NULL,
+                    item_name    VARCHAR(100) NOT NULL,
+                    item_emoji   VARCHAR(10)  NOT NULL,
+                    rarity       VARCHAR(20)  NOT NULL,
+                    true_value   BIGINT       NOT NULL,
+                    start_price  BIGINT       NOT NULL,
+                    current_bid  BIGINT       NOT NULL,
+                    leader_id    BIGINT,
+                    leader_name  VARCHAR(255),
+                    custom_desc  TEXT,
+                    status       VARCHAR(20)  DEFAULT 'active',
+                    started_at   TIMESTAMP    DEFAULT NOW(),
+                    ends_at      TIMESTAMP    NOT NULL
+                )
+            """))
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS salle_vip_access (
+                    user_id    BIGINT,
+                    expires_at TIMESTAMP NOT NULL,
+                    paid_at    TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            # Ajouter la PK si elle manque (migration safe)
+            await session.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid = 'salle_vip_access'::regclass
+                        AND contype = 'p'
+                    ) THEN
+                        ALTER TABLE salle_vip_access ADD PRIMARY KEY (user_id);
+                    END IF;
+                END$$
+            """))
+            await session.commit()
+    except Exception as _ste:
+        import logging as _stlog
+        _stlog.getLogger(__name__).error(f"_ensure_salle_tables error: {_ste}", exc_info=True)
+
+async def _webapp_salle_status_inner(request: web.Request) -> web.Response:
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    await _ensure_salle_tables()
+
+    from datetime import datetime as _dt2
+    now = _dt2.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        # Accès VIP
+        acc = await session.execute(text(
+            "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+        ), {"uid": uid})
+        acc_row = acc.fetchone()
+        has_access = bool(acc_row and acc_row[0] > now)
+        expires_at = str(acc_row[0])[:16] if has_access else None
+        seconds_left = int((acc_row[0] - now).total_seconds()) if has_access else 0
+
+        # Enchère active
+        auc = await session.execute(text("""
+            SELECT id, item_id, item_name, item_emoji, rarity,
+                   start_price, current_bid, leader_id, leader_name,
+                   custom_desc, ends_at
+            FROM salle_auctions WHERE status = 'active' ORDER BY id DESC LIMIT 1
+        """))
+        auction = auc.fetchone()
+
+        auction_data = None
+        if auction:
+            from datetime import datetime as _dtparse
+            ends_at_val = auction[10]
+            if isinstance(ends_at_val, str):
+                ends_at_val = _dtparse.fromisoformat(ends_at_val)
+            time_left_s = max(0, int((ends_at_val - now).total_seconds()))
+            auction_data = {
+                'id':          auction[0],
+                'item_id':     auction[1],
+                'item_name':   auction[2],
+                'item_emoji':  auction[3],
+                'rarity':      auction[4],
+                'start_price': auction[5],
+                'current_bid': auction[6],
+                'leader_id':   auction[7],
+                'leader_name': auction[8],
+                'custom_desc': auction[9],
+                'ends_at':     str(ends_at_val),
+                'time_left_s': time_left_s,
+                'is_leading':  auction[7] == uid,
+            }
+
+        # Wallet
+        wallet_r = await session.execute(text(
+            "SELECT coins FROM users WHERE user_id = :uid"
+        ), {"uid": uid})
+        wallet_row = wallet_r.fetchone()
+        wallet = int(wallet_row[0]) if wallet_row else 0
+
+    return web.json_response({
+        'has_access':    has_access,
+        'expires_at':    expires_at,
+        'seconds_left':  seconds_left,
+        'access_price':  SALLE_ACCESS_PRICE,
+        'auction':       auction_data,
+        'wallet':        wallet,
+    })
+
+
+async def webapp_salle_pay(request: web.Request) -> web.Response:
+    """POST /api/webapp/salle/pay — acheter l'accès 24h"""
+    import logging as _paylog
+    _logger = _paylog.getLogger(__name__)
+    try:
+        body = await request.json()
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay json parse error: {e}")
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    try:
+        await _ensure_salle_tables()
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay ensure_tables error: {e}", exc_info=True)
+
+    from datetime import datetime as _dt3, timedelta as _td
+    now = _dt3.utcnow()
+
+    try:
+        async with AsyncSessionLocal() as session:
+            wallet_r = await session.execute(text(
+                "SELECT coins FROM users WHERE user_id = :uid"
+            ), {"uid": uid})
+            wallet_row = wallet_r.fetchone()
+            if not wallet_row or int(wallet_row[0]) < SALLE_ACCESS_PRICE:
+                return web.json_response({'ok': False, 'error': f'Fonds insuffisants (besoin de {_fmt(SALLE_ACCESS_PRICE)} $)'})
+
+            await session.execute(text(
+                "UPDATE users SET coins = CAST(coins AS BIGINT) - :amt WHERE user_id = :uid"
+            ), {"amt": SALLE_ACCESS_PRICE, "uid": uid})
+
+            # Renouveler ou créer
+            existing = await session.execute(text(
+                "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+            ), {"uid": uid})
+            ex = existing.fetchone()
+            ex0 = ex[0] if ex else None
+            if isinstance(ex0, str):
+                from datetime import datetime as _dtp
+                ex0 = _dtp.fromisoformat(ex0.replace('+00:00',''))
+            base = ex0 if (ex0 and ex0 > now) else now
+            new_exp = base + _td(hours=24)
+
+            # ON CONFLICT fiable même si la contrainte PK n'existe pas encore en DB
+            upd = await session.execute(text(
+                "UPDATE salle_vip_access SET expires_at = :exp, paid_at = NOW() WHERE user_id = :uid"
+            ), {"uid": uid, "exp": new_exp})
+            if upd.rowcount == 0:
+                await session.execute(text(
+                    "INSERT INTO salle_vip_access (user_id, expires_at) VALUES (:uid, :exp)"
+                ), {"uid": uid, "exp": new_exp})
+            await session.commit()
+
+        return web.json_response({
+            'ok': True,
+            'expires_at': str(new_exp)[:16],
+            'msg': f"🏛️ Accès à La Salle accordé jusqu'au {new_exp.strftime('%d/%m à %H:%M')} !"
+        })
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay DB error: {e}", exc_info=True)
+        return web.json_response({'ok': False, 'error': f'Erreur serveur: {str(e)}'}, status=500)
+
+
+async def webapp_salle_bid(request: web.Request) -> web.Response:
+    """POST /api/webapp/salle/bid — enchérir dans La Salle"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    auction_id = int(body.get('auction_id', 0))
+    amount     = int(body.get('amount', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+
+    await _ensure_salle_tables()
+
+    from datetime import datetime as _dt4
+    now = _dt4.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        # Vérifier accès VIP
+        acc = await session.execute(text(
+            "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+        ), {"uid": uid})
+        acc_row = acc.fetchone()
+        if not acc_row or acc_row[0] <= now:
+            return web.json_response({'ok': False, 'error': '🔒 Accès à La Salle expiré'})
+
+        # Enchère
+        auc_r = await session.execute(text("""
+            SELECT id, current_bid, leader_id, ends_at, status
+            FROM salle_auctions WHERE id = :aid AND status = 'active'
+        """), {"aid": auction_id})
+        auction = auc_r.fetchone()
+        if not auction:
+            return web.json_response({'ok': False, 'error': 'Enchère introuvable ou terminée'})
+        auc_id, auc_current_bid, auc_leader_id, auc_ends_at, auc_status = auction
+        from datetime import datetime as _dtparse2
+        if isinstance(auc_ends_at, str):
+            auc_ends_at = _dtparse2.fromisoformat(auc_ends_at)
+        if auc_ends_at <= now:
+            return web.json_response({'ok': False, 'error': '⏰ Enchère terminée !'})
+        if auc_leader_id == uid:
+            return web.json_response({'ok': False, 'error': '👑 Tu mènes déjà cette enchère !'})
+
+        min_bid = max(auc_current_bid + 1, int(auc_current_bid * 1.05))
+        if amount < min_bid:
+            return web.json_response({'ok': False, 'error': f'Minimum : {_fmt(min_bid)} $ (+5%)'})
+
+        # Fonds
+        wallet_r = await session.execute(text(
+            "SELECT coins, username FROM users WHERE user_id = :uid"
+        ), {"uid": uid})
+        user_row = wallet_r.fetchone()
+        if not user_row or user_row[0] < amount:
+            return web.json_response({'ok': False, 'error': 'Fonds insuffisants'})
+        leader_name = user_row[1] or str(uid)
+
+        # Rembourser ancien leader
+        if auc_leader_id:
+            await session.execute(text(
+                "UPDATE users SET coins = coins + :amt WHERE user_id = :lid"
+            ), {"amt": auc_current_bid, "lid": auc_leader_id})
+
+        await session.execute(text(
+            "UPDATE users SET coins = coins - :amt WHERE user_id = :uid"
+        ), {"amt": amount, "uid": uid})
+        await session.execute(text("""
+            UPDATE salle_auctions
+            SET current_bid = :bid, leader_id = :uid, leader_name = :name
+            WHERE id = :aid
+        """), {"bid": amount, "uid": uid, "name": leader_name, "aid": auction_id})
+        await session.commit()
+
+    return web.json_response({'ok': True, 'new_bid': amount})
+
+
+async def webapp_salle_history(request: web.Request) -> web.Response:
+    """GET /api/webapp/salle/history?user_id=xxx — dernières enchères Salle fermées"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        rows = await session.execute(text("""
+            SELECT item_emoji, item_name, rarity, current_bid, leader_name, ends_at
+            FROM salle_auctions
+            WHERE status = 'closed'
+            ORDER BY ends_at DESC
+            LIMIT 10
+        """))
+        history = []
+        for r in rows.fetchall():
+            history.append({
+                'emoji':       r[0],
+                'name':        r[1],
+                'rarity':      r[2],
+                'final_bid':   r[3],
+                'winner':      r[4] or 'Personne',
+                'closed_at':   str(r[5])[:16],
+            })
+
+    return web.json_response({'history': history})
+
+
+async def webapp_online_users(request: web.Request) -> web.Response:
+    """GET /api/webapp/online?user_id=xxx — Utilisateurs actifs les 30 dernières minutes"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import timedelta
+    from database.models import Relationship, RelationType
+
+    cutoff = datetime.utcnow() - timedelta(minutes=30)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User)
+            .where(User.is_banned == False, User.last_seen >= cutoff)
+            .order_by(User.last_seen.desc())
+            .limit(50)
+        )
+        users = result.scalars().all()
+
+        # Récupérer les relations existantes avec moi
+        my_rels = (await session.execute(
+            select(Relationship).where(Relationship.user_id == uid)
+        )).scalars().all()
+        rel_map = {r.related_user_id: r.relation_type.value for r in my_rels}
+
+        # Aussi ceux qui ont une relation vers moi
+        their_rels = (await session.execute(
+            select(Relationship).where(Relationship.related_user_id == uid)
+        )).scalars().all()
+        for r in their_rels:
+            if r.user_id not in rel_map:
+                rel_map[r.user_id] = r.relation_type.value
+
+        online = []
+        for u in users:
+            if u.user_id == uid:
+                continue
+            online.append({
+                'user_id':  u.user_id,
+                'name':     u.first_name or '—',
+                'username': u.username or '',
+                'coins':    int(u.coins or 0),
+                'gender':   u.gender or '',
+                'relation': rel_map.get(u.user_id, ''),
+                'last_seen': u.last_seen.isoformat() if u.last_seen else '',
+            })
+
+    return web.json_response({'users': online})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FAMILY TICKETS
+# ══════════════════════════════════════════════════════════════════════════════
+
+import random as _ft_random
+
+_FT_PRICES = { 'basique': 3, 'premium': 5, 'vip': 10 }
+_FT_NAMES  = { 'basique': '🎫 Ticket Basique', 'premium': '🎟️ Ticket Premium', 'vip': '👑 Ticket VIP' }
+
+async def _ft_ensure_table(session):
+    await session.execute(text("""
+        CREATE TABLE IF NOT EXISTS user_tickets (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            ticket_type VARCHAR(20) NOT NULL,
+            qty INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(user_id, ticket_type)
+        )
+    """))
+    await session.commit()
+
+async def _ft_get_owned(session, uid: int) -> dict:
+    rows = await session.execute(
+        text("SELECT ticket_type, qty FROM user_tickets WHERE user_id=:uid AND qty>0"),
+        {'uid': uid}
+    )
+    return {r[0]: r[1] for r in rows.fetchall()}
+
+async def _ft_add(session, uid: int, ticket_type: str, qty: int):
+    await session.execute(text("""
+        INSERT INTO user_tickets (user_id, ticket_type, qty) VALUES (:uid, :t, :q)
+        ON CONFLICT (user_id, ticket_type) DO UPDATE SET qty = user_tickets.qty + :q
+    """), {'uid': uid, 't': ticket_type, 'q': qty})
+
+async def _ft_remove(session, uid: int, ticket_type: str, qty: int):
+    await session.execute(text("""
+        UPDATE user_tickets SET qty = GREATEST(0, qty - :q)
+        WHERE user_id=:uid AND ticket_type=:t
+    """), {'uid': uid, 't': ticket_type, 'q': qty})
+
+
+async def webapp_tickets_owned(request: web.Request) -> web.Response:
+    """GET /api/webapp/tickets/owned"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    async with AsyncSessionLocal() as session:
+        await _ft_ensure_table(session)
+        owned = await _ft_get_owned(session, uid)
+    tickets = [{'type': k, 'qty': v} for k, v in owned.items()]
+    return web.json_response({'tickets': tickets})
+
+
+async def webapp_tickets_invoice(request: web.Request) -> web.Response:
+    """POST /api/webapp/tickets/invoice — crée une facture Telegram Stars."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400)
+
+    uid         = int(data.get('user_id', 0))
+    ticket_type = data.get('ticket_type', '')
+    qty         = max(1, min(99, int(data.get('qty', 1))))
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if ticket_type not in _FT_PRICES:
+        return web.json_response({'error': 'ticket_type invalide'}, status=400)
+
+    unit_price  = _FT_PRICES[ticket_type]
+    total_price = unit_price * qty
+    name        = _FT_NAMES[ticket_type]
+
+    try:
+        import aiohttp as _aiohttp
+        invoice_data = {
+            'chat_id': uid,
+            'title': f'{name} ×{qty}',
+            'description': f'Achat de {qty} {name} pour FarmBot',
+            'payload': f'ticket_{ticket_type}_{qty}_{uid}',
+            'currency': 'XTR',
+            'prices': [{'label': f'{name} ×{qty}', 'amount': total_price}],
+            'provider_token': '',
+        }
+        async with _aiohttp.ClientSession() as sess:
+            async with sess.post(
+                f'https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink',
+                json=invoice_data
+            ) as resp:
+                result = await resp.json()
+        if result.get('ok'):
+            return web.json_response({'invoice_url': result['result']})
+        else:
+            return web.json_response({'error': result.get('description', 'Erreur Telegram')}, status=500)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500)
+
+
+async def webapp_tickets_send(request: web.Request) -> web.Response:
+    """POST /api/webapp/tickets/send — envoyer des tickets à un autre joueur."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'bad json'}, status=400)
+
+    uid         = int(data.get('user_id', 0))
+    to_uid      = int(data.get('to_user_id', 0))
+    ticket_type = data.get('ticket_type', '')
+    qty         = max(1, int(data.get('qty', 1)))
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if ticket_type not in _FT_PRICES:
+        return web.json_response({'error': 'ticket_type invalide'}, status=400)
+    if uid == to_uid:
+        return web.json_response({'error': 'Tu ne peux pas t\'envoyer des tickets à toi-même'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        await _ft_ensure_table(session)
+
+        # Vérifier que le destinataire existe
+        target = await session.get(User, to_uid)
+        if not target:
+            return web.json_response({'error': 'Joueur introuvable'}, status=404)
+
+        # Vérifier solde expéditeur
+        owned = await _ft_get_owned(session, uid)
+        if owned.get(ticket_type, 0) < qty:
+            return web.json_response({'error': 'Pas assez de tickets'}, status=400)
+
+        # Transfert
+        await _ft_remove(session, uid, ticket_type, qty)
+        await _ft_add(session, to_uid, ticket_type, qty)
+        await session.commit()
+
+    name = _FT_NAMES[ticket_type]
+    return web.json_response({
+        'status': 'ok',
+        'message': f'{qty}× {name} envoyé(s) à {target.first_name or to_uid}'
+    })

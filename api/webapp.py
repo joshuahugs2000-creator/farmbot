@@ -380,13 +380,8 @@ async def webapp_load_app(request: web.Request) -> web.Response:
     uid       = body.get('user_id')
     init_data = body.get('init_data', '')
 
-    valid_init = _verify_init_data(init_data)
-    try:
-        is_admin = uid is not None and int(uid) in WEBAPP_ADMIN_IDS
-    except (ValueError, TypeError):
-        is_admin = False
-
-    if not valid_init:
+    # Mini App ouverte à tous les utilisateurs Telegram
+    if not uid:
         return web.json_response({'error': 'access denied'}, status=403)
 
     import os

@@ -1322,6 +1322,7 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_post('/api/webapp/notifications/read',     webapp_notifications_read)
     app.router.add_post('/api/webapp/notifications/delete',   webapp_notifications_delete)
     app.router.add_post('/api/webapp/notifications/announce', webapp_notifications_announce)
+    app.router.add_get('/api/webapp/notifications/debug',     webapp_notifications_debug)
 
     # ── Nouvelles routes webapp (isolées du bot) ──────────────────────────────
     from api.webapp_actions import setup_actions_routes
@@ -3447,6 +3448,42 @@ async def push_db_notif(user_id: int, icon: str, title: str, body: str):
     except Exception as e:
         import logging as _nlog
         _nlog.getLogger(__name__).error(f"push_db_notif error: {e}", exc_info=True)
+
+
+async def webapp_notifications_debug(request: web.Request) -> web.Response:
+    """GET /api/webapp/notifications/debug?user_id=xxx — diagnostic complet"""
+    try:
+        uid = int(request.rel_url.query.get("user_id", 0))
+    except Exception:
+        uid = 0
+    result = {"uid": uid, "table_ready": _notif_table_ready}
+    try:
+        async with AsyncSessionLocal() as session:
+            # Table existe ?
+            tbl = await session.execute(text(
+                "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='user_notifications')"
+            ))
+            result["table_exists"] = tbl.scalar()
+            if result["table_exists"]:
+                # Compter les notifs de cet user
+                cnt = await session.execute(text(
+                    "SELECT COUNT(*) FROM user_notifications WHERE user_id = :uid"
+                ), {"uid": uid})
+                result["notif_count"] = cnt.scalar()
+                # Les 5 dernières
+                rows = (await session.execute(text(
+                    "SELECT id, icon, title, body, is_read, created_at FROM user_notifications WHERE user_id = :uid ORDER BY created_at DESC LIMIT 5"
+                ), {"uid": uid})).fetchall()
+                result["last_5"] = [
+                    {"id": r[0], "icon": r[1], "title": r[2], "body": r[3], "is_read": r[4], "created_at": str(r[5])}
+                    for r in rows
+                ]
+                # Total toutes notifs
+                total = await session.execute(text("SELECT COUNT(*) FROM user_notifications"))
+                result["total_all_users"] = total.scalar()
+    except Exception as e:
+        result["error"] = str(e)
+    return web.json_response(result)
 
 
 async def webapp_notifications_read(request: web.Request) -> web.Response:

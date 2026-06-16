@@ -1881,7 +1881,8 @@ async def webapp_notifications_all(request: web.Request) -> web.Response:
     async with AsyncSessionLocal() as session:
         # ── 0. Notifs persistantes (table user_notifications) ────────────────
         try:
-            from api.webapp import push_db_notif as _push  # noqa — import pour déclencher _ensure
+            from api.webapp import _ensure_notif_table as _ent
+            await _ent()
             rows = (await session.execute(
                 sa_text("""
                     SELECT id, icon, title, body, is_read, created_at
@@ -1901,8 +1902,9 @@ async def webapp_notifications_all(request: web.Request) -> web.Response:
                     "time":   row[5].strftime("%d/%m %H:%M") if row[5] else "",
                     "type":   "persistent",
                 })
-        except Exception:
-            pass  # table pas encore créée ou erreur non bloquante
+        except Exception as _e:
+            import logging as _nlog
+            _nlog.getLogger(__name__).warning(f"notifs persistantes: {_e}")
 
         # ── 1. Candidatures reçues (PDG/Directeur) ───────────────────────────
         company, emp = await _get_user_company(session, uid)

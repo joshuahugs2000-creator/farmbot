@@ -10727,6 +10727,8 @@ function openNotifications() {
   const panel = document.getElementById('notif-panel');
   panel.classList.add('open');
   loadNotifications();
+  // Marquer toutes comme lues à l'ouverture
+  apiFetch('/notifications/read', {method:'POST', body: JSON.stringify({user_id: _userId})}).catch(()=>{});
 }
 function closeNotifications() {
   document.getElementById('notif-panel').classList.remove('open');
@@ -10738,6 +10740,7 @@ async function loadNotifications() {
     const d = await apiFetch('/notifications/all');
     if (!d || !d.notifications || d.notifications.length === 0) {
       list.innerHTML = `<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Aucune notification</div></div>`;
+      updateBellBadge(0);
       return;
     }
     list.innerHTML = d.notifications.map(n => `
@@ -10745,13 +10748,12 @@ async function loadNotifications() {
         <div class="notif-item-icon">${n.icon || '📢'}</div>
         <div class="notif-item-body">
           <div class="notif-item-title">${n.title || ''}</div>
-          <div class="notif-item-text">${n.text || ''}</div>
+          <div class="notif-item-text">${n.text || n.body || ''}</div>
           <div class="notif-item-time">${n.time || ''}</div>
         </div>
       </div>
     `).join('');
-    // Update bell indicator
-    const unreadCount = d.notifications.filter(n => n.unread).length;
+    const unreadCount = d.count || d.notifications.filter(n => n.unread).length;
     updateBellBadge(unreadCount);
   } catch(e) {
     list.innerHTML = '<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Notifications non disponibles</div></div>';
@@ -10769,6 +10771,16 @@ function updateBellBadge(count) {
     badge.style.display = 'none';
   }
 }
+// Polling auto toutes les 30s pour mettre à jour le badge sans ouvrir le panel
+async function _pollNotifBadge() {
+  try {
+    const d = await apiFetch('/notifications/all');
+    if (d && typeof d.count === 'number') updateBellBadge(d.count);
+  } catch(e) {}
+}
+setInterval(_pollNotifBadge, 30000);
+// Premier check 3s après le chargement
+setTimeout(_pollNotifBadge, 3000);
 
 // ── SLIDES ENGINE ──
 let _slideCurrent = 0, _slideTimer = null, _slides = [];

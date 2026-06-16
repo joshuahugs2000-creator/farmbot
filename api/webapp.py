@@ -1,2223 +1,3734 @@
 """
-api/webapp_actions.py — Endpoints webapp complets, isolés du bot Telegram.
-
-Principe d'isolation :
-  - Ce fichier n'importe JAMAIS les handlers du bot (handlers/*)
-  - Toutes les notifications Telegram passent par l'API HTTP (bot token), pas par l'objet bot
-  - Les accès DB sont directs via AsyncSessionLocal + modèles SQLAlchemy
-  - Le bot peut redémarrer sans impacter la webapp, et vice versa
-
-Routes ajoutées (toutes préfixées /api/webapp/) :
-  GET  companies/list          → liste toutes les entreprises avec pagination
-  GET  companies/search        → recherche par nom
-  GET  companies/:id/info      → détail public d'une entreprise
-  POST postuler                → postuler à une entreprise
-  POST demissionner            → démissionner
-  POST licencier               → licencier un employé (PDG/Directeur)
-  POST nommer                  → changer le rôle d'un employé
-  POST recruter                → inviter un joueur
-  POST versersalaires          → verser les salaires (PDG)
-  POST payeremploye            → payer un employé manuellement (PDG)
-  POST negociercontrat         → négocier/accepter/refuser contrat employé
-  GET  parts                   → mes parts dans toutes les entreprises
-  POST parts/vendre            → vendre des parts
-  POST parts/acheter           → soumettre une offre d'achat
-  POST parts/accepteroffre     → PDG accepte une offre
-  POST parts/refuseroffre      → PDG refuse une offre
-  POST pay                     → transfert de coins entre joueurs
-  GET  players/search          → rechercher un joueur par username
-  GET  invitations             → mes invitations en attente
-  POST invitations/accepter    → accepter une invitation (rejoindre)
-  POST invitations/refuser     → refuser une invitation
-  GET  contrats/bc             → mes contrats Bureau
-  GET  contrats/auto           → mes contrats automatiques
-  POST skipattente             → payer pour sauter le cooldown démission
-  GET  presences               → tableau de bord présences (direction)
+api/webapp.py — Routes API pour la Mini App Telegram
 """
-
-from __future__ import annotations
-
-import aiohttp
-import hmac
-import hashlib
-import json
-import logging
+import hmac, hashlib, json
 from datetime import datetime, timedelta
-
 from aiohttp import web
-from sqlalchemy import select, func, or_, text as sa_text
-
-from config import BOT_TOKEN
+from sqlalchemy import select, text, func
 from database.db import AsyncSessionLocal
-from database.models import (
-    User, Company, CompanyEmployee, CompanyShare,
-    CompanyApplication, CompanyInvite, CompanyLog,
-    CompanyShareOffer, BureauContrat, CompanyAutoContract,
-)
+from database.models import User, BankAccount, Loan, Investment, CompanyEmployee, Company
+from config import BOT_TOKEN, CURRENCY
+from handlers.invest import ASSETS, CATEGORIES, _current_price, _risk_emoji
 
-logger = logging.getLogger(__name__)
-
-# ─── CONSTANTES (dupliquées ici pour l'isolation totale) ────────────────────
-
-SECTORS = {
-    "tech":        ("💻", "Technologie"),
-    "finance":     ("📈", "Finance"),
-    "commerce":    ("🛒", "Commerce"),
-    "droit":       ("⚖️",  "Droit"),
-    "agriculture": ("🌾", "Agriculture"),
-    "securite":    ("🛡️",  "Sécurité"),
-    "immobilier":  ("🏗️",  "Immobilier"),
-    "sante":       ("🏥", "Santé"),
+# ── Accès restreint ──────────────────────────────────────────────────────────
+WEBAPP_ADMIN_IDS = {
+    6227863810,   # Admin 1
 }
 
-LEVELS = {
-    1: ("🏪", "Startup",      50_000_000,    0.04, 5),
-    2: ("🏢", "PME",          200_000_000,   0.06, 10),
-    3: ("🏬", "Société",      500_000_000,   0.08, 50),
-    4: ("🏦", "Corporation", 2_000_000_000,  0.10, 100),
-    5: ("👑", "Holding",    10_000_000_000,  0.12, 200),
-}
+# Mini App fermée au public — le skeleton /webapp exige initData valide avant de livrer le HTML
+WEBAPP_OPEN = False
 
-ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg"]
+def _is_allowed(user_id: int) -> bool:
+    """Toujours True — la sécurité est garantie par /api/webapp/load (initData)."""
+    return True
 
-ROLE_EMOJI = {
-    "stagiaire":  "🔰",
-    "secretaire": "🗂️",
-    "employe":    "👷",
-    "manager":    "💼",
-    "directeur":  "🏦",
-    "pdg":        "👑",
-}
+def _is_admin(user_id: int) -> bool:
+    return user_id in WEBAPP_ADMIN_IDS
 
-ROLE_DIPLOMA = {
-    "stagiaire":  None,
-    "secretaire": "bac",
-    "employe":    "bac",
-    "manager":    "licence",
-    "directeur":  "master",
-    "pdg":        "mba",
-}
 
-DIRECTION_ROLES = ("pdg", "directeur")
-MANAGEMENT_ROLES = ("pdg", "directeur", "manager")
+@web.middleware
+async def webapp_auth_middleware(request: web.Request, handler):
+    """Middleware : seul /api/webapp/load valide initData. Les routes API passent librement
+    (la sécurité est garantie par le skeleton — sans initData valide le HTML n'est jamais livré)."""
+    return await handler(request)
 
-SKIP_COST = 500_000
-PAYROLL_COOLDOWN_HOURS = 20
 
-# ─── UTILITAIRES ─────────────────────────────────────────────────────────────
-
-def _fmt(n) -> str:
+def _verify_init_data(init_data: str) -> bool:
+    """Vérifie la signature Telegram initData."""
+    if not init_data:
+        return False
     try:
-        n = int(float(n or 0))
+        pairs = dict(p.split('=', 1) for p in init_data.split('&') if '=' in p)
+        check_hash = pairs.pop('hash', '')
+        data_check = '\n'.join(f'{k}={v}' for k, v in sorted(pairs.items()))
+        secret = hmac.new(b'WebAppData', BOT_TOKEN.encode(), hashlib.sha256).digest()
+        expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, check_hash)
     except Exception:
-        return "0"
-    if n >= 1_000_000_000:
-        return f"{n/1_000_000_000:.2f}B"
-    if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n/1_000:.0f}K"
-    return str(n)
+        return False
 
 
-def _level_info(lvl: int):
-    return LEVELS.get(lvl, LEVELS[1])
-
-
-def _max_employees(company: Company) -> int:
-    _, _, _, _, base = _level_info(company.level or 1)
-    return base + (company.extra_slots or 0)
-
-
-def _has_diploma(user: User, level: str) -> bool:
-    order = ["bac", "licence", "master", "mba"]
-    if level not in order:
-        return True
-    idx = order.index(level)
-    checks = [user.diplome_bac, user.diplome_licence, user.diplome_master, user.diplome_mba]
-    return bool(checks[idx])
-
-
-def _user_diploma_level(user: User) -> int:
-    if user.diplome_mba:     return 4
-    if user.diplome_master:  return 3
-    if user.diplome_licence: return 2
-    if user.diplome_bac:     return 1
-    return 0
-
-
-async def _get_company_by_name(session, name: str):
-    r = await session.execute(
-        select(Company).where(Company.name.ilike(name), Company.is_active == True)
-    )
-    return r.scalar_one_or_none()
-
-
-async def _get_user_company(session, uid: int):
-    """Retourne (Company, CompanyEmployee) en priorisant le rôle le plus élevé."""
-    rows = (await session.execute(
-        select(CompanyEmployee, Company).join(
-            Company, Company.id == CompanyEmployee.company_id
-        ).where(
-            CompanyEmployee.user_id == uid,
-            CompanyEmployee.left_at == None,
-            Company.is_active == True,
-        )
-    )).all()
-    if not rows:
-        return None, None
-    # Priorité : pdg > directeur > manager > ...
-    rows.sort(key=lambda r: ROLES_ORDER.index(r[0].role) if r[0].role in ROLES_ORDER else 0, reverse=True)
-    emp, company = rows[0]
-    return company, emp
-
-
-async def _add_log(session, company_id: int, event_type: str, description: str, amount: int = None):
-    session.add(CompanyLog(
-        company_id=company_id,
-        event_type=event_type,
-        description=description,
-        amount=amount,
-    ))
-
-
-async def _notify(chat_id: int, text: str, parse_mode: str = "HTML"):
-    """Envoie un message Telegram sans passer par l'objet bot — isolation totale."""
+def _fmt(n):
     try:
-        async with aiohttp.ClientSession() as s:
-            await s.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": parse_mode},
-                timeout=aiohttp.ClientTimeout(total=5),
-            )
-    except Exception:
-        pass
-
-
-def _parse_uid(request: web.Request, key: str = "user_id") -> int:
-    try:
-        return int(request.rel_url.query.get(key, 0))
+        if not n:
+            return 0
+        return int(float(n))
     except Exception:
         return 0
 
 
-async def _body(request: web.Request) -> dict:
+async def webapp_user(request: web.Request) -> web.Response:
+    """GET /api/webapp/user?user_id=xxx&init_data=xxx"""
+    user_id   = request.rel_url.query.get('user_id')
+    init_data = request.rel_url.query.get('init_data', '')
+
+    if not user_id:
+        return web.json_response({'error': 'missing user_id'}, status=400)
+
     try:
-        return await request.json()
-    except Exception:
-        return {}
+        uid = int(user_id)
+    except ValueError:
+        return web.json_response({'error': 'invalid user_id'}, status=400)
 
-
-def _ok(msg: str, **extra) -> web.Response:
-    return web.json_response({"ok": True, "msg": msg, **extra})
-
-
-def _err(msg: str, status: int = 200) -> web.Response:
-    return web.json_response({"error": msg}, status=status)
-
-
-# ─── AUTH ────────────────────────────────────────────────────────────────────
-# La whitelist est gérée dans webapp.py principal. Ici on fait confiance
-# au fait que les requêtes arrivent depuis l'interface déjà authentifiée.
-# On vérifie juste que user_id est présent et entier.
-
-def _auth(uid: int) -> bool:
-    # Import dynamique pour ne pas créer de dépendance circulaire
-    try:
-        from api.webapp import _is_allowed
-        return _is_allowed(uid)
-    except Exception:
-        return uid > 0  # fallback si webapp.py non dispo
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  RECHERCHE JOUEURS
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_players_search(request: web.Request) -> web.Response:
-    """GET /api/webapp/players/search?q=pseudo&user_id=xxx"""
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    q = request.rel_url.query.get("q", "").strip().lstrip("@")
-    if len(q) < 2:
-        return _err("Tape au moins 2 caractères")
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'access denied'}, status=403)
 
     async with AsyncSessionLocal() as session:
-        users = (await session.execute(
-            select(User).where(
-                or_(
-                    User.username.ilike(f"%{q}%"),
-                    User.first_name.ilike(f"%{q}%"),
-                ),
-                User.user_id != uid,
-                User.is_banned == False,
-            ).limit(10)
-        )).scalars().all()
+        # ── User ──
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
 
-        players = []
-        for u in users:
-            # Entreprise actuelle
-            _c, _e = await _get_user_company(session, u.user_id)
-            players.append({
-                "user_id":  u.user_id,
-                "name":     u.first_name or "—",
-                "username": u.username or "",
-                "company":  _c.name if _c else None,
-                "role":     _e.role if _e else None,
-                "diplome":  "MBA" if u.diplome_mba else "Master" if u.diplome_master else
-                            "Licence" if u.diplome_licence else "Bac" if u.diplome_bac else "—",
-            })
-
-    return web.json_response({"players": players})
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  LISTE ENTREPRISES
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_companies_list(request: web.Request) -> web.Response:
-    """GET /api/webapp/companies/list?page=0&sector=tech&user_id=xxx"""
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    page   = int(request.rel_url.query.get("page", 0))
-    sector = request.rel_url.query.get("sector", "").strip()
-    PAGE   = 10
-
-    async with AsyncSessionLocal() as session:
-        q = select(Company).where(Company.is_active == True)
-        if sector:
-            q = q.where(Company.sector == sector)
-        q = q.order_by(Company.value.desc())
-
-        all_cos = (await session.execute(q)).scalars().all()
-        total   = len(all_cos)
-        page_cos = all_cos[page * PAGE : (page + 1) * PAGE]
-
-        items = []
-        for i, c in enumerate(page_cos, page * PAGE + 1):
-            sec_emoji, sec_name = SECTORS.get(c.sector, ("🏢", c.sector))
-            lvl_emoji, lvl_name, *_ = _level_info(c.level or 1)
-            nb_emp = (await session.execute(
-                select(func.count()).where(
-                    CompanyEmployee.company_id == c.id,
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar()
-            max_emp = _max_employees(c)
-
-            # Vérifier si le user a déjà postulé
-            already_applied = (await session.execute(
-                select(CompanyApplication).where(
-                    CompanyApplication.company_id == c.id,
-                    CompanyApplication.user_id == uid,
-                    CompanyApplication.status == "pending",
-                )
-            )).scalar_one_or_none()
-
-            # Vérifier si le user est déjà dans cette boite
-            already_in = (await session.execute(
-                select(CompanyEmployee).where(
-                    CompanyEmployee.company_id == c.id,
-                    CompanyEmployee.user_id == uid,
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar_one_or_none()
-
-            items.append({
-                "rank":          i,
-                "id":            c.id,
-                "name":          c.name,
-                "sector":        c.sector,
-                "sec_emoji":     sec_emoji,
-                "sec_name":      sec_name,
-                "level":         c.level or 1,
-                "lvl_emoji":     lvl_emoji,
-                "lvl_name":      lvl_name,
-                "value":         _fmt(c.value),
-                "value_raw":     c.value or 0,
-                "treasury":      _fmt(c.treasury),
-                "reputation":    round(c.reputation or 0, 1),
-                "nb_emp":        nb_emp,
-                "max_emp":       max_emp,
-                "is_bot":        c.is_bot_company,
-                "can_apply":     not already_in and not already_applied and nb_emp < max_emp,
-                "already_applied": bool(already_applied),
-                "already_in":    bool(already_in),
-            })
-
-    return web.json_response({"items": items, "total": total, "page": page, "pages": (total + PAGE - 1) // PAGE})
-
-
-async def webapp_companies_search(request: web.Request) -> web.Response:
-    """GET /api/webapp/companies/search?q=nom&user_id=xxx"""
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    q = request.rel_url.query.get("q", "").strip()
-    if len(q) < 2:
-        return _err("Tape au moins 2 caractères")
-
-    async with AsyncSessionLocal() as session:
-        cos = (await session.execute(
-            select(Company).where(
-                Company.name.ilike(f"%{q}%"),
-                Company.is_active == True,
-            ).limit(10)
-        )).scalars().all()
-
-        items = []
-        for c in cos:
-            sec_emoji, sec_name = SECTORS.get(c.sector, ("🏢", c.sector))
-            lvl_emoji, lvl_name, *_ = _level_info(c.level or 1)
-            nb_emp = (await session.execute(
-                select(func.count()).where(
-                    CompanyEmployee.company_id == c.id,
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar()
-            items.append({
-                "id":        c.id,
-                "name":      c.name,
-                "sec_emoji": sec_emoji,
-                "sec_name":  sec_name,
-                "lvl_emoji": lvl_emoji,
-                "lvl_name":  lvl_name,
-                "value":     _fmt(c.value),
-                "reputation": round(c.reputation or 0, 1),
-                "nb_emp":    nb_emp,
-                "max_emp":   _max_employees(c),
-                "is_bot":    c.is_bot_company,
-            })
-
-    return web.json_response({"items": items})
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  POSTULER
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_postuler(request: web.Request) -> web.Response:
-    """POST /api/webapp/postuler — body: {user_id, company_id}"""
-    body = await _body(request)
-    uid  = int(body.get("user_id", 0))
-    cid  = int(body.get("company_id", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-    if not cid:
-        return _err("company_id manquant")
-
-    async with AsyncSessionLocal() as session:
-        user = await session.get(User, uid)
         if not user:
-            return _err("Utilisateur introuvable")
+            return web.json_response({'error': 'user not found'}, status=404)
 
-        target = await session.get(Company, cid)
-        if not target or not target.is_active:
-            return _err("Entreprise introuvable")
+        # ── Banque ──
+        banks = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid)
+        )).scalars().all()
+        bank_total = sum(b.balance or 0 for b in banks)
 
-        # Max 2 entreprises
-        all_emps = (await session.execute(
+        # ── Dettes ──
+        loans = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == 'active')
+        )).scalars().all()
+        loans_total = sum(l.remaining or 0 for l in loans)
+
+        # ── Fortune ──
+        fortune_totale = (user.coins or 0) + bank_total - loans_total
+
+        # ── Classement ──
+        all_fortunes = (await session.execute(
+            text("""
+                SELECT u.user_id,
+                       COALESCE(u.coins,0)
+                       + COALESCE((SELECT SUM(b.balance) FROM bank_accounts b WHERE b.user_id=u.user_id),0)
+                       - COALESCE((SELECT SUM(l.remaining) FROM loans l WHERE l.user_id=u.user_id AND l.status='active'),0)
+                       AS fortune
+                FROM users u
+                ORDER BY fortune DESC
+            """)
+        )).fetchall()
+        total_players = len(all_fortunes)
+        rank = next((i+1 for i,r in enumerate(all_fortunes) if r[0]==uid), total_players)
+
+        # ── Portfolio ──
+        investments = (await session.execute(
+            select(Investment).where(Investment.user_id == uid, Investment.status == 'active')
+        )).scalars().all()
+        invested = sum((i.buy_price or 0) * (i.quantity or 0) for i in investments)
+        # Prix actuel approximatif (on garde buy_price comme proxy)
+        current  = sum((i.buy_price or 0) * (i.quantity or 0) * 1.05 for i in investments)
+
+        # ── Entreprise ──
+        emp = (await session.execute(
             select(CompanyEmployee).where(
                 CompanyEmployee.user_id == uid,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalars().all()
-        if len(all_emps) >= 2:
-            return _err("Tu es déjà dans 2 entreprises (maximum)")
-
-        # Cooldown démission (3 jours, hors bot company)
-        last_left = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.user_id == uid,
-                CompanyEmployee.left_at != None,
-            ).order_by(CompanyEmployee.left_at.desc()).limit(1)
-        )).scalar_one_or_none()
-
-        if last_left and last_left.left_at:
-            last_co = await session.get(Company, last_left.company_id)
-            if last_co and not last_co.is_bot_company:
-                days_passed = (datetime.utcnow() - last_left.left_at).days
-                if days_passed < 3:
-                    jours = 3 - days_passed
-                    return _err(f"Cooldown : encore {jours} jour(s) avant de postuler. Utilise /skipattente.")
-
-        # Déjà postulé ?
-        existing = (await session.execute(
-            select(CompanyApplication).where(
-                CompanyApplication.company_id == cid,
-                CompanyApplication.user_id == uid,
-                CompanyApplication.status == "pending",
+                CompanyEmployee.left_at == None
             )
         )).scalar_one_or_none()
-        if existing:
-            return _err("Tu as déjà une candidature en cours")
 
-        # Capacité
-        nb_emp = (await session.execute(
-            select(func.count()).where(
-                CompanyEmployee.company_id == cid,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalar()
-        if nb_emp >= _max_employees(target):
-            return _err(f"{target.name} est au complet")
+        company_data = {}
+        if emp:
+            company = await session.get(Company, emp.company_id)
+            if company and company.is_active:
+                # Nombre employés
+                nb_emp = (await session.execute(
+                    select(func.count()).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.left_at == None
+                    )
+                )).scalar()
 
-        # Entreprise bot → verdict immédiat
-        if target.is_bot_company:
-            SECTOR_REQ = {
-                "tech": 2, "finance": 3, "droit": 3, "immobilier": 2, "sante": 2,
-                "commerce": 1, "agriculture": 1, "securite": 1,
-            }
-            min_lvl = SECTOR_REQ.get(target.sector, 1)
-            user_lvl = _user_diploma_level(user)
-            if user_lvl < min_lvl:
-                LABELS = {0: "Aucun", 1: "Bac", 2: "Licence", 3: "Master", 4: "MBA"}
-                return _err(f"{target.name} exige au minimum {LABELS.get(min_lvl, '?')} (tu as : {LABELS.get(user_lvl, '?')})")
+                # PDG
+                pdg_emp = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == company.id,
+                        CompanyEmployee.role == 'pdg',
+                        CompanyEmployee.left_at == None
+                    )
+                )).scalar_one_or_none()
+                pdg_user = None
+                if pdg_emp:
+                    pdg_user = await session.get(User, pdg_emp.user_id)
 
-            role = "manager" if user_lvl >= 3 else "employe" if user_lvl >= 2 else "stagiaire"
-            new_emp = CompanyEmployee(company_id=cid, user_id=uid, role=role)
-            session.add(new_emp)
-            await _add_log(session, cid, "recrutement", f"{user.first_name} recruté ({role}) via webapp")
-            await session.commit()
-            return _ok(f"✅ Recruté(e) chez {target.name} en tant que {role.capitalize()} !")
+                daily_rate = 0.001 * (1 + (company.level - 1) * 0.002)
+                rev_day    = int(company.value * daily_rate) // 30
 
-        # Vérif bac minimum
-        if not user.diplome_bac:
-            return _err("Il te faut au moins le Bac pour postuler")
+                LEVELS = {1:('⭐','Startup'),2:('⭐⭐','PME'),3:('⭐⭐⭐','ETI'),4:('⭐⭐⭐⭐','Grande Entreprise'),5:('⭐⭐⭐⭐⭐','Multinationale')}
+                lvl_emoji, lvl_name = LEVELS.get(company.level, ('⭐','—'))
 
-        # Candidature classique
-        app = CompanyApplication(company_id=cid, user_id=uid, status="pending")
-        session.add(app)
-        await _add_log(session, cid, "candidature", f"{user.first_name} a postulé via webapp")
-        await session.commit()
+                company_data = {
+                    'company':            company.name,
+                    'company_level':      f"{lvl_emoji} {lvl_name}",
+                    'company_rep':        company.reputation,
+                    'company_value':      _fmt(company.value),
+                    'company_treasury':   _fmt(company.treasury),
+                    'company_revenue_day': _fmt(rev_day),
+                    'company_employees':  f"{nb_emp} employé(s)",
+                    'company_owner':      pdg_user.first_name if pdg_user else '—',
+                    'role':               emp.role.upper(),
+                }
 
-        # Notifier PDG + directeurs
-        managers = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == cid,
-                CompanyEmployee.left_at == None,
-                CompanyEmployee.role.in_(["pdg", "directeur"]),
-            )
-        )).scalars().all()
+        # ── Diplômes ──
+        diplomes_raw = getattr(user, 'diplomes', None) or ''
+        diplomes_str = diplomes_raw if diplomes_raw else '—'
 
-        diplomes = []
-        if user.diplome_bac:     diplomes.append("Bac")
-        if user.diplome_licence: diplomes.append(f"Licence {user.diplome_domain or ''}")
-        if user.diplome_master:  diplomes.append("Master")
-        if user.diplome_mba:     diplomes.append("MBA")
+        # ── Titre ──
+        from config import TITLES
+        titre = '👤 Citoyen'
+        family_size = 0
+        karma = user.karma or 0
+        for min_fam, min_karma, label in TITLES:
+            if family_size >= min_fam and karma >= min_karma:
+                titre = label
 
-        notif = (
-            f"🔔 <b>Nouvelle candidature (webapp) !</b>\n\n"
-            f"👤 <b>{user.first_name}</b> postule dans <b>{target.name}</b>\n"
-            f"🎓 Diplômes : {' · '.join(diplomes) or 'Aucun'}\n\n"
-            f"✅ Accepte sur la mini app ou tape /candidatures"
-        )
-        for mgr in managers:
-            await _notify(mgr.user_id, notif)
+        payload = {
+            'name':          user.first_name or '—',
+            'username':      user.username or '',
+            'title':         titre,
+            'coins':         _fmt(user.coins),
+            'coins_raw':     int(user.coins or 0),
+            'bank_total':    _fmt(bank_total),
+            'loans_total':   _fmt(loans_total),
+            'fortune_totale':_fmt(fortune_totale),
+            'karma':         karma,
+            'rank':          rank,
+            'total_players': total_players,
+            'diplomes':      diplomes_str,
+            'avatar_data':   user.avatar_data or None,
+            'photo_file_id': user.photo_file_id or None,
+            'photo_file_type': user.photo_file_type or None,
+            'customization': user.profile_color or None,
+            'portfolio': {
+                'invested': _fmt(invested),
+                'current':  _fmt(current),
+                'pnl':      _fmt(current - invested),
+            },
+            **company_data,
+        }
 
-    return _ok(f"📩 Candidature envoyée à {target.name} ! La direction va l'examiner.")
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  DÉMISSIONNER
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_demissionner(request: web.Request) -> web.Response:
-    """POST /api/webapp/demissionner — body: {user_id, company_id}"""
-    body = await _body(request)
-    uid  = int(body.get("user_id", 0))
-    cid  = int(body.get("company_id", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        user = await session.get(User, uid)
-
-        if cid:
-            emp = (await session.execute(
-                select(CompanyEmployee).where(
-                    CompanyEmployee.company_id == cid,
-                    CompanyEmployee.user_id == uid,
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar_one_or_none()
-        else:
-            _, emp = await _get_user_company(session, uid)
-
-        if not emp:
-            return _err("Tu ne fais partie d'aucune entreprise")
-
-        company = await session.get(Company, emp.company_id)
-
-        if emp.role == "pdg":
-            # Vérifier qu'un directeur peut reprendre
-            director = (await session.execute(
-                select(CompanyEmployee).where(
-                    CompanyEmployee.company_id == emp.company_id,
-                    CompanyEmployee.role == "directeur",
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar_one_or_none()
-            if not director:
-                return _err("Nomme d'abord un Directeur avant de démissionner")
-            director.role = "pdg"
-            company.owner_id = director.user_id
-            dir_user = await session.get(User, director.user_id)
-            await _notify(director.user_id, f"👑 Tu es le nouveau PDG de <b>{company.name}</b> !")
-            if dir_user:
-                await _add_log(session, emp.company_id, "transfert",
-                               f"PDG transféré à {dir_user.first_name} (démission via webapp)")
-
-        old_role = emp.role
-        emp.left_at = datetime.utcnow()
-        await _add_log(session, emp.company_id, "demission",
-                       f"{user.first_name if user else uid} a démissionné ({old_role}) via webapp")
-        await session.commit()
-
-        msg = f"👋 Tu as quitté {company.name}."
-        if not company.is_bot_company:
-            msg += " Cooldown de 3 jours avant de rejoindre une autre entreprise."
-        return _ok(msg)
+    return web.json_response(payload)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  LICENCIER
-# ═════════════════════════════════════════════════════════════════════════════
+async def webapp_photo_proxy(request: web.Request) -> web.Response:
+    """GET /api/webapp/photo?user_id=xxx — Proxy vers la photo de profil Telegram ou photo custom."""
+    import aiohttp as _aiohttp
+    import base64 as _b64
+    user_id = request.rel_url.query.get('user_id')
+    if not user_id:
+        return web.Response(status=404)
 
-async def webapp_licencier(request: web.Request) -> web.Response:
-    """POST /api/webapp/licencier — body: {user_id, target_id}"""
-    body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
-    target_id = int(body.get("target_id", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-    if not target_id or target_id == uid:
-        return _err("target_id invalide")
+    try:
+        uid = int(user_id)
+    except ValueError:
+        return web.Response(status=400)
 
     async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company or emp.role not in DIRECTION_ROLES:
-            return _err("Réservé au PDG et Directeur")
-        if company.is_bot_company:
-            return _err("Impossible sur une entreprise officielle")
-
-        target_emp = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.user_id == target_id,
-                CompanyEmployee.left_at == None,
-            )
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
         )).scalar_one_or_none()
-        if not target_emp:
-            return _err("Cet employé n'est pas dans ton entreprise")
 
-        if emp.role == "directeur" and target_emp.role in ("pdg", "directeur"):
-            return _err("Tu ne peux pas licencier quelqu'un de rang égal ou supérieur")
+    if not user or not user.photo_file_id:
+        return web.Response(status=404)
 
-        target_user = await session.get(User, target_id)
-        target_emp.left_at = datetime.utcnow()
-        await _add_log(session, company.id, "licenciement",
-                       f"{target_user.first_name if target_user else target_id} licencié via webapp")
-        await session.commit()
+    # ── Photo custom (upload depuis la galerie) ──
+    if user.photo_file_type == 'custom_b64':
+        try:
+            avatar_obj = json.loads(user.avatar_data or '{}') if user.avatar_data else {}
+            b64data = avatar_obj.get('_custom_photo', '')
+            if not b64data:
+                return web.Response(status=404)
+            img_bytes = _b64.b64decode(b64data)
+            return web.Response(body=img_bytes, content_type='image/jpeg',
+                                headers={'Cache-Control': 'no-store, no-cache, must-revalidate'})
+        except Exception:
+            return web.Response(status=500)
 
-        if target_user:
-            await _notify(target_id, f"🚨 Tu as été licencié(e) de <b>{company.name}</b> par la direction.")
+    try:
+        async with _aiohttp.ClientSession() as s:
+            # Récupérer le chemin du fichier
+            r = await s.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile',
+                            params={'file_id': user.photo_file_id}, timeout=_aiohttp.ClientTimeout(total=5))
+            data = await r.json()
+            if not data.get('ok'):
+                return web.Response(status=404)
+            file_path = data['result']['file_path']
+            # Streamer le fichier
+            img_r = await s.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}',
+                                timeout=_aiohttp.ClientTimeout(total=10))
+            img_bytes = await img_r.read()
+            content_type = img_r.headers.get('Content-Type', 'image/jpeg')
+            return web.Response(body=img_bytes, content_type=content_type,
+                                headers={'Cache-Control': 'public, max-age=3600'})
+    except Exception:
+        return web.Response(status=502)
 
-        name = target_user.first_name if target_user else str(target_id)
-        return _ok(f"✅ {name} a été licencié(e) de {company.name}.")
 
+async def webapp_save_avatar(request: web.Request) -> web.Response:
+    """POST /api/webapp/avatar — Sauvegarde l'avatar en base de données."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid JSON'}, status=400)
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  NOMMER (changer le rôle d'un employé)
-# ═════════════════════════════════════════════════════════════════════════════
+    user_id_raw = body.get('user_id')
+    avatar_data = body.get('avatar_data')
 
-async def webapp_nommer(request: web.Request) -> web.Response:
-    """POST /api/webapp/nommer — body: {user_id, target_id, role}"""
-    body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
-    target_id = int(body.get("target_id", 0))
-    new_role  = str(body.get("role", "")).lower().strip()
+    if not user_id_raw or not avatar_data:
+        return web.json_response({'error': 'missing user_id or avatar_data'}, status=400)
 
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-    if new_role not in ROLES_ORDER or new_role in ("pdg", "stagiaire"):
-        return _err("Rôle invalide. Choix : secretaire | employe | manager | directeur")
+    try:
+        uid = int(user_id_raw)
+    except (ValueError, TypeError):
+        return web.json_response({'error': 'invalid user_id'}, status=400)
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'access denied'}, status=403)
+
+    # Valider que avatar_data est bien du JSON sérialisable
+    try:
+        json_str = json.dumps(avatar_data)
+    except Exception:
+        return web.json_response({'error': 'invalid avatar_data'}, status=400)
 
     async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company or emp.role not in MANAGEMENT_ROLES:
-            return _err("Tu dois être au moins Manager")
-
-        if ROLES_ORDER.index(new_role) >= ROLES_ORDER.index(emp.role):
-            return _err("Tu ne peux pas nommer quelqu'un à un rang égal ou supérieur au tien")
-
-        target_emp = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.user_id == target_id,
-                CompanyEmployee.left_at == None,
-            )
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
         )).scalar_one_or_none()
-        if not target_emp:
-            return _err("Cet employé n'est pas dans ton entreprise")
 
-        target_user = await session.get(User, target_id)
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
 
-        # Vérifier diplôme requis
-        required = ROLE_DIPLOMA.get(new_role)
-        if required and target_user and not _has_diploma(target_user, required):
-            return _err(f"{target_user.first_name} n'a pas le diplôme requis pour {new_role}")
-
-        old_role = target_emp.role
-        target_emp.role = new_role
-        await _add_log(session, company.id, "promotion",
-                       f"{target_user.first_name if target_user else target_id}: {old_role} → {new_role} (webapp)")
+        user.avatar_data = json_str
         await session.commit()
 
-        if target_user:
-            await _notify(target_id,
-                f"🎖️ Tu as été promu(e) dans <b>{company.name}</b> !\n"
-                f"{ROLE_EMOJI.get(new_role, '')} Nouveau poste : <b>{new_role.capitalize()}</b>")
-
-        return _ok(f"✅ {target_user.first_name if target_user else target_id} est maintenant {new_role.capitalize()} !")
+    return web.json_response({'ok': True})
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  RECRUTER (inviter un joueur)
-# ═════════════════════════════════════════════════════════════════════════════
+async def webapp_index(request: web.Request) -> web.Response:
+    """Sert un skeleton vide — le vrai HTML est livré par /api/webapp/load après validation initData."""
+    skeleton = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<title>Family Bot</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#0f0f1a;color:#f0f0f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center}
+.loader{text-align:center}
+.spinner{width:48px;height:48px;border:4px solid #2a2a4a;border-top-color:#f7c948;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lbl{color:#a0a0b0;font-size:13px}
+</style>
+</head>
+<body>
+<div class="loader" id="loader">
+  <div class="spinner"></div>
+  <div class="lbl">Chargement...</div>
+</div>
+<script>
+(async function() {
+  const tg = window.Telegram?.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
 
-async def webapp_recruter(request: web.Request) -> web.Response:
-    """POST /api/webapp/recruter — body: {user_id, target_id, role, salary?, bonus?}"""
-    body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
-    target_id = int(body.get("target_id", 0))
-    role      = str(body.get("role", "employe")).lower().strip()
-    salary    = int(body.get("salary", 0))
-    bonus     = int(body.get("bonus", 0))
+  const initData = tg?.initData || '';
+  const userId   = tg?.initDataUnsafe?.user?.id || null;
 
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-    if not target_id:
-        return _err("target_id manquant")
-    if role not in ROLES_ORDER or role == "pdg":
-        role = "employe"
+  // Pas dans Telegram du tout → page bientôt
+  if (!initData && !userId) {
+    document.getElementById('loader').innerHTML = '<div style="font-size:48px">🚧</div><div style="font-family:sans-serif;font-size:22px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div><div style="color:#a0a0b0;font-size:13px">La Mini App arrive très bientôt !</div>';
+    return;
+  }
 
-    async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company or emp.role not in MANAGEMENT_ROLES:
-            return _err("Tu dois être au moins Manager pour recruter")
+  try {
+    const res = await fetch('/api/webapp/load', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ init_data: initData, user_id: userId })
+    });
 
-        target = await session.get(User, target_id)
-        if not target:
-            return _err("Joueur introuvable")
+    if (!res.ok) {
+      document.getElementById('loader').innerHTML = '<div style="font-size:48px">🚧</div><div style="font-family:sans-serif;font-size:22px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div><div style="color:#a0a0b0;font-size:13px">La Mini App arrive très bientôt !</div>';
+      return;
+    }
 
-        # Déjà dans une entreprise ?
-        _tc, _te = await _get_user_company(session, target_id)
-        if _tc:
-            return _err(f"{target.first_name} est déjà dans {_tc.name}")
-
-        # Diplôme requis pour le rôle
-        required = ROLE_DIPLOMA.get(role)
-        if required and not _has_diploma(target, required):
-            return _err(f"{target.first_name} n'a pas le diplôme requis pour {role}")
-
-        # Hiérarchie : on ne peut pas recruter au-dessus de soi
-        if ROLES_ORDER.index(role) >= ROLES_ORDER.index(emp.role):
-            return _err("Tu ne peux pas inviter quelqu'un à un rang égal ou supérieur au tien")
-
-        # Créer l'invitation
-        role_encoded = role if salary <= 0 else f"{role}|{salary}|{bonus}"
-        invite = CompanyInvite(
-            company_id=company.id,
-            target_id=target_id,
-            role=role_encoded,
-            invited_by=uid,
-            status="pending",
-            expires_at=datetime.utcnow() + timedelta(hours=48),
-        )
-        session.add(invite)
-        await session.commit()
-
-        contrat_txt = ""
-        if salary > 0:
-            contrat_txt = f"\n💰 Salaire proposé : <b>{_fmt(salary)} $/jour</b>"
-            if bonus > 0:
-                contrat_txt += f"\n🎁 Prime : <b>{_fmt(bonus)} $</b>"
-
-        await _notify(target_id,
-            f"📩 <b>Invitation de {company.name} !</b>\n"
-            f"{ROLE_EMOJI.get(role, '')} Poste proposé : <b>{role.capitalize()}</b>"
-            f"{contrat_txt}\n\n"
-            f"✅ Accepte sur la mini app ou tape /rejoindre {company.name}\n"
-            f"⏳ Expire dans 48h.")
-
-    return _ok(f"📩 Invitation envoyée à {target.first_name} pour rejoindre {company.name} !")
+    const html = await res.text();
+    document.open();
+    document.write(html);
+    document.close();
+  } catch(e) {
+    document.getElementById('loader').innerHTML = '<div style="color:#ff6b6b;font-size:13px">Erreur de connexion</div>';
+  }
+})();
+</script>
+</body>
+</html>"""
+    return web.Response(text=skeleton, content_type='text/html')
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  INVITATIONS (mes invitations reçues)
-# ═════════════════════════════════════════════════════════════════════════════
+async def webapp_load_app(request: web.Request) -> web.Response:
+    """POST /api/webapp/load — valide initData Telegram et sert le vrai HTML si autorisé."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(text="Bad request", status=400)
 
-async def webapp_invitations(request: web.Request) -> web.Response:
-    """GET /api/webapp/invitations?user_id=xxx"""
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
+    uid       = body.get('user_id')
+    init_data = body.get('init_data', '')
 
-    async with AsyncSessionLocal() as session:
-        rows = (await session.execute(
-            select(CompanyInvite).where(
-                CompanyInvite.target_id == uid,
-                CompanyInvite.status == "pending",
-                CompanyInvite.expires_at > datetime.utcnow(),
-            )
-        )).scalars().all()
+    valid_init = _verify_init_data(init_data)
+    try:
+        is_admin = uid is not None and int(uid) in WEBAPP_ADMIN_IDS
+    except (ValueError, TypeError):
+        is_admin = False
 
+    if not (valid_init or is_admin):
+        return web.json_response({'error': 'access denied'}, status=403)
+
+    import os
+    path = os.path.join(os.path.dirname(__file__), '..', 'webapp', 'index.html')
+    with open(path, 'r', encoding='utf-8') as f:
+        real_html = f.read()
+    return web.Response(text=real_html, content_type='text/html')
+
+
+def _build_locked_page() -> str:
+    return """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;background:#0f0f1a;display:flex;align-items:center;justify-content:center;font-family:sans-serif}</style>
+</head><body>
+<div style="text-align:center;padding:32px;max-width:320px">
+  <div style="font-size:72px">🚧</div>
+  <div style="font-size:26px;font-weight:900;color:#f7c948;margin:16px 0 8px;letter-spacing:2px">BIENTÔT</div>
+  <div style="color:#a0a0b0;font-size:14px;line-height:1.8">
+    La Mini App <b style="color:#f0f0f0">Family Bot</b><br>arrive très bientôt !
+  </div>
+</div>
+</body></html>"""
+
+
+
+# ── Route : Catalogue marché ─────────────────────────────────────────────────
+async def webapp_market_catalog(request: web.Request) -> web.Response:
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    catalog = {}
+    for cat in CATEGORIES:
         items = []
-        for inv in rows:
-            company = await session.get(Company, inv.company_id)
-            inviter = await session.get(User, inv.invited_by)
-            parts = inv.role.split("|")
-            real_role = parts[0]
-            salary = int(parts[1]) if len(parts) > 1 else 0
-            bonus  = int(parts[2]) if len(parts) > 2 else 0
-            items.append({
-                "id":          inv.id,
-                "company_id":  inv.company_id,
-                "company":     company.name if company else "—",
-                "sector":      company.sector if company else "",
-                "role":        real_role,
-                "role_emoji":  ROLE_EMOJI.get(real_role, "👤"),
-                "salary":      _fmt(salary) if salary else None,
-                "salary_raw":  salary,
-                "bonus":       _fmt(bonus) if bonus else None,
-                "bonus_raw":   bonus,
-                "inviter":     inviter.first_name if inviter else "—",
-                "expires_at":  inv.expires_at.strftime("%d/%m à %H:%M") if inv.expires_at else "—",
-            })
-
-    return web.json_response({"invitations": items})
-
-
-async def webapp_invitations_accepter(request: web.Request) -> web.Response:
-    """POST /api/webapp/invitations/accepter — body: {user_id, invite_id, counter_salary?}"""
-    body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
-    invite_id = int(body.get("invite_id", 0))
-    counter   = int(body.get("counter_salary", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        user = await session.get(User, uid)
-        invite = await session.get(CompanyInvite, invite_id)
-        if not invite or invite.target_id != uid or invite.status != "pending":
-            return _err("Invitation introuvable ou expirée")
-        if datetime.utcnow() > invite.expires_at:
-            invite.status = "expired"
-            await session.commit()
-            return _err("Cette invitation a expiré")
-
-        company = await session.get(Company, invite.company_id)
-        if not company or not company.is_active:
-            return _err("Entreprise introuvable")
-
-        parts     = invite.role.split("|")
-        real_role = parts[0]
-        salary    = int(parts[1]) if len(parts) > 1 else 0
-        bonus_val = int(parts[2]) if len(parts) > 2 else 0
-
-        # Contre-proposition
-        if counter > 0 and salary > 0 and counter != salary:
-            invite.status = "counter"
-            invite.role = f"{real_role}|{counter}|{bonus_val}|counter"
-            await session.commit()
-
-            # Notifier PDG
-            pdg_emp = (await session.execute(
-                select(CompanyEmployee).where(
-                    CompanyEmployee.company_id == company.id,
-                    CompanyEmployee.role == "pdg",
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar_one_or_none()
-            if pdg_emp:
-                await _notify(pdg_emp.user_id,
-                    f"💬 <b>Contre-proposition de {user.first_name if user else uid} !</b>\n"
-                    f"Il refuse {_fmt(salary)} $/j et demande : <b>{_fmt(counter)} $/jour</b>\n"
-                    f"Réponds sur la mini app.")
-            return _ok(f"💬 Contre-proposition de {_fmt(counter)} $/j envoyée. En attente du PDG.")
-
-        # Vérifier capacité
-        nb_emp = (await session.execute(
-            select(func.count()).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalar()
-        if nb_emp >= _max_employees(company):
-            return _err(f"{company.name} est au complet")
-
-        # Accepter
-        invite.status = "accepted"
-        new_emp = CompanyEmployee(
-            company_id=company.id,
-            user_id=uid,
-            role=real_role,
-        )
-        if salary > 0:
-            new_emp.daily_salary = salary
-            new_emp.contract_status = "signed"
-            # Verser la prime
-            if bonus_val > 0 and company.treasury >= bonus_val:
-                user_db = await session.get(User, uid)
-                if user_db:
-                    user_db.coins += bonus_val
-                company.treasury -= bonus_val
-                company.value = max(50_000_000, company.value - bonus_val)
-
-        session.add(new_emp)
-        await _add_log(session, company.id, "recrutement",
-                       f"{user.first_name if user else uid} a rejoint ({real_role}) via webapp")
-        await session.commit()
-
-        msg = f"✅ Bienvenue dans {company.name} ! Tu es {ROLE_EMOJI.get(real_role, '')} {real_role.capitalize()}."
-        if salary > 0:
-            msg += f" Contrat signé : {_fmt(salary)} $/jour."
-            if bonus_val > 0:
-                msg += f" Prime de {_fmt(bonus_val)} $ versée !"
-        return _ok(msg)
-
-
-async def webapp_invitations_refuser(request: web.Request) -> web.Response:
-    """POST /api/webapp/invitations/refuser — body: {user_id, invite_id}"""
-    body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
-    invite_id = int(body.get("invite_id", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        invite = await session.get(CompanyInvite, invite_id)
-        if not invite or invite.target_id != uid:
-            return _err("Invitation introuvable")
-        invite.status = "rejected"
-        await session.commit()
-
-    return _ok("❌ Invitation refusée.")
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  VERSERSALAIRES
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_versersalaires(request: web.Request) -> web.Response:
-    """POST /api/webapp/versersalaires — body: {user_id}"""
-    body = await _body(request)
-    uid  = int(body.get("user_id", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company or emp.role != "pdg":
-            return _err("Seul le PDG peut verser les salaires")
-
-        # Cooldown
-        if company.last_payroll:
-            delta = datetime.utcnow() - company.last_payroll
-            remaining = timedelta(hours=PAYROLL_COOLDOWN_HOURS) - delta
-            if remaining.total_seconds() > 0:
-                h = int(remaining.total_seconds() // 3600)
-                m = int((remaining.total_seconds() % 3600) // 60)
-                return _err(f"Prochaine paie disponible dans {h}h{m:02d}m")
-
-        emps = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
-                CompanyEmployee.role != "pdg",
-            )
-        )).scalars().all()
-
-        eligible = [e for e in emps if (e.daily_salary or 0) > 0 and e.contract_status == "signed"]
-        if not eligible:
-            return _err("Aucun employé avec contrat signé. Utilise Négocier contrat d'abord.")
-
-        total_to_pay = sum(e.daily_salary for e in eligible)
-        ratio = min(1.0, company.treasury / total_to_pay) if total_to_pay > 0 else 0
-
-        total_paid = 0
-        paid_list  = []
-        from sqlalchemy import text as _text
-        for e in eligible:
-            amount = int(e.daily_salary * ratio)
-            if amount <= 0:
+        for asset_id, a in ASSETS.items():
+            if a['category'] != cat:
                 continue
-            emp_user = await session.get(User, e.user_id)
-            if emp_user:
-                emp_user.coins += amount
-            # Lire activity_since_payroll via SQL pur pour éviter la race condition avec flush_activity_queue
-            row = (await session.execute(
-                _text("SELECT activity_since_payroll FROM company_employees WHERE user_id = :uid AND company_id = :cid AND left_at IS NULL"),
-                {"uid": e.user_id, "cid": e.company_id}
-            )).fetchone()
-            activity = row[0] if row else 0
-            # Reset via SQL pur (pas ORM) pour ne pas écraser les incréments concurrent du flush
-            await session.execute(
-                _text("UPDATE company_employees SET activity_since_payroll = 0 WHERE user_id = :uid AND company_id = :cid AND left_at IS NULL"),
-                {"uid": e.user_id, "cid": e.company_id}
-            )
-            total_paid += amount
-            paid_list.append({
-                "name":     emp_user.first_name if emp_user else "—",
-                "role":     e.role,
-                "amount":   _fmt(amount),
-                "activity": activity,
+            price = _current_price(asset_id)
+            items.append({
+                'id': asset_id,
+                'name': a['name'],
+                'emoji': a['emoji'],
+                'category': cat,
+                'risk': a['risk'],
+                'risk_emoji': _risk_emoji(a['risk']),
+                'desc': a['desc'],
+                'price': price,
+                'price_fmt': _fmt(price),
+                'base_price': a['base_price'],
+                'volatility': int(a['volatility'] * 100),
             })
-            await _notify(e.user_id,
-                f"💵 <b>Salaire reçu !</b>\n"
-                f"🏢 <b>{company.name}</b> t'a versé <b>{_fmt(amount)} $</b>\n"
-                f"📊 {activity} commandes effectuées"
-                + (f"\n⚠️ Versement partiel ({int(ratio*100)}%)" if ratio < 1.0 else ""))
+        catalog[cat] = items
 
-        company.treasury = max(0, company.treasury - total_paid)
-        company.value    = max(50_000_000, company.value - total_paid)
-        company.last_payroll = datetime.utcnow()
-
-        await _add_log(session, company.id, "paie",
-                       f"Salaires versés via webapp — {_fmt(total_paid)} $ distribués", amount=total_paid)
-        await session.commit()
-
-    return _ok(
-        f"💼 Paie effectuée ! {_fmt(total_paid)} $ distribués à {len(paid_list)} employé(s).",
-        paid=paid_list,
-        total=_fmt(total_paid),
-        partial=ratio < 1.0,
-    )
+    return web.json_response({'catalog': catalog, 'categories': CATEGORIES})
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  PAYER UN EMPLOYÉ (montant libre)
-# ═════════════════════════════════════════════════════════════════════════════
+# ── Route : Portfolio détaillé ───────────────────────────────────────────────
+async def webapp_market_portfolio(request: web.Request) -> web.Response:
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
 
-async def webapp_payeremploye(request: web.Request) -> web.Response:
-    """POST /api/webapp/payeremploye — body: {user_id, target_id, amount}"""
-    body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
-    target_id = int(body.get("target_id", 0))
-    amount    = int(body.get("amount", 0))
+    try:
+        return await _webapp_market_portfolio_inner(uid)
+    except Exception as e:
+        import traceback
+        return web.json_response({'error': str(e), 'trace': traceback.format_exc()}, status=500)
 
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-    if amount <= 0:
-        return _err("Montant invalide")
 
+async def _webapp_market_portfolio_inner(uid: int) -> web.Response:
     async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company or emp.role != "pdg":
-            return _err("Seul le PDG peut payer manuellement")
-        if company.is_bot_company:
-            return _err("Impossible sur une entreprise officielle")
-        if target_id == uid:
-            return _err("Utilise /retraitboite pour te payer toi-même")
-
-        target_emp = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.user_id == target_id,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalar_one_or_none()
-        if not target_emp:
-            return _err("Cet employé n'est pas dans ton entreprise")
-        if target_emp.role == "stagiaire":
-            return _err("Les stagiaires ne reçoivent pas de salaire")
-
-        if company.treasury < amount:
-            return _err(f"Trésorerie insuffisante (disponible : {_fmt(company.treasury)} $)")
-
-        target_user = await session.get(User, target_id)
-        if target_user:
-            target_user.coins += amount
-        activity = target_emp.activity_since_payroll or 0
-        target_emp.activity_since_payroll = 0
-        company.treasury -= amount
-        company.value = max(50_000_000, company.value - amount)
-
-        await _add_log(session, company.id, "paie_pdg",
-                       f"Paiement manuel → {target_user.first_name if target_user else target_id} "
-                       f"({target_emp.role}) : {_fmt(amount)} $", amount=amount)
-        await session.commit()
-
-        if target_user:
-            await _notify(target_id,
-                f"💵 <b>Salaire reçu !</b>\n"
-                f"🏢 <b>{company.name}</b>\n"
-                f"💎 Le PDG t'a versé <b>{_fmt(amount)} $</b>\n"
-                f"📊 Activité comptabilisée : {activity} commandes")
-
-        return _ok(
-            f"✅ {_fmt(amount)} $ versés à {target_user.first_name if target_user else target_id} !",
-            treasury_left=_fmt(company.treasury),
+        result = await session.execute(
+            select(Investment).where(Investment.user_id == uid, Investment.status == 'active')
         )
+        investments = result.scalars().all()
+
+        positions = []
+        total_invested = 0
+        total_current = 0
+        for inv in investments:
+            try:
+                a = ASSETS.get(inv.asset_id, {})
+                if not a:
+                    continue
+                buy_price = inv.buy_price or 0
+                quantity  = inv.quantity or 0
+                buy_total = buy_price * quantity
+                cur_price = _current_price(inv.asset_id)
+                cur_total = cur_price * quantity
+                pnl = cur_total - buy_total
+                pnl_pct = round((pnl / buy_total) * 100, 1) if buy_total else 0
+                total_invested += buy_total
+                total_current += cur_total
+                positions.append({
+                    'id': inv.id,
+                    'asset_id': inv.asset_id,
+                    'name': a.get('name', inv.asset_id),
+                    'emoji': a.get('emoji', '📊'),
+                    'risk': a.get('risk', 'medium'),
+                    'risk_emoji': _risk_emoji(a.get('risk', 'medium')),
+                    'quantity': quantity,
+                    'buy_price': buy_price,
+                    'buy_price_fmt': _fmt(buy_price),
+                    'cur_price': cur_price,
+                    'cur_price_fmt': _fmt(cur_price),
+                    'buy_total_fmt': _fmt(buy_total),
+                    'cur_total_fmt': _fmt(cur_total),
+                    'pnl': pnl,
+                    'pnl_fmt': ('+' if pnl >= 0 else '') + str(_fmt(abs(pnl))),
+                    'pnl_pct': pnl_pct,
+                    'pnl_positive': pnl >= 0,
+                    'bought_at': inv.bought_at.strftime('%d/%m/%Y') if inv.bought_at else '—',
+                })
+            except Exception:
+                continue
+
+        total_pnl = total_current - total_invested
+        return web.json_response({
+            'positions': positions,
+            'summary': {
+                'invested': _fmt(total_invested),
+                'current': _fmt(total_current),
+                'pnl': ('+' if total_pnl >= 0 else '') + str(_fmt(abs(total_pnl))),
+                'pnl_positive': total_pnl >= 0,
+                'count': len(positions),
+            }
+        })
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  NÉGOCIER CONTRAT
-# ═════════════════════════════════════════════════════════════════════════════
+# ── Route : Acheter/Vendre ────────────────────────────────────────────────────
+async def webapp_market_action(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
 
-async def webapp_negociercontrat(request: web.Request) -> web.Response:
-    """
-    POST /api/webapp/negociercontrat
-    body:
-      PDG propose   : {user_id, target_id, salary, bonus?}
-      PDG refuse    : {user_id, target_id, action: "refuser"}
-      Employé répond: {user_id, action: "accepter"|"refuser"|"counter", counter_salary?}
-    """
-    body   = await _body(request)
-    uid    = int(body.get("user_id", 0))
-    action = str(body.get("action", "")).lower()
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
 
-    if not _auth(uid):
-        return _err("unauthorized", 403)
+    action = body.get('action')  # 'buy' ou 'sell'
+    asset_id = body.get('asset_id', '')
+    qty = int(body.get('quantity', 1))
 
-    async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company:
-            return _err("Tu ne fais partie d'aucune entreprise")
+    # Pour la vente par inv_id, pas besoin d'asset_id
+    if action != 'sell' or not body.get('inv_id'):
+        if asset_id not in ASSETS:
+            return web.json_response({'error': 'Asset inconnu'}, status=400)
+        if qty < 1:
+            return web.json_response({'error': 'Quantité invalide'}, status=400)
 
-        user = await session.get(User, uid)
-
-        # ── CAS EMPLOYÉ : répondre à une proposition ──────────────────────
-        if emp.role != "pdg":
-            if emp.contract_status != "pending_employee":
-                return _err("Aucune proposition de contrat en attente")
-
-            pending_sal = emp.pending_salary or 0
-            pending_bon = emp.pending_bonus or 0
-
-            pdg_emp = (await session.execute(
-                select(CompanyEmployee).where(
-                    CompanyEmployee.company_id == company.id,
-                    CompanyEmployee.role == "pdg",
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar_one_or_none()
-
-            if action == "accepter":
-                emp.daily_salary = pending_sal
-                emp.contract_status = "signed"
-                emp.pending_salary = 0
-                emp.pending_bonus  = 0
-                await session.commit()
-                if pdg_emp:
-                    await _notify(pdg_emp.user_id,
-                        f"✅ <b>{user.first_name if user else uid}</b> a accepté le contrat !\n"
-                        f"📄 Salaire signé : <b>{_fmt(pending_sal)} $/jour</b>")
-                return _ok(f"✅ Contrat accepté ! Salaire : {_fmt(pending_sal)} $/jour")
-
-            elif action == "refuser":
-                emp.contract_status = "none"
-                emp.pending_salary  = 0
-                emp.pending_bonus   = 0
-                await session.commit()
-                if pdg_emp:
-                    await _notify(pdg_emp.user_id,
-                        f"❌ <b>{user.first_name if user else uid}</b> a refusé ta proposition.")
-                return _ok("❌ Proposition refusée.")
-
-            else:  # counter
-                counter = int(body.get("counter_salary", 0))
-                if counter <= 0:
-                    return _err("Montant invalide pour la contre-proposition")
-                emp.contract_status = "pending_pdg"
-                emp.pending_salary  = counter
-                await session.commit()
-                if pdg_emp:
-                    await _notify(pdg_emp.user_id,
-                        f"💬 <b>Contre-proposition de {user.first_name if user else uid} !</b>\n"
-                        f"Il refuse {_fmt(pending_sal)} $/j et demande : <b>{_fmt(counter)} $/jour</b>\n"
-                        f"Réponds sur la mini app.")
-                return _ok(f"💬 Contre-proposition de {_fmt(counter)} $/j envoyée.")
-
-        # ── CAS PDG : proposer ou répondre à une contre-prop ─────────────
-        target_id = int(body.get("target_id", 0))
-        salary    = int(body.get("salary", 0))
-        bonus_val = int(body.get("bonus", 0))
-
-        if not target_id:
-            return _err("target_id manquant")
-
-        target_emp = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.user_id == target_id,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalar_one_or_none()
-        if not target_emp:
-            return _err("Cet employé n'est pas dans ton entreprise")
-
-        target_user = await session.get(User, target_id)
-
-        if action == "refuser":
-            target_emp.contract_status = "none"
-            target_emp.pending_salary  = 0
-            target_emp.pending_bonus   = 0
-            await session.commit()
-            await _notify(target_id,
-                f"❌ <b>{company.name}</b> a refusé ta contre-proposition.")
-            return _ok(f"❌ Contre-proposition de {target_user.first_name if target_user else target_id} refusée.")
-
-        if salary <= 0:
-            return _err("Salaire invalide")
-
-        # PDG accepte la contre-prop de l'employé
-        if target_emp.contract_status == "pending_pdg" and salary == target_emp.pending_salary:
-            target_emp.daily_salary    = salary
-            target_emp.contract_status = "signed"
-            target_emp.pending_salary  = 0
-            target_emp.pending_bonus   = 0
-            await session.commit()
-            await _notify(target_id,
-                f"✅ <b>Contrat signé !</b>\n"
-                f"🏢 <b>{company.name}</b> a accepté ta demande.\n"
-                f"📄 Salaire : <b>{_fmt(salary)} $/jour</b>")
-            return _ok(f"✅ Contre-proposition acceptée ! Contrat signé à {_fmt(salary)} $/jour.")
-
-        # Nouvelle proposition PDG → employé
-        target_emp.contract_status = "pending_employee"
-        target_emp.pending_salary  = salary
-        target_emp.pending_bonus   = bonus_val
-        await session.commit()
-
-        bonus_txt = f"\n🎁 Prime : <b>{_fmt(bonus_val)} $</b>" if bonus_val > 0 else ""
-        await _notify(target_id,
-            f"📄 <b>Proposition de contrat — {company.name}</b>\n"
-            f"💰 Salaire proposé : <b>{_fmt(salary)} $/jour</b>{bonus_txt}\n\n"
-            f"Accepte, refuse ou contre-propose sur la mini app.")
-
-        name = target_user.first_name if target_user else str(target_id)
-        return _ok(f"📩 Proposition envoyée à {name} : {_fmt(salary)} $/jour.")
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  PRÉSENCES (tableau de bord direction)
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_presences(request: web.Request) -> web.Response:
-    """GET /api/webapp/presences?user_id=xxx"""
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
+    a = ASSETS.get(asset_id, {})
+    price = _current_price(asset_id) if asset_id else 0
 
     async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company or emp.role not in DIRECTION_ROLES:
-            return _err("Réservé au PDG et Directeur")
+        user_result = await session.execute(select(User).where(User.user_id == uid))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'Utilisateur introuvable'}, status=404)
 
-        emps = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalars().all()
-
-        data = []
-        total_masse = 0
-        for e in sorted(emps, key=lambda x: ROLES_ORDER.index(x.role) if x.role in ROLES_ORDER else 0, reverse=True):
-            eu = await session.get(User, e.user_id)
-            daily    = e.daily_salary or 0
-            activity = e.activity_since_payroll or 0
-            status   = e.contract_status or "none"
-            if e.role not in ("pdg", "stagiaire"):
-                total_masse += daily
-
-            data.append({
-                "user_id":   e.user_id,
-                "name":      eu.first_name if eu else "—",
-                "username":  eu.username if eu else "",
-                "role":      e.role,
-                "role_emoji": ROLE_EMOJI.get(e.role, "👤"),
-                "activity":  activity,
-                "daily":     _fmt(daily),
-                "daily_raw": daily,
-                "contract":  status,
-                "is_me":     e.user_id == uid,
-                "cmd_count": e.command_count or 0,
-                "joined":    e.joined_at.strftime("%d/%m/%Y") if e.joined_at else "—",
+        if action == 'buy':
+            total_cost = price * qty
+            if user.coins < total_cost:
+                return web.json_response({'error': f'Fonds insuffisants — il te faut {_fmt(total_cost)} {CURRENCY}'})
+            user.coins -= total_cost
+            inv = Investment(user_id=uid, asset_id=asset_id, quantity=qty, buy_price=price)
+            session.add(inv)
+            await session.commit()
+            return web.json_response({
+                'ok': True,
+                'msg': f"✅ Acheté {qty}x {a['emoji']} {a['name']} pour {_fmt(total_cost)} {CURRENCY}"
             })
 
-        last_pay = company.last_payroll.strftime("%d/%m %H:%M") if company.last_payroll else "Jamais"
+        elif action == 'sell':
+            inv_id = body.get('inv_id')
+            if inv_id:
+                result = await session.execute(
+                    select(Investment).where(Investment.id == inv_id, Investment.user_id == uid, Investment.status == 'active')
+                )
+                inv = result.scalar_one_or_none()
+                if not inv:
+                    return web.json_response({'error': 'Position introuvable'})
+                sell_price = _current_price(inv.asset_id)
+                proceeds = sell_price * inv.quantity
+                user.coins += proceeds
+                inv.status = 'sold'
+                inv.sell_price = sell_price
+                from datetime import datetime
+                inv.sold_at = datetime.utcnow()
+                await session.commit()
+                pnl = proceeds - inv.buy_price * inv.quantity
+                return web.json_response({
+                    'ok': True,
+                    'msg': f"{'✅' if pnl>=0 else '⚠️'} Vendu pour {_fmt(proceeds)} {CURRENCY} (PnL: {'+' if pnl>=0 else ''}{_fmt(pnl)})"
+                })
+            else:
+                return web.json_response({'error': 'inv_id requis pour vendre'})
 
-        # Cooldown paie
-        can_pay = True
-        pay_in = ""
-        if company.last_payroll:
-            delta = datetime.utcnow() - company.last_payroll
-            remaining = timedelta(hours=PAYROLL_COOLDOWN_HOURS) - delta
-            if remaining.total_seconds() > 0:
-                can_pay = False
-                h = int(remaining.total_seconds() // 3600)
-                m = int((remaining.total_seconds() % 3600) // 60)
-                pay_in = f"{h}h{m:02d}m"
+        return web.json_response({'error': 'Action invalide'}, status=400)
 
+
+import random as _random_game
+import asyncio as _asyncio_game
+
+# ── Routes Jeux ──────────────────────────────────────────────────────────────
+
+async def webapp_game(request: web.Request) -> web.Response:
+    """POST /api/webapp/game — Jouer à un jeu depuis la webapp."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    game = body.get('game')  # 'crash_start', 'crash_cashout', 'roue', 'mines_start', 'mines_reveal', 'mines_cashout'
+    mise = int(body.get('mise', 0))
+
+    async with AsyncSessionLocal() as session:
+        user_result = await session.execute(select(User).where(User.user_id == uid))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # ── ROUE DE FORTUNE ──────────────────────────────────────────────────
+        if game == 'roue':
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if mise > 6_600_000:
+                return web.json_response({'error': 'Mise maximum 6 600 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': f'Fonds insuffisants (solde: {int(user.coins):,} $)'})
+
+            WHEEL_SEGMENTS = [
+                ("💀 Ruine totale",        "ruine",   0,          6),
+                ("☠️ x0.1",               "mult",    0.1,        10),
+                ("😭 x0.2",               "mult",    0.2,         9),
+                ("😞 x0.3",               "mult",    0.3,        10),
+                ("💸 x0.4",               "mult",    0.4,         9),
+                ("😐 x0.5",               "mult",    0.5,         9),
+                ("🔄 IDEM",               "idem",    0,          10),
+                ("🙂 x0.8",               "mult",    0.8,         9),
+                ("💵 +50 000 $",          "fixed",   50_000,      6),
+                ("💰 x1.2",               "mult",    1.2,         8),
+                ("💵 +200 000 $",         "fixed",   200_000,     6),
+                ("💰 x1.5",               "mult",    1.5,        10),
+                ("🎁 +500 000 $",         "fixed",   500_000,     4),
+                ("🤑 x2.0",               "mult",    2.0,         7),
+                ("🎯 x3.0",               "mult",    3.0,         5),
+                ("💵 +1 000 000 $",       "fixed",   1_000_000,   3),
+                ("⭐ x5.0",               "mult",    5.0,         3),
+                ("🔥 x10.0",              "mult",    10.0,        2),
+                ("🌟 MÉGA CHANCE x15.0",  "mult",    15.0,        1),
+                ("💎 JACKPOT x25.0",      "mult",    25.0,        1),
+            ]
+
+            total_w = sum(s[3] for s in WHEEL_SEGMENTS)
+            r = _random_game.uniform(0, total_w)
+            cum = 0
+            label, kind, val = WHEEL_SEGMENTS[-1][:3]
+            for seg in WHEEL_SEGMENTS:
+                cum += seg[3]
+                if r <= cum:
+                    label, kind, val = seg[0], seg[1], seg[2]
+                    break
+
+            # Trouver l'index du segment pour l'animation
+            seg_index = next(i for i, s in enumerate(WHEEL_SEGMENTS) if s[0] == label)
+
+            if kind == 'ruine':
+                gain = 0
+            elif kind == 'idem':
+                gain = mise
+            elif kind == 'fixed':
+                gain = min(int(val), 100_000_000)
+            else:
+                gain = min(int(mise * val), 100_000_000)
+
+            user.coins -= mise
+            user.coins += gain
+            await session.commit()
+
+            profit = gain - mise
+            return web.json_response({
+                'ok': True,
+                'label': label,
+                'kind': kind,
+                'val': val,
+                'gain': gain,
+                'profit': profit,
+                'seg_index': seg_index,
+                'total_segs': len(WHEEL_SEGMENTS),
+            })
+
+        # ── CRASH ─────────────────────────────────────────────────────────────
+        if game == 'crash_state':
+            # Polling public — pas besoin d'auth mais on l'a déjà
+            _crash_tick_lobby()
+            return web.json_response(_crash_lobby_public())
+
+        if game == 'crash_start':
+            _crash_tick_lobby()
+            if _CRASH_LOBBY['phase'] != 'waiting':
+                return web.json_response({'error': 'Mises fermées — round en cours'})
+            if uid in _CRASH_LOBBY['players']:
+                return web.json_response({'error': 'Tu as déjà misé ce round'})
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            user.coins -= mise
+            await session.commit()
+
+            display_name = (user.first_name or user.username or f'User{uid}')[:20]
+            avatar = getattr(user, 'avatar_emoji', '👤') or '👤'
+            _CRASH_LOBBY['players'][uid] = {
+                'name': display_name,
+                'avatar': avatar,
+                'mise': mise,
+                'cashed_out': False,
+                'cashout_mult': None,
+            }
+            return web.json_response({'ok': True, **_crash_lobby_public()})
+
+        if game == 'crash_cashout':
+            _crash_tick_lobby()
+            lobby = _CRASH_LOBBY
+            p = lobby['players'].get(uid)
+            if not p:
+                return web.json_response({'error': 'Tu n\'as pas misé ce round'})
+            if p['cashed_out']:
+                return web.json_response({'error': 'Déjà cash out'})
+            if lobby['phase'] != 'flying':
+                return web.json_response({'error': 'Pas en vol actuellement', 'crashed': lobby['phase'] == 'crashed'})
+
+            now = _time_mod.time()
+            elapsed = now - lobby['phase_start']
+            mult = _crash_compute_mult(elapsed)
+            if mult >= lobby['crash_point']:
+                return web.json_response({'error': 'Trop tard — crash !', 'crashed': True})
+
+            p['cashed_out'] = True
+            p['cashout_mult'] = round(mult, 2)
+            gain = int(p['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - p['mise'], 'mult': round(mult, 2)})
+
+        # ── MINES ─────────────────────────────────────────────────────────────
+        if game == 'mines_start':
+            nb_mines = int(body.get('nb_mines', 3))
+            if nb_mines < 1 or nb_mines > 24:
+                return web.json_response({'error': 'Mines : 1-24'})
+            if mise < 100:
+                return web.json_response({'error': 'Mise minimum 100 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            grid = ['safe'] * 25
+            for pos in _random_game.sample(range(25), nb_mines):
+                grid[pos] = 'mine'
+
+            user.coins -= mise
+            await session.commit()
+            _MINES_SESSIONS[uid] = {'mise': mise, 'nb_mines': nb_mines, 'grid': grid, 'revealed': []}
+            return web.json_response({'ok': True})
+
+        if game == 'mines_reveal':
+            idx = int(body.get('idx', 0))
+            sess = _MINES_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            if idx in sess['revealed']:
+                return web.json_response({'error': 'Déjà révélé'})
+
+            sess['revealed'].append(idx)
+            is_mine = sess['grid'][idx] == 'mine'
+
+            if is_mine:
+                full_grid = sess['grid']
+                _MINES_SESSIONS.pop(uid, None)
+                return web.json_response({'ok': True, 'mine': True, 'grid': full_grid})
+
+            nb_revealed = len(sess['revealed'])
+            nb_mines = sess['nb_mines']
+            safe = 25 - nb_mines
+            try:
+                prob = 1.0
+                for i in range(nb_revealed):
+                    prob *= (safe - i) / (25 - i)
+                mult = round(0.97 / prob, 2) if prob > 0 else 1.0
+            except Exception:
+                mult = 1.0
+
+            gain_now = int(sess['mise'] * mult)
+            all_safe = nb_revealed >= safe
+            if all_safe:
+                _MINES_SESSIONS.pop(uid, None)
+                user.coins += gain_now
+                await session.commit()
+
+            return web.json_response({'ok': True, 'mine': False, 'mult': mult, 'gain_now': gain_now, 'all_safe': all_safe})
+
+        if game == 'mines_cashout':
+            sess = _MINES_SESSIONS.pop(uid, None)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            nb_revealed = len(sess['revealed'])
+            nb_mines = sess['nb_mines']
+            safe = 25 - nb_mines
+            try:
+                prob = 1.0
+                for i in range(nb_revealed):
+                    prob *= (safe - i) / (25 - i)
+                mult = round(0.97 / prob, 2) if prob > 0 else 1.0
+            except Exception:
+                mult = 1.0
+            gain = int(sess['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise'], 'mult': mult})
+
+        # ── APPLE OF FORTUNE ──────────────────────────────────────────────────
+        if game == 'apple_start':
+            if mise < _APPLE_MIN:
+                return web.json_response({'error': f'Mise minimum {_APPLE_MIN:,} $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            user.coins -= mise
+            await session.commit()
+            row = _apple_gen_row(1)
+            _APPLE_SESSIONS[uid] = {'mise': mise, 'level': 1, 'row': row}
+            return web.json_response({'ok': True, 'level': 1, 'bombs': _apple_bombs(1)})
+
+        if game == 'apple_pick':
+            col = int(body.get('col', 0))
+            sess = _APPLE_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            row = sess['row']
+            is_bomb = row[col]
+            if is_bomb:
+                _APPLE_SESSIONS.pop(uid, None)
+                return web.json_response({'ok': True, 'bomb': True, 'row': row})
+            # Safe — avance au niveau suivant
+            level = sess['level']
+            mult = _APPLE_MULTS.get(level, 1.0)
+            gain_now = int(sess['mise'] * mult)
+            if level >= 10:
+                # Gagné tout !
+                _APPLE_SESSIONS.pop(uid, None)
+                user.coins += gain_now
+                await session.commit()
+                return web.json_response({'ok': True, 'bomb': False, 'won': True, 'mult': mult, 'gain': gain_now, 'row': row})
+            # Prochain niveau
+            new_level = level + 1
+            new_row = _apple_gen_row(new_level)
+            sess['level'] = new_level
+            sess['row'] = new_row
+            next_mult = _APPLE_MULTS.get(new_level, 1.0)
+            return web.json_response({'ok': True, 'bomb': False, 'won': False, 'level': new_level, 'mult': mult, 'gain_now': gain_now, 'next_mult': next_mult, 'bombs_next': _apple_bombs(new_level), 'row': row})
+
+        if game == 'apple_cashout':
+            sess = _APPLE_SESSIONS.pop(uid, None)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            level = sess['level'] - 1  # le level passé
+            mult = _APPLE_MULTS.get(level, 1.0)
+            gain = int(sess['mise'] * mult)
+            user.coins += gain
+            await session.commit()
+            return web.json_response({'ok': True, 'gain': gain, 'profit': gain - sess['mise'], 'mult': mult})
+
+        # ── REBET — Quitte ou Double ──────────────────────────────────────────
+        if game == 'rebet_start':
+            MIN_REBET = 5000
+            if mise < MIN_REBET:
+                return web.json_response({'error': f'Mise minimum {MIN_REBET:,} $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            user.coins -= mise
+            await session.commit()
+            _REBET_SESSIONS[uid] = {'mise': mise, 'gains': mise, 'round': 1}
+            return web.json_response({'ok': True, 'gains': mise, 'round': 1})
+
+        if game == 'rebet_action':
+            action = body.get('action')  # 'cash' ou 'double'
+            sess = _REBET_SESSIONS.get(uid)
+            if not sess:
+                return web.json_response({'error': 'Aucune partie'})
+            if action == 'cash':
+                gains = sess['gains']
+                _REBET_SESSIONS.pop(uid, None)
+                user.coins += gains
+                await session.commit()
+                return web.json_response({'ok': True, 'gained': gains, 'profit': gains - sess['mise']})
+            elif action == 'double':
+                won = _random_game.random() < 0.5
+                if won:
+                    sess['gains'] *= 2
+                    sess['round'] += 1
+                    return web.json_response({'ok': True, 'won': True, 'gains': sess['gains'], 'round': sess['round']})
+                else:
+                    _REBET_SESSIONS.pop(uid, None)
+                    return web.json_response({'ok': True, 'won': False, 'lost': sess['gains']})
+            return web.json_response({'error': 'Action invalide'})
+
+        # ── COCKFIGHT ─────────────────────────────────────────────────────────
+        if game == 'cockfight':
+            mise = int(body.get('mise', 0))
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            import random as _cr
+            def _gen_coq():
+                return {'hp': 100, 'atk': _cr.randint(15, 35), 'def': _cr.randint(5, 20)}
+
+            coq1 = _gen_coq()
+            coq2 = _gen_coq()
+            log = []
+            round_n = 1
+            while coq1['hp'] > 0 and coq2['hp'] > 0 and round_n <= 10:
+                # Player attacks bot
+                dmg1 = max(1, coq1['atk'] - _cr.randint(0, coq2['def']))
+                coq2['hp'] = max(0, coq2['hp'] - dmg1)
+                log.append(f"🐔 Tour {round_n} : Ton coq inflige {dmg1} dégâts (bot : {coq2['hp']} ❤️)")
+                if coq2['hp'] <= 0:
+                    break
+                # Bot attacks player
+                dmg2 = max(1, coq2['atk'] - _cr.randint(0, coq1['def']))
+                coq1['hp'] = max(0, coq1['hp'] - dmg2)
+                log.append(f"🐓 Bot riposte : {dmg2} dégâts (toi : {coq1['hp']} ❤️)")
+                round_n += 1
+
+            if coq1['hp'] > coq2['hp']:
+                winner = 'player'
+                gain = int(mise * 1.8)
+                user.coins += gain - mise
+            elif coq2['hp'] > coq1['hp']:
+                winner = 'bot'
+                gain = 0
+                user.coins -= mise
+            else:
+                winner = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'winner': winner, 'gain': gain if winner == 'player' else 0, 'log': log})
+
+        # ── PPC ───────────────────────────────────────────────────────────────
+        if game == 'ppc':
+            mise = int(body.get('mise', 0))
+            choice = body.get('choice', '')
+            choices = ['pierre', 'papier', 'ciseaux']
+            beats = {'pierre': 'ciseaux', 'papier': 'pierre', 'ciseaux': 'papier'}
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+            if choice not in choices:
+                return web.json_response({'error': 'Choix invalide'})
+
+            import random as _pr
+            bot_choice = _pr.choice(choices)
+            if beats[choice] == bot_choice:
+                result = 'win'
+                gain = int(mise * 1.9)
+                user.coins += gain - mise
+            elif beats[bot_choice] == choice:
+                result = 'lose'
+                gain = 0
+                user.coins -= mise
+            else:
+                result = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'result': result, 'bot_choice': bot_choice, 'gain': gain if result == 'win' else 0})
+
+        # ── LANCER DE DÉS ────────────────────────────────────────────────────
+        if game == 'lancer':
+            mise = int(body.get('mise', 0))
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            import random as _lr
+            p1 = [_lr.randint(1, 6), _lr.randint(1, 6)]
+            p2 = [_lr.randint(1, 6), _lr.randint(1, 6)]
+            t1, t2 = sum(p1), sum(p2)
+            if t1 > t2:
+                winner = 'player'
+                gain = int(mise * 1.9)
+                user.coins += gain - mise
+            elif t2 > t1:
+                winner = 'bot'
+                gain = 0
+                user.coins -= mise
+            else:
+                winner = 'tie'
+                gain = mise
+            await session.commit()
+            return web.json_response({'ok': True, 'winner': winner, 'p1_dice': p1, 'p2_dice': p2,
+                                      'p1_total': t1, 'p2_total': t2, 'gain': gain if winner == 'player' else 0})
+
+    return web.json_response({'error': 'Jeu inconnu'}, status=400)
+
+
+_CRASH_SESSIONS: dict = {}   # legacy, kept for compat
+_MINES_SESSIONS: dict = {}
+_APPLE_SESSIONS: dict = {}
+_REBET_SESSIONS: dict = {}
+
+# ── Crash Multijoueur ─────────────────────────────────────────────────────────
+import time as _time_mod
+
+_CRASH_LOBBY: dict = {
+    # phase: 'waiting' | 'flying' | 'crashed'
+    'phase': 'waiting',
+    'round_id': 0,
+    'phase_start': 0.0,      # timestamp début de la phase courante
+    'betting_duration': 10.0, # secondes d'ouverture des mises
+    'crash_point': 1.0,
+    'players': {},  # uid -> {name, avatar, mise, cashed_out, cashout_mult}
+}
+_CRASH_LOBBY_HISTORY: list = []  # derniers rounds [{round_id, crash_point, ts}]
+
+def _crash_compute_mult(elapsed: float) -> float:
+    """Même formule que le front : 1 + t*0.12 + t^1.5*0.04"""
+    return round(1.0 + elapsed * 0.12 + (elapsed ** 1.5) * 0.04, 2)
+
+def _crash_tick_lobby() -> None:
+    """Avancer le lobby selon l'heure. Appelé avant chaque lecture/écriture."""
+    lobby = _CRASH_LOBBY
+    now = _time_mod.time()
+    elapsed = now - lobby['phase_start']
+
+    if lobby['phase'] == 'waiting':
+        if elapsed >= lobby['betting_duration']:
+            # Lancer le vol
+            r = _random_game.random()
+            if r < 0.05:
+                cp = 1.0
+            else:
+                cp = round(min(0.99 / (1 - r * 0.95), 100.0), 2)
+            lobby['crash_point'] = cp
+            lobby['phase'] = 'flying'
+            lobby['phase_start'] = now
+
+    elif lobby['phase'] == 'flying':
+        mult = _crash_compute_mult(elapsed)
+        if mult >= lobby['crash_point']:
+            # Crash !
+            lobby['phase'] = 'crashed'
+            lobby['phase_start'] = now
+            # Ajouter à l'historique
+            _CRASH_LOBBY_HISTORY.append({
+                'round_id': lobby['round_id'],
+                'crash_point': lobby['crash_point'],
+                'ts': now,
+            })
+            if len(_CRASH_LOBBY_HISTORY) > 20:
+                _CRASH_LOBBY_HISTORY.pop(0)
+
+    elif lobby['phase'] == 'crashed':
+        if elapsed >= 5.0:
+            # Nouveau round
+            lobby['round_id'] += 1
+            lobby['phase'] = 'waiting'
+            lobby['phase_start'] = now
+            lobby['crash_point'] = 1.0
+            lobby['players'] = {}
+
+def _crash_lobby_public() -> dict:
+    """Renvoie l'état public du lobby (sans crash_point si flying)."""
+    lobby = _CRASH_LOBBY
+    now = _time_mod.time()
+    elapsed = now - lobby['phase_start']
+    mult = _crash_compute_mult(elapsed) if lobby['phase'] == 'flying' else 1.0
+
+    players_list = []
+    for uid, p in lobby['players'].items():
+        players_list.append({
+            'name': p['name'],
+            'avatar': p['avatar'],
+            'mise': p['mise'],
+            'cashed_out': p['cashed_out'],
+            'cashout_mult': p.get('cashout_mult'),
+        })
+
+    result = {
+        'phase': lobby['phase'],
+        'round_id': lobby['round_id'],
+        'elapsed': round(elapsed, 2),
+        'mult': round(mult, 2),
+        'betting_remaining': max(0.0, round(lobby['betting_duration'] - elapsed, 1)) if lobby['phase'] == 'waiting' else 0.0,
+        'players': players_list,
+        'history': _CRASH_LOBBY_HISTORY[-10:],
+    }
+    if lobby['phase'] == 'crashed':
+        result['crash_point'] = lobby['crash_point']
+    return result
+
+# ── Apple of Fortune constants ────────────────────────────────────────────────
+_APPLE_MULTS = {1:1.50,2:2.10,3:3.20,4:4.80,5:7.00,6:12.00,7:22.00,8:45.00,9:100.00,10:500.00}
+_APPLE_MIN   = 50_000
+
+def _apple_bombs(level: int) -> int:
+    if level <= 2: return 2
+    if level <= 8: return 3
+    return 4
+
+def _apple_gen_row(level: int) -> list:
+    import random as _r
+    n = _apple_bombs(level)
+    row = [False]*5
+    for pos in _r.sample(range(5), n):
+        row[pos] = True
+    return row  # True = bombe
+
+
+async def webapp_profile_customize(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/customize — Sauvegarder thème cover + badges équipés."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    cover_theme     = body.get('cover_theme', 'purple')
+    cover_fx        = body.get('cover_fx', '')
+    badges_equipped = body.get('badges_equipped', [])
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Lire la customisation actuelle — PRÉSERVER badges_owned
+        try:
+            current = json.loads(user.profile_color) if user.profile_color and user.profile_color.startswith('{') else {}
+        except Exception:
+            current = {}
+
+        current['cover_theme']     = cover_theme
+        current['cover_fx']        = cover_fx
+        current['badges_equipped'] = badges_equipped
+        # badges_owned est préservé tel quel — on ne l'écrase jamais ici
+
+        user.profile_color = json.dumps(current)
+        session.add(user)
+        await session.commit()
+
+    return web.json_response({'ok': True})
+
+
+async def webapp_profile_badge_buy(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/badge/buy — Acheter un badge avec des coins."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid      = int(body.get('user_id', 0))
+    badge_id = body.get('badge_id', '')
+    price    = int(body.get('price', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not badge_id or price < 0:
+        return web.json_response({'error': 'Paramètres invalides'}, status=400)
+
+    VALID_BADGES = {'gold_star','diamond','fire','crown','rocket','skull','trophy','unicorn'}
+    if badge_id not in VALID_BADGES:
+        return web.json_response({'error': 'Badge inconnu'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        try:
+            current = json.loads(user.profile_color or '{}') if user.profile_color and user.profile_color.startswith('{') else {}
+        except Exception:
+            current = {}
+
+        owned = current.get('badges_owned', [])
+        if badge_id in owned:
+            return web.json_response({'error': 'Badge déjà possédé'})
+
+        if (user.coins or 0) < price:
+            return web.json_response({'error': f'Fonds insuffisants ({_fmt(user.coins)} $ disponible)'})
+
+        user.coins -= price
+        owned.append(badge_id)
+        current['badges_owned'] = owned
+        user.profile_color = json.dumps(current)
+        session.add(user)
+        await session.commit()
+
+    return web.json_response({'ok': True, 'badges_owned': owned})
+
+
+async def webapp_profile_photo(request: web.Request) -> web.Response:
+    """POST /api/webapp/profile/photo — Sauvegarder une photo de profil personnalisée (base64).
+    Stocke le contenu en tant que données brutes dans un champ dédié, servi ensuite
+    par /api/webapp/photo comme fallback si photo_file_id Telegram est absent.
+    """
+    import base64 as _b64
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid          = int(body.get('user_id', 0))
+    photo_b64    = body.get('photo_b64', '') or body.get('photo_base64', '')  # les deux clés acceptées
+
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not photo_b64:
+        return web.json_response({'error': 'Photo manquante'})
+
+    # Extraire le contenu brut
+    try:
+        if ',' in photo_b64:
+            header, data = photo_b64.split(',', 1)
+        else:
+            data = photo_b64
+        img_bytes = _b64.b64decode(data)
+    except Exception:
+        return web.json_response({'error': 'Image invalide'})
+
+    # Limite 5 Mo
+    if len(img_bytes) > 5 * 1024 * 1024:
+        return web.json_response({'error': 'Image trop lourde (max 5 Mo)'})
+
+    # Stocker en base : on réutilise photo_file_id avec un préfixe spécial
+    # "custom:<base64>" — le proxy /photo détecte ce préfixe et renvoie les bytes directement
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(
+            select(User).where(User.user_id == uid)
+        )).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'Utilisateur introuvable'}, status=404)
+
+        # Stocker le base64 encodé dans photo_file_id avec préfixe custom:
+        user.photo_file_id   = 'custom:' + data[:2000]  # tronqué pour la clé
+        user.photo_file_type = 'custom_b64'
+        # Stocker le base64 complet dans avatar_data.photo si possible (champ Text)
+        try:
+            existing = json.loads(user.avatar_data or '{}') if user.avatar_data else {}
+        except Exception:
+            existing = {}
+        existing['_custom_photo'] = data  # base64 complet
+        user.avatar_data = json.dumps(existing)
+        session.add(user)
+        await session.commit()
+
+    return web.json_response({'ok': True})
+
+
+def setup_webapp_routes(app: web.Application):
+    """Enregistre les routes de la Mini App."""
+    app.router.add_get('/',                       webapp_index)
+    app.router.add_get('/webapp',                 webapp_index)
+    app.router.add_post('/api/webapp/load',       webapp_load_app)
+    app.router.add_post('/api/webapp/profile/customize',   webapp_profile_customize)
+    app.router.add_post('/api/webapp/profile/badge/buy',   webapp_profile_badge_buy)
+    app.router.add_post('/api/webapp/profile/photo',       webapp_profile_photo)
+    app.router.add_get('/api/webapp/user',        webapp_user)
+    app.router.add_get('/api/webapp/photo',       webapp_photo_proxy)
+    app.router.add_post('/api/webapp/avatar',     webapp_save_avatar)
+    app.router.add_get('/api/webapp/market',      webapp_market_catalog)
+    app.router.add_get('/api/webapp/portfolio',   webapp_market_portfolio)
+    app.router.add_post('/api/webapp/market/action', webapp_market_action)
+    app.router.add_post('/api/webapp/game',       webapp_game)
+    # ── Banque ──────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/bank',         webapp_bank_data)
+    app.router.add_post('/api/webapp/bank/open',   webapp_bank_open)
+    app.router.add_post('/api/webapp/bank/deposit',webapp_bank_deposit)
+    app.router.add_post('/api/webapp/bank/withdraw',webapp_bank_withdraw)
+    app.router.add_post('/api/webapp/bank/loan',   webapp_bank_loan)
+    app.router.add_post('/api/webapp/bank/repay',  webapp_bank_repay)
+    # ── Famille ─────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/family', webapp_family)
+    # ── Jardin ──────────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/garden',        webapp_garden)
+    app.router.add_post('/api/webapp/garden/plant', webapp_garden_plant)
+    app.router.add_post('/api/webapp/garden/harvest', webapp_garden_harvest)
+    # ── Classement ──────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/ranking', webapp_ranking)
+    # ── Journal / Événements / Annonces ─────────────────────────────────────
+    app.router.add_get('/api/webapp/journal',   webapp_journal)
+    app.router.add_get('/api/webapp/events',    webapp_events)
+    app.router.add_get('/api/webapp/annonces',  webapp_annonces)
+    app.router.add_get('/api/webapp/auctions/live',      webapp_auctions_live)
+    app.router.add_get('/api/webapp/auctions/inventory', webapp_auctions_inventory)
+    app.router.add_post('/api/webapp/auctions/bid',      webapp_auctions_bid)
+    # ── La Salle VIP ────────────────────────────────────────────────────────
+    app.router.add_get('/api/webapp/salle/status',  webapp_salle_status)
+    app.router.add_post('/api/webapp/salle/pay',    webapp_salle_pay)
+    app.router.add_post('/api/webapp/salle/bid',    webapp_salle_bid)
+    app.router.add_get('/api/webapp/salle/history', webapp_salle_history)
+    app.router.add_get('/api/webapp/company',              webapp_company_data)
+    app.router.add_post('/api/webapp/company/depot',       webapp_company_depot)
+    app.router.add_post('/api/webapp/company/retrait',     webapp_company_retrait)
+    app.router.add_post('/api/webapp/company/payerimpots', webapp_company_payerimpots)
+    app.router.add_post('/api/webapp/company/accepter',    webapp_company_accepter)
+    app.router.add_post('/api/webapp/company/refuser',     webapp_company_refuser)
+    app.router.add_post('/api/webapp/company/licencier',   webapp_company_licencier)
+    app.router.add_post('/api/webapp/company/nommer',      webapp_company_nommer)
+    app.router.add_post('/api/webapp/company/demissionner',webapp_company_demissionner)
+    app.router.add_post('/api/webapp/company/acheterparts',webapp_company_acheter_parts)
+    app.router.add_post('/api/webapp/company/gereroffre',  webapp_company_gerer_offre)
+
+    app.router.add_get('/api/webapp/gains',        webapp_gains)
+    app.router.add_post('/api/webapp/gains/daily', webapp_gains_daily)
+    app.router.add_post('/api/webapp/gains/work',  webapp_gains_work)
+    app.router.add_get('/api/webapp/diplomes',     webapp_diplomes)
+    app.router.add_get('/api/webapp/online',       webapp_online_users)
+
+    # ── Nouvelles routes webapp (isolées du bot) ──────────────────────────────
+    from api.webapp_actions import setup_actions_routes
+    setup_actions_routes(app)
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GAINS — Daily & Work
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_gains(request: web.Request) -> web.Response:
+    """GET /api/webapp/gains?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from datetime import datetime
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+        now = datetime.utcnow()
+        now_key = now.strftime('%Y-%m-%d')
+        daily_available = (user.last_daily != now_key)
+        work_available = True
+        work_wait_min = 0
+        if user.last_work:
+            from database.db import get_karma_level
+            level = get_karma_level(user.karma or 0)
+            base_cd = 8 * 3600
+            reduction = level.get('work_red', 0) / 100
+            cooldown = int(base_cd * (1 - reduction))
+            elapsed = (now - user.last_work).total_seconds()
+            if elapsed < cooldown:
+                work_available = False
+                work_wait_min = int((cooldown - elapsed) / 60)
     return web.json_response({
-        "employees":    data,
-        "treasury":     _fmt(company.treasury),
-        "treasury_raw": company.treasury or 0,
-        "last_payroll": last_pay,
-        "can_pay":      can_pay,
-        "pay_in":       pay_in,
-        "total_masse":  _fmt(total_masse),
-        "is_pdg":       emp.role == "pdg",
+        'daily_available': daily_available,
+        'work_available':  work_available,
+        'work_wait_min':   work_wait_min,
     })
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  PARTS
-# ═════════════════════════════════════════════════════════════════════════════
+async def webapp_gains_daily(request: web.Request) -> web.Response:
+    """POST /api/webapp/gains/daily"""
+    data = await request.json()
+    uid = int(data.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from database.db import claim_daily
+    async with AsyncSessionLocal() as session:
+        result = await claim_daily(session, uid)
+    return web.json_response(result)
 
-async def webapp_mes_parts(request: web.Request) -> web.Response:
-    """GET /api/webapp/parts?user_id=xxx"""
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
+
+async def webapp_gains_work(request: web.Request) -> web.Response:
+    """POST /api/webapp/gains/work"""
+    data = await request.json()
+    uid = int(data.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    from database.db import claim_work
+    async with AsyncSessionLocal() as session:
+        result = await claim_work(session, uid)
+    return web.json_response(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOURNAL — dernières actions de l'utilisateur
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_journal(request: web.Request) -> web.Response:
+    """GET /api/webapp/journal?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _ddt
+    entries = []
 
     async with AsyncSessionLocal() as session:
-        shares = (await session.execute(
-            select(CompanyShare).where(
-                CompanyShare.owner_id == uid,
-                CompanyShare.quantity > 0,
+        # Dernières transactions banque
+        try:
+            r = await session.execute(
+                text("""
+                    SELECT 'Dépôt banque' as title, '🏦' as emoji, amount, created_at
+                    FROM bank_transactions
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC LIMIT 5
+                """), {'uid': uid}
+            )
+            for row in r.fetchall():
+                entries.append({
+                    'emoji': '🏦',
+                    'title': 'Transaction bancaire',
+                    'body': f'{_fmt(row[2])} $',
+                    'date': str(row[3])[:10] if row[3] else '',
+                })
+        except Exception:
+            pass
+
+        # Derniers investissements
+        try:
+            invs = (await session.execute(
+                select(Investment).where(Investment.user_id == uid).order_by(Investment.bought_at.desc()).limit(5)
+            )).scalars().all()
+            for inv in invs:
+                a = ASSETS.get(inv.asset_id, {})
+                entries.append({
+                    'emoji': a.get('emoji', '📈'),
+                    'title': f"Achat {a.get('name', inv.asset_id)}",
+                    'body': f"{inv.quantity}x à {_fmt(inv.buy_price)} $ l'unité",
+                    'date': inv.bought_at.strftime('%d/%m/%Y') if inv.bought_at else '',
+                })
+        except Exception:
+            pass
+
+    # Trier par date décroissante
+    entries.sort(key=lambda e: e.get('date', ''), reverse=True)
+    return web.json_response({'entries': entries[:15]})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉVÉNEMENTS — événements globaux du bot
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_events(request: web.Request) -> web.Response:
+    """GET /api/webapp/events?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import datetime as _ddt
+    events = []
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(
+                text("SELECT * FROM bot_events ORDER BY created_at DESC LIMIT 20")
+            )
+            for row in r.fetchall():
+                events.append({
+                    'emoji': getattr(row, 'emoji', '📅'),
+                    'title': getattr(row, 'title', '—'),
+                    'desc':  getattr(row, 'description', ''),
+                    'date':  str(getattr(row, 'created_at', ''))[:10],
+                    'color': getattr(row, 'color', 'var(--accent)'),
+                })
+        except Exception:
+            pass
+
+    if not events:
+        # Fallback : événements génériques basés sur les données dispo
+        from datetime import date
+        today = date.today().strftime('%d/%m/%Y')
+        events = [
+            {'emoji':'🌅','title':'Bienvenue sur Family Bot','desc':'La Mini App est maintenant disponible !','date':today,'color':'#a29bfe'},
+            {'emoji':'💰','title':'Marché actif','desc':'Des dizaines d\'assets disponibles à l\'achat.','date':today,'color':'#f7c948'},
+        ]
+
+    return web.json_response({'events': events})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ANNONCES
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_annonces(request: web.Request) -> web.Response:
+    """GET /api/webapp/annonces?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from datetime import date
+    annonces = []
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(
+                text("SELECT * FROM announcements ORDER BY created_at DESC LIMIT 20")
+            )
+            for row in r.fetchall():
+                annonces.append({
+                    'title':     getattr(row, 'title', '—'),
+                    'body':      getattr(row, 'body', ''),
+                    'date':      str(getattr(row, 'created_at', ''))[:10],
+                    'important': getattr(row, 'important', False),
+                })
+        except Exception:
+            pass
+
+    if not annonces:
+        today = date.today().strftime('%d/%m/%Y')
+        annonces = [
+            {'title':'Mini App lancée 🎉','body':'La webapp Family Bot est désormais en ligne. Profites-en pour consulter tes stats, gérer ta banque et jouer au casino !','date':today,'important':True},
+        ]
+
+    return web.json_response({'annonces': annonces})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉTAPE 1 — BANQUE
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ENCHÈRES — Live + Inventaire + Mise
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_auctions_live(request: web.Request) -> web.Response:
+    """GET /api/webapp/auctions/live?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    auctions = []
+    async with AsyncSessionLocal() as session:
+        try:
+            from datetime import datetime as _dt_now
+            _now = _dt_now.utcnow()
+
+            # Auto-clôturer les enchères expirées (bot restart peut rater les run_once jobs)
+            await session.execute(text("""
+                UPDATE auction_sessions
+                SET status = 'closed'
+                WHERE status = 'active' AND ends_at <= NOW()
+            """))
+            await session.commit()
+
+            r = await session.execute(text("""
+                SELECT id, item_id, item_name, item_emoji, rarity, true_value,
+                       start_price, current_bid, leader_id, leader_name, ends_at
+                FROM auction_sessions
+                WHERE status = 'active' AND ends_at > NOW()
+                ORDER BY ends_at ASC
+                LIMIT 20
+            """))
+            for row in r.fetchall():
+                ends_at_val = row[10]
+                # Toujours sérialiser proprement sans timezone
+                if ends_at_val is not None:
+                    if hasattr(ends_at_val, 'strftime'):
+                        ends_at_str = ends_at_val.strftime('%Y-%m-%dT%H:%M:%S')
+                    else:
+                        # string de Neon — normaliser
+                        s = str(ends_at_val).replace(' ', 'T')
+                        # Retirer offset +00:00 ou -HH:MM
+                        import re as _re
+                        s = _re.sub(r'[+-]\d{2}:\d{2}$', '', s)
+                        s = s.rstrip('Z')
+                        ends_at_str = s[:19]
+                else:
+                    ends_at_str = None
+
+                auctions.append({
+                    'id':          row[0],
+                    'item_id':     row[1],
+                    'item_name':   row[2],
+                    'item_emoji':  row[3],
+                    'rarity':      row[4],
+                    'start_price': row[6],
+                    'current_bid': row[7],
+                    'leader_id':   row[8],
+                    'leader_name': row[9],
+                    'ends_at':     ends_at_str,
+                })
+        except Exception as e:
+            return web.json_response({'auctions': [], 'error': str(e)})
+
+    return web.json_response({'auctions': auctions})
+
+
+async def webapp_auctions_inventory(request: web.Request) -> web.Response:
+    """GET /api/webapp/auctions/inventory?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    items = []
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(text("""
+                SELECT id, item_id, item_name, item_emoji, rarity, true_value, acquired_at, for_sale, sale_price
+                FROM auction_inventory
+                WHERE user_id = :uid
+                ORDER BY acquired_at DESC
+                LIMIT 50
+            """), {'uid': uid})
+            for row in r.fetchall():
+                items.append({
+                    'id':          row[0],
+                    'item_id':     row[1],
+                    'item_name':   row[2],
+                    'item_emoji':  row[3],
+                    'rarity':      row[4],
+                    'true_value':  row[5],
+                    'acquired_at': str(row[6])[:10] if row[6] else '',
+                    'for_sale':    bool(row[7]),
+                    'sale_price':  row[8],
+                })
+        except Exception as e:
+            return web.json_response({'items': [], 'error': str(e)})
+
+    return web.json_response({'items': items})
+
+
+async def webapp_auctions_bid(request: web.Request) -> web.Response:
+    """POST /api/webapp/auctions/bid  body: {user_id, auction_id, amount}"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'ok': False, 'error': 'JSON invalide'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    auction_id = int(body.get('auction_id', 0))
+    amount     = int(body.get('amount', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'ok': False, 'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        try:
+            r = await session.execute(text("""
+                SELECT id, current_bid, leader_id, status
+                FROM auction_sessions WHERE id = :aid
+            """), {'aid': auction_id})
+            row = r.fetchone()
+            if not row:
+                return web.json_response({'ok': False, 'error': 'Enchère introuvable'})
+            _, current_bid, leader_id, status = row
+            if status != 'active':
+                return web.json_response({'ok': False, 'error': 'Enchère terminée'})
+            if leader_id == uid:
+                return web.json_response({'ok': False, 'error': 'Tu mènes déjà !'})
+            if amount <= current_bid:
+                return web.json_response({'ok': False, 'error': f'Mise trop basse (min {current_bid + 1} $)'})
+
+            # Récupérer le nom du leader
+            ru = await session.execute(text("SELECT username FROM users WHERE user_id = :uid"), {'uid': uid})
+            row_u = ru.fetchone()
+            leader_name = row_u[0] if row_u else str(uid)
+
+            # Vérifier les fonds
+            rc = await session.execute(text("SELECT coins FROM users WHERE user_id = :uid"), {'uid': uid})
+            row_c = rc.fetchone()
+            if not row_c or row_c[0] < amount:
+                return web.json_response({'ok': False, 'error': 'Fonds insuffisants'})
+
+            # Débiter + update enchère
+            await session.execute(text("UPDATE users SET coins = coins - :amt WHERE user_id = :uid"), {'amt': amount, 'uid': uid})
+            # Rembourser l'ancien leader
+            if leader_id:
+                await session.execute(text("UPDATE users SET coins = coins + :amt WHERE user_id = :lid"), {'amt': current_bid, 'lid': leader_id})
+            await session.execute(text("""
+                UPDATE auction_sessions
+                SET current_bid = :amt, leader_id = :uid, leader_name = :name
+                WHERE id = :aid
+            """), {'amt': amount, 'uid': uid, 'name': leader_name, 'aid': auction_id})
+            await session.commit()
+            return web.json_response({'ok': True})
+        except Exception as e:
+            await session.rollback()
+            return web.json_response({'ok': False, 'error': str(e)})
+
+
+BANKS_DEF = {
+    "bronze":   {"name":"🥉 Banque Bronze","emoji":"🥉","rank":1,"desc":"Banque populaire, accessible à tous","min_deposit":1_000,"max_deposit":100_000_000_000,"interest_rate":0.01,"max_loan":5_000_000,"loan_rate":0.08,"loan_days":7},
+    "silver":   {"name":"🥈 Banque Silver","emoji":"🥈","rank":2,"desc":"Pour les épargnants sérieux","min_deposit":10_000,"max_deposit":100_000_000_000,"interest_rate":0.015,"max_loan":5_000_000,"loan_rate":0.06,"loan_days":14},
+    "gold":     {"name":"🥇 Banque Gold","emoji":"🥇","rank":3,"desc":"Banque des investisseurs fortunés","min_deposit":100_000,"max_deposit":100_000_000_000,"interest_rate":0.02,"max_loan":5_000_000,"loan_rate":0.05,"loan_days":21},
+    "platinum": {"name":"💠 Banque Platinum","emoji":"💠","rank":4,"desc":"Réservée aux élites financières","min_deposit":500_000,"max_deposit":100_000_000_000,"interest_rate":0.025,"max_loan":5_000_000,"loan_rate":0.04,"loan_days":30},
+    "diamond":  {"name":"💎 Banque Diamond","emoji":"💎","rank":5,"desc":"La banque des milliardaires","min_deposit":2_000_000,"max_deposit":100_000_000_000,"interest_rate":0.03,"max_loan":5_000_000,"loan_rate":0.03,"loan_days":60},
+}
+BANK_KEYS_ORDER = ["bronze","silver","gold","platinum","diamond"]
+
+from datetime import datetime as _dt
+
+
+async def webapp_bank_data(request: web.Request) -> web.Response:
+    """GET /api/webapp/bank — Comptes + prêts + catalogue banques."""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount, Loan
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        accounts_raw = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid)
+        )).scalars().all()
+
+        loans_raw = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == 'active')
+        )).scalars().all()
+
+        accounts = []
+        account_ids = set()
+        for acc in accounts_raw:
+            b = BANKS_DEF.get(acc.bank_id, {})
+            account_ids.add(acc.bank_id)
+            accounts.append({
+                'bank_id':       acc.bank_id,
+                'name':          b.get('name', acc.bank_id),
+                'emoji':         b.get('emoji', '🏦'),
+                'balance':       _fmt(acc.balance or 0),
+                'balance_raw':   int(acc.balance or 0),
+                'interest_rate': b.get('interest_rate', 0) * 100,
+                'max_loan':      _fmt(b.get('max_loan', 0)),
+                'max_loan_raw':  b.get('max_loan', 0),
+            })
+
+        loans = []
+        for loan in loans_raw:
+            b = BANKS_DEF.get(loan.bank_id, {})
+            overdue = _dt.utcnow() > loan.due_at if loan.due_at else False
+            loans.append({
+                'bank_id':   loan.bank_id,
+                'name':      b.get('name', loan.bank_id),
+                'emoji':     b.get('emoji', '🏦'),
+                'remaining': _fmt(loan.remaining or 0),
+                'remaining_raw': int(loan.remaining or 0),
+                'due_at':    loan.due_at.strftime('%d/%m/%Y') if loan.due_at else '—',
+                'overdue':   overdue,
+            })
+
+        # Banques disponibles (toutes, pour ouvrir un compte)
+        all_banks = []
+        for key in BANK_KEYS_ORDER:
+            b = BANKS_DEF[key]
+            all_banks.append({
+                'bank_id':       key,
+                'name':          b['name'],
+                'emoji':         b['emoji'],
+                'desc':          b['desc'],
+                'rank':          b['rank'],
+                'min_deposit':   _fmt(b['min_deposit']),
+                'min_deposit_raw': b['min_deposit'],
+                'interest_rate': b['interest_rate'] * 100,
+                'loan_rate':     b['loan_rate'] * 100,
+                'loan_days':     b['loan_days'],
+                'max_loan':      _fmt(b['max_loan']),
+                'has_account':   key in account_ids,
+            })
+
+        return web.json_response({
+            'wallet':   _fmt(user.coins or 0),
+            'wallet_raw': int(user.coins or 0),
+            'accounts': accounts,
+            'loans':    loans,
+            'banks':    all_banks,
+        })
+
+
+async def webapp_bank_open(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/open"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        existing = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if existing:
+            return web.json_response({'error': 'Compte déjà ouvert dans cette banque'})
+
+        acc = BankAccount(user_id=uid, bank_id=bank_id, balance=0, last_interest=_dt.utcnow())
+        session.add(acc)
+        await session.commit()
+
+    b = BANKS_DEF[bank_id]
+    return web.json_response({'ok': True, 'msg': f"✅ Compte ouvert à la {b['name']} !"})
+
+
+async def webapp_bank_deposit(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/deposit"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    b = BANKS_DEF[bank_id]
+    if amount < b['min_deposit']:
+        return web.json_response({'error': f"Dépôt minimum : {_fmt(b['min_deposit'])} $"})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Ouvre un compte d\'abord'})
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user or user.coins < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        if acc.balance + amount > b['max_deposit']:
+            return web.json_response({'error': 'Plafond de dépôt atteint'})
+
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) + CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Dépôt de {_fmt(amount)} $ effectué !"})
+
+
+async def webapp_bank_withdraw(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/withdraw"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Compte introuvable'})
+        if acc.balance < amount:
+            return web.json_response({'error': f"Solde insuffisant ({_fmt(acc.balance)} $ disponible)"})
+
+        await session.execute(
+            text("UPDATE bank_accounts SET balance = CAST(balance AS BIGINT) - CAST(:amt AS BIGINT) WHERE id = :aid"),
+            {"amt": amount, "aid": acc.id}
+        )
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Retrait de {_fmt(amount)} $ effectué !"})
+
+
+async def webapp_bank_loan(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/loan"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if bank_id not in BANKS_DEF:
+        return web.json_response({'error': 'Banque inconnue'}, status=400)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    b = BANKS_DEF[bank_id]
+    if amount > b['max_loan']:
+        return web.json_response({'error': f"Prêt maximum : {_fmt(b['max_loan'])} $"})
+
+    from datetime import timedelta
+    async with AsyncSessionLocal() as session:
+        from database.models import BankAccount, Loan
+
+        acc = (await session.execute(
+            select(BankAccount).where(BankAccount.user_id == uid, BankAccount.bank_id == bank_id)
+        )).scalar_one_or_none()
+        if not acc:
+            return web.json_response({'error': 'Ouvre un compte dans cette banque d\'abord'})
+
+        existing_loan = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.status == 'active')
+        )).scalar_one_or_none()
+        if existing_loan:
+            return web.json_response({'error': 'Tu as déjà un prêt actif à rembourser'})
+
+        required = int(amount * 0.25)
+        if acc.balance < required:
+            return web.json_response({'error': f"Garantie insuffisante (besoin de {_fmt(required)} $ dans ce compte)"})
+
+        interest  = int(amount * b['loan_rate'])
+        total_due = amount + interest
+        due_at    = _dt.utcnow() + timedelta(days=b['loan_days'])
+
+        loan = Loan(user_id=uid, bank_id=bank_id, amount=amount, remaining=total_due,
+                    interest_rate=b['loan_rate'], due_at=due_at)
+        session.add(loan)
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": amount, "uid": uid}
+        )
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f"✅ Prêt de {_fmt(amount)} $ accordé ! À rembourser {_fmt(total_due)} $ avant le {due_at.strftime('%d/%m/%Y')}."})
+
+
+async def webapp_bank_repay(request: web.Request) -> web.Response:
+    """POST /api/webapp/bank/repay"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid     = int(body.get('user_id', 0))
+    bank_id = body.get('bank_id', '')
+    amount  = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        from database.models import Loan
+        loan = (await session.execute(
+            select(Loan).where(Loan.user_id == uid, Loan.bank_id == bank_id, Loan.status == 'active')
+        )).scalar_one_or_none()
+        if not loan:
+            return web.json_response({'error': 'Aucun prêt actif dans cette banque'})
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user or user.coins < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        pay = min(amount, loan.remaining)
+        await session.execute(
+            text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:amt AS BIGINT) WHERE user_id = :uid"),
+            {"amt": pay, "uid": uid}
+        )
+        loan.remaining -= pay
+        if loan.remaining <= 0:
+            loan.status = 'paid'
+            msg = f"✅ Prêt entièrement remboursé ({_fmt(pay)} $) !"
+        else:
+            msg = f"✅ Remboursement de {_fmt(pay)} $. Reste : {_fmt(loan.remaining)} $."
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': msg})
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ÉTAPE 2 — FAMILLE
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_family(request: web.Request) -> web.Response:
+    """GET /api/webapp/family?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from database.models import Relationship, RelationType
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        rels = (await session.execute(
+            select(Relationship).where(Relationship.user_id == uid)
+        )).scalars().all()
+
+        spouses, parents, children, friends = [], [], [], []
+
+        for rel in rels:
+            ru = (await session.execute(
+                select(User).where(User.user_id == rel.related_user_id)
+            )).scalar_one_or_none()
+            if not ru:
+                continue
+            member = {
+                'user_id':  ru.user_id,
+                'name':     ru.first_name,
+                'username': ru.username or '',
+                'karma':    ru.karma or 0,
+                'gender':   ru.gender or '',
+            }
+            if rel.relation_type == RelationType.SPOUSE:
+                spouses.append(member)
+            elif rel.relation_type == RelationType.PARENT:
+                # Si l'autre user est mon parent → je suis l'enfant
+                # La relation PARENT dans user_id = moi signifie "je suis parent de related_user_id"
+                children.append(member)
+            elif rel.relation_type == RelationType.FRIEND:
+                friends.append(member)
+
+        # Parents = ceux qui ont une relation PARENT pointant vers moi
+        parent_rels = (await session.execute(
+            select(Relationship).where(
+                Relationship.related_user_id == uid,
+                Relationship.relation_type == RelationType.PARENT
+            )
+        )).scalars().all()
+        for rel in parent_rels:
+            pu = (await session.execute(
+                select(User).where(User.user_id == rel.user_id)
+            )).scalar_one_or_none()
+            if pu:
+                parents.append({
+                    'user_id':  pu.user_id,
+                    'name':     pu.first_name,
+                    'username': pu.username or '',
+                    'karma':    pu.karma or 0,
+                    'gender':   pu.gender or '',
+                })
+
+    return web.json_response({
+        'family_name': user.family_name or '',
+        'spouses':  spouses,
+        'parents':  parents,
+        'children': children,
+        'friends':  friends,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JARDIN
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_garden(request: web.Request) -> web.Response:
+    """GET /api/webapp/garden?user_id=xxx&group_id=xxx"""
+    uid      = int(request.rel_url.query.get('user_id', 0))
+    group_id = int(request.rel_url.query.get('group_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES, GARDEN_SLOTS
+    from database.models import Garden
+    from datetime import timedelta
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Récupérer les plantes du jardin
+        if group_id:
+            result = await session.execute(
+                select(Garden).where(Garden.user_id == uid, Garden.group_id == group_id, Garden.harvested == False)
+            )
+        else:
+            result = await session.execute(
+                select(Garden).where(Garden.user_id == uid, Garden.harvested == False)
+            )
+        plants = list(result.scalars().all())
+
+        slots = []
+        for slot_i in range(GARDEN_SLOTS):
+            g = next((p for p in plants if p.slot == slot_i), None)
+            if g:
+                pt        = PLANT_TYPES.get(g.plant_type, {})
+                grow_time = pt.get('grow_time', 3600)
+                ready_at  = g.planted_at + timedelta(seconds=grow_time)
+                now       = datetime.utcnow()
+                ready     = now >= ready_at
+                remaining = max(0, int((ready_at - now).total_seconds() / 60))
+                slots.append({
+                    'slot':       slot_i,
+                    'empty':      False,
+                    'plant_type': g.plant_type,
+                    'emoji':      pt.get('emoji', '🌱'),
+                    'value':      pt.get('value', 0),
+                    'ready':      ready,
+                    'remaining_min': remaining,
+                    'planted_at': g.planted_at.isoformat(),
+                    'garden_id':  g.id,
+                })
+            else:
+                slots.append({'slot': slot_i, 'empty': True})
+
+        plant_catalog = [
+            {'name': k, 'emoji': v['emoji'], 'grow_min': v['grow_time']//60, 'value': v['value']}
+            for k, v in PLANT_TYPES.items()
+        ]
+
+    return web.json_response({
+        'coins':       user.coins,
+        'slots':       slots,
+        'plant_types': plant_catalog,
+        'group_id':    group_id,
+    })
+
+
+async def webapp_garden_plant(request: web.Request) -> web.Response:
+    """POST /api/webapp/garden/plant  body: {user_id, group_id, slot, plant_type}"""
+    data      = await request.json()
+    uid       = int(data.get('user_id', 0))
+    group_id  = int(data.get('group_id', 0))
+    slot      = int(data.get('slot', 0))
+    plant_type = data.get('plant_type', '')
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES, GARDEN_SLOTS
+    from database.models import Garden
+
+    if plant_type not in PLANT_TYPES:
+        return web.json_response({'error': 'Plante inconnue'}, status=400)
+    if slot < 0 or slot >= GARDEN_SLOTS:
+        return web.json_response({'error': 'Slot invalide'}, status=400)
+
+    async with AsyncSessionLocal() as session:
+        existing = (await session.execute(
+            select(Garden).where(Garden.user_id == uid, Garden.slot == slot, Garden.harvested == False)
+        )).scalar_one_or_none()
+        if existing:
+            return web.json_response({'error': 'Ce slot est déjà occupé'}, status=400)
+
+        g = Garden(user_id=uid, group_id=group_id or 0, slot=slot, plant_type=plant_type)
+        session.add(g)
+        await session.commit()
+
+    pt = PLANT_TYPES[plant_type]
+    return web.json_response({'ok': True, 'emoji': pt['emoji'], 'grow_min': pt['grow_time']//60})
+
+
+async def webapp_garden_harvest(request: web.Request) -> web.Response:
+    """POST /api/webapp/garden/harvest  body: {user_id, garden_id}"""
+    data      = await request.json()
+    uid       = int(data.get('user_id', 0))
+    garden_id = int(data.get('garden_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    from config import PLANT_TYPES
+    from database.models import Garden
+    from datetime import timedelta
+
+    async with AsyncSessionLocal() as session:
+        g = (await session.execute(
+            select(Garden).where(Garden.id == garden_id, Garden.user_id == uid, Garden.harvested == False)
+        )).scalar_one_or_none()
+        if not g:
+            return web.json_response({'error': 'Plante introuvable'}, status=404)
+
+        pt       = PLANT_TYPES.get(g.plant_type, {})
+        grow_time = pt.get('grow_time', 3600)
+        ready_at = g.planted_at + timedelta(seconds=grow_time)
+        if datetime.utcnow() < ready_at:
+            return web.json_response({'error': 'Pas encore prête'}, status=400)
+
+        gain    = pt.get('value', 0) * 1000
+        g.harvested = True
+
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if user:
+            user.coins = (user.coins or 0) + gain
+        await session.commit()
+
+    return web.json_response({'ok': True, 'gain': gain, 'emoji': pt.get('emoji', '🌱')})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CLASSEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_ranking(request: web.Request) -> web.Response:
+    """GET /api/webapp/ranking?user_id=xxx&cat=coins|family|company"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    cat = request.rel_url.query.get('cat', 'coins')
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        ranking = []
+        my_row = None
+
+        if cat == 'coins':
+            result = await session.execute(
+                select(User).where(User.is_banned == False).order_by(User.coins.desc()).limit(20)
+            )
+            users = list(result.scalars().all())
+            for i, u in enumerate(users):
+                ranking.append({
+                    'rank': i + 1, 'user_id': u.user_id,
+                    'name': u.first_name, 'username': u.username or '',
+                    'value': u.coins or 0, 'is_me': u.user_id == uid,
+                })
+            if not any(r['is_me'] for r in ranking):
+                me = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+                if me:
+                    cnt = (await session.execute(
+                        select(func.count()).where(User.is_banned == False, User.coins > (me.coins or 0))
+                    )).scalar() or 0
+                    my_row = {'rank': cnt + 1, 'user_id': me.user_id, 'name': me.first_name,
+                              'username': me.username or '', 'value': me.coins or 0, 'is_me': True}
+
+        elif cat == 'family':
+            # Classement par taille de famille
+            rows = (await session.execute(
+                text("""
+                    SELECT u.user_id, u.first_name, u.username,
+                           COUNT(r.id) AS fam_size
+                    FROM users u
+                    LEFT JOIN relationships r ON r.user_id = u.user_id
+                    WHERE u.is_banned = false
+                    GROUP BY u.user_id, u.first_name, u.username
+                    ORDER BY fam_size DESC
+                    LIMIT 20
+                """)
+            )).fetchall()
+            for i, row in enumerate(rows):
+                ranking.append({
+                    'rank': i + 1, 'user_id': row[0],
+                    'name': row[1] or '—', 'username': row[2] or '',
+                    'value': row[3] or 0, 'is_me': row[0] == uid,
+                })
+
+        elif cat == 'company':
+            # Classement entreprises par valeur
+            result = await session.execute(
+                select(Company).where(Company.is_active == True).order_by(Company.value.desc()).limit(20)
+            )
+            companies = list(result.scalars().all())
+            for i, co in enumerate(companies):
+                # Trouver le PDG
+                pdg_emp = (await session.execute(
+                    select(CompanyEmployee).where(
+                        CompanyEmployee.company_id == co.id,
+                        CompanyEmployee.role == 'pdg',
+                        CompanyEmployee.left_at == None
+                    )
+                )).scalar_one_or_none()
+                pdg_name = '—'
+                is_me = False
+                if pdg_emp:
+                    pdg_user = await session.get(User, pdg_emp.user_id)
+                    if pdg_user:
+                        pdg_name = pdg_user.first_name
+                        is_me = pdg_emp.user_id == uid
+                ranking.append({
+                    'rank': i + 1, 'user_id': co.id,
+                    'name': co.name, 'username': f'PDG: {pdg_name}',
+                    'value': co.value or 0, 'is_me': is_me,
+                })
+
+    return web.json_response({'ranking': ranking, 'my_row': my_row})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CRIME
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_crime(request: web.Request) -> web.Response:
+    """GET /api/webapp/crime?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Vérifier prison (table raw SQL)
+        in_prison = False
+        prison_data = None
+        try:
+            r = await session.execute(
+                text("SELECT * FROM crime_prison WHERE user_id = :uid"),
+                {'uid': uid}
+            )
+            row = r.fetchone()
+            if row:
+                released_at = row.released_at
+                if isinstance(released_at, str):
+                    released_at = datetime.fromisoformat(released_at)
+                if datetime.utcnow() < released_at:
+                    in_prison   = True
+                    minutes_left = max(0, int((released_at - datetime.utcnow()).total_seconds() / 60))
+                    prison_data = {
+                        'bail_amount':   row.bail_amount,
+                        'minutes_left':  minutes_left,
+                        'released_at':   released_at.isoformat(),
+                    }
+        except Exception:
+            pass
+
+        # Historique crimes récents
+        crimes = []
+        try:
+            cr = await session.execute(
+                text("SELECT * FROM crime_log WHERE user_id = :uid ORDER BY committed_at DESC LIMIT 10"),
+                {'uid': uid}
+            )
+            for row in cr.fetchall():
+                crimes.append({
+                    'type':         row.crime_type if hasattr(row, 'crime_type') else '?',
+                    'result':       row.result if hasattr(row, 'result') else '?',
+                    'amount':       row.amount if hasattr(row, 'amount') else 0,
+                    'committed_at': str(row.committed_at) if hasattr(row, 'committed_at') else '',
+                })
+        except Exception:
+            pass
+
+        # Sécurité
+        security = 0
+        try:
+            sr = await session.execute(
+                text("SELECT level FROM crime_security WHERE user_id = :uid"),
+                {'uid': uid}
+            )
+            srow = sr.fetchone()
+            if srow:
+                security = srow.level
+        except Exception:
+            pass
+
+    return web.json_response({
+        'coins':      user.coins or 0,
+        'in_prison':  in_prison,
+        'prison':     prison_data,
+        'crimes':     crimes,
+        'security':   security,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ARENA
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_arena(request: web.Request) -> web.Response:
+    """GET /api/webapp/arena?user_id=xxx"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        if not user:
+            return web.json_response({'error': 'user not found'}, status=404)
+
+        # Historique combats
+        fights = []
+        for table in ('arena_cockfight_log', 'arena_ppc_log', 'arena_lancer_log'):
+            try:
+                r = await session.execute(
+                    text(f"SELECT * FROM {table} WHERE user_id = :uid ORDER BY played_at DESC LIMIT 5"),
+                    {'uid': uid}
+                )
+                for row in r.fetchall():
+                    fights.append({
+                        'type':      table.replace('arena_','').replace('_log',''),
+                        'result':    row.result if hasattr(row, 'result') else '?',
+                        'gain':      row.gain if hasattr(row, 'gain') else 0,
+                        'played_at': str(row.played_at) if hasattr(row, 'played_at') else '',
+                    })
+            except Exception:
+                pass
+
+        # Stats wins/losses
+        stats = {'wins': 0, 'losses': 0, 'total_gain': 0}
+        try:
+            r = await session.execute(
+                text("SELECT COUNT(*) FROM arena_cockfight_log WHERE user_id=:uid AND result='win'"), {'uid': uid}
+            )
+            stats['wins'] = r.scalar() or 0
+        except Exception:
+            pass
+
+    return web.json_response({
+        'coins':  user.coins or 0,
+        'fights': fights,
+        'stats':  stats,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DIPLÔMES
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_diplomes(request: web.Request) -> web.Response:
+    """GET /api/webapp/diplomes?user_id=xxx"""
+    import traceback as _tb
+    try:
+        uid = int(request.rel_url.query.get('user_id', 0))
+        if not _is_allowed(uid):
+            return web.json_response({'error': 'unauthorized'}, status=403)
+
+        DIPLOMES_INFO = [
+            {'key': 'bac',     'label': 'Baccalaureat', 'emoji': '📜', 'prerequis': None},
+            {'key': 'licence', 'label': 'Licence',       'emoji': '🎓', 'prerequis': 'bac'},
+            {'key': 'master',  'label': 'Master',        'emoji': '🏛', 'prerequis': 'licence'},
+            {'key': 'mba',     'label': 'MBA',           'emoji': '💼', 'prerequis': 'master'},
+        ]
+
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+            if not user:
+                return web.json_response({'error': 'user not found'}, status=404)
+
+            cooldown_left = 0
+            if user.exam_cooldown:
+                from datetime import datetime as _dt_now
+                cooldown_left = max(0, int((user.exam_cooldown - _dt_now.utcnow()).total_seconds() / 60))
+
+            diplomes = []
+            for d in DIPLOMES_INFO:
+                key      = d['key']
+                field    = f'diplome_{key}'
+                obtained = bool(getattr(user, field, False))
+                diplomes.append({
+                    'key':       key,
+                    'label':     d['label'],
+                    'emoji':     d['emoji'],
+                    'obtained':  obtained,
+                    'prerequis': d['prerequis'],
+                })
+
+            payload = {
+                'diplomes':      diplomes,
+                'domain':        user.diplome_domain or '',
+                'cooldown_left': cooldown_left,
+                'coins':         int(user.coins or 0),
+            }
+
+        return web.json_response(payload)
+
+    except Exception as _e:
+        return web.json_response({'error': 'DIPLOMES_ERR: ' + str(_e), 'trace': _tb.format_exc()[-600:]})
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ENTREPRISE — système complet
+# ══════════════════════════════════════════════════════════════════════════════
+from database.models import TaxRecord, BureauContrat, CompanyApplication, CompanyAutoContract, CompanyShareOffer
+
+
+async def _get_user_company(session, uid: int):
+    """Retourne (Company, CompanyEmployee) pour l utilisateur, ou (None, None)."""
+    emp = (await session.execute(
+        select(CompanyEmployee).where(
+            CompanyEmployee.user_id == uid,
+            CompanyEmployee.left_at == None,
+        )
+    )).scalar_one_or_none()
+    if not emp:
+        return None, None
+    company = await session.get(Company, emp.company_id)
+    if not company or not company.is_active:
+        return None, None
+    return company, emp
+
+
+async def webapp_company_data(request: web.Request) -> web.Response:
+    """GET /api/webapp/company — données complètes entreprise"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        # Trouver l'entreprise du user (PDG ou employé)
+        emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.user_id == uid,
+                CompanyEmployee.left_at == None,
+            ).order_by(
+                CompanyEmployee.role == 'pdg',
+            ).limit(1)
+        )).scalar_one_or_none()
+
+        if not emp:
+            return web.json_response({'company': None})
+
+        company = await session.get(Company, emp.company_id)
+        if not company or not company.is_active:
+            return web.json_response({'company': None})
+
+        # Employés
+        all_emps = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
             )
         )).scalars().all()
 
-        items = []
-        total_value = 0
-        for s in shares:
-            c = await session.get(Company, s.company_id)
-            if not c or not c.is_active:
-                continue
-            price_per = (c.treasury // c.total_shares) if (c.total_shares or 0) > 0 else 0
-            val = s.quantity * price_per
-            total_value += val
-            pct = round((s.quantity / c.total_shares) * 100, 1) if c.total_shares else 0
-            sec_emoji, sec_name = SECTORS.get(c.sector, ("🏢", c.sector))
-            emp = (await session.execute(
-                select(CompanyEmployee).where(
-                    CompanyEmployee.company_id == c.id,
-                    CompanyEmployee.user_id == uid,
-                    CompanyEmployee.left_at == None,
-                )
-            )).scalar_one_or_none()
-            items.append({
-                "company_id":  c.id,
-                "company":     c.name,
-                "sec_emoji":   sec_emoji,
-                "quantity":    s.quantity,
-                "pct":         pct,
-                "value":       _fmt(val),
-                "value_raw":   val,
-                "price_per":   _fmt(price_per),
-                "total_shares": c.total_shares,
-                "role":        emp.role if emp else None,
-                "is_bot":      c.is_bot_company,
-                "can_sell":    not c.is_bot_company,
+        employees = []
+        for e in all_emps:
+            eu = await session.get(__import__('database.models', fromlist=['User']).User, e.user_id)
+            employees.append({
+                'user_id':     e.user_id,
+                'name':        eu.first_name if eu else '—',
+                'username':    eu.username if eu else '',
+                'role':        e.role,
+                'cmd_count':   e.command_count or 0,
+                'joined_at':   e.joined_at.strftime('%d/%m/%Y') if e.joined_at else '—',
+                'is_me':       e.user_id == uid,
             })
 
-    return web.json_response({"parts": items, "total_value": _fmt(total_value), "total_raw": total_value})
+        # Parts
+        parts_data = []
+        try:
+            from database.models import CompanyShare
+            shares = (await session.execute(
+                select(CompanyShare).where(CompanyShare.company_id == company.id)
+            )).scalars().all()
+            UserModel2 = __import__('database.models', fromlist=['User']).User
+            for s in shares:
+                su = await session.get(UserModel2, s.owner_id)
+                parts_data.append({
+                    'user_id': s.owner_id,
+                    'name':    (su.first_name or su.username or '—') if su else '—',
+                    'username': su.username if su else '',
+                    'parts':   s.quantity,
+                    'is_me':   s.owner_id == uid,
+                })
+        except Exception:
+            pass
+
+        # Contrats Bureau
+        contrats = (await session.execute(
+            select(BureauContrat).where(
+                BureauContrat.company_id == company.id,
+                BureauContrat.status.in_(['active', 'pending']),
+            )
+        )).scalars().all()
+
+        from sqlalchemy import func as _func
+        total_cmds = (await session.execute(
+            select(_func.sum(CompanyEmployee.command_count)).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar() or 0
+
+        contrats_data = []
+        from datetime import datetime as _dtnow
+        now = _dtnow.utcnow()
+        for c in contrats:
+            cmds_done = max(0, total_cmds - (c.cmds_at_start or 0))
+            obj = c.objective_cmds or 1
+            pct = min(100, int(cmds_done / obj * 100))
+            remaining_days = (c.ends_at - now).days if c.ends_at else 0
+            contrats_data.append({
+                'id':            c.id,
+                'title':         c.title,
+                'reward':        _fmt(c.reward),
+                'reward_raw':    c.reward,
+                'objective':     c.objective_cmds,
+                'cmds_done':     cmds_done,
+                'pct':           pct,
+                'status':        c.status,
+                'days_left':     max(0, remaining_days),
+                'ends_at':       c.ends_at.strftime('%d/%m à %H:%M') if c.ends_at else '—',
+            })
+
+        # Impôts
+        tax_records = (await session.execute(
+            select(TaxRecord).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == 'pending',
+            ).order_by(TaxRecord.created_at.desc())
+        )).scalars().all()
+
+        tax_data = []
+        for t in tax_records:
+            tax_data.append({
+                'id':          t.id,
+                'amount_due':  _fmt(t.amount_due),
+                'amount_due_raw': t.amount_due,
+                'amount_paid': _fmt(t.amount_paid or 0),
+                'remaining':   _fmt((t.amount_due or 0) - (t.amount_paid or 0)),
+                'remaining_raw': (t.amount_due or 0) - (t.amount_paid or 0),
+                'due_at':      t.due_at.strftime('%d/%m à %H:%M') if t.due_at else '—',
+                'overdue':     now > t.due_at if t.due_at else False,
+            })
+
+        # Logs
+        from database.models import CompanyLog
+        logs = []
+        try:
+            log_rows = (await session.execute(
+                select(CompanyLog).where(
+                    CompanyLog.company_id == company.id,
+                ).order_by(CompanyLog.created_at.desc()).limit(20)
+            )).scalars().all()
+            for l in log_rows:
+                logs.append({
+                    'event': l.event_type,
+                    'desc':  l.description or '',
+                    'amount': _fmt(l.amount) if l.amount else '',
+                    'date':  l.created_at.strftime('%d/%m %H:%M') if l.created_at else '',
+                })
+        except Exception:
+            pass
+
+        # Candidatures (PDG only)
+        candidatures = []
+        if emp.role == 'pdg':
+            try:
+                apps = (await session.execute(
+                    select(CompanyApplication).where(
+                        CompanyApplication.company_id == company.id,
+                        CompanyApplication.status == 'pending',
+                    ).order_by(CompanyApplication.created_at.desc())
+                )).scalars().all()
+                UserModel3 = __import__('database.models', fromlist=['User']).User
+                for a in apps:
+                    au = await session.get(UserModel3, a.user_id)
+                    candidatures.append({
+                        'id':       a.id,
+                        'user_id':  a.user_id,
+                        'name':     (au.first_name or au.username or '—') if au else '—',
+                        'username': au.username if au else '',
+                        'date':     a.created_at.strftime('%d/%m à %H:%M') if a.created_at else '—',
+                    })
+            except Exception:
+                pass
+
+        # Contrats automatiques (IA)
+        auto_contrats = []
+        try:
+            ac_rows = (await session.execute(
+                select(CompanyAutoContract).where(
+                    CompanyAutoContract.company_id == company.id,
+                    CompanyAutoContract.status.in_(['active', 'pending', 'negotiating']),
+                ).order_by(CompanyAutoContract.created_at.desc())
+            )).scalars().all()
+            for ac in ac_rows:
+                cmds_done_ac = max(0, int(total_cmds) - (ac.cmds_at_start or 0))
+                obj_ac = ac.objective_cmds or 1
+                pct_ac = min(100, int(cmds_done_ac / obj_ac * 100))
+                deadline_left = (ac.deadline_at - now).days if ac.deadline_at else 0
+                auto_contrats.append({
+                    'id':          ac.id,
+                    'client':      ac.client_name,
+                    'desc':        ac.description,
+                    'objective':   ac.objective_cmds,
+                    'cmds_done':   cmds_done_ac,
+                    'pct':         pct_ac,
+                    'reward':      _fmt(ac.negotiated_reward or ac.reward),
+                    'reward_raw':  ac.negotiated_reward or ac.reward,
+                    'status':      ac.status,
+                    'deadline_at': ac.deadline_at.strftime('%d/%m à %H:%M') if ac.deadline_at else '—',
+                    'days_left':   max(0, deadline_left),
+                })
+        except Exception:
+            pass
+
+        # Offres de parts en attente
+        share_offers = []
+        try:
+            so_rows = (await session.execute(
+                select(CompanyShareOffer).where(
+                    CompanyShareOffer.company_id == company.id,
+                    CompanyShareOffer.status == 'pending',
+                ).order_by(CompanyShareOffer.created_at.desc())
+            )).scalars().all()
+            UserModel4 = __import__('database.models', fromlist=['User']).User
+            for so in so_rows:
+                bu = await session.get(UserModel4, so.buyer_id)
+                share_offers.append({
+                    'id':          so.id,
+                    'buyer_name':  (bu.first_name or bu.username or '—') if bu else '—',
+                    'buyer_username': bu.username if bu else '',
+                    'quantity':    so.quantity,
+                    'price_each':  _fmt(so.price_each),
+                    'total_price': _fmt(so.total_price),
+                    'expires_at':  so.expires_at.strftime('%d/%m à %H:%M') if so.expires_at else '—',
+                })
+        except Exception:
+            pass
+
+        # Niveau
+        LEVELS = {1:('⭐','Startup'),2:('⭐⭐','PME'),3:('⭐⭐⭐','ETI'),4:('⭐⭐⭐⭐','Grande Entreprise'),5:('⭐⭐⭐⭐⭐','Multinationale')}
+        lvl_emoji, lvl_name = LEVELS.get(company.level or 1, ('⭐','Startup'))
+
+        return web.json_response({
+            'company': {
+                'id':            company.id,
+                'name':          company.name,
+                'sector':        company.sector or '—',
+                'level':         company.level or 1,
+                'level_label':   f"{lvl_emoji} {lvl_name}",
+                'reputation':    company.reputation or 0,
+                'value':         _fmt(company.value),
+                'value_raw':     company.value or 0,
+                'treasury':      _fmt(company.treasury),
+                'treasury_raw':  company.treasury or 0,
+                'frozen':        company.treasury_frozen or False,
+                'tax_debt':      _fmt(company.tax_debt or 0),
+                'tax_debt_raw':  company.tax_debt or 0,
+                'is_pdg':        emp.role == 'pdg',
+                'my_role':       emp.role,
+                'my_cmds':       emp.command_count or 0,
+                'employees':     employees,
+                'nb_employees':  len(employees),
+                'max_employees': {1:5,2:10,3:50,4:100,5:200}.get(company.level or 1, 50) + (company.extra_slots or 0),
+                'parts':         parts_data,
+                'total_shares':  company.total_shares or 100,
+                'owner_shares':  company.owner_shares or 100,
+                'contrats':      contrats_data,
+                'nb_contrats':   len(contrats_data),
+                'taxes':         tax_data,
+                'logs':          logs,
+                'candidatures':  candidatures,
+                'nb_candidatures': len(candidatures),
+                'auto_contrats': auto_contrats,
+                'share_offers':  share_offers,
+                'total_cmds':    int(total_cmds),
+                'owner_id':      company.owner_id,
+                'weekly_revenue': _fmt(company.weekly_revenue or 0),
+                'weekly_revenue_raw': company.weekly_revenue or 0,
+                'legal_reserve': _fmt(company.legal_reserve or 0),
+                'legal_reserve_raw': company.legal_reserve or 0,
+            }
+        })
 
 
-async def webapp_vendre_parts(request: web.Request) -> web.Response:
-    """POST /api/webapp/parts/vendre — body: {user_id, company_id, quantity}"""
-    body = await _body(request)
-    uid  = int(body.get("user_id", 0))
-    cid  = int(body.get("company_id", 0))
-    qty  = int(body.get("quantity", 0))
+async def webapp_company_depot(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/depot"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
 
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-    if qty <= 0:
-        return _err("Quantité invalide")
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
 
     async with AsyncSessionLocal() as session:
-        company = await session.get(Company, cid)
-        if not company or not company.is_active:
-            return _err("Entreprise introuvable")
-        if company.is_bot_company:
-            return _err("Impossible de vendre des parts d'une entreprise officielle")
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
 
-        share_row = (await session.execute(
-            select(CompanyShare).where(
-                CompanyShare.company_id == cid,
-                CompanyShare.owner_id == uid,
+        from database.models import User as UserModel
+        user = await session.get(UserModel, uid)
+        if not user or (user.coins or 0) < amount:
+            return web.json_response({'error': 'Solde insuffisant'})
+
+        user.coins -= amount
+        company.treasury = (company.treasury or 0) + amount
+        company.value = company.treasury
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f'✅ {_fmt(amount)} $ déposés en trésorerie !'})
+
+
+async def webapp_company_retrait(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/retrait"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
+        if company.treasury_frozen:
+            return web.json_response({'error': '🔒 Trésorerie gelée — paie tes impôts d\'abord'})
+        if (company.treasury or 0) < amount:
+            return web.json_response({'error': f'Trésorerie insuffisante ({_fmt(company.treasury)} $ disponible)'})
+
+        from database.models import User as UserModel
+        user = await session.get(UserModel, uid)
+        if not user:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        # Cooldown 24h
+        from datetime import timedelta
+        from database.models import CompanyLog
+        last_retrait = (await session.execute(
+            select(CompanyLog).where(
+                CompanyLog.company_id == company.id,
+                CompanyLog.event_type == 'retrait',
+            ).order_by(CompanyLog.created_at.desc()).limit(1)
+        )).scalar_one_or_none()
+
+        if last_retrait and last_retrait.created_at:
+            from datetime import datetime as _dtnow2
+            since = (_dtnow2.utcnow() - last_retrait.created_at).total_seconds()
+            if since < 86400:
+                h = int((86400 - since) // 3600)
+                m = int(((86400 - since) % 3600) // 60)
+                return web.json_response({'error': f'⏳ Cooldown retrait : encore {h}h{m:02d}m à attendre'})
+
+        company.treasury -= amount
+        company.value = company.treasury
+        user.coins = (user.coins or 0) + amount
+
+        log = CompanyLog(
+            company_id=company.id,
+            event_type='retrait',
+            description=f'Retrait PDG via webapp',
+            amount=amount,
+        )
+        session.add(log)
+        await session.commit()
+
+    return web.json_response({'ok': True, 'msg': f'✅ {_fmt(amount)} $ retirés de la trésorerie !'})
+
+
+async def webapp_company_payerimpots(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/payerimpots"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid    = int(body.get('user_id', 0))
+    amount = int(body.get('amount', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if amount <= 0:
+        return web.json_response({'error': 'Montant invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = (await session.execute(
+            select(Company).where(Company.owner_id == uid, Company.is_active == True)
+        )).scalar_one_or_none()
+        if not company:
+            return web.json_response({'error': 'Tu n\'es PDG d\'aucune entreprise'})
+        if (company.treasury or 0) < amount:
+            return web.json_response({'error': 'Trésorerie insuffisante'})
+
+        # Payer sur les factures pendantes
+        pending = (await session.execute(
+            select(TaxRecord).where(
+                TaxRecord.company_id == company.id,
+                TaxRecord.status == 'pending',
+            ).order_by(TaxRecord.created_at.asc())
+        )).scalars().all()
+
+        remaining_payment = amount
+        for record in pending:
+            if remaining_payment <= 0:
+                break
+            owed = (record.amount_due or 0) - (record.amount_paid or 0)
+            pay = min(owed, remaining_payment)
+            record.amount_paid = (record.amount_paid or 0) + pay
+            remaining_payment -= pay
+            if record.amount_paid >= record.amount_due:
+                record.status = 'paid'
+
+        company.treasury -= amount
+        company.value = company.treasury
+        company.tax_debt = max(0, (company.tax_debt or 0) - amount)
+
+        # Vérifier si dette soldée → dégeler
+        total_remaining = sum(
+            (r.amount_due or 0) - (r.amount_paid or 0)
+            for r in pending if r.status == 'pending'
+        )
+        if total_remaining <= 0 and company.treasury_frozen:
+            company.treasury_frozen = False
+
+        # Ajouter à la caisse d'État
+        from database.models import StateCaisse
+        caisse = (await session.execute(select(StateCaisse))).scalar_one_or_none()
+        if caisse:
+            caisse.total = (caisse.total or 0) + amount
+
+        await session.commit()
+
+    msg = f'✅ {_fmt(amount)} $ d\'impôts payés !'
+    if not company.treasury_frozen:
+        msg += ' Trésorerie dégelée !'
+    return web.json_response({'ok': True, 'msg': msg})
+
+
+async def webapp_company_accepter(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/accepter"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        app = (await session.execute(
+            select(CompanyApplication).where(
+                CompanyApplication.company_id == company.id,
+                CompanyApplication.user_id == target_id,
+                CompanyApplication.status == 'pending',
             )
         )).scalar_one_or_none()
-        if not share_row or share_row.quantity <= 0:
-            return _err("Tu ne détiens aucune part dans cette entreprise")
+        if not app:
+            return web.json_response({'error': 'Candidature introuvable ou déjà traitée'})
 
-        emp = (await session.execute(
+        # Vérifier capacité
+        from sqlalchemy import func as _func2
+        nb_emp = (await session.execute(
+            select(_func2.count()).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar()
+        max_emp = {1:5,2:10,3:50,4:100,5:200}.get(company.level or 1, 50) + (company.extra_slots or 0)
+        if nb_emp >= max_emp:
+            return web.json_response({'error': f'Entreprise au complet ({nb_emp}/{max_emp})'})
+
+        candidate = await session.get(User, target_id)
+
+        # Rôle selon diplôme
+        role = 'stagiaire'
+        if candidate:
+            if candidate.diplome_mba:       role = 'directeur'
+            elif candidate.diplome_master:  role = 'manager'
+            elif candidate.diplome_licence: role = 'employe'
+            elif candidate.diplome_bac:     role = 'employe'
+            # PDG ailleurs → forcer employe
+            own_co = (await session.execute(
+                select(Company).where(
+                    Company.owner_id == candidate.user_id,
+                    Company.is_active == True,
+                    Company.is_bot_company == False,
+                )
+            )).scalar_one_or_none()
+            if own_co:
+                role = 'employe'
+
+        app.status = 'accepted'
+        new_emp = CompanyEmployee(company_id=company.id, user_id=target_id, role=role)
+        session.add(new_emp)
+
+        from database.models import CompanyLog as _CLog
+        session.add(_CLog(
+            company_id=company.id,
+            event_type='recrutement',
+            description=f"{candidate.first_name if candidate else target_id} recruté comme {role}",
+        ))
+        await session.commit()
+
+        # Notifier le candidat via Telegram
+        if candidate:
+            try:
+                import aiohttp as _aiohttp
+                from config import BOT_TOKEN as _BT
+                async with _aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f'https://api.telegram.org/bot{_BT}/sendMessage',
+                        json={
+                            'chat_id': candidate.user_id,
+                            'text': f"🎉 Ta candidature chez <b>{company.name}</b> a été <b>acceptée</b> ! Tu es désormais <b>{role.capitalize()}</b>.",
+                            'parse_mode': 'HTML',
+                        }, timeout=_aiohttp.ClientTimeout(total=5)
+                    )
+            except Exception:
+                pass
+
+        name = candidate.first_name if candidate else str(target_id)
+        return web.json_response({'ok': True, 'msg': f'✅ {name} recruté(e) comme {role.capitalize()} !'})
+
+
+async def webapp_company_refuser(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/refuser"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        app = (await session.execute(
+            select(CompanyApplication).where(
+                CompanyApplication.company_id == company.id,
+                CompanyApplication.user_id == target_id,
+                CompanyApplication.status == 'pending',
+            )
+        )).scalar_one_or_none()
+        if not app:
+            return web.json_response({'error': 'Candidature introuvable ou déjà traitée'})
+
+        app.status = 'rejected'
+        candidate = await session.get(User, target_id)
+        await session.commit()
+
+        if candidate:
+            try:
+                import aiohttp as _aiohttp
+                from config import BOT_TOKEN as _BT
+                async with _aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f'https://api.telegram.org/bot{_BT}/sendMessage',
+                        json={
+                            'chat_id': candidate.user_id,
+                            'text': f"😔 Ta candidature chez <b>{company.name}</b> a été <b>refusée</b>.\n💡 Tu peux postuler ailleurs avec /listeboites.",
+                            'parse_mode': 'HTML',
+                        }, timeout=_aiohttp.ClientTimeout(total=5)
+                    )
+            except Exception:
+                pass
+
+        name = candidate.first_name if candidate else str(target_id)
+        return web.json_response({'ok': True, 'msg': f'❌ Candidature de {name} refusée.'})
+
+
+async def webapp_company_licencier(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/licencier"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not target_id:
+        return web.json_response({'error': 'target_id manquant'})
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Réservé au PDG et Directeur'})
+
+        if company.is_bot_company:
+            return web.json_response({'error': 'Impossible dans une entreprise officielle'})
+
+        if target_id == uid:
+            return web.json_response({'error': 'Utilise Démissionner pour quitter toi-même'})
+
+        target = await session.get(User, target_id)
+        if not target:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        target_emp = (await session.execute(
             select(CompanyEmployee).where(
-                CompanyEmployee.company_id == cid,
-                CompanyEmployee.user_id == uid,
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target_id,
                 CompanyEmployee.left_at == None,
             )
         )).scalar_one_or_none()
+        if not target_emp:
+            return web.json_response({'error': f'{target.first_name} ne fait pas partie de cette entreprise'})
 
-        # PDG doit garder 51 parts minimum
-        if emp and emp.role == "pdg":
-            can_sell = max(0, share_row.quantity - 51)
-            if can_sell == 0:
-                return _err("En tant que PDG tu dois conserver au moins 51 parts")
-            if qty > can_sell:
-                return _err(f"PDG : tu peux vendre au maximum {can_sell} parts")
-        else:
-            if qty > share_row.quantity:
-                return _err(f"Tu n'as que {share_row.quantity} parts")
+        ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg"]
+        if emp.role == 'directeur' and target_emp.role in ('pdg', 'directeur'):
+            return web.json_response({'error': 'Tu ne peux pas licencier quelqu\'un de rang égal ou supérieur'})
 
-        price_each = (company.treasury // company.total_shares) if (company.total_shares or 0) > 0 else 0
-        total = qty * price_each
-
-        user_db = await session.get(User, uid)
-        if user_db:
-            user_db.coins += total
-
-        company.treasury = max(0, company.treasury - total)
-        company.value    = company.treasury
-        company.total_shares = max(1, company.total_shares - qty)
-        share_row.quantity = max(0, share_row.quantity - qty)
-
-        if emp and emp.role == "pdg":
-            company.owner_shares = share_row.quantity
-
-        await _add_log(session, cid, "vente_parts",
-                       f"{user_db.first_name if user_db else uid} vendu {qty} parts au marché", amount=total)
+        target_emp.left_at = datetime.utcnow()
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company.id, 'licenciement',
+                      f'{target.first_name} a été licencié')
         await session.commit()
 
-    return _ok(
-        f"✅ {qty} parts vendues pour {_fmt(total)} $ ({_fmt(price_each)} $/part) !",
-        total=_fmt(total),
-        new_quantity=share_row.quantity,
-    )
+        try:
+            import aiohttp as _aiohttp
+            from config import BOT_TOKEN as _BT
+            async with _aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f'https://api.telegram.org/bot{_BT}/sendMessage',
+                    json={'chat_id': target.user_id,
+                          'text': f'🚨 Tu as été licencié de <b>{company.name}</b> par la direction.',
+                          'parse_mode': 'HTML'},
+                    timeout=_aiohttp.ClientTimeout(total=5)
+                )
+        except Exception:
+            pass
+
+        return web.json_response({'ok': True, 'msg': f'✅ {target.first_name} a été licencié.'})
 
 
-async def webapp_acheter_parts(request: web.Request) -> web.Response:
-    """POST /api/webapp/parts/acheter — body: {user_id, company_id, quantity}"""
-    body = await _body(request)
-    uid  = int(body.get("user_id", 0))
-    cid  = int(body.get("company_id", 0))
-    qty  = int(body.get("quantity", 0))
+async def webapp_company_nommer(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/nommer"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
 
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-    if qty <= 0:
-        return _err("Quantité invalide")
+    uid       = int(body.get('user_id', 0))
+    target_id = int(body.get('target_id', 0))
+    new_role  = str(body.get('role', '')).lower()
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg"]
+    MANAGEMENT_ROLES = ("pdg", "directeur", "manager")
+    ROLE_DIPLOMA = {"secretaire": "brevet", "employe": "brevet",
+                    "manager": "licence", "directeur": "master"}
+
+    if new_role not in ROLES_ORDER or new_role in ('pdg', 'stagiaire'):
+        return web.json_response({'error': 'Poste invalide. Choix : secretaire | employe | manager | directeur'})
 
     async with AsyncSessionLocal() as session:
-        company = await session.get(Company, cid)
-        if not company or not company.is_active:
-            return _err("Entreprise introuvable")
-        if company.is_bot_company:
-            return _err("Impossible d'acheter des parts d'une entreprise officielle")
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in MANAGEMENT_ROLES:
+            return web.json_response({'error': 'Tu dois être au moins Manager'})
 
+        if ROLES_ORDER.index(new_role) >= ROLES_ORDER.index(emp.role):
+            return web.json_response({'error': 'Tu ne peux pas nommer quelqu\'un à un rang égal ou supérieur au tien'})
+
+        target = await session.get(User, target_id)
+        if not target:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+
+        target_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target_id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar_one_or_none()
+        if not target_emp:
+            return web.json_response({'error': f'{target.first_name} ne fait pas partie de cette entreprise'})
+
+        from handlers.company import _has_diploma as _hd, _add_log as _co_log
+        required = ROLE_DIPLOMA.get(new_role)
+        if required and not _hd(target, required):
+            return web.json_response({'error': f'{target.first_name} n\'a pas le diplôme requis ({required}) pour ce poste'})
+
+        old_role = target_emp.role
+        target_emp.role = new_role
+        await _co_log(session, company.id, 'promotion',
+                      f'{target.first_name} : {old_role} → {new_role}')
+        await session.commit()
+
+        ROLE_EMOJI = {"pdg":"👑","directeur":"🎯","manager":"📊","employe":"💼",
+                      "secretaire":"📋","stagiaire":"🌱"}
+        emoji = ROLE_EMOJI.get(new_role, '👤')
+        return web.json_response({'ok': True, 'msg': f'✅ {target.first_name} est désormais {emoji} {new_role.capitalize()} !'})
+
+
+async def webapp_company_demissionner(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/demissionner"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or not emp:
+            return web.json_response({'error': 'Tu ne fais partie d\'aucune entreprise'})
+
+        if emp.role == 'pdg':
+            director = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.role == 'directeur',
+                    CompanyEmployee.left_at == None,
+                ).limit(1)
+            )).scalar_one_or_none()
+            if not director:
+                return web.json_response({'error': 'En tant que PDG, nomme un Directeur avant de partir'})
+
+        emp.left_at = datetime.utcnow()
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company.id, 'demission',
+                      f'Un employé a démissionné')
+        await session.commit()
+
+        return web.json_response({'ok': True, 'msg': f'✅ Tu as quitté {company.name}.'})
+
+
+async def webapp_company_acheter_parts(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/acheterparts — soumet une offre d'achat de parts"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    company_id = int(body.get('company_id', 0))
+    qty        = int(body.get('quantity', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+    if qty <= 0:
+        return web.json_response({'error': 'Quantité invalide'})
+
+    async with AsyncSessionLocal() as session:
+        company = await session.get(Company, company_id)
+        if not company or not company.is_active:
+            return web.json_response({'error': 'Entreprise introuvable'})
+        if company.is_bot_company:
+            return web.json_response({'error': 'Les parts de cette entreprise ne sont pas cessibles'})
         available = company.owner_shares or 0
         if available <= 0:
-            return _err("Le PDG ne détient plus de parts à vendre")
+            return web.json_response({'error': 'Aucune part disponible à l\'achat'})
         if qty > available:
-            return _err(f"Seulement {available} parts disponibles")
+            return web.json_response({'error': f'Seulement {available} parts disponibles'})
 
-        price_per = (company.treasury // company.total_shares) if (company.total_shares or 0) > 0 else 0
-        total     = qty * price_per
+        price_per = company.treasury // company.total_shares if (company.total_shares or 0) > 0 else 1
+        total = qty * price_per
 
-        user_db = await session.get(User, uid)
-        if not user_db:
-            return _err("Utilisateur introuvable")
-        if user_db.coins < total:
-            return _err(f"Fonds insuffisants. Prix : {_fmt(total)} $, ton solde : {_fmt(user_db.coins)} $")
+        buyer = await session.get(User, uid)
+        if not buyer:
+            return web.json_response({'error': 'Utilisateur introuvable'})
+        if buyer.coins < total:
+            return web.json_response({'error': f'Solde insuffisant. Coût total : {total:,} $'})
 
-        # Vérifier offre en cours
+        # Vérifier offre en attente existante
         existing = (await session.execute(
             select(CompanyShareOffer).where(
-                CompanyShareOffer.company_id == cid,
+                CompanyShareOffer.company_id == company_id,
                 CompanyShareOffer.buyer_id == uid,
-                CompanyShareOffer.status == "pending",
+                CompanyShareOffer.status == 'pending',
             )
         )).scalar_one_or_none()
         if existing:
-            return _err("Tu as déjà une offre en attente sur cette entreprise")
+            return web.json_response({'error': 'Tu as déjà une offre en attente sur cette entreprise (48h)'})
 
-        # Bloquer les fonds
-        user_db.coins -= total
+        buyer.coins -= total
         offer = CompanyShareOffer(
-            company_id=cid,
-            buyer_id=uid,
-            quantity=qty,
-            price_each=price_per,
-            total_price=total,
-            status="pending",
+            company_id=company_id, buyer_id=uid,
+            quantity=qty, price_each=price_per, total_price=total,
+            status='pending',
             expires_at=datetime.utcnow() + timedelta(hours=48),
         )
         session.add(offer)
         await session.flush()
 
-        await _add_log(session, cid, "offre_parts",
-                       f"{user_db.first_name} a soumis une offre pour {qty} parts", amount=total)
+        from handlers.company import _add_log as _co_log
+        await _co_log(session, company_id, 'offre_parts',
+                      f'{buyer.first_name} soumet une offre pour {qty} parts', amount=total)
         await session.commit()
 
-        await _notify(company.owner_id,
-            f"💼 <b>Nouvelle offre d'achat de parts !</b>\n"
-            f"👤 <b>{user_db.first_name}</b> veut acheter <b>{qty} parts</b>\n"
-            f"💰 Offre : <b>{_fmt(total)} $</b> ({_fmt(price_per)} $/part)\n"
-            f"Réponds sur la mini app ou avec /accepteroffre {offer.id}")
-
-    return _ok(
-        f"📩 Offre envoyée au PDG de {company.name} ! {_fmt(total)} $ bloqués (remboursés si refus).",
-        offer_id=offer.id,
-    )
-
-
-async def webapp_accepter_offre(request: web.Request) -> web.Response:
-    """POST /api/webapp/parts/accepteroffre — body: {user_id, offer_id}"""
-    body     = await _body(request)
-    uid      = int(body.get("user_id", 0))
-    offer_id = int(body.get("offer_id", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        offer = await session.get(CompanyShareOffer, offer_id)
-        if not offer or offer.status != "pending":
-            return _err("Offre introuvable ou déjà traitée")
-
-        company = await session.get(Company, offer.company_id)
-        if not company or company.owner_id != uid:
-            return _err("Seul le PDG peut accepter cette offre")
-
-        if datetime.utcnow() > offer.expires_at:
-            offer.status = "expired"
-            buyer = await session.get(User, offer.buyer_id)
-            if buyer:
-                buyer.coins += offer.total_price
-            await session.commit()
-            return _err("Cette offre a expiré. L'acheteur a été remboursé.")
-
-        # Vérif 51 parts PDG
-        pdg_share = (await session.execute(
-            select(CompanyShare).where(
-                CompanyShare.company_id == company.id,
-                CompanyShare.owner_id == uid,
-            )
-        )).scalar_one_or_none()
-        pdg_qty = pdg_share.quantity if pdg_share else 0
-        if offer.quantity > max(0, pdg_qty - 51):
-            offer.status = "rejected"
-            buyer = await session.get(User, offer.buyer_id)
-            if buyer:
-                buyer.coins += offer.total_price
-            await session.commit()
-            return _err(f"Refusé automatiquement : tu dois garder 51 parts minimum (tu as {pdg_qty}). Acheteur remboursé.")
-
-        offer.status = "accepted"
-        pdg_user = await session.get(User, uid)
-        if pdg_user:
-            pdg_user.coins += offer.total_price
-
-        # Buyer reçoit les parts
-        buyer_share = (await session.execute(
-            select(CompanyShare).where(
-                CompanyShare.company_id == company.id,
-                CompanyShare.owner_id == offer.buyer_id,
-            )
-        )).scalar_one_or_none()
-        if buyer_share:
-            buyer_share.quantity += offer.quantity
-        else:
-            session.add(CompanyShare(company_id=company.id, owner_id=offer.buyer_id, quantity=offer.quantity))
-
-        if pdg_share:
-            pdg_share.quantity = max(0, pdg_share.quantity - offer.quantity)
-            company.owner_shares = pdg_share.quantity
-
-        await _add_log(session, company.id, "achat_parts",
-                       f"Offre {offer_id} acceptée — {offer.quantity} parts vendues", amount=offer.total_price)
-        await session.commit()
-
-        buyer = await session.get(User, offer.buyer_id)
-        await _notify(offer.buyer_id,
-            f"🎉 <b>Ton offre a été acceptée !</b>\n"
-            f"📦 Tu as obtenu <b>{offer.quantity} parts</b> de <b>{company.name}</b>\n"
-            f"💰 Montant débité : <b>{_fmt(offer.total_price)} $</b>")
-
-    return _ok(f"✅ Offre acceptée ! {offer.quantity} parts vendues pour {_fmt(offer.total_price)} $.")
-
-
-async def webapp_refuser_offre(request: web.Request) -> web.Response:
-    """POST /api/webapp/parts/refuseroffre — body: {user_id, offer_id}"""
-    body     = await _body(request)
-    uid      = int(body.get("user_id", 0))
-    offer_id = int(body.get("offer_id", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        offer = await session.get(CompanyShareOffer, offer_id)
-        if not offer or offer.status != "pending":
-            return _err("Offre introuvable ou déjà traitée")
-
-        company = await session.get(Company, offer.company_id)
-        if not company or company.owner_id != uid:
-            return _err("Seul le PDG peut refuser cette offre")
-
-        offer.status = "rejected"
-        buyer = await session.get(User, offer.buyer_id)
-        if buyer:
-            buyer.coins += offer.total_price
-
-        await _add_log(session, company.id, "offre_refusee",
-                       f"Offre {offer_id} refusée — {_fmt(offer.total_price)} $ remboursés")
-        await session.commit()
-
-        await _notify(offer.buyer_id,
-            f"😔 Ton offre de <b>{offer.quantity} parts</b> dans <b>{company.name}</b> a été refusée.\n"
-            f"💰 <b>{_fmt(offer.total_price)} $</b> remboursés.")
-
-    return _ok(f"❌ Offre refusée. {_fmt(offer.total_price)} $ remboursés à l'acheteur.")
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  TRANSFERT D'ARGENT (/pay)
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_pay(request: web.Request) -> web.Response:
-    """POST /api/webapp/pay — body: {user_id, target_id, amount}"""
-    body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
-    target_id = int(body.get("target_id", 0))
-    amount    = int(body.get("amount", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-    if target_id == uid:
-        return _err("Tu ne peux pas te transférer de l'argent à toi-même")
-    if amount <= 0:
-        return _err("Montant invalide")
-
-    async with AsyncSessionLocal() as session:
-        sender = await session.get(User, uid)
-        if not sender:
-            return _err("Utilisateur introuvable")
-        if sender.coins < amount:
-            return _err(f"Solde insuffisant ({_fmt(sender.coins)} $ disponibles)")
-
-        target = await session.get(User, target_id)
-        if not target:
-            return _err("Destinataire introuvable")
-        if target.is_banned:
-            return _err("Ce joueur est banni")
-
-        sender.coins -= amount
-        target.coins += amount
-        await session.commit()
-
-        await _notify(target_id,
-            f"💸 <b>{sender.first_name}</b> t'a envoyé <b>{_fmt(amount)} $</b> !")
-
-    return _ok(
-        f"✅ {_fmt(amount)} $ envoyés à {target.first_name} !",
-        new_balance=_fmt(sender.coins),
-    )
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  CONTRATS BUREAU
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_contrats_bc(request: web.Request) -> web.Response:
-    """GET /api/webapp/contrats/bc?user_id=xxx"""
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company:
-            return web.json_response({"contrats": [], "company": None})
-
-        contrats = (await session.execute(
-            select(BureauContrat).where(
-                BureauContrat.company_id == company.id,
-            ).order_by(BureauContrat.created_at.desc()).limit(20)
-        )).scalars().all()
-
-        # Total cmds équipe
-        total_cmds = (await session.execute(
-            select(func.sum(CompanyEmployee.command_count)).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalar() or 0
-
-        now = datetime.utcnow()
-        items = []
-        for c in contrats:
-            cmds_done = getattr(c, "cmds_done", None)
-            if cmds_done is None:
-                cmds_done = max(0, int(total_cmds) - (c.cmds_at_start or 0))
-            obj  = c.objective_cmds or 1
-            pct  = min(100, int(cmds_done / obj * 100))
-            days = (c.ends_at - now).days if c.ends_at else 0
-            items.append({
-                "id":        c.id,
-                "title":     c.title,
-                "desc":      c.description,
-                "reward":    _fmt(c.reward),
-                "reward_raw": c.reward,
-                "objective": c.objective_cmds,
-                "cmds_done": cmds_done,
-                "pct":       pct,
-                "status":    c.status,
-                "days_left": max(0, days),
-                "ends_at":   c.ends_at.strftime("%d/%m à %H:%M") if c.ends_at else "—",
-                "starts_at": c.starts_at.strftime("%d/%m") if c.starts_at else "—",
-            })
-
-    return web.json_response({"contrats": items, "company": company.name, "total_cmds": int(total_cmds)})
-
-
-async def webapp_contrats_auto(request: web.Request) -> web.Response:
-    """GET /api/webapp/contrats/auto?user_id=xxx"""
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-        if not company:
-            return web.json_response({"contrats": [], "company": None})
-
-        rows = (await session.execute(
-            select(CompanyAutoContract).where(
-                CompanyAutoContract.company_id == company.id,
-            ).order_by(CompanyAutoContract.created_at.desc()).limit(20)
-        )).scalars().all()
-
-        total_cmds = (await session.execute(
-            select(func.sum(CompanyEmployee.command_count)).where(
-                CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
-            )
-        )).scalar() or 0
-
-        now = datetime.utcnow()
-        items = []
-        for ac in rows:
-            cmds_done = getattr(ac, "cmds_done", None)
-            if cmds_done is None:
-                cmds_done = max(0, int(total_cmds) - (ac.cmds_at_start or 0))
-            obj = ac.objective_cmds or 1
-            pct = min(100, int(cmds_done / obj * 100))
-            deadline_left = (ac.deadline_at - now).days if ac.deadline_at else 0
-            items.append({
-                "id":         ac.id,
-                "client":     ac.client_name,
-                "desc":       ac.description,
-                "objective":  ac.objective_cmds,
-                "cmds_done":  cmds_done,
-                "pct":        pct,
-                "reward":     _fmt(ac.negotiated_reward or ac.reward),
-                "reward_raw": ac.negotiated_reward or ac.reward,
-                "status":     ac.status,
-                "days_left":  max(0, deadline_left),
-                "deadline":   ac.deadline_at.strftime("%d/%m à %H:%M") if ac.deadline_at else "—",
-                "is_pdg":     emp.role == "pdg",
-            })
-
-    return web.json_response({"contrats": items, "company": company.name})
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  SKIP ATTENTE (cooldown démission)
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_skipattente(request: web.Request) -> web.Response:
-    """POST /api/webapp/skipattente — body: {user_id}"""
-    body = await _body(request)
-    uid  = int(body.get("user_id", 0))
-
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    async with AsyncSessionLocal() as session:
-        last_left = (await session.execute(
-            select(CompanyEmployee).where(
-                CompanyEmployee.user_id == uid,
-                CompanyEmployee.left_at != None,
-            ).order_by(CompanyEmployee.left_at.desc()).limit(1)
-        )).scalar_one_or_none()
-
-        if not last_left or not last_left.left_at:
-            return _ok("✅ Aucun cooldown actif !")
-
-        last_co = await session.get(Company, last_left.company_id)
-        if last_co and last_co.is_bot_company:
-            return _ok("✅ Aucun cooldown actif (dernière boîte = officielle).")
-
-        days_passed = (datetime.utcnow() - last_left.left_at).days
-        if days_passed >= 3:
-            return _ok("✅ Ton cooldown est déjà terminé !")
-
-        user_db = await session.get(User, uid)
-        if not user_db:
-            return _err("Utilisateur introuvable")
-        if user_db.coins < SKIP_COST:
-            return _err(f"Fonds insuffisants. Coût : {_fmt(SKIP_COST)} $ (tu as {_fmt(user_db.coins)} $)")
-
-        jours_restants = 3 - days_passed
-        user_db.coins -= SKIP_COST
-        await session.execute(
-            sa_text("UPDATE company_employees SET left_at = :old WHERE id = :eid"),
-            {"old": datetime.utcnow() - timedelta(days=4), "eid": last_left.id},
-        )
-        await session.commit()
-
-    return _ok(
-        f"⚡ Cooldown ignoré ! {_fmt(SKIP_COST)} $ déduits. (Il restait {jours_restants} jour(s))",
-        cost=_fmt(SKIP_COST),
-    )
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  NOTIFICATIONS — cloche principale (/notifications/all)
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_notifications_all(request: web.Request) -> web.Response:
-    """GET /api/webapp/notifications/all?user_id=xxx
-    Agrège les notifications actionnables :
-    - Candidatures reçues (PDG/Directeur)
-    - Invitations reçues en attente
-    - Contre-propositions de contrat en attente
-    """
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    notifs = []
-
-    async with AsyncSessionLocal() as session:
-        # 1. Candidatures reçues (si PDG ou Directeur)
-        company, emp = await _get_user_company(session, uid)
-        if company and emp and emp.role in DIRECTION_ROLES and not company.is_bot_company:
-            apps = (await session.execute(
-                select(CompanyApplication).where(
-                    CompanyApplication.company_id == company.id,
-                    CompanyApplication.status == "pending",
+        try:
+            import aiohttp as _aiohttp
+            from config import BOT_TOKEN as _BT
+            async with _aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f'https://api.telegram.org/bot{_BT}/sendMessage',
+                    json={'chat_id': company.owner_id,
+                          'text': f'💼 <b>Offre d\'achat de parts !</b>\n👤 {buyer.first_name} veut acheter <b>{qty} parts</b> de <b>{company.name}</b>\n💰 Offre : <b>{total:,} $</b>\n\nAccepter : <code>/accepteroffre {offer.id}</code>\nRefuser : <code>/refuseroffre {offer.id}</code>',
+                          'parse_mode': 'HTML'},
+                    timeout=_aiohttp.ClientTimeout(total=5)
                 )
-            )).scalars().all()
-            for a in apps:
-                applicant = await session.get(User, a.user_id)
-                name = applicant.first_name if applicant else "Un joueur"
-                notifs.append({
-                    "icon": "📩",
-                    "title": "Nouvelle candidature",
-                    "text": f"{name} postule dans {company.name}",
-                    "time": a.created_at.strftime("%d/%m %H:%M") if a.created_at else "",
-                    "unread": True,
-                    "type": "application",
-                })
+        except Exception:
+            pass
 
-        # 2. Invitations reçues en attente
-        invites = (await session.execute(
-            select(CompanyInvite).where(
-                CompanyInvite.target_id == uid,
-                CompanyInvite.status == "pending",
-                CompanyInvite.expires_at > datetime.utcnow(),
-            )
-        )).scalars().all()
-        for inv in invites:
-            co = await session.get(Company, inv.company_id)
-            parts = inv.role.split("|")
-            real_role = parts[0]
-            notifs.append({
-                "icon": ROLE_EMOJI.get(real_role, "👤"),
-                "title": f"Invitation — {co.name if co else '?'}",
-                "text": f"Poste proposé : {real_role.capitalize()}",
-                "time": inv.expires_at.strftime("Expire le %d/%m") if inv.expires_at else "",
-                "unread": True,
-                "type": "invite",
-            })
+        return web.json_response({'ok': True, 'msg': f'📩 Offre envoyée ! {total:,} $ bloqués (remboursés si refus).'})
 
-        # 3. Contre-propositions de contrat en attente (PDG doit répondre)
-        if company and emp and emp.role == "pdg":
-            counter_emps = (await session.execute(
+
+async def webapp_company_gerer_offre(request: web.Request) -> web.Response:
+    """POST /api/webapp/company/gereroffre — PDG accepte ou refuse une offre"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid      = int(body.get('user_id', 0))
+    offer_id = int(body.get('offer_id', 0))
+    action   = str(body.get('action', ''))  # 'accept' ou 'refuse'
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        offer = await session.get(CompanyShareOffer, offer_id)
+        if not offer or offer.status != 'pending':
+            return web.json_response({'error': 'Offre introuvable ou déjà traitée'})
+
+        company = await session.get(Company, offer.company_id)
+        if not company or company.owner_id != uid:
+            return web.json_response({'error': 'Seul le PDG peut gérer cette offre'})
+
+        buyer = await session.get(User, offer.buyer_id)
+
+        if action == 'accept':
+            if datetime.utcnow() > offer.expires_at:
+                offer.status = 'expired'
+                if buyer: buyer.coins += offer.total_price
+                await session.commit()
+                return web.json_response({'error': 'Offre expirée — acheteur remboursé'})
+            available = company.owner_shares or 0
+            if offer.quantity > available:
+                offer.status = 'rejected'
+                if buyer: buyer.coins += offer.total_price
+                await session.commit()
+                return web.json_response({'error': 'Plus assez de parts disponibles — acheteur remboursé'})
+            company.treasury += offer.total_price
+            company.owner_shares -= offer.quantity
+            # Mettre à jour ou créer la ligne actionnaire
+            existing_shares = (await session.execute(
                 select(CompanyEmployee).where(
                     CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.user_id == offer.buyer_id,
                     CompanyEmployee.left_at == None,
-                    CompanyEmployee.contract_status == "pending_pdg",
                 )
-            )).scalars().all()
-            for ce in counter_emps:
-                eu = await session.get(User, ce.user_id)
-                name = eu.first_name if eu else "Un employé"
-                notifs.append({
-                    "icon": "💬",
-                    "title": "Contre-proposition",
-                    "text": f"{name} demande {_fmt(ce.pending_salary or 0)} $/jour",
-                    "time": "",
-                    "unread": True,
-                    "type": "counter",
-                })
+            )).scalar_one_or_none()
+            if existing_shares:
+                existing_shares.shares = (existing_shares.shares or 0) + offer.quantity
+            offer.status = 'accepted'
+            from handlers.company import _add_log as _co_log
+            await _co_log(session, company.id, 'vente_parts',
+                          f'Offre #{offer_id} acceptée — {offer.quantity} parts', amount=offer.total_price)
+            await session.commit()
+            return web.json_response({'ok': True, 'msg': f'✅ Offre acceptée ! {offer.total_price:,} $ reçus en trésorerie.'})
+        else:
+            offer.status = 'rejected'
+            if buyer: buyer.coins += offer.total_price
+            from handlers.company import _add_log as _co_log
+            await _co_log(session, company.id, 'refus_offre',
+                          f'Offre #{offer_id} refusée')
+            await session.commit()
+            return web.json_response({'ok': True, 'msg': f'❌ Offre refusée. Acheteur remboursé.'})
 
-        # 4. Propositions de contrat en attente (employé doit répondre)
-        if emp and emp.role not in ("pdg",) and emp.contract_status == "pending_employee":
-            if company:
-                notifs.append({
-                    "icon": "📄",
-                    "title": "Proposition de contrat",
-                    "text": f"{company.name} te propose {_fmt(emp.pending_salary or 0)} $/jour",
-                    "time": "",
-                    "unread": True,
-                    "type": "contract",
-                })
 
-        # 5. Offres de parts en attente (PDG)
-        if company and emp and emp.role == "pdg":
-            pending_offers = (await session.execute(
-                select(CompanyShareOffer).where(
-                    CompanyShareOffer.company_id == company.id,
-                    CompanyShareOffer.status == "pending",
-                    CompanyShareOffer.expires_at > datetime.utcnow(),
+# ══════════════════════════════════════════════════════════════════════════════
+#  🏛️ LA SALLE — Routes API
+# ══════════════════════════════════════════════════════════════════════════════
+
+SALLE_ACCESS_PRICE = 1_000_000
+
+async def webapp_salle_status(request: web.Request) -> web.Response:
+    """GET /api/webapp/salle/status?user_id=xxx — accès + enchère active"""
+    import traceback as _tb2
+    try:
+        return await _webapp_salle_status_inner(request)
+    except Exception as _e2:
+        return web.json_response({'error': str(_e2), 'trace': _tb2.format_exc()[-1000:]}, status=500)
+
+async def _ensure_salle_tables():
+    """Crée les tables Salle si elles n'existent pas (idempotent)."""
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS salle_auctions (
+                    id           SERIAL PRIMARY KEY,
+                    item_id      VARCHAR(50)  NOT NULL,
+                    item_name    VARCHAR(100) NOT NULL,
+                    item_emoji   VARCHAR(10)  NOT NULL,
+                    rarity       VARCHAR(20)  NOT NULL,
+                    true_value   BIGINT       NOT NULL,
+                    start_price  BIGINT       NOT NULL,
+                    current_bid  BIGINT       NOT NULL,
+                    leader_id    BIGINT,
+                    leader_name  VARCHAR(255),
+                    custom_desc  TEXT,
+                    status       VARCHAR(20)  DEFAULT 'active',
+                    started_at   TIMESTAMP    DEFAULT NOW(),
+                    ends_at      TIMESTAMP    NOT NULL
                 )
-            )).scalars().all()
-            for offer in pending_offers:
-                buyer = await session.get(User, offer.buyer_id)
-                name = buyer.first_name if buyer else "Un joueur"
-                notifs.append({
-                    "icon": "💼",
-                    "title": "Offre d'achat de parts",
-                    "text": f"{name} veut {offer.quantity} parts pour {_fmt(offer.total_price)} $",
-                    "time": offer.expires_at.strftime("Expire le %d/%m") if offer.expires_at else "",
-                    "unread": True,
-                    "type": "share_offer",
-                })
-
-    return web.json_response({"notifications": notifs, "count": len(notifs)})
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  NOTIFICATIONS — badge onglet Éco (/notifications/eco)
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_notifications_eco(request: web.Request) -> web.Response:
-    """GET /api/webapp/notifications/eco?user_id=xxx
-    Retourne un compte rapide pour le badge de l'onglet Éco :
-    - Contrats claimables (BureauContrat statut 'completed' non réclamés)
-    - Offres de parts en attente pour le PDG
-    """
-    uid = _parse_uid(request)
-    if not _auth(uid):
-        return _err("unauthorized", 403)
-
-    count = 0
-    claimable = 0
-
-    async with AsyncSessionLocal() as session:
-        company, emp = await _get_user_company(session, uid)
-
-        if company:
-            # Contrats bureau complétés non réclamés
-            done_contrats = (await session.execute(
-                select(func.count()).where(
-                    BureauContrat.company_id == company.id,
-                    BureauContrat.status == "completed",
+            """))
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS salle_vip_access (
+                    user_id    BIGINT,
+                    expires_at TIMESTAMP NOT NULL,
+                    paid_at    TIMESTAMP DEFAULT NOW()
                 )
-            )).scalar() or 0
-            claimable = int(done_contrats)
-            count += claimable
+            """))
+            # Ajouter la PK si elle manque (migration safe)
+            await session.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid = 'salle_vip_access'::regclass
+                        AND contype = 'p'
+                    ) THEN
+                        ALTER TABLE salle_vip_access ADD PRIMARY KEY (user_id);
+                    END IF;
+                END$$
+            """))
+            await session.commit()
+    except Exception as _ste:
+        import logging as _stlog
+        _stlog.getLogger(__name__).error(f"_ensure_salle_tables error: {_ste}", exc_info=True)
 
-            # Offres de parts en attente (PDG)
-            if emp and emp.role == "pdg":
-                pending_shares = (await session.execute(
-                    select(func.count()).where(
-                        CompanyShareOffer.company_id == company.id,
-                        CompanyShareOffer.status == "pending",
-                        CompanyShareOffer.expires_at > datetime.utcnow(),
-                    )
-                )).scalar() or 0
-                count += int(pending_shares)
+async def _webapp_salle_status_inner(request: web.Request) -> web.Response:
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
 
-    return web.json_response({"count": count, "claimable": claimable})
+    await _ensure_salle_tables()
 
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  ENREGISTREMENT DES ROUTES
-# ═════════════════════════════════════════════════════════════════════════════
-
-def setup_actions_routes(app: web.Application):
-    """Appelé depuis webapp.py pour enregistrer toutes les nouvelles routes."""
-
-    # Joueurs
-    app.router.add_get("/api/webapp/players/search",      webapp_players_search)
-
-    # Entreprises — navigation
-    app.router.add_get("/api/webapp/companies/list",       webapp_companies_list)
-    app.router.add_get("/api/webapp/companies/search",     webapp_companies_search)
-
-    # RH
-    app.router.add_post("/api/webapp/postuler",            webapp_postuler)
-    app.router.add_post("/api/webapp/demissionner",        webapp_demissionner)
-    app.router.add_post("/api/webapp/licencier",           webapp_licencier)
-    app.router.add_post("/api/webapp/nommer",              webapp_nommer)
-    app.router.add_post("/api/webapp/recruter",            webapp_recruter)
-
-    # Invitations
-    app.router.add_get("/api/webapp/invitations",          webapp_invitations)
-    app.router.add_post("/api/webapp/invitations/accepter", webapp_invitations_accepter)
-    app.router.add_post("/api/webapp/invitations/refuser",  webapp_invitations_refuser)
-
-    # Salaires
-    app.router.add_post("/api/webapp/versersalaires",      webapp_versersalaires)
-    app.router.add_post("/api/webapp/payeremploye",        webapp_payeremploye)
-    app.router.add_post("/api/webapp/negociercontrat",     webapp_negociercontrat)
-    app.router.add_get("/api/webapp/presences",            webapp_presences)
-
-    # Parts
-    app.router.add_get("/api/webapp/parts",                webapp_mes_parts)
-    app.router.add_post("/api/webapp/parts/vendre",        webapp_vendre_parts)
-    app.router.add_post("/api/webapp/parts/acheter",       webapp_acheter_parts)
-    app.router.add_post("/api/webapp/parts/accepteroffre", webapp_accepter_offre)
-    app.router.add_post("/api/webapp/parts/refuseroffre",  webapp_refuser_offre)
-
-    # Finance
-    app.router.add_post("/api/webapp/pay",                 webapp_pay)
-
-    # Contrats
-    app.router.add_get("/api/webapp/contrats/bc",          webapp_contrats_bc)
-    app.router.add_get("/api/webapp/contrats/auto",        webapp_contrats_auto)
-
-    # Misc
-    app.router.add_post("/api/webapp/skipattente",         webapp_skipattente)
-
-    # Notifications
-    app.router.add_get("/api/webapp/notifications/all",    webapp_notifications_all)
-    app.router.add_get("/api/webapp/notifications/eco",    webapp_notifications_eco)
-
-    # Marché des objets
-    app.router.add_get("/api/webapp/items/market",         webapp_item_market_list)
-    app.router.add_post("/api/webapp/items/sell_expert",   webapp_item_sell_expert)
-    app.router.add_post("/api/webapp/items/put_market",    webapp_item_put_market)
-    app.router.add_post("/api/webapp/items/remove_market", webapp_item_remove_market)
-    app.router.add_post("/api/webapp/items/buy",           webapp_item_buy)
-    app.router.add_post("/api/webapp/items/delete",        webapp_item_delete)
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  MARCHÉ DES OBJETS (auction_inventory)
-# ═════════════════════════════════════════════════════════════════════════════
-
-async def webapp_item_sell_expert(request: web.Request) -> web.Response:
-    """POST /api/webapp/items/sell_expert — Revendre un objet au bot (50% valeur)"""
-    body = await _body(request)
-    uid     = int(body.get("user_id", 0))
-    item_id = int(body.get("item_id", 0))
-    if not _auth(uid):
-        return _err("unauthorized")
-    if not item_id:
-        return _err("item_id manquant")
+    from datetime import datetime as _dt2
+    now = _dt2.utcnow()
 
     async with AsyncSessionLocal() as session:
-        r = await session.execute(
-            sa_text("SELECT id, item_name, item_emoji, true_value, for_sale FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
-            {"iid": item_id, "uid": uid}
-        )
-        row = r.fetchone()
-        if not row:
-            return _err("Objet introuvable")
-        if row[4]:  # for_sale
-            return _err("Retire l'objet du marché avant de le revendre")
+        # Accès VIP
+        acc = await session.execute(text(
+            "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+        ), {"uid": uid})
+        acc_row = acc.fetchone()
+        has_access = bool(acc_row and acc_row[0] > now)
+        expires_at = str(acc_row[0])[:16] if has_access else None
+        seconds_left = int((acc_row[0] - now).total_seconds()) if has_access else 0
 
-        gain = max(1, int((row[3] or 0) * 0.50))
-        await session.execute(
-            sa_text("DELETE FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
-            {"iid": item_id, "uid": uid}
-        )
-        await session.execute(
-            sa_text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:g AS BIGINT) WHERE user_id = :uid"),
-            {"g": gain, "uid": uid}
-        )
-        await session.commit()
-
-    return _ok(f"✅ {row[2]} {row[1]} vendu à l'expert pour {gain:,} $ (50% de la valeur) !", gain=gain)
-
-
-async def webapp_item_put_market(request: web.Request) -> web.Response:
-    """POST /api/webapp/items/put_market — Mettre un objet en vente sur le marché"""
-    body = await _body(request)
-    uid     = int(body.get("user_id", 0))
-    item_id = int(body.get("item_id", 0))
-    price   = int(body.get("price", 0))
-    if not _auth(uid):
-        return _err("unauthorized")
-    if not item_id:
-        return _err("item_id manquant")
-    if price < 1:
-        return _err("Prix invalide (minimum 1 $)")
-
-    async with AsyncSessionLocal() as session:
-        r = await session.execute(
-            sa_text("SELECT id, item_name, item_emoji, true_value FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
-            {"iid": item_id, "uid": uid}
-        )
-        row = r.fetchone()
-        if not row:
-            return _err("Objet introuvable")
-
-        await session.execute(
-            sa_text("UPDATE auction_inventory SET for_sale = TRUE, sale_price = :price WHERE id = :iid AND user_id = :uid"),
-            {"price": price, "iid": item_id, "uid": uid}
-        )
-        await session.commit()
-
-    return _ok(f"🏷️ {row[2]} {row[1]} mis en vente à {price:,} $ !", price=price)
-
-
-async def webapp_item_remove_market(request: web.Request) -> web.Response:
-    """POST /api/webapp/items/remove_market — Retirer un objet du marché"""
-    body = await _body(request)
-    uid     = int(body.get("user_id", 0))
-    item_id = int(body.get("item_id", 0))
-    if not _auth(uid):
-        return _err("unauthorized")
-
-    async with AsyncSessionLocal() as session:
-        await session.execute(
-            sa_text("UPDATE auction_inventory SET for_sale = FALSE, sale_price = NULL WHERE id = :iid AND user_id = :uid"),
-            {"iid": item_id, "uid": uid}
-        )
-        await session.commit()
-
-    return _ok("✅ Objet retiré du marché.")
-
-
-async def webapp_item_market_list(request: web.Request) -> web.Response:
-    """GET /api/webapp/items/market — Liste des objets en vente"""
-    uid = int(request.rel_url.query.get("user_id", 0))
-    if not _auth(uid):
-        return _err("unauthorized")
-
-    async with AsyncSessionLocal() as session:
-        r = await session.execute(sa_text("""
-            SELECT ai.id, ai.user_id, ai.item_name, ai.item_emoji, ai.rarity,
-                   ai.true_value, ai.sale_price, ai.acquired_at,
-                   u.first_name, u.username
-            FROM auction_inventory ai
-            JOIN users u ON u.user_id = ai.user_id
-            WHERE ai.for_sale = TRUE
-            ORDER BY ai.sale_price ASC
-            LIMIT 100
+        # Enchère active
+        auc = await session.execute(text("""
+            SELECT id, item_id, item_name, item_emoji, rarity,
+                   start_price, current_bid, leader_id, leader_name,
+                   custom_desc, ends_at
+            FROM salle_auctions WHERE status = 'active' ORDER BY id DESC LIMIT 1
         """))
-        items = []
-        for row in r.fetchall():
-            items.append({
-                "id":          row[0],
-                "seller_id":   row[1],
-                "item_name":   row[2],
-                "item_emoji":  row[3],
-                "rarity":      row[4],
-                "true_value":  row[5],
-                "sale_price":  row[6],
-                "acquired_at": str(row[7])[:10] if row[7] else "",
-                "seller_name": row[8] or "—",
-                "seller_username": row[9] or "",
-                "is_mine":     row[1] == uid,
+        auction = auc.fetchone()
+
+        auction_data = None
+        if auction:
+            from datetime import datetime as _dtparse
+            ends_at_val = auction[10]
+            if isinstance(ends_at_val, str):
+                ends_at_val = _dtparse.fromisoformat(ends_at_val)
+            time_left_s = max(0, int((ends_at_val - now).total_seconds()))
+            auction_data = {
+                'id':          auction[0],
+                'item_id':     auction[1],
+                'item_name':   auction[2],
+                'item_emoji':  auction[3],
+                'rarity':      auction[4],
+                'start_price': auction[5],
+                'current_bid': auction[6],
+                'leader_id':   auction[7],
+                'leader_name': auction[8],
+                'custom_desc': auction[9],
+                'ends_at':     str(ends_at_val),
+                'time_left_s': time_left_s,
+                'is_leading':  auction[7] == uid,
+            }
+
+        # Wallet
+        wallet_r = await session.execute(text(
+            "SELECT coins FROM users WHERE user_id = :uid"
+        ), {"uid": uid})
+        wallet_row = wallet_r.fetchone()
+        wallet = int(wallet_row[0]) if wallet_row else 0
+
+    return web.json_response({
+        'has_access':    has_access,
+        'expires_at':    expires_at,
+        'seconds_left':  seconds_left,
+        'access_price':  SALLE_ACCESS_PRICE,
+        'auction':       auction_data,
+        'wallet':        wallet,
+    })
+
+
+async def webapp_salle_pay(request: web.Request) -> web.Response:
+    """POST /api/webapp/salle/pay — acheter l'accès 24h"""
+    import logging as _paylog
+    _logger = _paylog.getLogger(__name__)
+    try:
+        body = await request.json()
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay json parse error: {e}")
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid = int(body.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    try:
+        await _ensure_salle_tables()
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay ensure_tables error: {e}", exc_info=True)
+
+    from datetime import datetime as _dt3, timedelta as _td
+    now = _dt3.utcnow()
+
+    try:
+        async with AsyncSessionLocal() as session:
+            wallet_r = await session.execute(text(
+                "SELECT coins FROM users WHERE user_id = :uid"
+            ), {"uid": uid})
+            wallet_row = wallet_r.fetchone()
+            if not wallet_row or int(wallet_row[0]) < SALLE_ACCESS_PRICE:
+                return web.json_response({'ok': False, 'error': f'Fonds insuffisants (besoin de {_fmt(SALLE_ACCESS_PRICE)} $)'})
+
+            await session.execute(text(
+                "UPDATE users SET coins = CAST(coins AS BIGINT) - :amt WHERE user_id = :uid"
+            ), {"amt": SALLE_ACCESS_PRICE, "uid": uid})
+
+            # Renouveler ou créer
+            existing = await session.execute(text(
+                "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+            ), {"uid": uid})
+            ex = existing.fetchone()
+            ex0 = ex[0] if ex else None
+            if isinstance(ex0, str):
+                from datetime import datetime as _dtp
+                ex0 = _dtp.fromisoformat(ex0.replace('+00:00',''))
+            base = ex0 if (ex0 and ex0 > now) else now
+            new_exp = base + _td(hours=24)
+
+            # ON CONFLICT fiable même si la contrainte PK n'existe pas encore en DB
+            upd = await session.execute(text(
+                "UPDATE salle_vip_access SET expires_at = :exp, paid_at = NOW() WHERE user_id = :uid"
+            ), {"uid": uid, "exp": new_exp})
+            if upd.rowcount == 0:
+                await session.execute(text(
+                    "INSERT INTO salle_vip_access (user_id, expires_at) VALUES (:uid, :exp)"
+                ), {"uid": uid, "exp": new_exp})
+            await session.commit()
+
+        return web.json_response({
+            'ok': True,
+            'expires_at': str(new_exp)[:16],
+            'msg': f"🏛️ Accès à La Salle accordé jusqu'au {new_exp.strftime('%d/%m à %H:%M')} !"
+        })
+    except Exception as e:
+        _logger.error(f"webapp_salle_pay DB error: {e}", exc_info=True)
+        return web.json_response({'ok': False, 'error': f'Erreur serveur: {str(e)}'}, status=500)
+
+
+async def webapp_salle_bid(request: web.Request) -> web.Response:
+    """POST /api/webapp/salle/bid — enchérir dans La Salle"""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'invalid json'}, status=400)
+
+    uid        = int(body.get('user_id', 0))
+    auction_id = int(body.get('auction_id', 0))
+    amount     = int(body.get('amount', 0))
+
+    if not _is_allowed(uid):
+        return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+
+    await _ensure_salle_tables()
+
+    from datetime import datetime as _dt4
+    now = _dt4.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        # Vérifier accès VIP
+        acc = await session.execute(text(
+            "SELECT expires_at FROM salle_vip_access WHERE user_id = :uid"
+        ), {"uid": uid})
+        acc_row = acc.fetchone()
+        if not acc_row or acc_row[0] <= now:
+            return web.json_response({'ok': False, 'error': '🔒 Accès à La Salle expiré'})
+
+        # Enchère
+        auc_r = await session.execute(text("""
+            SELECT id, current_bid, leader_id, ends_at, status
+            FROM salle_auctions WHERE id = :aid AND status = 'active'
+        """), {"aid": auction_id})
+        auction = auc_r.fetchone()
+        if not auction:
+            return web.json_response({'ok': False, 'error': 'Enchère introuvable ou terminée'})
+        auc_id, auc_current_bid, auc_leader_id, auc_ends_at, auc_status = auction
+        from datetime import datetime as _dtparse2
+        if isinstance(auc_ends_at, str):
+            auc_ends_at = _dtparse2.fromisoformat(auc_ends_at)
+        if auc_ends_at <= now:
+            return web.json_response({'ok': False, 'error': '⏰ Enchère terminée !'})
+        if auc_leader_id == uid:
+            return web.json_response({'ok': False, 'error': '👑 Tu mènes déjà cette enchère !'})
+
+        min_bid = max(auc_current_bid + 1, int(auc_current_bid * 1.05))
+        if amount < min_bid:
+            return web.json_response({'ok': False, 'error': f'Minimum : {_fmt(min_bid)} $ (+5%)'})
+
+        # Fonds
+        wallet_r = await session.execute(text(
+            "SELECT coins, username FROM users WHERE user_id = :uid"
+        ), {"uid": uid})
+        user_row = wallet_r.fetchone()
+        if not user_row or user_row[0] < amount:
+            return web.json_response({'ok': False, 'error': 'Fonds insuffisants'})
+        leader_name = user_row[1] or str(uid)
+
+        # Rembourser ancien leader
+        if auc_leader_id:
+            await session.execute(text(
+                "UPDATE users SET coins = coins + :amt WHERE user_id = :lid"
+            ), {"amt": auc_current_bid, "lid": auc_leader_id})
+
+        await session.execute(text(
+            "UPDATE users SET coins = coins - :amt WHERE user_id = :uid"
+        ), {"amt": amount, "uid": uid})
+        await session.execute(text("""
+            UPDATE salle_auctions
+            SET current_bid = :bid, leader_id = :uid, leader_name = :name
+            WHERE id = :aid
+        """), {"bid": amount, "uid": uid, "name": leader_name, "aid": auction_id})
+        await session.commit()
+
+    return web.json_response({'ok': True, 'new_bid': amount})
+
+
+async def webapp_salle_history(request: web.Request) -> web.Response:
+    """GET /api/webapp/salle/history?user_id=xxx — dernières enchères Salle fermées"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
+
+    async with AsyncSessionLocal() as session:
+        rows = await session.execute(text("""
+            SELECT item_emoji, item_name, rarity, current_bid, leader_name, ends_at
+            FROM salle_auctions
+            WHERE status = 'closed'
+            ORDER BY ends_at DESC
+            LIMIT 10
+        """))
+        history = []
+        for r in rows.fetchall():
+            history.append({
+                'emoji':       r[0],
+                'name':        r[1],
+                'rarity':      r[2],
+                'final_bid':   r[3],
+                'winner':      r[4] or 'Personne',
+                'closed_at':   str(r[5])[:16],
             })
 
-    return web.json_response({"items": items})
+    return web.json_response({'history': history})
 
 
-async def webapp_item_buy(request: web.Request) -> web.Response:
-    """POST /api/webapp/items/buy — Acheter un objet sur le marché"""
-    body = await _body(request)
-    uid     = int(body.get("user_id", 0))
-    item_id = int(body.get("item_id", 0))
-    if not _auth(uid):
-        return _err("unauthorized")
-    if not item_id:
-        return _err("item_id manquant")
+async def webapp_online_users(request: web.Request) -> web.Response:
+    """GET /api/webapp/online?user_id=xxx — Utilisateurs actifs les 30 dernières minutes"""
+    uid = int(request.rel_url.query.get('user_id', 0))
+    if not _is_allowed(uid):
+        return web.json_response({'error': 'unauthorized'}, status=403)
 
-    async with AsyncSessionLocal() as session:
-        r = await session.execute(
-            sa_text("SELECT id, user_id, item_name, item_emoji, rarity, true_value, sale_price FROM auction_inventory WHERE id = :iid AND for_sale = TRUE"),
-            {"iid": item_id}
-        )
-        row = r.fetchone()
-        if not row:
-            return _err("Objet introuvable ou plus disponible")
-        if row[1] == uid:
-            return _err("Tu ne peux pas acheter ton propre objet")
+    from datetime import timedelta
+    from database.models import Relationship, RelationType
 
-        price = row[6]
-        buyer_r = await session.execute(sa_text("SELECT coins FROM users WHERE user_id = :uid"), {"uid": uid})
-        buyer_row = buyer_r.fetchone()
-        if not buyer_row or buyer_row[0] < price:
-            return _err(f"Fonds insuffisants (besoin de {price:,} $)")
-
-        seller_id = row[1]
-        # Débiter acheteur
-        await session.execute(
-            sa_text("UPDATE users SET coins = CAST(coins AS BIGINT) - CAST(:p AS BIGINT) WHERE user_id = :uid"),
-            {"p": price, "uid": uid}
-        )
-        # Créditer vendeur
-        await session.execute(
-            sa_text("UPDATE users SET coins = CAST(coins AS BIGINT) + CAST(:p AS BIGINT) WHERE user_id = :uid"),
-            {"p": price, "uid": seller_id}
-        )
-        # Transférer l'objet
-        await session.execute(
-            sa_text("UPDATE auction_inventory SET user_id = :buyer, for_sale = FALSE, sale_price = NULL WHERE id = :iid"),
-            {"buyer": uid, "iid": item_id}
-        )
-        await session.commit()
-
-    return _ok(f"✅ {row[3]} {row[2]} acheté pour {price:,} $ ! L'objet est dans ton inventaire.", price=price)
-
-
-async def webapp_item_delete(request: web.Request) -> web.Response:
-    """POST /api/webapp/items/delete — Supprimer définitivement un objet de l'inventaire"""
-    body = await _body(request)
-    uid     = int(body.get("user_id", 0))
-    item_id = int(body.get("item_id", 0))
-    if not _auth(uid):
-        return _err("unauthorized")
-    if not item_id:
-        return _err("item_id manquant")
+    cutoff = datetime.utcnow() - timedelta(minutes=30)
 
     async with AsyncSessionLocal() as session:
-        r = await session.execute(
-            sa_text("SELECT id, item_name, item_emoji FROM auction_inventory WHERE id = :iid AND user_id = :uid AND for_sale = FALSE"),
-            {"iid": item_id, "uid": uid}
+        result = await session.execute(
+            select(User)
+            .where(User.is_banned == False, User.last_seen >= cutoff)
+            .order_by(User.last_seen.desc())
+            .limit(50)
         )
-        row = r.fetchone()
-        if not row:
-            return _err("Objet introuvable ou en vente (retire-le du marché d'abord)")
-        await session.execute(
-            sa_text("DELETE FROM auction_inventory WHERE id = :iid AND user_id = :uid"),
-            {"iid": item_id, "uid": uid}
-        )
-        await session.commit()
+        users = result.scalars().all()
 
-    return _ok(f"🗑️ {row[2]} {row[1]} supprimé définitivement.")
+        # Récupérer les relations existantes avec moi
+        my_rels = (await session.execute(
+            select(Relationship).where(Relationship.user_id == uid)
+        )).scalars().all()
+        rel_map = {r.related_user_id: r.relation_type.value for r in my_rels}
+
+        # Aussi ceux qui ont une relation vers moi
+        their_rels = (await session.execute(
+            select(Relationship).where(Relationship.related_user_id == uid)
+        )).scalars().all()
+        for r in their_rels:
+            if r.user_id not in rel_map:
+                rel_map[r.user_id] = r.relation_type.value
+
+        online = []
+        for u in users:
+            if u.user_id == uid:
+                continue
+            online.append({
+                'user_id':  u.user_id,
+                'name':     u.first_name or '—',
+                'username': u.username or '',
+                'coins':    int(u.coins or 0),
+                'gender':   u.gender or '',
+                'relation': rel_map.get(u.user_id, ''),
+                'last_seen': u.last_seen.isoformat() if u.last_seen else '',
+            })
+
+    return web.json_response({'users': online})

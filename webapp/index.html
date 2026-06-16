@@ -3738,6 +3738,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         </div>
         <div class="plus-hub-card-arrow">›</div>
       </div>
+
       <div class="plus-hub-card plus-hub-c-gold" onclick="plusGo('encheres')">
         <div class="plus-hub-card-icon">🔨</div>
         <div class="plus-hub-card-body">
@@ -3748,10 +3749,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div id="plus-enc-badge" style="display:none;position:absolute;top:12px;right:38px;background:#ef4444;color:#fff;font-size:10px;font-weight:900;border-radius:10px;padding:2px 7px"></div>
       </div>
       <div class="plus-hub-card plus-hub-c-teal" onclick="plusGo('boutique')">
-        <div class="plus-hub-card-icon">🎫</div>
+        <div class="plus-hub-card-icon">🏪</div>
         <div class="plus-hub-card-body">
-          <div class="plus-hub-card-title">Family Tickets</div>
-          <div class="plus-hub-card-sub">Achète avec ⭐ · Ouvre des récompenses</div>
+          <div class="plus-hub-card-title">Boutique</div>
+          <div class="plus-hub-card-sub">Family Tickets · Packs · Argent</div>
         </div>
         <div class="plus-hub-card-arrow">›</div>
         <div id="plus-ft-badge" style="display:none;position:absolute;top:12px;right:38px;background:#f7c948;color:#000;font-size:10px;font-weight:900;border-radius:10px;padding:2px 7px"></div>
@@ -3769,76 +3770,125 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <!-- ══ PAGE BOUTIQUE ══ -->
   <div class="page" id="page-boutique">
     <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
+    <div class="bq-wrap">
+      <div class="bq-title">🏪 BOUTIQUE</div>
+      <div class="bq-sub">Choisissez une section</div>
+      <!-- Rideaux -->
+      <div class="bq-banners">
+        <!-- Rideau Family Tickets -->
+        <div class="bq-banner bq-banner-ft" onclick="bqOpenSection('family-tickets')">
+          <div class="bq-banner-stripe"></div>
+          <div class="bq-banner-content">
+            <div class="bq-banner-icon">🎫</div>
+            <div class="bq-banner-name">FAMILY<br>TICKETS</div>
+            <div class="bq-banner-tag">⭐ Stars</div>
+          </div>
+          <div class="bq-banner-arrow">›</div>
+        </div>
+        <!-- Rideau Packs -->
+        <div class="bq-banner bq-banner-packs bq-banner-soon">
+          <div class="bq-banner-stripe"></div>
+          <div class="bq-banner-content">
+            <div class="bq-banner-icon">📦</div>
+            <div class="bq-banner-name">PACKS</div>
+            <div class="bq-banner-tag">Bientôt</div>
+          </div>
+          <div class="bq-banner-soon-badge">SOON</div>
+        </div>
+        <!-- Rideau Argent -->
+        <div class="bq-banner bq-banner-argent bq-banner-soon">
+          <div class="bq-banner-stripe"></div>
+          <div class="bq-banner-content">
+            <div class="bq-banner-icon">💰</div>
+            <div class="bq-banner-name">ARGENT</div>
+            <div class="bq-banner-tag">Bientôt</div>
+          </div>
+          <div class="bq-banner-soon-badge">SOON</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
+  <!-- ══ PAGE FAMILY TICKETS ══ -->
+  <div class="page" id="page-family-tickets">
+    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="bqBack()">← Boutique</button></div>
     <div class="ft-boutique-wrap">
       <div class="ft-boutique-hero">
         <div class="ft-boutique-hero-title">🎫 FAMILY TICKETS</div>
-        <div class="ft-boutique-hero-sub">Achetez avec ⭐ Étoiles Telegram · Envoyez à vos amis</div>
+        <div class="ft-boutique-hero-sub">Achetez avec ⭐ Étoiles Telegram · Cliquez sur un ticket pour acheter ou envoyer</div>
       </div>
-
-      <!-- Section achat -->
-      <div class="ft-buy-section-label">🛒 Acheter des tickets</div>
-
-      <div id="ft-card-basique" class="ft-ticket-card selected" onclick="ftSelect('basique')">
-        <div class="ft-ticket-icon">🎫</div>
-        <div class="ft-ticket-info">
-          <div class="ft-ticket-name">Ticket Basique</div>
-          <div class="ft-ticket-price">⭐ 3 étoiles / unité</div>
+      <!-- 3 cartes tickets cliquables -->
+      <div class="ft-ticket-cards-grid">
+        <div class="ft-tcard ft-tcard-basique" onclick="ftOpenTicket('basique')">
+          <div class="ft-tcard-stub"></div>
+          <div class="ft-tcard-body">
+            <div class="ft-tcard-icon">🎫</div>
+            <div class="ft-tcard-name">TICKET<br>BASIQUE</div>
+            <div class="ft-tcard-right">
+              <div class="ft-tcard-price">3 ⭐</div>
+              <div class="ft-tcard-owned">Possédés : <span id="ft-owned-basique">0</span></div>
+            </div>
+          </div>
         </div>
-        <div class="ft-ticket-qty-wrap">
-          <div class="ft-qty-btn" onclick="ftQty('basique',-1,event)">−</div>
-          <div class="ft-qty-val" id="ft-qty-basique">1</div>
-          <div class="ft-qty-btn" onclick="ftQty('basique',1,event)">+</div>
+        <div class="ft-tcard ft-tcard-premium" onclick="ftOpenTicket('premium')">
+          <div class="ft-tcard-stub"></div>
+          <div class="ft-tcard-body">
+            <div class="ft-tcard-icon">🎟️</div>
+            <div class="ft-tcard-name">TICKET<br>PREMIUM</div>
+            <div class="ft-tcard-right">
+              <div class="ft-tcard-price">5 ⭐</div>
+              <div class="ft-tcard-owned">Possédés : <span id="ft-owned-premium">0</span></div>
+            </div>
+          </div>
         </div>
-      </div>
-
-      <div id="ft-card-premium" class="ft-ticket-card" onclick="ftSelect('premium')">
-        <div class="ft-ticket-icon">🎟️</div>
-        <div class="ft-ticket-info">
-          <div class="ft-ticket-name">Ticket Premium</div>
-          <div class="ft-ticket-price">⭐ 5 étoiles / unité</div>
-        </div>
-        <div class="ft-ticket-qty-wrap">
-          <div class="ft-qty-btn" onclick="ftQty('premium',-1,event)">−</div>
-          <div class="ft-qty-val" id="ft-qty-premium">1</div>
-          <div class="ft-qty-btn" onclick="ftQty('premium',1,event)">+</div>
-        </div>
-      </div>
-
-      <div id="ft-card-vip" class="ft-ticket-card" onclick="ftSelect('vip')">
-        <div class="ft-ticket-icon">👑</div>
-        <div class="ft-ticket-info">
-          <div class="ft-ticket-name">Ticket VIP</div>
-          <div class="ft-ticket-price">⭐ 10 étoiles / unité</div>
-        </div>
-        <div class="ft-ticket-qty-wrap">
-          <div class="ft-qty-btn" onclick="ftQty('vip',-1,event)">−</div>
-          <div class="ft-qty-val" id="ft-qty-vip">1</div>
-          <div class="ft-qty-btn" onclick="ftQty('vip',1,event)">+</div>
+        <div class="ft-tcard ft-tcard-vip" onclick="ftOpenTicket('vip')">
+          <div class="ft-tcard-stub"></div>
+          <div class="ft-tcard-body">
+            <div class="ft-tcard-icon">👑</div>
+            <div class="ft-tcard-name">TICKET<br>VIP</div>
+            <div class="ft-tcard-right">
+              <div class="ft-tcard-price">10 ⭐</div>
+              <div class="ft-tcard-owned">Possédés : <span id="ft-owned-vip">0</span></div>
+            </div>
+          </div>
         </div>
       </div>
+    </div>
+  </div>
 
-      <!-- Total + bouton -->
-      <div style="text-align:center;margin-top:6px;font-size:13px;color:var(--text2)">
-        Total : <span id="ft-total-display" style="font-family:'Bangers',cursive;font-size:20px;color:#f7c948">3 ⭐</span>
+  <!-- ══ PAGE TICKET DETAIL ══ -->
+  <div class="page" id="page-ticket-detail">
+    <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="ftCloseDetail()">← Tickets</button></div>
+    <div class="ft-detail-wrap">
+      <div class="ft-detail-hero" id="ft-detail-hero">
+        <div class="ft-detail-icon" id="ft-detail-icon">🎫</div>
+        <div class="ft-detail-name" id="ft-detail-name">Ticket Basique</div>
+        <div class="ft-detail-price" id="ft-detail-price">3 ⭐ / unité</div>
+        <div class="ft-detail-owned-badge">Vous en avez : <span id="ft-detail-owned">0</span></div>
       </div>
-      <button class="ft-buy-btn" id="ft-buy-btn" onclick="ftBuy()">⭐ Acheter</button>
 
-      <!-- Section envoyer -->
-      <div class="ft-send-section">
-        <div class="ft-send-title">📨 Envoyer des tickets à un joueur</div>
-        <div class="ft-send-row">
-          <input class="ft-send-input" id="ft-send-userid" type="number" placeholder="ID du joueur"/>
-          <select class="ft-send-select" id="ft-send-type">
-            <option value="basique">🎫 Basique</option>
-            <option value="premium">🎟️ Premium</option>
-            <option value="vip">👑 VIP</option>
-          </select>
+      <!-- Achat -->
+      <div class="ft-detail-section">
+        <div class="ft-detail-section-title">🛒 Acheter</div>
+        <div class="ft-detail-qty-row">
+          <button class="ft-dqty-btn" onclick="ftDetailQty(-1)">−</button>
+          <div class="ft-dqty-val" id="ft-detail-qty">1</div>
+          <button class="ft-dqty-btn" onclick="ftDetailQty(1)">+</button>
         </div>
-        <div class="ft-send-row">
-          <input class="ft-send-input" id="ft-send-qty" type="number" value="1" min="1" placeholder="Quantité"/>
-          <button class="ft-send-btn" onclick="ftSend()">📨 Envoyer</button>
+        <div class="ft-detail-total" id="ft-detail-total">Total : 3 ⭐</div>
+        <button class="ft-detail-buy-btn" id="ft-detail-buy-btn" onclick="ftDetailBuy()">⭐ Acheter</button>
+      </div>
+
+      <!-- Envoyer -->
+      <div class="ft-detail-section" style="margin-top:16px">
+        <div class="ft-detail-section-title">📨 Envoyer à un joueur</div>
+        <input class="ft-send-input" id="ft-detail-send-id" type="number" placeholder="ID du joueur" style="width:100%;box-sizing:border-box;margin-bottom:10px"/>
+        <div class="ft-detail-qty-row">
+          <button class="ft-dqty-btn" onclick="ftDetailSendQty(-1)">−</button>
+          <div class="ft-dqty-val" id="ft-detail-send-qty">1</div>
+          <button class="ft-dqty-btn" onclick="ftDetailSendQty(1)">+</button>
         </div>
+        <button class="ft-detail-send-btn" onclick="ftDetailSend()">📨 Envoyer</button>
       </div>
     </div>
   </div>
@@ -8854,38 +8904,85 @@ async function _gardenHarvest(gardenId) {
     .ft-dropdown-label { font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px; }
     .ft-dropdown-qty { font-family:'Bangers',cursive;font-size:18px;color:#f7c948;letter-spacing:.5px; }
 
-    /* Page boutique */
+    /* ── PAGE BOUTIQUE RIDEAUX ── */
+    .bq-wrap { padding:0 14px 80px;overflow-y:auto;height:calc(100vh - 110px);scrollbar-width:none; }
+    .bq-title { font-family:'Bangers',cursive;font-size:34px;letter-spacing:3px;color:var(--accent);text-align:center;padding:22px 0 4px; }
+    .bq-sub { font-size:12px;color:var(--text2);text-align:center;margin-bottom:22px; }
+    .bq-banners { display:flex;flex-direction:column;gap:14px; }
+
+    /* Rideau / Banner style */
+    .bq-banner { display:flex;align-items:center;border-radius:20px;overflow:hidden;cursor:pointer;transition:transform .13s,box-shadow .13s;position:relative;min-height:110px;background:var(--card);border:1px solid var(--border); }
+    .bq-banner:active { transform:scale(.97); }
+    .bq-banner-ft  { background:linear-gradient(135deg,#1a1200 0%,#2a1e00 60%,#1a1200 100%);border-color:rgba(247,201,72,.3);box-shadow:0 4px 24px rgba(247,201,72,.08); }
+    .bq-banner-packs { background:linear-gradient(135deg,#001a12 0%,#002a1e 60%,#001a12 100%);border-color:rgba(0,184,148,.2); }
+    .bq-banner-argent { background:linear-gradient(135deg,#0a001a 0%,#160028 60%,#0a001a 100%);border-color:rgba(108,92,231,.2); }
+    .bq-banner-soon { opacity:.55;cursor:default; }
+    .bq-banner-soon:active { transform:none; }
+
+    /* Bande colorée gauche */
+    .bq-banner-stripe { width:6px;align-self:stretch;flex-shrink:0; }
+    .bq-banner-ft .bq-banner-stripe { background:linear-gradient(180deg,#f7c948,#e67e22); }
+    .bq-banner-packs .bq-banner-stripe { background:linear-gradient(180deg,#00b894,#00cec9); }
+    .bq-banner-argent .bq-banner-stripe { background:linear-gradient(180deg,#6c5ce7,#a29bfe); }
+
+    .bq-banner-content { flex:1;padding:16px 14px;display:flex;flex-direction:column;gap:4px; }
+    .bq-banner-icon { font-size:34px;line-height:1;margin-bottom:4px; }
+    .bq-banner-name { font-family:'Bangers',cursive;font-size:24px;letter-spacing:2px;line-height:1.1;color:var(--text); }
+    .bq-banner-ft .bq-banner-name { color:#f7c948; }
+    .bq-banner-packs .bq-banner-name { color:#00cec9; }
+    .bq-banner-argent .bq-banner-name { color:#a29bfe; }
+    .bq-banner-tag { font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.5px; }
+    .bq-banner-arrow { font-size:32px;color:var(--text2);padding:0 18px;opacity:.6; }
+    .bq-banner-soon-badge { position:absolute;top:10px;right:12px;font-size:9px;font-weight:900;letter-spacing:1.5px;background:rgba(255,255,255,.1);color:var(--text2);padding:3px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.12); }
+
+    /* ── PAGE FAMILY TICKETS ── */
     .ft-boutique-wrap { padding:0 14px 80px;overflow-y:auto;height:calc(100vh - 110px);scrollbar-width:none; }
-    .ft-boutique-hero { text-align:center;padding:24px 0 18px; }
-    .ft-boutique-hero-title { font-family:'Bangers',cursive;font-size:32px;letter-spacing:3px;color:var(--accent);margin-bottom:4px; }
-    .ft-boutique-hero-sub { font-size:12px;color:var(--text2); }
-    .ft-buy-section-label { font-size:11px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:18px 0 10px; }
+    .ft-boutique-hero { text-align:center;padding:20px 0 16px; }
+    .ft-boutique-hero-title { font-family:'Bangers',cursive;font-size:30px;letter-spacing:3px;color:var(--accent);margin-bottom:4px; }
+    .ft-boutique-hero-sub { font-size:11px;color:var(--text2);line-height:1.5; }
 
-    /* Carte ticket */
-    .ft-ticket-card { display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:transform .12s,border-color .12s; }
-    .ft-ticket-card:active { transform:scale(.97); }
-    .ft-ticket-card.selected { border-color:#f7c948;background:rgba(247,201,72,.06); }
-    .ft-ticket-icon { font-size:36px;flex-shrink:0; }
-    .ft-ticket-info { flex:1; }
-    .ft-ticket-name { font-family:'Bangers',cursive;font-size:20px;letter-spacing:1px;line-height:1; }
-    .ft-ticket-price { font-size:12px;color:var(--text2);margin-top:2px; }
-    .ft-ticket-qty-wrap { display:flex;align-items:center;gap:8px; }
-    .ft-qty-btn { width:28px;height:28px;border-radius:50%;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:16px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0; }
-    .ft-qty-val { font-family:'Bangers',cursive;font-size:20px;color:var(--accent);min-width:24px;text-align:center; }
+    /* Grille 3 tickets */
+    .ft-ticket-cards-grid { display:flex;flex-direction:column;gap:12px; }
+    .ft-tcard { display:flex;border-radius:18px;overflow:hidden;cursor:pointer;transition:transform .13s,box-shadow .13s;min-height:88px;border:1px solid var(--border); }
+    .ft-tcard:active { transform:scale(.97); }
+    .ft-tcard-stub { width:8px;flex-shrink:0; }
+    .ft-tcard-basique { background:linear-gradient(135deg,#1a1200,#261a00);border-color:rgba(247,201,72,.25); }
+    .ft-tcard-basique .ft-tcard-stub { background:linear-gradient(180deg,#f7c948,#e67e22); }
+    .ft-tcard-premium { background:linear-gradient(135deg,#001018,#001a28);border-color:rgba(0,180,216,.25); }
+    .ft-tcard-premium .ft-tcard-stub { background:linear-gradient(180deg,#00b4d8,#0077b6); }
+    .ft-tcard-vip { background:linear-gradient(135deg,#0f0018,#1a0028);border-color:rgba(162,155,254,.25); }
+    .ft-tcard-vip .ft-tcard-stub { background:linear-gradient(180deg,#a29bfe,#6c5ce7); }
+    .ft-tcard-body { flex:1;padding:14px 16px;display:flex;align-items:center;gap:14px; }
+    .ft-tcard-icon { font-size:32px;flex-shrink:0; }
+    .ft-tcard-name { font-family:'Bangers',cursive;font-size:20px;letter-spacing:1.5px;line-height:1.1;flex:1; }
+    .ft-tcard-basique .ft-tcard-name { color:#f7c948; }
+    .ft-tcard-premium .ft-tcard-name { color:#00b4d8; }
+    .ft-tcard-vip .ft-tcard-name { color:#a29bfe; }
+    .ft-tcard-right { text-align:right;flex-shrink:0; }
+    .ft-tcard-price { font-family:'Bangers',cursive;font-size:22px;letter-spacing:1px;color:var(--text); }
+    .ft-tcard-owned { font-size:11px;color:var(--text2);margin-top:2px; }
 
-    /* Bouton achat */
-    .ft-buy-btn { width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-size:15px;font-weight:900;margin-top:18px;cursor:pointer;letter-spacing:.5px; }
-    .ft-buy-btn:disabled { opacity:.4;cursor:not-allowed; }
+    /* ── PAGE TICKET DETAIL ── */
+    .ft-detail-wrap { padding:0 14px 80px;overflow-y:auto;height:calc(100vh - 110px);scrollbar-width:none; }
+    .ft-detail-hero { text-align:center;padding:22px 16px 18px;border-radius:20px;margin-bottom:16px;background:var(--card);border:1px solid var(--border); }
+    .ft-detail-icon { font-size:52px;margin-bottom:8px; }
+    .ft-detail-name { font-family:'Bangers',cursive;font-size:28px;letter-spacing:2px;color:var(--accent);line-height:1; }
+    .ft-detail-price { font-size:13px;color:var(--text2);margin-top:4px; }
+    .ft-detail-owned-badge { display:inline-block;margin-top:10px;font-size:12px;font-weight:700;background:rgba(247,201,72,.1);border:1px solid rgba(247,201,72,.25);border-radius:20px;padding:4px 14px;color:#f7c948; }
 
-    /* Section envoyer */
-    .ft-send-section { margin-top:26px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px; }
-    .ft-send-title { font-size:13px;font-weight:900;margin-bottom:12px; }
-    .ft-send-row { display:flex;gap:8px;align-items:center;margin-bottom:10px; }
-    .ft-send-input { flex:1;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-family:'Nunito',sans-serif; }
-    .ft-send-select { padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-family:'Nunito',sans-serif; }
-    .ft-send-btn { padding:10px 16px;border-radius:12px;border:none;background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;font-size:13px;font-weight:900;cursor:pointer;white-space:nowrap; }
+    .ft-detail-section { background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px; }
+    .ft-detail-section-title { font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:var(--text2);margin-bottom:14px; }
+    .ft-detail-qty-row { display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:12px; }
+    .ft-dqty-btn { width:36px;height:36px;border-radius:50%;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:20px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0; }
+    .ft-dqty-val { font-family:'Bangers',cursive;font-size:28px;color:var(--accent);min-width:40px;text-align:center; }
+    .ft-detail-total { text-align:center;font-size:13px;color:var(--text2);margin-bottom:14px; }
+    .ft-detail-total span { font-family:'Bangers',cursive;font-size:22px;color:#f7c948; }
+    .ft-detail-buy-btn { width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:.5px; }
+    .ft-detail-buy-btn:disabled { opacity:.4;cursor:not-allowed; }
+    .ft-send-input { padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-family:'Nunito',sans-serif; }
+    .ft-detail-send-btn { width:100%;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;font-size:14px;font-weight:900;margin-top:14px;cursor:pointer; }
 
-    /* Toast achat */
+    /* Toast */
     .ft-toast { position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;padding:12px 24px;border-radius:14px;font-size:14px;font-weight:900;z-index:3000;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap; }
     .ft-toast.show { opacity:1; }
 
@@ -11926,17 +12023,183 @@ window.openGame = function(name) {
 // FAMILY TICKET SYSTEM
 // ══════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════════════════════
+// FAMILY TICKETS — navigation + achat + envoi
+// ══════════════════════════════════════════════════════════════════════════════
 const FT_INFO = {
   basique: { icon: '🎫', name: 'Ticket Basique',  price: 3  },
   premium: { icon: '🎟️', name: 'Ticket Premium', price: 5  },
   vip:     { icon: '👑', name: 'Ticket VIP',      price: 10 },
 };
 
-let _ftSelected = 'basique';
-let _ftQtys = { basique: 1, premium: 1, vip: 1 };
 let _ftOwned = { basique: 0, premium: 0, vip: 0 };
+let _ftDetailType = 'basique';
+let _ftDetailQty  = 1;
+let _ftDetailSendQty = 1;
 
-// ── Dropdown topbar ──────────────────────────────────────────────────────────
+// ── Navigation ────────────────────────────────────────────────────────────────
+function bqOpenSection(section) {
+  if (section === 'family-tickets') {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const pg = document.getElementById('page-family-tickets');
+    if (pg) pg.classList.add('active');
+    _ftLoadOwned();
+  }
+}
+
+function bqBack() {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pg = document.getElementById('page-boutique');
+  if (pg) pg.classList.add('active');
+}
+
+function ftOpenTicket(type) {
+  _ftDetailType    = type;
+  _ftDetailQty     = 1;
+  _ftDetailSendQty = 1;
+  const t = FT_INFO[type];
+
+  // Remplir la page detail
+  const icon = document.getElementById('ft-detail-icon');
+  const name = document.getElementById('ft-detail-name');
+  const price = document.getElementById('ft-detail-price');
+  const owned = document.getElementById('ft-detail-owned');
+  const qtyEl = document.getElementById('ft-detail-qty');
+  const sqtyEl = document.getElementById('ft-detail-send-qty');
+  const sendId = document.getElementById('ft-detail-send-id');
+
+  if (icon)  icon.textContent  = t.icon;
+  if (name)  name.textContent  = t.name;
+  if (price) price.textContent = t.price + ' ⭐ / unité';
+  if (owned) owned.textContent = _ftOwned[type] || 0;
+  if (qtyEl) qtyEl.textContent  = 1;
+  if (sqtyEl) sqtyEl.textContent = 1;
+  if (sendId) sendId.value = '';
+
+  _ftRefreshDetailTotal();
+
+  // Couleur hero selon type
+  const hero = document.getElementById('ft-detail-hero');
+  if (hero) {
+    const colors = {
+      basique: 'rgba(247,201,72,.08)',
+      premium: 'rgba(0,180,216,.08)',
+      vip:     'rgba(162,155,254,.08)',
+    };
+    hero.style.background = colors[type] || 'var(--card)';
+  }
+
+  // Aller sur la page detail
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pg = document.getElementById('page-ticket-detail');
+  if (pg) pg.classList.add('active');
+}
+
+function ftCloseDetail() {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pg = document.getElementById('page-family-tickets');
+  if (pg) pg.classList.add('active');
+}
+
+// ── Quantité achat ────────────────────────────────────────────────────────────
+function ftDetailQty(delta) {
+  _ftDetailQty = Math.max(1, Math.min(99, _ftDetailQty + delta));
+  const el = document.getElementById('ft-detail-qty');
+  if (el) el.textContent = _ftDetailQty;
+  _ftRefreshDetailTotal();
+}
+
+function _ftRefreshDetailTotal() {
+  const t = FT_INFO[_ftDetailType];
+  const total = t.price * _ftDetailQty;
+  const el = document.getElementById('ft-detail-total');
+  if (el) el.innerHTML = 'Total : <span>' + total + ' ⭐</span>';
+}
+
+// ── Quantité envoi ────────────────────────────────────────────────────────────
+function ftDetailSendQty(delta) {
+  _ftDetailSendQty = Math.max(1, Math.min(99, _ftDetailSendQty + delta));
+  const el = document.getElementById('ft-detail-send-qty');
+  if (el) el.textContent = _ftDetailSendQty;
+}
+
+// ── Achat Stars ───────────────────────────────────────────────────────────────
+async function ftDetailBuy() {
+  const type = _ftDetailType;
+  const qty  = _ftDetailQty;
+  const t    = FT_INFO[type];
+  const btn  = document.getElementById('ft-detail-buy-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
+
+  try {
+    if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openInvoice) {
+      const d = await fetchT('/api/webapp/tickets/invoice', {
+        method: 'POST',
+        body: JSON.stringify({ ticket_type: type, qty })
+      });
+      if (d.invoice_url) {
+        Telegram.WebApp.openInvoice(d.invoice_url, (status) => {
+          if (status === 'paid') {
+            _ftOwned[type] = (_ftOwned[type] || 0) + qty;
+            _ftUpdateTopbar();
+            _ftUpdateDropdown();
+            _ftUpdateOwnedCards();
+            const ownedEl = document.getElementById('ft-detail-owned');
+            if (ownedEl) ownedEl.textContent = _ftOwned[type];
+            _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' !');
+          } else if (status === 'cancelled') {
+            _ftShowToast('❌ Paiement annulé');
+          }
+        });
+      } else {
+        _ftShowToast('❌ ' + (d.error || 'Erreur création facture'));
+      }
+    } else {
+      // Fallback dev (hors Telegram)
+      _ftOwned[type] = (_ftOwned[type] || 0) + qty;
+      _ftUpdateTopbar(); _ftUpdateDropdown(); _ftUpdateOwnedCards();
+      _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' (démo)');
+    }
+  } catch(e) {
+    _ftShowToast('❌ Erreur réseau');
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '⭐ Acheter'; }
+}
+
+// ── Envoi à un joueur ─────────────────────────────────────────────────────────
+async function ftDetailSend() {
+  const targetId = document.getElementById('ft-detail-send-id')?.value?.trim();
+  const type     = _ftDetailType;
+  const qty      = _ftDetailSendQty;
+
+  if (!targetId || !targetId.match(/^\d+$/)) { _ftShowToast('❌ ID joueur invalide'); return; }
+  if ((_ftOwned[type] || 0) < qty) { _ftShowToast('❌ Pas assez de ' + FT_INFO[type].name); return; }
+
+  try {
+    const d = await fetchT('/api/webapp/tickets/send', {
+      method: 'POST',
+      body: JSON.stringify({ to_user_id: parseInt(targetId), ticket_type: type, qty })
+    });
+    if (d.status === 'ok') {
+      _ftOwned[type] = Math.max(0, (_ftOwned[type] || 0) - qty);
+      _ftUpdateTopbar(); _ftUpdateDropdown(); _ftUpdateOwnedCards();
+      const ownedEl = document.getElementById('ft-detail-owned');
+      if (ownedEl) ownedEl.textContent = _ftOwned[type];
+      document.getElementById('ft-detail-send-id').value = '';
+      _ftDetailSendQty = 1;
+      const sqty = document.getElementById('ft-detail-send-qty');
+      if (sqty) sqty.textContent = 1;
+      _ftShowToast('📨 ' + qty + '× ' + FT_INFO[type].icon + ' envoyé' + (qty>1?'s':'') + ' !');
+    } else {
+      _ftShowToast('❌ ' + (d.error || 'Erreur envoi'));
+    }
+  } catch(e) {
+    _ftShowToast('❌ Erreur réseau');
+  }
+}
+
+// ── Topbar chip + dropdown ────────────────────────────────────────────────────
 function ftToggleDropdown(e) {
   e.stopPropagation();
   const dd = document.getElementById('ft-dropdown');
@@ -11949,8 +12212,7 @@ document.addEventListener('click', () => {
   if (dd) dd.classList.remove('open');
 });
 function _ftUpdateDropdown() {
-  const keys = ['basique','premium','vip'];
-  keys.forEach(k => {
+  ['basique','premium','vip'].forEach(k => {
     const el = document.getElementById('ft-dd-' + k);
     if (el) el.textContent = _ftOwned[k] || 0;
   });
@@ -11960,35 +12222,14 @@ function _ftUpdateTopbar() {
   const el = document.getElementById('ft-topbar-count');
   if (el) el.textContent = total;
 }
-
-// ── Sélection carte ──────────────────────────────────────────────────────────
-function ftSelect(type) {
-  _ftSelected = type;
+function _ftUpdateOwnedCards() {
   ['basique','premium','vip'].forEach(k => {
-    const c = document.getElementById('ft-card-' + k);
-    if (c) c.classList.toggle('selected', k === type);
+    const el = document.getElementById('ft-owned-' + k);
+    if (el) el.textContent = _ftOwned[k] || 0;
   });
-  _ftUpdateTotal();
 }
 
-// ── Quantité ─────────────────────────────────────────────────────────────────
-function ftQty(type, delta, e) {
-  if (e) e.stopPropagation();
-  _ftQtys[type] = Math.max(1, Math.min(99, (_ftQtys[type] || 1) + delta));
-  const el = document.getElementById('ft-qty-' + type);
-  if (el) el.textContent = _ftQtys[type];
-  if (_ftSelected === type) _ftUpdateTotal();
-}
-
-function _ftUpdateTotal() {
-  const t = FT_INFO[_ftSelected];
-  const qty = _ftQtys[_ftSelected] || 1;
-  const total = t.price * qty;
-  const el = document.getElementById('ft-total-display');
-  if (el) el.textContent = total + ' ⭐';
-}
-
-// ── Charger tickets depuis API ────────────────────────────────────────────────
+// ── Chargement depuis API ─────────────────────────────────────────────────────
 async function _ftLoadOwned() {
   try {
     const d = await fetchT('/api/webapp/tickets/owned');
@@ -11996,76 +12237,13 @@ async function _ftLoadOwned() {
     (d.tickets || []).forEach(t => { if (_ftOwned[t.type] !== undefined) _ftOwned[t.type] = t.qty; });
     _ftUpdateTopbar();
     _ftUpdateDropdown();
+    _ftUpdateOwnedCards();
   } catch(e) {}
 }
 
-// ── Achat ────────────────────────────────────────────────────────────────────
-async function ftBuy() {
-  const type = _ftSelected;
-  const qty  = _ftQtys[type] || 1;
-  const t    = FT_INFO[type];
-  const btn  = document.getElementById('ft-buy-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
-
-  if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openInvoice) {
-    try {
-      const d = await fetchT('/api/webapp/tickets/invoice', {
-        method: 'POST',
-        body: JSON.stringify({ ticket_type: type, qty })
-      });
-      if (d.invoice_url) {
-        Telegram.WebApp.openInvoice(d.invoice_url, (status) => {
-          if (status === 'paid') {
-            _ftOwned[type] = (_ftOwned[type] || 0) + qty;
-            _ftUpdateTopbar();
-            _ftUpdateDropdown();
-            _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' !');
-          }
-        });
-      } else {
-        _ftShowToast('❌ ' + (d.error || 'Erreur'));
-      }
-    } catch(e) {
-      _ftShowToast('❌ Erreur réseau');
-    }
-  } else {
-    // Dev fallback
-    _ftOwned[type] = (_ftOwned[type] || 0) + qty;
-    _ftUpdateTopbar();
-    _ftUpdateDropdown();
-    _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' ! (démo)');
-  }
-
-  if (btn) { btn.disabled = false; btn.textContent = '⭐ Acheter'; }
-}
-
-// ── Envoyer à un joueur ───────────────────────────────────────────────────────
-async function ftSend() {
-  const targetId = document.getElementById('ft-send-userid')?.value?.trim();
-  const type     = document.getElementById('ft-send-type')?.value;
-  const qty      = parseInt(document.getElementById('ft-send-qty')?.value) || 1;
-
-  if (!targetId || !targetId.match(/^\d+$/)) { _ftShowToast('❌ ID joueur invalide'); return; }
-  if ((_ftOwned[type] || 0) < qty) { _ftShowToast('❌ Pas assez de tickets ' + FT_INFO[type].name); return; }
-
-  try {
-    const d = await fetchT('/api/webapp/tickets/send', {
-      method: 'POST',
-      body: JSON.stringify({ to_user_id: parseInt(targetId), ticket_type: type, qty })
-    });
-    if (d.status === 'ok') {
-      _ftOwned[type] = Math.max(0, (_ftOwned[type] || 0) - qty);
-      _ftUpdateTopbar();
-      _ftUpdateDropdown();
-      _ftShowToast('📨 ' + qty + '× ' + FT_INFO[type].icon + ' envoyé' + (qty>1?'s':'') + ' !');
-      document.getElementById('ft-send-userid').value = '';
-      document.getElementById('ft-send-qty').value = '1';
-    } else {
-      _ftShowToast('❌ ' + (d.error || 'Erreur envoi'));
-    }
-  } catch(e) {
-    _ftShowToast('❌ Erreur réseau');
-  }
+// ── loadBoutique (appelé par PLUS_PAGES) ─────────────────────────────────────
+function loadBoutique() {
+  // Juste afficher la page boutique — les rideaux gèrent la navigation
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -12074,18 +12252,11 @@ function _ftShowToast(msg) {
   if (!t) return;
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
+  setTimeout(() => t.classList.remove('show'), 3200);
 }
 
-// ── loadBoutique ──────────────────────────────────────────────────────────────
-function loadBoutique() {
-  _ftUpdateTotal();
-  _ftLoadOwned();
-}
-
-// ── Chargement initial topbar ─────────────────────────────────────────────────
+// ── Init topbar au chargement ─────────────────────────────────────────────────
 window.addEventListener('load', () => {
   setTimeout(_ftLoadOwned, 1500);
 });
-
 </script>

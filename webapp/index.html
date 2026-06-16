@@ -10654,27 +10654,35 @@ function _loadProfileCustomization(d) {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
-#notif-sheet-title { font-size: 16px; font-weight: 900; }
-#notif-close-btn {
+#notif-sheet-title { font-size: 16px; font-weight: 900; flex: 1; }
+#notif-close-btn, #notif-clear-btn {
   width: 32px; height: 32px; border-radius: 50%;
   background: rgba(255,255,255,.08); border: none;
   color: var(--text); font-size: 16px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
+#notif-clear-btn { margin-right: 6px; font-size: 14px; }
+#notif-clear-btn:active { background: rgba(255,80,80,.25); }
 #notif-list { flex: 1; overflow-y: auto; padding: 12px; }
 .notif-item {
   padding: 12px 14px; border-radius: 14px; margin-bottom: 8px;
   background: var(--card2); border: 1px solid var(--border);
   display: flex; gap: 12px; align-items: flex-start;
-  cursor: pointer; transition: background .15s;
+  transition: background .15s; position: relative;
 }
 .notif-item:active { background: rgba(255,255,255,.08); }
 .notif-item.unread { border-color: rgba(247,201,72,.25); background: rgba(247,201,72,.05); }
 .notif-item-icon { font-size: 24px; flex-shrink: 0; line-height: 1.2; }
-.notif-item-body { flex: 1; }
+.notif-item-body { flex: 1; min-width: 0; }
 .notif-item-title { font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 3px; }
 .notif-item-text { font-size: 12px; color: var(--text2); line-height: 1.4; }
 .notif-item-time { font-size: 10px; color: rgba(255,255,255,.3); margin-top: 5px; }
+.notif-delete-btn {
+  flex-shrink: 0; background: none; border: none; color: rgba(255,255,255,.25);
+  font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 8px;
+  transition: color .15s, background .15s; align-self: center;
+}
+.notif-delete-btn:hover, .notif-delete-btn:active { color: #ff5050; background: rgba(255,80,80,.15); }
 #notif-empty {
   text-align: center; padding: 48px 24px; color: var(--text2); font-size: 13px;
 }
@@ -10733,6 +10741,32 @@ function openNotifications() {
 function closeNotifications() {
   document.getElementById('notif-panel').classList.remove('open');
 }
+async function deleteNotification(notifId, e) {
+  if (e) e.stopPropagation();
+  const el = document.getElementById('notif-' + notifId);
+  if (el) { el.style.opacity = '0.3'; el.style.pointerEvents = 'none'; }
+  try {
+    await apiFetch('/notifications/delete', {method:'POST', body: JSON.stringify({user_id: uid, notif_id: notifId})});
+    if (el) el.remove();
+    // Si plus aucune notif, afficher vide
+    const list = document.getElementById('notif-list');
+    if (list && !list.querySelector('.notif-item')) {
+      list.innerHTML = `<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Aucune notification</div></div>`;
+      updateBellBadge(0);
+    }
+  } catch(err) {
+    if (el) { el.style.opacity = '1'; el.style.pointerEvents = ''; }
+  }
+}
+async function deleteAllNotifications() {
+  if (!uid) return;
+  try {
+    await apiFetch('/notifications/delete', {method:'POST', body: JSON.stringify({user_id: uid})});
+    const list = document.getElementById('notif-list');
+    if (list) list.innerHTML = `<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Aucune notification</div></div>`;
+    updateBellBadge(0);
+  } catch(err) {}
+}
 async function loadNotifications() {
   const list = document.getElementById('notif-list');
   list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text2);font-size:12px;">Chargement...</div>';
@@ -10744,13 +10778,14 @@ async function loadNotifications() {
       return;
     }
     list.innerHTML = d.notifications.map(n => `
-      <div class="notif-item${n.unread ? ' unread' : ''}">
+      <div class="notif-item${n.unread ? ' unread' : ''}" id="notif-${n.id || ''}">
         <div class="notif-item-icon">${n.icon || '📢'}</div>
         <div class="notif-item-body">
           <div class="notif-item-title">${n.title || ''}</div>
           <div class="notif-item-text">${n.text || n.body || ''}</div>
           <div class="notif-item-time">${n.time || ''}</div>
         </div>
+        ${n.id ? `<button class="notif-delete-btn" onclick="deleteNotification(${n.id}, event)" title="Supprimer">🗑️</button>` : ''}
       </div>
     `).join('');
     const unreadCount = d.count || d.notifications.filter(n => n.unread).length;
@@ -10858,6 +10893,7 @@ document.addEventListener('DOMContentLoaded', () => {
   <div id="notif-sheet">
     <div id="notif-sheet-header">
       <div id="notif-sheet-title">🔔 Notifications</div>
+      <button id="notif-clear-btn" onclick="deleteAllNotifications()" title="Tout supprimer">🗑️</button>
       <button id="notif-close-btn" onclick="closeNotifications()">✕</button>
     </div>
     <div id="notif-list">

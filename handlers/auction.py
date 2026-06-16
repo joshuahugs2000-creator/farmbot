@@ -281,6 +281,28 @@ async def _close_auction(context: ContextTypes.DEFAULT_TYPE):
             f"💰 Prix payé : <b>{_fmt(auction.current_bid)} {CURRENCY}</b>\n\n"
             f"👉 Utilise <b>/expertise</b> pour révéler la vraie valeur !"
         )
+        # Notif persistante au gagnant
+        try:
+            import aiohttp as _aiohttp
+            from config import DATABASE_URL as _durl  # noqa
+            from database.db import AsyncSessionLocal as _ASL
+            from sqlalchemy import text as _text
+            async with _ASL() as _sess:
+                await _sess.execute(
+                    _text("""
+                        INSERT INTO user_notifications (user_id, icon, title, body)
+                        VALUES (:uid, :icon, :title, :body)
+                    """),
+                    {
+                        "uid": auction.leader_id,
+                        "icon": "🏆",
+                        "title": "Enchère gagnée !",
+                        "body": f"Tu as remporté {auction.item_emoji} {auction.item_name} pour {_fmt(auction.current_bid)} {CURRENCY} !",
+                    }
+                )
+                await _sess.commit()
+        except Exception as _ne:
+            logger.error(f"push notif enchère gagnée: {_ne}")
     else:
         msg = (
             f"😔 <b>Enchère terminée — personne n'a enchéri !</b>\n\n"

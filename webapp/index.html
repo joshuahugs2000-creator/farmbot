@@ -4953,6 +4953,26 @@ const MAIN_TABS = {
 let _curMain = 'moi';
 let _curSub  = 'profile';
 
+// ── 🚧 SECTIONS EN MAINTENANCE ────────────────────────────────────────
+// Pour rouvrir une section : repasse sa valeur à false (ou supprime la ligne).
+const MAINTENANCE_LOCK = {
+  'eco-hub':     true,
+  'entreprises': true,
+};
+function _renderMaintenance(el) {
+  if (!el || el.querySelector('.maint-overlay')) return;
+  el.style.position = 'relative';
+  const ov = document.createElement('div');
+  ov.className = 'maint-overlay';
+  ov.style.cssText = 'position:absolute;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 24px;gap:10px;';
+  ov.innerHTML = `
+    <div style="font-size:54px">🚧</div>
+    <div style="font-family:'Bangers',cursive;font-size:22px;letter-spacing:1px;color:var(--accent)">Bientôt disponible</div>
+    <div style="color:var(--text2);font-size:13px;max-width:260px;line-height:1.5">Cette section revient dans quelques heures, le temps de finaliser les derniers réglages. Reviens un peu plus tard !</div>
+  `;
+  el.prepend(ov);
+}
+
 // ── ECO PUSH NAVIGATION ──────────────────
 const ECO_PAGES = {
   bank:     { title:'🏦 Banque',     fn:'loadBank'    },
@@ -5055,6 +5075,7 @@ function subTab(page, fn) {
   const el = document.getElementById('page-'+page);
   if (el) {
     el.classList.add('active');
+    if (MAINTENANCE_LOCK[page]) { _renderMaintenance(el); return; }
     if (page === 'eco-hub') loadEcoHub();
     if (page === 'games') loadCasinoBalance();
     if (page === 'social-hub') { _shLoaded = false; loadSocialHub(); }
@@ -5084,6 +5105,7 @@ function ecoAccToggle(id) {
 // ── LOAD ECO HUB ────────────────────────────
 async function loadEcoHub() {
   if (!uid) return;
+  if (MAINTENANCE_LOCK['eco-hub']) { _renderMaintenance(document.getElementById('page-eco-hub')); return; }
   try {
     // Charger bank + portfolio + company en parallèle
     const [bankData, portfolioData] = await Promise.all([
@@ -5974,7 +5996,7 @@ async function claimDailyFromProfile() {
       if (res) { res.textContent = '⏰ Déjà récupéré aujourd\'hui !'; res.style.color = 'var(--text2)'; }
     } else if (d.status === 'ok') {
       if (res) { res.textContent = `🎁 +${_fmt(d.amount)} $ gagné !`; res.style.color = '#00c864'; }
-      setTimeout(() => _loadProfileActivities(), 1400);
+      setTimeout(() => { _cachedUser = null; loadData(); }, 1400);
     } else {
       if (res) { res.textContent = `❌ ${d.error || d.status}`; res.style.color = 'var(--accent2)'; }
       if (btn) { btn.disabled = false; btn.textContent = '🎁 Récupérer'; }
@@ -6005,7 +6027,7 @@ async function claimWorkFromProfile() {
     } else if (d.status === 'ok') {
       const job = JOBS[Math.floor(Math.random() * JOBS.length)];
       if (res) { res.textContent = `${job} — +${_fmt(d.amount)} $ !`; res.style.color = '#6c63ff'; }
-      setTimeout(() => _loadProfileActivities(), 1500);
+      setTimeout(() => { _cachedUser = null; loadData(); }, 1500);
     } else {
       if (res) { res.textContent = `❌ ${d.error || d.status}`; res.style.color = 'var(--accent2)'; }
       if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
@@ -10055,6 +10077,7 @@ async function submitPay() {
 // ══════════════════════════════════════════════════
 let _coSearchTimer = null;
 async function loadEntreprises() {
+  if (MAINTENANCE_LOCK['entreprises']) { _renderMaintenance(document.getElementById('page-entreprises')); return; }
   const el = document.getElementById('co-list');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {

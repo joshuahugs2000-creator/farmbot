@@ -630,6 +630,12 @@ async def webapp_licencier(request: web.Request) -> web.Response:
 
         if target_user:
             await _notify(target_id, f"🚨 Tu as été licencié(e) de <b>{company.name}</b> par la direction.")
+            try:
+                from api.webapp import push_db_notif as _pn
+                await _pn(target_id, "🚨", "Licenciement",
+                          f"Tu as été licencié(e) de {company.name} par la direction.")
+            except Exception:
+                pass
 
         name = target_user.first_name if target_user else str(target_id)
         return _ok(f"✅ {name} a été licencié(e) de {company.name}.")
@@ -686,6 +692,12 @@ async def webapp_nommer(request: web.Request) -> web.Response:
             await _notify(target_id,
                 f"🎖️ Tu as été promu(e) dans <b>{company.name}</b> !\n"
                 f"{ROLE_EMOJI.get(new_role, '')} Nouveau poste : <b>{new_role.capitalize()}</b>")
+            try:
+                from api.webapp import push_db_notif as _pn
+                await _pn(target_id, "🎖️", f"Promotion chez {company.name}",
+                          f"Tu es maintenant {ROLE_EMOJI.get(new_role, '')} {new_role.capitalize()} !")
+            except Exception:
+                pass
 
         return _ok(f"✅ {target_user.first_name if target_user else target_id} est maintenant {new_role.capitalize()} !")
 
@@ -758,6 +770,13 @@ async def webapp_recruter(request: web.Request) -> web.Response:
             f"{contrat_txt}\n\n"
             f"✅ Accepte sur la mini app ou tape /rejoindre {company.name}\n"
             f"⏳ Expire dans 48h.")
+        try:
+            from api.webapp import push_db_notif as _pn
+            sal_txt = f" — {_fmt(salary)} $/j" if salary > 0 else ""
+            await _pn(target_id, "📩", f"Invitation de {company.name}",
+                      f"Poste : {ROLE_EMOJI.get(role, '')} {role.capitalize()}{sal_txt}. Expire dans 48h.")
+        except Exception:
+            pass
 
     return _ok(f"📩 Invitation envoyée à {target.first_name} pour rejoindre {company.name} !")
 
@@ -889,6 +908,23 @@ async def webapp_invitations_accepter(request: web.Request) -> web.Response:
         await _add_log(session, company.id, "recrutement",
                        f"{user.first_name if user else uid} a rejoint ({real_role}) via webapp")
         await session.commit()
+
+        # Notif persistante au PDG
+        try:
+            from api.webapp import push_db_notif as _pn
+            pdg_emp2 = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == company.id,
+                    CompanyEmployee.role == "pdg",
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar_one_or_none()
+            if pdg_emp2:
+                uname = user.first_name if user else str(uid)
+                await _pn(pdg_emp2.user_id, "✅", f"Nouveau membre dans {company.name}",
+                          f"{uname} a rejoint en tant que {ROLE_EMOJI.get(real_role,'')} {real_role.capitalize()}.")
+        except Exception:
+            pass
 
         msg = f"✅ Bienvenue dans {company.name} ! Tu es {ROLE_EMOJI.get(real_role, '')} {real_role.capitalize()}."
         if salary > 0:
@@ -1126,6 +1162,12 @@ async def webapp_negociercontrat(request: web.Request) -> web.Response:
                     await _notify(pdg_emp.user_id,
                         f"✅ <b>{user.first_name if user else uid}</b> a accepté le contrat !\n"
                         f"📄 Salaire signé : <b>{_fmt(pending_sal)} $/jour</b>")
+                    try:
+                        from api.webapp import push_db_notif as _pn
+                        await _pn(pdg_emp.user_id, "✅", "Contrat signé",
+                                  f"{user.first_name if user else uid} a accepté {_fmt(pending_sal)} $/jour.")
+                    except Exception:
+                        pass
                 return _ok(f"✅ Contrat accepté ! Salaire : {_fmt(pending_sal)} $/jour")
 
             elif action == "refuser":
@@ -1560,6 +1602,12 @@ async def webapp_accepter_offre(request: web.Request) -> web.Response:
             f"🎉 <b>Ton offre a été acceptée !</b>\n"
             f"📦 Tu as obtenu <b>{offer.quantity} parts</b> de <b>{company.name}</b>\n"
             f"💰 Montant débité : <b>{_fmt(offer.total_price)} $</b>")
+        try:
+            from api.webapp import push_db_notif as _pn
+            await _pn(offer.buyer_id, "🎉", f"Parts achetées — {company.name}",
+                      f"Tu as obtenu {offer.quantity} parts pour {_fmt(offer.total_price)} $.")
+        except Exception:
+            pass
 
     return _ok(f"✅ Offre acceptée ! {offer.quantity} parts vendues pour {_fmt(offer.total_price)} $.")
 
@@ -1594,6 +1642,12 @@ async def webapp_refuser_offre(request: web.Request) -> web.Response:
         await _notify(offer.buyer_id,
             f"😔 Ton offre de <b>{offer.quantity} parts</b> dans <b>{company.name}</b> a été refusée.\n"
             f"💰 <b>{_fmt(offer.total_price)} $</b> remboursés.")
+        try:
+            from api.webapp import push_db_notif as _pn
+            await _pn(offer.buyer_id, "😔", f"Offre refusée — {company.name}",
+                      f"Ton offre de {offer.quantity} parts a été refusée. {_fmt(offer.total_price)} $ remboursés.")
+        except Exception:
+            pass
 
     return _ok(f"❌ Offre refusée. {_fmt(offer.total_price)} $ remboursés à l'acheteur.")
 
@@ -1635,6 +1689,14 @@ async def webapp_pay(request: web.Request) -> web.Response:
 
         await _notify(target_id,
             f"💸 <b>{sender.first_name}</b> t'a envoyé <b>{_fmt(amount)} $</b> !")
+
+        # Notif persistante
+        try:
+            from api.webapp import push_db_notif as _pn
+            await _pn(target_id, "💸", "Paiement reçu",
+                      f"{sender.first_name} t'a envoyé {_fmt(amount)} $")
+        except Exception:
+            pass
 
     return _ok(
         f"✅ {_fmt(amount)} $ envoyés à {target.first_name} !",
@@ -1806,10 +1868,9 @@ async def webapp_skipattente(request: web.Request) -> web.Response:
 
 async def webapp_notifications_all(request: web.Request) -> web.Response:
     """GET /api/webapp/notifications/all?user_id=xxx
-    Agrège les notifications actionnables :
-    - Candidatures reçues (PDG/Directeur)
-    - Invitations reçues en attente
-    - Contre-propositions de contrat en attente
+    Agrège :
+    - Notifs persistantes (table user_notifications) — paiements, enchères, annonces, etc.
+    - Notifs actionnables temps réel — candidatures, invitations, contrats, offres parts
     """
     uid = _parse_uid(request)
     if not _auth(uid):
@@ -1818,7 +1879,32 @@ async def webapp_notifications_all(request: web.Request) -> web.Response:
     notifs = []
 
     async with AsyncSessionLocal() as session:
-        # 1. Candidatures reçues (si PDG ou Directeur)
+        # ── 0. Notifs persistantes (table user_notifications) ────────────────
+        try:
+            from api.webapp import push_db_notif as _push  # noqa — import pour déclencher _ensure
+            rows = (await session.execute(
+                sa_text("""
+                    SELECT id, icon, title, body, is_read, created_at
+                    FROM user_notifications
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                """), {"uid": uid}
+            )).fetchall()
+            for row in rows:
+                notifs.append({
+                    "id":     row[0],
+                    "icon":   row[1] or "🔔",
+                    "title":  row[2],
+                    "text":   row[3],
+                    "unread": not row[4],
+                    "time":   row[5].strftime("%d/%m %H:%M") if row[5] else "",
+                    "type":   "persistent",
+                })
+        except Exception:
+            pass  # table pas encore créée ou erreur non bloquante
+
+        # ── 1. Candidatures reçues (PDG/Directeur) ───────────────────────────
         company, emp = await _get_user_company(session, uid)
         if company and emp and emp.role in DIRECTION_ROLES and not company.is_bot_company:
             apps = (await session.execute(
@@ -1839,7 +1925,7 @@ async def webapp_notifications_all(request: web.Request) -> web.Response:
                     "type": "application",
                 })
 
-        # 2. Invitations reçues en attente
+        # ── 2. Invitations entreprise en attente ─────────────────────────────
         invites = (await session.execute(
             select(CompanyInvite).where(
                 CompanyInvite.target_id == uid,
@@ -1860,7 +1946,7 @@ async def webapp_notifications_all(request: web.Request) -> web.Response:
                 "type": "invite",
             })
 
-        # 3. Contre-propositions de contrat en attente (PDG doit répondre)
+        # ── 3. Contre-propositions de contrat (PDG doit répondre) ────────────
         if company and emp and emp.role == "pdg":
             counter_emps = (await session.execute(
                 select(CompanyEmployee).where(
@@ -1881,7 +1967,7 @@ async def webapp_notifications_all(request: web.Request) -> web.Response:
                     "type": "counter",
                 })
 
-        # 4. Propositions de contrat en attente (employé doit répondre)
+        # ── 4. Proposition de contrat reçue (employé doit répondre) ──────────
         if emp and emp.role not in ("pdg",) and emp.contract_status == "pending_employee":
             if company:
                 notifs.append({
@@ -1893,7 +1979,7 @@ async def webapp_notifications_all(request: web.Request) -> web.Response:
                     "type": "contract",
                 })
 
-        # 5. Offres de parts en attente (PDG)
+        # ── 5. Offres d'achat de parts en attente (PDG) ──────────────────────
         if company and emp and emp.role == "pdg":
             pending_offers = (await session.execute(
                 select(CompanyShareOffer).where(
@@ -1914,7 +2000,8 @@ async def webapp_notifications_all(request: web.Request) -> web.Response:
                     "type": "share_offer",
                 })
 
-    return web.json_response({"notifications": notifs, "count": len(notifs)})
+    unread_count = sum(1 for n in notifs if n.get("unread"))
+    return web.json_response({"notifications": notifs, "count": unread_count, "total": len(notifs)})
 
 
 # ═════════════════════════════════════════════════════════════════════════════

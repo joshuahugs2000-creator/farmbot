@@ -9378,8 +9378,15 @@ async function _loadAuctionInventory() {
         btnMarket.textContent = '🏪 Vendre';
         btnMarket.onclick = function() { invOpenPriceModal(itemId, it.item_name, it.item_emoji, it.rarity, it.true_value); };
 
+        const btnDel = document.createElement('button');
+        btnDel.style.cssText = 'padding:6px 10px;border-radius:8px;border:1px solid #636e72;background:transparent;color:#636e72;font-weight:800;font-size:11px;cursor:pointer';
+        btnDel.textContent = '🗑️';
+        btnDel.title = 'Supprimer définitivement';
+        btnDel.onclick = function() { invDeleteItem(itemId, it.item_name, it.item_emoji); };
+
         btnRow.appendChild(btnExpert);
         btnRow.appendChild(btnMarket);
+        btnRow.appendChild(btnDel);
       }
 
       body.appendChild(nameDiv);
@@ -9412,6 +9419,21 @@ async function invSellExpert(itemId, name, emoji, gain) {
     const r = await fetchT('/api/webapp/items/sell_expert', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
     const d = await r.json();
     if (d.ok) { showToast(d.msg); _loadAuctionInventory(); refreshCoins && refreshCoins(); }
+    else showToast(d.error||'Erreur');
+  } catch(e) { showToast('Erreur réseau'); }
+}
+
+async function invDeleteItem(itemId, name, emoji) {
+  const ok = await showConfirmModal(
+    '🗑️ Supprimer cet objet ?',
+    `${emoji} <b>${name}</b><br><span style="color:#e17055;font-weight:700">Cette action est irréversible.</span> L'objet sera définitivement supprimé sans remboursement.`,
+    '🗑️ Supprimer', '#d63031'
+  );
+  if (!ok) return;
+  try {
+    const r = await fetchT('/api/webapp/items/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid,item_id:itemId}) });
+    const d = await r.json();
+    if (d.ok) { showToast(d.msg); _loadAuctionInventory(); }
     else showToast(d.error||'Erreur');
   } catch(e) { showToast('Erreur réseau'); }
 }

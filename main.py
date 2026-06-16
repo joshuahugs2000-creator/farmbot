@@ -640,6 +640,14 @@ async def on_startup(application: Application):
     await init_contract_tables()
     await load_admins_from_db()  # ← charge les admins persistés en DB
 
+    # Créer la table de notifications persistantes
+    try:
+        from api.webapp import _ensure_notif_table
+        await _ensure_notif_table()
+    except Exception as _e:
+        import logging as _nlog
+        _nlog.getLogger(__name__).error(f"_ensure_notif_table at startup: {_e}")
+
     # Migration : colonnes genre et mariage
     from database.db import engine
     from sqlalchemy import text as _text

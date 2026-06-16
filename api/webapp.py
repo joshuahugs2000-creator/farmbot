@@ -13,6 +13,7 @@ from handlers.invest import ASSETS, CATEGORIES, _current_price, _risk_emoji
 # ── Accès restreint ──────────────────────────────────────────────────────────
 WEBAPP_ADMIN_IDS = {
     6227863810,   # Admin 1
+    1782278519,   # Beta tester
 }
 
 # Mini App fermée au public — le skeleton /webapp exige initData valide avant de livrer le HTML
@@ -4017,10 +4018,13 @@ async def webapp_tickets_invoice(request: web.Request) -> web.Response:
             ) as resp:
                 result = await resp.json()
         if result.get('ok'):
+            logger.info(f"[INVOICE] OK → {result['result']}")
             return web.json_response({'invoice_url': result['result']})
         else:
+            logger.error(f"[INVOICE] Telegram error: {result}")
             return web.json_response({'error': result.get('description', 'Erreur Telegram')}, status=500)
     except Exception as e:
+        logger.error(f"[INVOICE] Exception: {e}", exc_info=True)
         return web.json_response({'error': str(e)}, status=500)
 
 

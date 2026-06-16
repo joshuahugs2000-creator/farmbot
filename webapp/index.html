@@ -4195,7 +4195,16 @@ if (tg) {
 const userId = tg?.initDataUnsafe?.user?.id || null;
 const firstName = tg?.initDataUnsafe?.user?.first_name || 'Joueur';
 const CURRENCY = '$';
-let uid = userId;
+
+// ── Admin : vue d'un autre joueur ──────────────────────────────────────────
+const WEBAPP_ADMIN_IDS = [6227863810];
+const _urlParams = new URLSearchParams(window.location.search);
+const _viewAs = _urlParams.get('view_as') ? parseInt(_urlParams.get('view_as')) : null;
+const _isAdmin = WEBAPP_ADMIN_IDS.includes(userId);
+let uid = (_isAdmin && _viewAs) ? _viewAs : userId;
+if (_isAdmin && _viewAs) {
+  console.log(`[ADMIN] Vue joueur ${_viewAs} activée`);
+}
 
 // ── Accès restreint ──────────────────────────────────────────────────────────
 // ────────────────────────────────────────────────────────────────────────────
@@ -12135,48 +12144,59 @@ async function ftDetailBuy() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
 
   try {
-    if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openInvoice) {
-      const d = await fetchT('/api/webapp/tickets/invoice', {
-        method: 'POST',
-        body: JSON.stringify({ ticket_type: type, qty, user_id: uid })
-      });
-      console.log('[FT] invoice response:', JSON.stringify(d));
-      if (d.invoice_url) {
-        const invoiceUrl = d.invoice_url;
-        console.log('[FT] openInvoice disponible:', typeof Telegram.WebApp.openInvoice);
-        console.log('[FT] invoice_url:', invoiceUrl);
-        const onPaid = () => {
-          _ftOwned[type] = (_ftOwned[type] || 0) + qty;
-          _ftUpdateTopbar();
-          _ftUpdateDropdown();
-          _ftUpdateOwnedCards();
-          const ownedEl = document.getElementById('ft-detail-owned');
-          if (ownedEl) ownedEl.textContent = _ftOwned[type];
-          _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' !');
-        };
-        // openInvoice disponible sur TMA récents (Bot API 6.1+)
-        if (typeof Telegram.WebApp.openInvoice === 'function') {
-          Telegram.WebApp.openInvoice(invoiceUrl, (status) => {
-            if (status === 'paid') onPaid();
-            else if (status === 'cancelled') _ftShowToast('❌ Paiement annulé');
-            else if (status === 'failed') _ftShowToast('❌ Paiement échoué');
-          });
-        } else {
-          // Fallback : ouvrir le lien dans Telegram (anciens clients)
-          Telegram.WebApp.openTelegramLink(invoiceUrl);
-          _ftShowToast('ℹ️ Complète le paiement dans Telegram puis reviens ici');
-        }
-      } else {
-        _ftShowToast('❌ ' + (d.error || 'Erreur création facture'));
-      }
-    } else {
-      // Fallback dev (hors Telegram)
-      _ftOwned[type] = (_ftOwned[type] || 0) + qty;
-      _ftUpdateTopbar(); _ftUpdateDropdown(); _ftUpdateOwnedCards();
-      _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' (démo)');
+    // Récupère l'invoice_url depuis le backend
+    const d = await fetchT('/api/webapp/tickets/invoice', {
+      method: 'POST',
+      body: JSON.stringify({ ticket_type: type, qty, user_id: uid })
+    });
+    console.log('[FT] invoice response:', JSON.stringify(d));
+
+    if (!d.invoice_url) {
+      _ftShowToast('❌ ' + (d.error || 'Erreur création facture'));
+      if (btn) { btn.disabled = false; btn.innerHTML = '<span class="tgs">⭐</span> Acheter'; }
+      return;
     }
+
+    const invoiceUrl = d.invoice_url;
+    console.log('[FT] invoice_url:', invoiceUrl);
+
+    const onPaid = () => {
+      _ftOwned[type] = (_ftOwned[type] || 0) + qty;
+      _ftUpdateTopbar();
+      _ftUpdateDropdown();
+      _ftUpdateOwnedCards();
+      const ownedEl = document.getElementById('ft-detail-owned');
+      if (ownedEl) ownedEl.textContent = _ftOwned[type];
+      _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' !');
+    };
+
+    const tg = window.Telegram?.WebApp;
+
+    if (tg && typeof tg.openInvoice === 'function') {
+      // Méthode native Mini App (Bot API 6.1+)
+      console.log('[FT] using openInvoice');
+      tg.openInvoice(invoiceUrl, (status) => {
+        console.log('[FT] openInvoice status:', status);
+        if (status === 'paid') onPaid();
+        else if (status === 'cancelled') _ftShowToast('❌ Paiement annulé');
+        else if (status === 'failed') _ftShowToast('❌ Paiement échoué');
+        // 'pending' : on ne fait rien, Telegram gérera
+      });
+    } else if (tg && typeof tg.openTelegramLink === 'function') {
+      // Fallback : ouvrir le lien Stars dans Telegram
+      console.log('[FT] fallback openTelegramLink');
+      tg.openTelegramLink(invoiceUrl);
+      _ftShowToast('ℹ️ Complète le paiement dans Telegram puis reviens ici');
+    } else {
+      // Hors Telegram (dev / test navigateur)
+      console.log('[FT] dev mode, pas de Telegram WebApp');
+      window.open(invoiceUrl, '_blank');
+      _ftShowToast('ℹ️ Lien de paiement ouvert (mode dev)');
+    }
+
   } catch(e) {
-    _ftShowToast('❌ Erreur réseau');
+    console.error('[FT] erreur ftDetailBuy:', e);
+    _ftShowToast('❌ Erreur réseau : ' + e.message);
   }
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<span class="tgs"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" fill="#FFD700" stroke="#FFA500" stroke-width="0.5"/><circle cx="4" cy="4" r="1" fill="#FFD700" opacity="0.8"/><circle cx="20" cy="4" r="0.8" fill="#FFD700" opacity="0.7"/><circle cx="22" cy="12" r="0.7" fill="#FFD700" opacity="0.6"/><circle cx="4" cy="20" r="0.6" fill="#FFD700" opacity="0.5"/><circle cx="19" cy="20" r="0.9" fill="#FFD700" opacity="0.7"/></svg></span> Acheter'; }

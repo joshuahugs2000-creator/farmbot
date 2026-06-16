@@ -1320,6 +1320,7 @@ def setup_webapp_routes(app: web.Application):
 
     # ── Notifications persistantes ───────────────────────────────────────────
     app.router.add_post('/api/webapp/notifications/read',     webapp_notifications_read)
+    app.router.add_post('/api/webapp/notifications/delete',   webapp_notifications_delete)
     app.router.add_post('/api/webapp/notifications/announce', webapp_notifications_announce)
 
     # ── Nouvelles routes webapp (isolées du bot) ──────────────────────────────
@@ -3469,6 +3470,34 @@ async def webapp_notifications_read(request: web.Request) -> web.Response:
             else:
                 await session.execute(text(
                     "UPDATE user_notifications SET is_read = TRUE WHERE user_id = :uid"
+                ), {"uid": uid})
+            await session.commit()
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def webapp_notifications_delete(request: web.Request) -> web.Response:
+    """POST /api/webapp/notifications/delete — body: {user_id, notif_id}
+    Supprime une notification. Si notif_id absent : supprime toutes."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    uid = int(body.get("user_id", 0))
+    if not _is_allowed(uid):
+        return web.json_response({"error": "unauthorized"}, status=403)
+    notif_id = body.get("notif_id")
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            if notif_id:
+                await session.execute(text(
+                    "DELETE FROM user_notifications WHERE id = :nid AND user_id = :uid"
+                ), {"nid": int(notif_id), "uid": uid})
+            else:
+                await session.execute(text(
+                    "DELETE FROM user_notifications WHERE user_id = :uid"
                 ), {"uid": uid})
             await session.commit()
         return web.json_response({"ok": True})

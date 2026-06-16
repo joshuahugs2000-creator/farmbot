@@ -329,17 +329,43 @@ async def _auction_job(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Erreur auction job groupe {group_id}: {e}")
 
+async def _auction_watchdog(context: ContextTypes.DEFAULT_TYPE):
+    """Vérifie toutes les 5 min qu'il y a une enchère active dans chaque groupe.
+    Si aucune, en lance une immédiatement — garantit le cycle infini."""
+    async with AsyncSessionLocal() as session:
+        # Purger les enchères expirées non clôturées (bot restart)
+        await session.execute(text("""
+            UPDATE auction_sessions
+            SET status = 'closed'
+            WHERE status = 'active' AND ends_at <= NOW()
+        """))
+        await session.commit()
+
+        res = await session.execute(text(
+            "SELECT DISTINCT group_id FROM group_settings"
+        ))
+        groups = [row[0] for row in res.fetchall()]
+
+    for group_id in groups:
+        async with AsyncSessionLocal() as session:
+            active = await session.execute(text(
+                "SELECT id FROM auction_sessions WHERE group_id = :gid AND status = 'active' AND ends_at > NOW()"
+            ), {"gid": group_id})
+            if not active.fetchone():
+                try:
+                    await _launch_auction(context, group_id)
+                    logger.info(f"Watchdog — nouvelle enchère lancée pour groupe {group_id}")
+                except Exception as e:
+                    logger.error(f"Watchdog — erreur lancement groupe {group_id}: {e}")
+
+
 def setup_auction_jobs(app):
-    from datetime import time as dtime
-    app.job_queue.run_daily(
-        _auction_job,
-        time=dtime(hour=8, minute=0),
-        name="auction_morning"
-    )
-    app.job_queue.run_daily(
-        _auction_job,
-        time=dtime(hour=20, minute=0),
-        name="auction_evening"
+    # Watchdog toutes les 5 min — garantit enchères infinies même après restart
+    app.job_queue.run_repeating(
+        _auction_watchdog,
+        interval=timedelta(minutes=5),
+        first=timedelta(seconds=10),  # démarre 10s après le boot
+        name="auction_watchdog"
     )
 
 # ─── COMMANDE /bid ────────────────────────────────────────────────────────────
@@ -867,11 +893,12 @@ async def _launch_salle_auction(context=None):
 
 
 def setup_salle_jobs(app):
-    """Programme le job toutes les heures pour La Salle VIP."""
+    """Programme le job toutes les heures pour La Salle VIP.
+    first=10s : lance immédiatement au boot si aucune enchère active."""
     app.job_queue.run_repeating(
         _launch_salle_auction,
         interval=timedelta(hours=1),
-        first=timedelta(seconds=30),
+        first=timedelta(seconds=10),
         name="salle_vip_hourly",
     )
-    logger.info("Job La Salle VIP programme (toutes les heures).")
+    logger.info("Job La Salle VIP programme (toutes les heures, démarrage immédiat).")

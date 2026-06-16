@@ -12140,8 +12140,11 @@ async function ftDetailBuy() {
         method: 'POST',
         body: JSON.stringify({ ticket_type: type, qty, user_id: uid })
       });
+      console.log('[FT] invoice response:', JSON.stringify(d));
       if (d.invoice_url) {
         const invoiceUrl = d.invoice_url;
+        console.log('[FT] openInvoice disponible:', typeof Telegram.WebApp.openInvoice);
+        console.log('[FT] invoice_url:', invoiceUrl);
         const onPaid = () => {
           _ftOwned[type] = (_ftOwned[type] || 0) + qty;
           _ftUpdateTopbar();

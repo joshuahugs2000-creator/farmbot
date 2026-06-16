@@ -3748,13 +3748,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div id="plus-enc-badge" style="display:none;position:absolute;top:12px;right:38px;background:#ef4444;color:#fff;font-size:10px;font-weight:900;border-radius:10px;padding:2px 7px"></div>
       </div>
       <div class="plus-hub-card plus-hub-c-teal" onclick="plusGo('boutique')">
-        <div class="plus-hub-card-icon">🛒</div>
+        <div class="plus-hub-card-icon">🎫</div>
         <div class="plus-hub-card-body">
-          <div class="plus-hub-card-title">Boutique</div>
-          <div class="plus-hub-card-sub">Packs · Étoiles · Avantages premium</div>
+          <div class="plus-hub-card-title">Family Tickets</div>
+          <div class="plus-hub-card-sub">Achète avec ⭐ · Ouvre des récompenses</div>
         </div>
         <div class="plus-hub-card-arrow">›</div>
-        <div class="plus-hub-card-badge">Bientôt</div>
+        <div id="plus-ft-badge" style="display:none;position:absolute;top:12px;right:38px;background:#f7c948;color:#000;font-size:10px;font-weight:900;border-radius:10px;padding:2px 7px"></div>
       </div>
     </div>
   </div>
@@ -3769,14 +3769,84 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <!-- ══ PAGE BOUTIQUE ══ -->
   <div class="page" id="page-boutique">
     <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
-    <div class="page-title">🛒 Boutique</div>
-    <div class="plus-coming-soon">
-      <div style="font-size:48px;margin-bottom:16px">🚧</div>
-      <div style="font-size:18px;font-weight:900;margin-bottom:8px">En construction</div>
-      <div style="font-size:13px;color:var(--text2);max-width:260px;text-align:center;line-height:1.5">La boutique arrive bientôt — packs, étoiles et avantages premium pour les meilleurs joueurs.</div>
+
+    <div class="ft-boutique-wrap">
+      <div class="ft-boutique-hero">
+        <div class="ft-boutique-hero-title">🎫 FAMILY TICKETS</div>
+        <div class="ft-boutique-hero-sub">Achetez avec ⭐ Étoiles Telegram · Envoyez à vos amis</div>
+      </div>
+
+      <!-- Section achat -->
+      <div class="ft-buy-section-label">🛒 Acheter des tickets</div>
+
+      <div id="ft-card-basique" class="ft-ticket-card selected" onclick="ftSelect('basique')">
+        <div class="ft-ticket-icon">🎫</div>
+        <div class="ft-ticket-info">
+          <div class="ft-ticket-name">Ticket Basique</div>
+          <div class="ft-ticket-price">⭐ 3 étoiles / unité</div>
+        </div>
+        <div class="ft-ticket-qty-wrap">
+          <div class="ft-qty-btn" onclick="ftQty('basique',-1,event)">−</div>
+          <div class="ft-qty-val" id="ft-qty-basique">1</div>
+          <div class="ft-qty-btn" onclick="ftQty('basique',1,event)">+</div>
+        </div>
+      </div>
+
+      <div id="ft-card-premium" class="ft-ticket-card" onclick="ftSelect('premium')">
+        <div class="ft-ticket-icon">🎟️</div>
+        <div class="ft-ticket-info">
+          <div class="ft-ticket-name">Ticket Premium</div>
+          <div class="ft-ticket-price">⭐ 5 étoiles / unité</div>
+        </div>
+        <div class="ft-ticket-qty-wrap">
+          <div class="ft-qty-btn" onclick="ftQty('premium',-1,event)">−</div>
+          <div class="ft-qty-val" id="ft-qty-premium">1</div>
+          <div class="ft-qty-btn" onclick="ftQty('premium',1,event)">+</div>
+        </div>
+      </div>
+
+      <div id="ft-card-vip" class="ft-ticket-card" onclick="ftSelect('vip')">
+        <div class="ft-ticket-icon">👑</div>
+        <div class="ft-ticket-info">
+          <div class="ft-ticket-name">Ticket VIP</div>
+          <div class="ft-ticket-price">⭐ 10 étoiles / unité</div>
+        </div>
+        <div class="ft-ticket-qty-wrap">
+          <div class="ft-qty-btn" onclick="ftQty('vip',-1,event)">−</div>
+          <div class="ft-qty-val" id="ft-qty-vip">1</div>
+          <div class="ft-qty-btn" onclick="ftQty('vip',1,event)">+</div>
+        </div>
+      </div>
+
+      <!-- Total + bouton -->
+      <div style="text-align:center;margin-top:6px;font-size:13px;color:var(--text2)">
+        Total : <span id="ft-total-display" style="font-family:'Bangers',cursive;font-size:20px;color:#f7c948">3 ⭐</span>
+      </div>
+      <button class="ft-buy-btn" id="ft-buy-btn" onclick="ftBuy()">⭐ Acheter</button>
+
+      <!-- Section envoyer -->
+      <div class="ft-send-section">
+        <div class="ft-send-title">📨 Envoyer des tickets à un joueur</div>
+        <div class="ft-send-row">
+          <input class="ft-send-input" id="ft-send-userid" type="number" placeholder="ID du joueur"/>
+          <select class="ft-send-select" id="ft-send-type">
+            <option value="basique">🎫 Basique</option>
+            <option value="premium">🎟️ Premium</option>
+            <option value="vip">👑 VIP</option>
+          </select>
+        </div>
+        <div class="ft-send-row">
+          <input class="ft-send-input" id="ft-send-qty" type="number" value="1" min="1" placeholder="Quantité"/>
+          <button class="ft-send-btn" onclick="ftSend()">📨 Envoyer</button>
+        </div>
+      </div>
     </div>
   </div>
 
+  <!-- Toast FT -->
+  <div class="ft-toast" id="ft-toast"></div>
+
+  <!-- ══ PAGE ENCHERES ══ -->
   <!-- ══ PAGE ENCHERES ══ -->
   <div class="page" id="page-encheres">
     <div class="sh2-back-bar"><button class="sh2-back-btn" onclick="plusGo('hub')">← Plus</button></div>
@@ -3882,6 +3952,29 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 <div id="top-bar">
   <div id="top-bar-title">🌾 FarmBot</div>
   <div id="top-bar-right">
+    <div class="ft-topbar-chip" id="ft-topbar-chip" onclick="ftToggleDropdown(event)" title="Mes tickets">
+      <span class="ft-topbar-chip-icon">🎫</span>
+      <span class="ft-topbar-chip-count" id="ft-topbar-count">0</span>
+      <!-- Dropdown solde -->
+      <div class="ft-dropdown" id="ft-dropdown">
+        <div class="ft-dropdown-title">Mes tickets</div>
+        <div class="ft-dropdown-row">
+          <span class="ft-dropdown-label">🎫 Basique</span>
+          <span class="ft-dropdown-qty" id="ft-dd-basique">0</span>
+        </div>
+        <div class="ft-dropdown-row">
+          <span class="ft-dropdown-label">🎟️ Premium</span>
+          <span class="ft-dropdown-qty" id="ft-dd-premium">0</span>
+        </div>
+        <div class="ft-dropdown-row">
+          <span class="ft-dropdown-label">👑 VIP</span>
+          <span class="ft-dropdown-qty" id="ft-dd-vip">0</span>
+        </div>
+        <div style="margin-top:10px;text-align:center">
+          <span onclick="plusGo('boutique')" style="font-size:12px;color:var(--accent);font-weight:900;cursor:pointer">+ Acheter →</span>
+        </div>
+      </div>
+    </div>
     <button id="settings-btn" onclick="mainTab('settings',null)" title="Paramètres">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;color:rgba(255,255,255,.75)">
         <circle cx="12" cy="12" r="3"/>
@@ -4850,7 +4943,7 @@ function ecoBack() {
 const PLUS_PAGES = {
   events:   { fn: 'loadEvents'  },
   encheres: { fn: 'loadEncheres'},
-  boutique: { fn: null          },
+  boutique: { fn: 'loadBoutique'},
 };
 function plusGo(key) {
   if (key === 'hub') {
@@ -8746,6 +8839,56 @@ async function _gardenHarvest(gardenId) {
     .plus-hub-card-badge { position:absolute; top:10px; right:38px; font-size:9px; font-weight:900; background:#0891b2; color:#fff; border-radius:8px; padding:2px 7px; letter-spacing:.5px; text-transform:uppercase; }
     .plus-coming-soon { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; }
 
+    /* ══ FAMILY TICKET ══ */
+    .ft-topbar-chip { display:flex;align-items:center;gap:5px;background:rgba(247,201,72,.12);border:1px solid rgba(247,201,72,.3);border-radius:20px;padding:4px 10px 4px 8px;cursor:pointer;transition:background .15s;position:relative; }
+    .ft-topbar-chip:active { background:rgba(247,201,72,.25); }
+    .ft-topbar-chip-icon { font-size:15px;line-height:1; }
+    .ft-topbar-chip-count { font-family:'Bangers',cursive;font-size:16px;color:#f7c948;letter-spacing:.5px;line-height:1; }
+
+    /* Dropdown solde */
+    .ft-dropdown { position:absolute;top:calc(100% + 8px);right:0;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px 14px;min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:500;display:none; }
+    .ft-dropdown.open { display:block; }
+    .ft-dropdown-title { font-size:10px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:10px;font-weight:900; }
+    .ft-dropdown-row { display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06); }
+    .ft-dropdown-row:last-child { border-bottom:none; }
+    .ft-dropdown-label { font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px; }
+    .ft-dropdown-qty { font-family:'Bangers',cursive;font-size:18px;color:#f7c948;letter-spacing:.5px; }
+
+    /* Page boutique */
+    .ft-boutique-wrap { padding:0 14px 80px;overflow-y:auto;height:calc(100vh - 110px);scrollbar-width:none; }
+    .ft-boutique-hero { text-align:center;padding:24px 0 18px; }
+    .ft-boutique-hero-title { font-family:'Bangers',cursive;font-size:32px;letter-spacing:3px;color:var(--accent);margin-bottom:4px; }
+    .ft-boutique-hero-sub { font-size:12px;color:var(--text2); }
+    .ft-buy-section-label { font-size:11px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin:18px 0 10px; }
+
+    /* Carte ticket */
+    .ft-ticket-card { display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:transform .12s,border-color .12s; }
+    .ft-ticket-card:active { transform:scale(.97); }
+    .ft-ticket-card.selected { border-color:#f7c948;background:rgba(247,201,72,.06); }
+    .ft-ticket-icon { font-size:36px;flex-shrink:0; }
+    .ft-ticket-info { flex:1; }
+    .ft-ticket-name { font-family:'Bangers',cursive;font-size:20px;letter-spacing:1px;line-height:1; }
+    .ft-ticket-price { font-size:12px;color:var(--text2);margin-top:2px; }
+    .ft-ticket-qty-wrap { display:flex;align-items:center;gap:8px; }
+    .ft-qty-btn { width:28px;height:28px;border-radius:50%;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:16px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0; }
+    .ft-qty-val { font-family:'Bangers',cursive;font-size:20px;color:var(--accent);min-width:24px;text-align:center; }
+
+    /* Bouton achat */
+    .ft-buy-btn { width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#f7c948,#e67e22);color:#000;font-size:15px;font-weight:900;margin-top:18px;cursor:pointer;letter-spacing:.5px; }
+    .ft-buy-btn:disabled { opacity:.4;cursor:not-allowed; }
+
+    /* Section envoyer */
+    .ft-send-section { margin-top:26px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px; }
+    .ft-send-title { font-size:13px;font-weight:900;margin-bottom:12px; }
+    .ft-send-row { display:flex;gap:8px;align-items:center;margin-bottom:10px; }
+    .ft-send-input { flex:1;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-family:'Nunito',sans-serif; }
+    .ft-send-select { padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13px;font-family:'Nunito',sans-serif; }
+    .ft-send-btn { padding:10px 16px;border-radius:12px;border:none;background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;font-size:13px;font-weight:900;cursor:pointer;white-space:nowrap; }
+
+    /* Toast achat */
+    .ft-toast { position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;padding:12px 24px;border-radius:14px;font-size:14px;font-weight:900;z-index:3000;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap; }
+    .ft-toast.show { opacity:1; }
+
     /* ── JOURNAL ── */
     .journal-entry {
       display:flex; gap:12px; align-items:flex-start;
@@ -11779,8 +11922,170 @@ window.openGame = function(name) {
   return _origOpenGameFinal(name);
 };
 
-// Son au démarrage de l'app
-window.addEventListener('load', () => {
-  setTimeout(() => { if (SFX.isEnabled()) SFX.open(); }, 800);
+// ══════════════════════════════════════════════
+// FAMILY TICKET SYSTEM
+// ══════════════════════════════════════════════
+
+const FT_INFO = {
+  basique: { icon: '🎫', name: 'Ticket Basique',  price: 3  },
+  premium: { icon: '🎟️', name: 'Ticket Premium', price: 5  },
+  vip:     { icon: '👑', name: 'Ticket VIP',      price: 10 },
+};
+
+let _ftSelected = 'basique';
+let _ftQtys = { basique: 1, premium: 1, vip: 1 };
+let _ftOwned = { basique: 0, premium: 0, vip: 0 };
+
+// ── Dropdown topbar ──────────────────────────────────────────────────────────
+function ftToggleDropdown(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('ft-dropdown');
+  if (!dd) return;
+  dd.classList.toggle('open');
+  if (dd.classList.contains('open')) _ftUpdateDropdown();
+}
+document.addEventListener('click', () => {
+  const dd = document.getElementById('ft-dropdown');
+  if (dd) dd.classList.remove('open');
 });
+function _ftUpdateDropdown() {
+  const keys = ['basique','premium','vip'];
+  keys.forEach(k => {
+    const el = document.getElementById('ft-dd-' + k);
+    if (el) el.textContent = _ftOwned[k] || 0;
+  });
+}
+function _ftUpdateTopbar() {
+  const total = (_ftOwned.basique||0) + (_ftOwned.premium||0) + (_ftOwned.vip||0);
+  const el = document.getElementById('ft-topbar-count');
+  if (el) el.textContent = total;
+}
+
+// ── Sélection carte ──────────────────────────────────────────────────────────
+function ftSelect(type) {
+  _ftSelected = type;
+  ['basique','premium','vip'].forEach(k => {
+    const c = document.getElementById('ft-card-' + k);
+    if (c) c.classList.toggle('selected', k === type);
+  });
+  _ftUpdateTotal();
+}
+
+// ── Quantité ─────────────────────────────────────────────────────────────────
+function ftQty(type, delta, e) {
+  if (e) e.stopPropagation();
+  _ftQtys[type] = Math.max(1, Math.min(99, (_ftQtys[type] || 1) + delta));
+  const el = document.getElementById('ft-qty-' + type);
+  if (el) el.textContent = _ftQtys[type];
+  if (_ftSelected === type) _ftUpdateTotal();
+}
+
+function _ftUpdateTotal() {
+  const t = FT_INFO[_ftSelected];
+  const qty = _ftQtys[_ftSelected] || 1;
+  const total = t.price * qty;
+  const el = document.getElementById('ft-total-display');
+  if (el) el.textContent = total + ' ⭐';
+}
+
+// ── Charger tickets depuis API ────────────────────────────────────────────────
+async function _ftLoadOwned() {
+  try {
+    const d = await fetchT('/api/webapp/tickets/owned');
+    _ftOwned = { basique: 0, premium: 0, vip: 0 };
+    (d.tickets || []).forEach(t => { if (_ftOwned[t.type] !== undefined) _ftOwned[t.type] = t.qty; });
+    _ftUpdateTopbar();
+    _ftUpdateDropdown();
+  } catch(e) {}
+}
+
+// ── Achat ────────────────────────────────────────────────────────────────────
+async function ftBuy() {
+  const type = _ftSelected;
+  const qty  = _ftQtys[type] || 1;
+  const t    = FT_INFO[type];
+  const btn  = document.getElementById('ft-buy-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
+
+  if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openInvoice) {
+    try {
+      const d = await fetchT('/api/webapp/tickets/invoice', {
+        method: 'POST',
+        body: JSON.stringify({ ticket_type: type, qty })
+      });
+      if (d.invoice_url) {
+        Telegram.WebApp.openInvoice(d.invoice_url, (status) => {
+          if (status === 'paid') {
+            _ftOwned[type] = (_ftOwned[type] || 0) + qty;
+            _ftUpdateTopbar();
+            _ftUpdateDropdown();
+            _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' !');
+          }
+        });
+      } else {
+        _ftShowToast('❌ ' + (d.error || 'Erreur'));
+      }
+    } catch(e) {
+      _ftShowToast('❌ Erreur réseau');
+    }
+  } else {
+    // Dev fallback
+    _ftOwned[type] = (_ftOwned[type] || 0) + qty;
+    _ftUpdateTopbar();
+    _ftUpdateDropdown();
+    _ftShowToast('✅ ' + qty + '× ' + t.icon + ' ' + t.name + ' acheté' + (qty>1?'s':'') + ' ! (démo)');
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '⭐ Acheter'; }
+}
+
+// ── Envoyer à un joueur ───────────────────────────────────────────────────────
+async function ftSend() {
+  const targetId = document.getElementById('ft-send-userid')?.value?.trim();
+  const type     = document.getElementById('ft-send-type')?.value;
+  const qty      = parseInt(document.getElementById('ft-send-qty')?.value) || 1;
+
+  if (!targetId || !targetId.match(/^\d+$/)) { _ftShowToast('❌ ID joueur invalide'); return; }
+  if ((_ftOwned[type] || 0) < qty) { _ftShowToast('❌ Pas assez de tickets ' + FT_INFO[type].name); return; }
+
+  try {
+    const d = await fetchT('/api/webapp/tickets/send', {
+      method: 'POST',
+      body: JSON.stringify({ to_user_id: parseInt(targetId), ticket_type: type, qty })
+    });
+    if (d.status === 'ok') {
+      _ftOwned[type] = Math.max(0, (_ftOwned[type] || 0) - qty);
+      _ftUpdateTopbar();
+      _ftUpdateDropdown();
+      _ftShowToast('📨 ' + qty + '× ' + FT_INFO[type].icon + ' envoyé' + (qty>1?'s':'') + ' !');
+      document.getElementById('ft-send-userid').value = '';
+      document.getElementById('ft-send-qty').value = '1';
+    } else {
+      _ftShowToast('❌ ' + (d.error || 'Erreur envoi'));
+    }
+  } catch(e) {
+    _ftShowToast('❌ Erreur réseau');
+  }
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function _ftShowToast(msg) {
+  const t = document.getElementById('ft-toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── loadBoutique ──────────────────────────────────────────────────────────────
+function loadBoutique() {
+  _ftUpdateTotal();
+  _ftLoadOwned();
+}
+
+// ── Chargement initial topbar ─────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  setTimeout(_ftLoadOwned, 1500);
+});
+
 </script>

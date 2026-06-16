@@ -12190,6 +12190,14 @@ async function ftDetailBuy() {
       console.log('[FT] using openTelegramLink (Android ou fallback)');
       tg.openTelegramLink(invoiceUrl);
       _ftShowToast('ℹ️ Complète le paiement dans Telegram puis reviens ici');
+      // Recharger les tickets depuis la DB quand l'utilisateur revient dans la Mini App
+      const _refreshOnFocus = () => {
+        setTimeout(_ftLoadOwned, 1200);
+        document.removeEventListener('visibilitychange', _refreshOnFocus);
+        tg.offEvent && tg.offEvent('activated', _refreshOnFocus);
+      };
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) _refreshOnFocus(); }, { once: true });
+      tg.onEvent && tg.onEvent('activated', _refreshOnFocus);
     } else {
       // Hors Telegram (dev / test navigateur)
       console.log('[FT] dev mode, pas de Telegram WebApp');
@@ -12270,7 +12278,7 @@ function _ftUpdateOwnedCards() {
 // ── Chargement depuis API ─────────────────────────────────────────────────────
 async function _ftLoadOwned() {
   try {
-    const d = await fetchT('/api/webapp/tickets/owned?user_id=' + uid);
+    const d = await fetchT('/api/webapp/tickets/owned?user_id=' + uid).then(r=>r.json());
     _ftOwned = { basique: 0, premium: 0, vip: 0 };
     (d.tickets || []).forEach(t => { if (_ftOwned[t.type] !== undefined) _ftOwned[t.type] = t.qty; });
     _ftUpdateTopbar();

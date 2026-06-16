@@ -4004,13 +4004,11 @@ async def webapp_tickets_invoice(request: web.Request) -> web.Response:
     try:
         import aiohttp as _aiohttp
         invoice_data = {
-            'chat_id': uid,
             'title': f'{name} ×{qty}',
             'description': f'Achat de {qty} {name} pour FarmBot',
             'payload': f'ticket_{ticket_type}_{qty}_{uid}',
             'currency': 'XTR',
             'prices': [{'label': f'{name} ×{qty}', 'amount': total_price}],
-            'provider_token': '',
         }
         async with _aiohttp.ClientSession() as sess:
             async with sess.post(

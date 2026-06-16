@@ -17,6 +17,9 @@ WEBAPP_ADMIN_IDS = {
     6714140540,
     8061125722,
     7597600257,
+    8278388042,
+    7366179593,
+    6396853801
 }
 
 # Mini App fermée au public — le skeleton /webapp exige initData valide avant de livrer le HTML

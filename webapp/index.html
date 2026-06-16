@@ -1079,6 +1079,147 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
   </div>
 
+  <!-- ══ MODAL PARAMÈTRES ══ -->
+  <div id="modal-settings" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);overflow-y:auto">
+    <div style="min-height:100%;display:flex;align-items:flex-start;padding:16px 0 40px">
+      <div style="width:100%;max-width:480px;margin:0 auto;background:var(--card);border-radius:24px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6)">
+
+        <!-- Header -->
+        <div style="background:linear-gradient(135deg,#0d1f0d,#111);padding:22px 20px 16px;position:relative">
+          <div style="font-size:10px;font-weight:900;letter-spacing:3px;color:#00c864;text-transform:uppercase;margin-bottom:4px">FARMBOT</div>
+          <div style="font-size:22px;font-weight:900;color:#fff">⚙️ Paramètres</div>
+          <button onclick="closeSettings()" style="position:absolute;top:16px;right:16px;background:rgba(255,255,255,.1);border:none;border-radius:50%;width:34px;height:34px;color:#fff;font-size:18px;cursor:pointer;line-height:34px">×</button>
+        </div>
+
+        <div style="padding:16px;display:flex;flex-direction:column;gap:6px">
+
+          <!-- ── AUDIO ── -->
+          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:10px 4px 4px">🔊 Audio</div>
+
+          <div class="settings-row" onclick="settingsToggle('sfx')">
+            <div>
+              <div class="settings-label">Sons & Effets</div>
+              <div class="settings-sub">Clics, gains, jeux</div>
+            </div>
+            <div class="settings-toggle" id="toggle-sfx"></div>
+          </div>
+
+          <div class="settings-row" onclick="settingsToggle('music')">
+            <div>
+              <div class="settings-label">Musique Casino</div>
+              <div class="settings-sub">Ambiance pendant les jeux</div>
+            </div>
+            <div class="settings-toggle" id="toggle-music"></div>
+          </div>
+
+          <div class="settings-row" id="settings-vol-row">
+            <div style="flex:1">
+              <div class="settings-label">Volume</div>
+              <div class="settings-sub">Intensité des sons</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:13px;color:var(--text2)">🔈</span>
+              <input type="range" id="settings-vol" min="0" max="100" value="70"
+                oninput="settingsVolume(this.value)"
+                style="width:100px;accent-color:#00c864;cursor:pointer">
+              <span style="font-size:13px;color:var(--text2)">🔊</span>
+            </div>
+          </div>
+
+          <!-- ── AFFICHAGE ── -->
+          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:14px 4px 4px">🎨 Affichage</div>
+
+          <div class="settings-row" onclick="settingsToggle('darkplus')">
+            <div>
+              <div class="settings-label">Mode Nuit Renforcé</div>
+              <div class="settings-sub">Réduit la luminosité pour les yeux</div>
+            </div>
+            <div class="settings-toggle" id="toggle-darkplus"></div>
+          </div>
+
+          <div class="settings-row" onclick="settingsToggle('bigtext')">
+            <div>
+              <div class="settings-label">Texte Agrandi</div>
+              <div class="settings-sub">Augmente la taille des textes</div>
+            </div>
+            <div class="settings-toggle" id="toggle-bigtext"></div>
+          </div>
+
+          <div class="settings-row" onclick="settingsToggle('animations')">
+            <div>
+              <div class="settings-label">Animations</div>
+              <div class="settings-sub">Effets visuels et transitions</div>
+            </div>
+            <div class="settings-toggle" id="toggle-animations"></div>
+          </div>
+
+          <!-- ── NOTIFICATIONS ── -->
+          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:14px 4px 4px">🔔 Notifications</div>
+
+          <div class="settings-row" onclick="settingsToggle('notif_gain')">
+            <div>
+              <div class="settings-label">Rappel coffre quotidien</div>
+              <div class="settings-sub">Te prévient quand ton coffre est disponible</div>
+            </div>
+            <div class="settings-toggle" id="toggle-notif_gain"></div>
+          </div>
+
+          <div class="settings-row" onclick="settingsToggle('notif_bid')">
+            <div>
+              <div class="settings-label">Alertes enchères</div>
+              <div class="settings-sub">Quelqu'un surenchérit sur toi</div>
+            </div>
+            <div class="settings-toggle" id="toggle-notif_bid"></div>
+          </div>
+
+          <!-- ── CONFIDENTIALITÉ ── -->
+          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:14px 4px 4px">🔒 Confidentialité</div>
+
+          <div class="settings-row" onclick="settingsToggle('hide_balance')">
+            <div>
+              <div class="settings-label">Masquer le solde</div>
+              <div class="settings-sub">Affiche *** à la place du solde</div>
+            </div>
+            <div class="settings-toggle" id="toggle-hide_balance"></div>
+          </div>
+
+          <div class="settings-row" onclick="settingsToggle('hide_rank')">
+            <div>
+              <div class="settings-label">Masquer le classement</div>
+              <div class="settings-sub">Ton rang n'est pas visible par les autres</div>
+            </div>
+            <div class="settings-toggle" id="toggle-hide_rank"></div>
+          </div>
+
+          <!-- ── COMPTE ── -->
+          <div style="font-size:10px;font-weight:900;letter-spacing:2px;color:var(--text2);text-transform:uppercase;padding:14px 4px 4px">👤 Compte</div>
+
+          <div class="settings-row" style="cursor:default">
+            <div>
+              <div class="settings-label">User ID</div>
+              <div class="settings-sub" id="settings-uid-val">—</div>
+            </div>
+            <button onclick="navigator.clipboard&&navigator.clipboard.writeText(String(uid)).then(()=>showToast('✅ ID copié !'))" style="background:rgba(255,255,255,.08);border:none;border-radius:8px;padding:6px 12px;color:var(--text);font-size:12px;cursor:pointer">Copier</button>
+          </div>
+
+          <div class="settings-row" onclick="settingsResetCache()">
+            <div>
+              <div class="settings-label">Vider le cache</div>
+              <div class="settings-sub">Recharge les données depuis le serveur</div>
+            </div>
+            <div style="color:var(--text2);font-size:18px">↻</div>
+          </div>
+
+          <!-- Version -->
+          <div style="text-align:center;padding:20px 0 4px;font-size:11px;color:rgba(255,255,255,.2)">
+            FarmBot v2.0 · Made with ❤️
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ MODAL PERSONNALISATION ══ -->
   <div id="modal-customize">
     <div class="customize-sheet">
@@ -10727,6 +10868,44 @@ function _loadProfileCustomization(d) {
   border: 1.5px solid var(--bg);
   box-shadow: 0 2px 6px rgba(255,107,107,.6);
 }
+
+/* ── SETTINGS ── */
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-radius: 14px; cursor: pointer;
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06);
+  transition: background .15s; gap: 12px;
+}
+.settings-row:active { background: rgba(255,255,255,.08); }
+.settings-label { font-size: 14px; font-weight: 700; color: var(--text); }
+.settings-sub   { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.settings-toggle {
+  width: 46px; height: 26px; border-radius: 13px; flex-shrink: 0;
+  background: rgba(255,255,255,.12); position: relative; transition: background .2s;
+}
+.settings-toggle::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 20px; height: 20px; border-radius: 50%; background: #fff;
+  transition: transform .2s; box-shadow: 0 1px 4px rgba(0,0,0,.3);
+}
+.settings-toggle.on { background: #00c864; }
+.settings-toggle.on::after { transform: translateX(20px); }
+
+/* Mode nuit renforcé */
+body.darkplus { filter: brightness(.75) contrast(1.05); }
+/* Texte agrandi */
+body.bigtext { font-size: 16px; }
+body.bigtext .pf-stat-val, body.bigtext .game-card-name { font-size: 120%; }
+/* Pas d'animations */
+body.no-animations *, body.no-animations *::before, body.no-animations *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+/* Masquer solde */
+body.hide-balance .pf-fortune-hero,
+body.hide-balance .eco-balance-amount,
+body.hide-balance #casino-balance-display,
+body.hide-balance .pf-stat-val { filter: blur(6px); user-select: none; }
 </style>
 
 <script>
@@ -11058,6 +11237,103 @@ function sendSocialCmd(cmd) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  ⚙️ PARAMÈTRES
+// ════════════════════════════════════════════════════════════════════════════
+const SETTINGS_DEFAULTS = {
+  sfx: true, music: true, darkplus: false, bigtext: false,
+  animations: true, notif_gain: true, notif_bid: true,
+  hide_balance: false, hide_rank: false, volume: 70
+};
+let _settings = {};
+
+function _loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('fb_settings') || '{}');
+    _settings = { ...SETTINGS_DEFAULTS, ...saved };
+  } catch(e) { _settings = { ...SETTINGS_DEFAULTS }; }
+  _applySettings();
+}
+
+function _saveSettings() {
+  try { localStorage.setItem('fb_settings', JSON.stringify(_settings)); } catch(e) {}
+}
+
+function _applySettings() {
+  const b = document.body;
+  b.classList.toggle('darkplus',    !!_settings.darkplus);
+  b.classList.toggle('bigtext',     !!_settings.bigtext);
+  b.classList.toggle('no-animations', !_settings.animations);
+  b.classList.toggle('hide-balance', !!_settings.hide_balance);
+}
+
+function openSettings() {
+  SFX.open();
+  document.getElementById('settings-uid-val').textContent = uid ? '#' + uid : '—';
+  // Sync toggles
+  Object.keys(SETTINGS_DEFAULTS).forEach(k => {
+    const el = document.getElementById('toggle-' + k);
+    if (el) el.classList.toggle('on', !!_settings[k]);
+  });
+  const vol = document.getElementById('settings-vol');
+  if (vol) vol.value = _settings.volume ?? 70;
+  document.getElementById('modal-settings').style.display = 'block';
+}
+
+function closeSettings() {
+  SFX.close();
+  document.getElementById('modal-settings').style.display = 'none';
+}
+
+function settingsToggle(key) {
+  SFX.click();
+  _settings[key] = !_settings[key];
+  const el = document.getElementById('toggle-' + key);
+  if (el) el.classList.toggle('on', !!_settings[key]);
+  _saveSettings();
+  _applySettings();
+
+  // Actions spéciales
+  if (key === 'sfx') {
+    if (!_settings.sfx) SFX.stopMusic();
+    // Sync SFX engine
+    try { SFX._setEnabled(_settings.sfx); } catch(e) {}
+  }
+  if (key === 'music' && !_settings.music) SFX.stopMusic();
+  if (key === 'darkplus') showToast(_settings.darkplus ? '🌙 Mode nuit activé' : '☀️ Mode nuit désactivé');
+  if (key === 'bigtext') showToast(_settings.bigtext ? '🔡 Texte agrandi' : '🔡 Texte normal');
+  if (key === 'hide_balance') showToast(_settings.hide_balance ? '🔒 Solde masqué' : '👁 Solde visible');
+}
+
+function settingsVolume(val) {
+  _settings.volume = parseInt(val);
+  _saveSettings();
+}
+
+function settingsResetCache() {
+  SFX.click();
+  _cachedUser = null;
+  _cachedFamily = null;
+  showToast('♻️ Cache vidé — rechargement…');
+  setTimeout(() => loadData(), 800);
+  closeSettings();
+}
+
+// Fermer en cliquant dehors
+document.getElementById('modal-settings')?.addEventListener('click', function(e) {
+  if (e.target === this) closeSettings();
+});
+
+// Patch mainTab pour ouvrir settings
+const _origMainTabSettings = window.mainTab;
+window.mainTab = function(key, el) {
+  if (key === 'settings') { openSettings(); return; }
+  return _origMainTabSettings(key, el);
+};
+
+// Init settings au démarrage
+_loadSettings();
+
+// ════════════════════════════════════════════════════════════════════════════
 //  🔊 SOUND ENGINE — Web Audio API (zéro fichier externe)
 // ════════════════════════════════════════════════════════════════════════════
 const SFX = (() => {
@@ -11155,11 +11431,52 @@ const SFX = (() => {
       _osc(400, 'sawtooth', 0.08, 0.05);
     },
     crashExplode() {
-      // Explosion crash
-      _noise(0.6, 0.4);
-      _osc(80, 'sawtooth', 0.5, 0.4);
-      _osc(60, 'square', 0.4, 0.3, 0.05);
-      setTimeout(() => _noise(0.3, 0.2), 200);
+      // BOOM réaliste — comme 1xBet Crash
+      const c = _ctx(); if (!c) return;
+      // Couche 1 : sub-bass punch (le "thud" de l'impact)
+      const sub = c.createOscillator();
+      const subG = c.createGain();
+      sub.connect(subG); subG.connect(c.destination);
+      sub.type = 'sine'; sub.frequency.setValueAtTime(120, c.currentTime);
+      sub.frequency.exponentialRampToValueAtTime(30, c.currentTime + 0.4);
+      subG.gain.setValueAtTime(0, c.currentTime);
+      subG.gain.linearRampToValueAtTime(0.9, c.currentTime + 0.01);
+      subG.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.5);
+      sub.start(c.currentTime); sub.stop(c.currentTime + 0.55);
+      // Couche 2 : mid punch
+      const mid = c.createOscillator();
+      const midG = c.createGain();
+      mid.connect(midG); midG.connect(c.destination);
+      mid.type = 'sawtooth'; mid.frequency.setValueAtTime(200, c.currentTime);
+      mid.frequency.exponentialRampToValueAtTime(50, c.currentTime + 0.3);
+      midG.gain.setValueAtTime(0.5, c.currentTime);
+      midG.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.35);
+      mid.start(c.currentTime); mid.stop(c.currentTime + 0.4);
+      // Couche 3 : bruit blanc filtré (le "crunch")
+      const bufSize = c.sampleRate * 0.8;
+      const buf = c.createBuffer(1, bufSize, c.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
+      const noise = c.createBufferSource();
+      const noiseG = c.createGain();
+      const lowp = c.createBiquadFilter();
+      lowp.type = 'lowpass'; lowp.frequency.value = 1200;
+      noise.buffer = buf;
+      noise.connect(lowp); lowp.connect(noiseG); noiseG.connect(c.destination);
+      noiseG.gain.setValueAtTime(0.6, c.currentTime);
+      noiseG.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.7);
+      noise.start(c.currentTime); noise.stop(c.currentTime + 0.8);
+      // Couche 4 : réverbération courte (écho du boom)
+      setTimeout(() => {
+        const buf2 = c.createBuffer(1, c.sampleRate * 0.3, c.sampleRate);
+        const d2 = buf2.getChannelData(0);
+        for (let i = 0; i < d2.length; i++) d2[i] = (Math.random() * 2 - 1) * Math.exp(-i / (c.sampleRate * 0.08));
+        const n2 = c.createBufferSource();
+        const g2 = c.createGain();
+        n2.buffer = buf2; n2.connect(g2); g2.connect(c.destination);
+        g2.gain.value = 0.2;
+        n2.start(); n2.stop(c.currentTime + 0.35);
+      }, 80);
     },
     crashCashout() {
       // Cash out réussi
@@ -11283,7 +11600,10 @@ const SFX = (() => {
   // Init
   try { enabled = localStorage.getItem('sfx_enabled') !== '0'; } catch(e) {}
 
-  return { ...sounds, startCasinoMusic, stopMusic, toggle, isEnabled: () => enabled };
+  return { ...sounds, startCasinoMusic, stopMusic, toggle, isEnabled: () => enabled,
+    _setEnabled: (v) => { enabled = v; if (!v) stopMusic(); },
+    setVolume: (v) => { /* volume global via masterGain si implémenté */ }
+  };
 })();
 
 // Déclenchement du contexte audio au premier tap (obligatoire mobile)

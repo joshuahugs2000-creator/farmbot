@@ -12172,19 +12172,21 @@ async function ftDetailBuy() {
 
     const tg = window.Telegram?.WebApp;
 
-    if (tg && typeof tg.openInvoice === 'function') {
-      // Méthode native Mini App (Bot API 6.1+)
+    // Sur Android, openInvoice est buggé sur certains appareils → openTelegramLink direct
+    const isAndroid = /Android/i.test(navigator.userAgent);
+
+    if (tg && !isAndroid && typeof tg.openInvoice === 'function') {
+      // Méthode native Mini App (Bot API 6.1+) — iOS et Desktop
       console.log('[FT] using openInvoice');
       tg.openInvoice(invoiceUrl, (status) => {
         console.log('[FT] openInvoice status:', status);
         if (status === 'paid') onPaid();
         else if (status === 'cancelled') _ftShowToast('❌ Paiement annulé');
         else if (status === 'failed') _ftShowToast('❌ Paiement échoué');
-        // 'pending' : on ne fait rien, Telegram gérera
       });
     } else if (tg && typeof tg.openTelegramLink === 'function') {
-      // Fallback : ouvrir le lien Stars dans Telegram
-      console.log('[FT] fallback openTelegramLink');
+      // Android ou fallback : ouvrir le lien Stars dans Telegram
+      console.log('[FT] using openTelegramLink (Android ou fallback)');
       tg.openTelegramLink(invoiceUrl);
       _ftShowToast('ℹ️ Complète le paiement dans Telegram puis reviens ici');
     } else {

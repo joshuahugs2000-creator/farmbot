@@ -832,6 +832,19 @@ async def ft_successful_payment(update: Update, context) -> None:
         parse_mode='HTML'
     )
 
+    # Notification webapp (cloche)
+    try:
+        from api.webapp import push_db_notif
+        await push_db_notif(
+            user_id=uid,
+            icon="🎟️",
+            title="Tickets reçus !",
+            body=f"Tu as reçu {qty}× {name}. Retrouve-les dans la boutique."
+        )
+    except Exception as _ne:
+        import logging as _nlog
+        _nlog.getLogger(__name__).warning(f"push_db_notif after payment failed: {_ne}")
+
 
 async def main():
     app = (

@@ -78,9 +78,8 @@ async def tax_daily_job(context: ContextTypes.DEFAULT_TYPE):
                     CompanyEmployee.company_id == company.id,
                     CompanyEmployee.role == "pdg",
                     CompanyEmployee.left_at == None,
-                )
-            )
-            ).limit(1).scalar_one_or_none()
+                ).limit(1)
+            )).scalar_one_or_none()
 
             if pdg_emp:
                 taux = "0.05%" if company.treasury < 1_000_000_000 else ("0.1%" if company.treasury < 10_000_000_000 else "0.15%")

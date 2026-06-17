@@ -9069,14 +9069,16 @@ async function loadCompany() {
     const contratsEl = document.getElementById('co-contrats-list');
     if (co.contrats && co.contrats.length > 0) {
       contratsEl.innerHTML = co.contrats.map(c => {
-        const bar = `<div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;margin:8px 0;"><div style="width:${c.pct}%;height:100%;background:${c.pct>=100?'var(--success)':'var(--accent)'};border-radius:6px;"></div></div>`;
+        const canClaim = c.status === 'active' && (c.pct||0) >= 100;
+        const bar = `<div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;margin:8px 0;"><div style="width:${c.pct}%;height:100%;background:${canClaim?'var(--success)':'var(--accent)'};border-radius:6px;"></div></div>`;
         return `<div class="card" style="margin-bottom:10px;">
           <div style="font-weight:800;color:var(--text1);margin-bottom:4px;">📋 ${c.title}</div>
-          <div style="font-size:12px;color:var(--text2);">Statut : <span style="color:${c.status==='active'?'var(--success)':'var(--accent)'}">${c.status==='active'?'🟢 En cours':'⏳ En attente'}</span></div>
+          <div style="font-size:12px;color:var(--text2);">Statut : <span style="color:${canClaim?'var(--success)':(c.status==='active'?'var(--success)':'var(--accent)')}">${canClaim?'🎉 Objectif atteint':(c.status==='active'?'🟢 En cours':'⏳ En attente')}</span></div>
           ${bar}
           <div class="stat-row"><span class="stat-label">Progression</span><span class="stat-value">${(c.cmds_done||0).toLocaleString()} / ${(c.objective||0).toLocaleString()} cmds (${c.pct}%)</span></div>
           <div class="stat-row"><span class="stat-label">Récompense</span><span class="stat-value gold">${c.reward} $</span></div>
           <div class="stat-row"><span class="stat-label">Deadline</span><span class="stat-value">${c.ends_at} (${c.days_left}j)</span></div>
+          ${canClaim ? `<button onclick="claimContratBc(${c.id}, this, loadCompany)" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
         </div>`;
       }).join('');
     } else {
@@ -11305,17 +11307,36 @@ async function loadContratsBc() {
     const d = await r.json();
     const contrats = d.contrats || [];
     if (!contrats.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun contrat BC actif</div>'; return; }
-    el.innerHTML = contrats.map(c => `
+    el.innerHTML = contrats.map(c => {
+      const canClaim = !!c.can_claim;
+      const isActive = c.status === 'active';
+      const statusLabel = c.status === 'completed' ? '✅ Terminé' : (c.status === 'failed' ? '❌ Échoué' : (canClaim ? '🎉 Objectif atteint' : '🟢 En cours'));
+      return `
       <div class="card" style="margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <div style="font-weight:900;font-size:14px">${c.partner_name||'Partenaire'}</div>
-          <span class="badge" style="background:${c.status==='actif'?'var(--success)':'var(--accent2)'}">${c.status||'actif'}</span>
+          <div style="font-weight:900;font-size:14px">${c.title||'Contrat'}</div>
+          <span class="badge" style="background:${canClaim?'var(--success)':(isActive?'var(--accent2)':'var(--border)')}">${statusLabel}</span>
         </div>
-        <div class="stat-row"><span class="stat-label">💰 Commission</span><span class="stat-value gold">${c.commission_rate||0}%</span></div>
-        <div class="stat-row"><span class="stat-label">📅 Expiration</span><span class="stat-value">${(c.expires_at||'').slice(0,10)||'—'}</span></div>
-        <div class="stat-row"><span class="stat-label">💵 Total perçu</span><span class="stat-value green">${fmt(c.total_earned||0)}</span></div>
-      </div>`).join('');
+        ${c.desc ? `<div style="font-size:12px;color:var(--text2);margin-bottom:8px">${c.desc}</div>` : ''}
+        ${isActive ? `<div class="eco-prog-bar" style="margin:6px 0"><div class="eco-prog-fill" style="width:${Math.min(100,c.pct||0)}%;background:${canClaim?'var(--success)':'#fdcb6e'}"></div></div>` : ''}
+        <div class="stat-row"><span class="stat-label">📊 Progression</span><span class="stat-value">${(c.cmds_done||0).toLocaleString()} / ${(c.objective||0).toLocaleString()} cmds (${c.pct||0}%)</span></div>
+        <div class="stat-row"><span class="stat-label">💰 Récompense</span><span class="stat-value gold">${c.reward||'—'} $</span></div>
+        ${isActive ? `<div class="stat-row"><span class="stat-label">⏳ Échéance</span><span class="stat-value">${c.ends_at||'—'} (${c.days_left||0}j)</span></div>` : ''}
+        ${canClaim ? `<button onclick="claimContratBc(${c.id}, this)" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
+      </div>`;
+    }).join('');
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+async function claimContratBc(contractId, btn, onSuccess) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Réclamation…'; }
+  try {
+    const r = await fetchT('/api/webapp/contrats/bc/claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, contract_id: contractId }) }, 10000);
+    const d = await r.json();
+    if (d.ok) {
+      showToast(d.msg || '✅ Récompense réclamée !');
+      if (onSuccess) onSuccess(); else if (document.getElementById('contrats-bc')) loadContratsBc();
+    } else { showToast(d.error || 'Erreur'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
+  } catch(e) { showToast('Erreur réseau'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
 }
 async function loadContratsAuto() {
   const el = document.getElementById('contrats-auto');
@@ -11325,17 +11346,34 @@ async function loadContratsAuto() {
     const d = await r.json();
     const contrats = d.contrats || [];
     if (!contrats.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun contrat auto actif</div>'; return; }
-    el.innerHTML = contrats.map(c => `
+    const STATUS_LABELS = {pending:'⏳ En attente',active:'🔄 En cours',completed:'✅ Réussi',failed:'❌ Échoué',rejected:'🚫 Refusé',negotiating:'🤝 Négociation'};
+    el.innerHTML = contrats.map(c => {
+      const canClaim = !!c.can_claim;
+      const isActive = c.status === 'active';
+      return `
       <div class="card" style="margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <div style="font-weight:900;font-size:14px">${c.partner_name||'Partenaire'}</div>
-          <span class="badge">${c.type||'auto'}</span>
+          <div style="font-weight:900;font-size:14px">${c.client||'Partenaire'}</div>
+          <span class="badge" style="background:${canClaim?'var(--success)':(isActive?'var(--accent2)':'var(--border)')}">${canClaim?'🎉 Objectif atteint':(STATUS_LABELS[c.status]||c.status)}</span>
         </div>
-        <div class="stat-row"><span class="stat-label">💰 Montant/cycle</span><span class="stat-value gold">${fmt(c.amount_per_cycle||0)}</span></div>
-        <div class="stat-row"><span class="stat-label">🔄 Fréquence</span><span class="stat-value">${c.frequency||'—'}</span></div>
-        <div class="stat-row"><span class="stat-label">📅 Prochain paiement</span><span class="stat-value">${(c.next_payment||'').slice(0,10)||'—'}</span></div>
-      </div>`).join('');
+        ${c.desc ? `<div style="font-size:12px;color:var(--text2);margin-bottom:8px">${c.desc}</div>` : ''}
+        ${isActive ? `<div class="eco-prog-bar" style="margin:6px 0"><div class="eco-prog-fill" style="width:${Math.min(100,c.pct||0)}%;background:${canClaim?'var(--success)':'#fdcb6e'}"></div></div>` : ''}
+        <div class="stat-row"><span class="stat-label">📊 Progression</span><span class="stat-value">${(c.cmds_done||0).toLocaleString()} / ${(c.objective||0).toLocaleString()} cmds (${c.pct||0}%)</span></div>
+        <div class="stat-row"><span class="stat-label">💰 Récompense</span><span class="stat-value gold">${c.reward||'—'} $</span></div>
+        ${isActive ? `<div class="stat-row"><span class="stat-label">⏳ Échéance</span><span class="stat-value">${c.deadline||'—'} (${c.days_left||0}j)</span></div>` : ''}
+        ${canClaim ? `<button onclick="claimContratAuto(${c.id}, this)" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
+      </div>`;
+    }).join('');
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+async function claimContratAuto(contractId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Réclamation…'; }
+  try {
+    const r = await fetchT('/api/webapp/contrats/auto/claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, contract_id: contractId }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast(d.msg || '✅ Récompense réclamée !'); loadContratsAuto(); }
+    else { showToast(d.error || 'Erreur'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
+  } catch(e) { showToast('Erreur réseau'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
 }
 
 // ══════════════════════════════════════════════════

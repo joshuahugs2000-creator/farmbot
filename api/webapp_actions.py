@@ -2130,6 +2130,14 @@ def setup_actions_routes(app: web.Application):
     app.router.add_post("/api/webapp/items/buy",           webapp_item_buy)
     app.router.add_post("/api/webapp/items/delete",        webapp_item_delete)
 
+    # Famille
+    app.router.add_post("/api/webapp/family/marry",        webapp_family_marry)
+    app.router.add_post("/api/webapp/family/adopt",        webapp_family_adopt)
+    app.router.add_post("/api/webapp/family/friend",       webapp_family_friend)
+    app.router.add_post("/api/webapp/family/divorce",      webapp_family_divorce)
+    app.router.add_post("/api/webapp/family/unfriend",     webapp_family_unfriend)
+    app.router.add_post("/api/webapp/family/disown",       webapp_family_disown)
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  MARCHÉ DES OBJETS (auction_inventory)
@@ -2818,3 +2826,263 @@ async def webapp_pretboite(request: web.Request) -> web.Response:
             "loan": loan_data,
             "last_loan": last_loan_data,
         })
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  FAMILLE — actions webapp
+# ═════════════════════════════════════════════════════════════════════════════
+
+async def _send_family_request(from_id: int, to_id: int, req_type_str: str,
+                                from_name: str, to_user_id: int,
+                                group_id: int = 0, extra: str = "") -> dict:
+    """Crée un PendingRequest et envoie les boutons Accepter/Refuser via Telegram DM."""
+    from database.models import PendingRequest, RequestType as RT
+    from database.db import AsyncSessionLocal as _ASL
+
+    type_map = {"marry": RT.MARRY, "adopt": RT.ADOPT, "friend": RT.FRIEND}
+    rtype = type_map.get(req_type_str)
+    if not rtype:
+        return {"error": "Type invalide"}
+
+    async with _ASL() as session:
+        # Supprimer doublon
+        from sqlalchemy import delete as _del
+        await session.execute(
+            _del(PendingRequest).where(
+                PendingRequest.from_user_id == from_id,
+                PendingRequest.to_user_id   == to_id,
+                PendingRequest.request_type == rtype.name,
+            )
+        )
+        from datetime import datetime, timedelta
+        req = PendingRequest(
+            from_user_id = from_id,
+            to_user_id   = to_id,
+            request_type = rtype.name,
+            group_id     = group_id or from_id,  # DM = utilise from_id comme group_id fallback
+            message_id   = 0,
+            expires_at   = datetime.utcnow() + timedelta(hours=24),
+            extra        = extra or None,
+        )
+        session.add(req)
+        await session.commit()
+        await session.refresh(req)
+        req_id = req.id
+
+    labels = {
+        "marry": f"💍 {from_name} te propose le mariage !",
+        "adopt": f"👨‍👦 {from_name} souhaite t'adopter !",
+        "friend": f"🤝 {from_name} veut être ton ami(e) !",
+    }
+    text = labels.get(req_type_str, "Nouvelle demande")
+    text += "\n\n<i>Réponds via les boutons ci-dessous (expire dans 24h)</i>"
+
+    keyboard = {
+        "inline_keyboard": [[
+            {"text": "✅ Accepter", "callback_data": f"req:accept:{req_id}:{req_type_str}"},
+            {"text": "❌ Refuser",  "callback_data": f"req:decline:{req_id}:{req_type_str}"},
+        ]]
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            await s.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": to_user_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "reply_markup": keyboard,
+                },
+                timeout=aiohttp.ClientTimeout(total=5),
+            )
+    except Exception:
+        pass
+
+    return {"ok": True, "req_id": req_id}
+
+
+async def webapp_family_marry(request: web.Request) -> web.Response:
+    """POST /api/webapp/family/marry — body: {user_id, target_id, marriage_type}"""
+    body      = await _body(request)
+    uid       = int(body.get("user_id", 0))
+    target_id = int(body.get("target_id", 0))
+    mtype     = body.get("marriage_type", "monogame")  # monogame | polygame
+
+    if not _auth(uid): return _err("unauthorized", 403)
+    if not target_id:  return _err("target_id manquant")
+    if uid == target_id: return _err("Tu ne peux pas te marier avec toi-même")
+
+    async with AsyncSessionLocal() as session:
+        from_user  = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        to_user    = (await session.execute(select(User).where(User.user_id == target_id))).scalar_one_or_none()
+        if not from_user: return _err("Utilisateur introuvable")
+        if not to_user:   return _err("Joueur cible introuvable")
+
+        from database.models import Relationship, RelationType
+        # Vérifier si déjà mariés
+        already = (await session.execute(
+            select(Relationship).where(
+                ((Relationship.user_id == uid) & (Relationship.related_user_id == target_id)) |
+                ((Relationship.user_id == target_id) & (Relationship.related_user_id == uid)),
+                Relationship.relation_type == RelationType.SPOUSE.value,
+            )
+        )).scalar_one_or_none()
+        if already: return _err("Vous êtes déjà mariés !")
+
+        # Vérif monogamie
+        s_type = getattr(from_user, "marriage_type", "monogame") or "monogame"
+        if mtype == "monogame" or s_type == "monogame":
+            nb_spouses = (await session.execute(
+                select(Relationship).where(
+                    ((Relationship.user_id == uid) | (Relationship.related_user_id == uid)),
+                    Relationship.relation_type == RelationType.SPOUSE.value,
+                )
+            )).scalars().all()
+            if nb_spouses:
+                return _err("Tu es déjà marié(e) en monogame. Divorce d'abord ou passe en polygame.")
+
+    extra = f"{mtype}|{getattr(from_user, 'gender', '') or ''}|{getattr(to_user, 'gender', '') or ''}"
+    result = await _send_family_request(uid, target_id, "marry", from_user.first_name, target_id, extra=extra)
+    if "error" in result: return _err(result["error"])
+    return _ok(f"💍 Demande envoyée à {to_user.first_name} ! Elle doit accepter via Telegram.")
+
+
+async def webapp_family_adopt(request: web.Request) -> web.Response:
+    """POST /api/webapp/family/adopt — body: {user_id, target_id}"""
+    body      = await _body(request)
+    uid       = int(body.get("user_id", 0))
+    target_id = int(body.get("target_id", 0))
+
+    if not _auth(uid): return _err("unauthorized", 403)
+    if not target_id:  return _err("target_id manquant")
+    if uid == target_id: return _err("Tu ne peux pas t'adopter toi-même")
+
+    async with AsyncSessionLocal() as session:
+        from_user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        to_user   = (await session.execute(select(User).where(User.user_id == target_id))).scalar_one_or_none()
+        if not from_user: return _err("Utilisateur introuvable")
+        if not to_user:   return _err("Joueur cible introuvable")
+
+    result = await _send_family_request(uid, target_id, "adopt", from_user.first_name, target_id)
+    if "error" in result: return _err(result["error"])
+    return _ok(f"👨‍👦 Demande d'adoption envoyée à {to_user.first_name} !")
+
+
+async def webapp_family_friend(request: web.Request) -> web.Response:
+    """POST /api/webapp/family/friend — body: {user_id, target_id}"""
+    body      = await _body(request)
+    uid       = int(body.get("user_id", 0))
+    target_id = int(body.get("target_id", 0))
+
+    if not _auth(uid): return _err("unauthorized", 403)
+    if not target_id:  return _err("target_id manquant")
+    if uid == target_id: return _err("Tu ne peux pas être ton propre ami")
+
+    async with AsyncSessionLocal() as session:
+        from_user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        to_user   = (await session.execute(select(User).where(User.user_id == target_id))).scalar_one_or_none()
+        if not from_user: return _err("Utilisateur introuvable")
+        if not to_user:   return _err("Joueur cible introuvable")
+
+        from database.models import Relationship, RelationType
+        already = (await session.execute(
+            select(Relationship).where(
+                ((Relationship.user_id == uid) & (Relationship.related_user_id == target_id)) |
+                ((Relationship.user_id == target_id) & (Relationship.related_user_id == uid)),
+                Relationship.relation_type == RelationType.FRIEND.value,
+            )
+        )).scalar_one_or_none()
+        if already: return _err("Vous êtes déjà amis !")
+
+    result = await _send_family_request(uid, target_id, "friend", from_user.first_name, target_id)
+    if "error" in result: return _err(result["error"])
+    return _ok(f"🤝 Demande d'amitié envoyée à {to_user.first_name} !")
+
+
+async def webapp_family_divorce(request: web.Request) -> web.Response:
+    """POST /api/webapp/family/divorce — body: {user_id, target_id}"""
+    body      = await _body(request)
+    uid       = int(body.get("user_id", 0))
+    target_id = int(body.get("target_id", 0))
+
+    if not _auth(uid): return _err("unauthorized", 403)
+    if not target_id:  return _err("target_id manquant")
+
+    async with AsyncSessionLocal() as session:
+        from database.models import Relationship, RelationType
+        from database.db import remove_relationship
+        rel = (await session.execute(
+            select(Relationship).where(
+                ((Relationship.user_id == uid) & (Relationship.related_user_id == target_id)) |
+                ((Relationship.user_id == target_id) & (Relationship.related_user_id == uid)),
+                Relationship.relation_type == RelationType.SPOUSE.value,
+            )
+        )).scalar_one_or_none()
+        if not rel: return _err("Vous n'êtes pas mariés.")
+
+        spouse = (await session.execute(select(User).where(User.user_id == target_id))).scalar_one_or_none()
+        from sqlalchemy import delete as _del
+        await session.execute(
+            _del(Relationship).where(Relationship.id == rel.id)
+        )
+        await session.commit()
+
+    spouse_name = spouse.first_name if spouse else str(target_id)
+    await _notify(target_id, f"💔 Tu viens de divorcer de <b>{spouse_name}</b> via la mini app.", "HTML")
+    return _ok(f"💔 Divorce effectué.")
+
+
+async def webapp_family_unfriend(request: web.Request) -> web.Response:
+    """POST /api/webapp/family/unfriend — body: {user_id, target_id}"""
+    body      = await _body(request)
+    uid       = int(body.get("user_id", 0))
+    target_id = int(body.get("target_id", 0))
+
+    if not _auth(uid): return _err("unauthorized", 403)
+    if not target_id:  return _err("target_id manquant")
+
+    async with AsyncSessionLocal() as session:
+        from database.models import Relationship, RelationType
+        rel = (await session.execute(
+            select(Relationship).where(
+                ((Relationship.user_id == uid) & (Relationship.related_user_id == target_id)) |
+                ((Relationship.user_id == target_id) & (Relationship.related_user_id == uid)),
+                Relationship.relation_type == RelationType.FRIEND.value,
+            )
+        )).scalar_one_or_none()
+        if not rel: return _err("Vous n'êtes pas amis.")
+
+        target = (await session.execute(select(User).where(User.user_id == target_id))).scalar_one_or_none()
+        from sqlalchemy import delete as _del
+        await session.execute(_del(Relationship).where(Relationship.id == rel.id))
+        await session.commit()
+
+    return _ok(f"👋 Amitié retirée.")
+
+
+async def webapp_family_disown(request: web.Request) -> web.Response:
+    """POST /api/webapp/family/disown — body: {user_id, target_id}"""
+    body      = await _body(request)
+    uid       = int(body.get("user_id", 0))
+    target_id = int(body.get("target_id", 0))
+
+    if not _auth(uid): return _err("unauthorized", 403)
+    if not target_id:  return _err("target_id manquant")
+
+    async with AsyncSessionLocal() as session:
+        from database.models import Relationship, RelationType
+        # L'utilisateur est le parent (user_id = uid, related = target)
+        rel = (await session.execute(
+            select(Relationship).where(
+                Relationship.user_id == uid,
+                Relationship.related_user_id == target_id,
+                Relationship.relation_type == RelationType.PARENT.value,
+            )
+        )).scalar_one_or_none()
+        if not rel: return _err("Cette personne n'est pas dans ta famille (pas ton enfant).")
+
+        from sqlalchemy import delete as _del
+        await session.execute(_del(Relationship).where(Relationship.id == rel.id))
+        await session.commit()
+
+    return _ok(f"😔 Désaveu effectué.")

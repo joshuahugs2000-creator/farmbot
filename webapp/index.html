@@ -8251,7 +8251,7 @@ function backToGameList() {
 }
 
 async function gamePost(payload) {
-  const r = await fetch('/api/webapp/game', {
+  const r = await fetchT('/api/webapp/game', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({...payload})
@@ -9575,7 +9575,7 @@ async function confirmBankAction() {
   try {
     const btn = document.getElementById('bank-modal-confirm');
     btn.textContent = '...'; btn.disabled = true;
-    const r = await fetch(ep, {
+    const r = await fetchT(ep, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ bank_id, amount })
     });
@@ -10593,7 +10593,7 @@ async function loadGarden() {
   document.getElementById('garden-loading').style.display='block';
   document.getElementById('garden-content').style.display='none';
   try {
-    const r = await fetch(`/api/webapp/garden?user_id=${uid}&group_id=${_gardenGroupId}`);
+    const r = await fetchT(`/api/webapp/garden?user_id=${uid}&group_id=${_gardenGroupId}`);
     const d = await r.json();
     document.getElementById('garden-loading').style.display='none';
     document.getElementById('garden-content').style.display='block';
@@ -10664,7 +10664,7 @@ function _gardenOpenModal(slot, plant='') {
 async function _gardenPlant(slot, plantType) {
   document.getElementById('garden-modal').style.display = 'none';
   try {
-    const r = await fetch('/api/webapp/garden/plant', {
+    const r = await fetchT('/api/webapp/garden/plant', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({user_id:uid, group_id:_gardenGroupId, slot, plant_type:plantType})
     });
@@ -10676,7 +10676,7 @@ async function _gardenPlant(slot, plantType) {
 
 async function _gardenHarvest(gardenId) {
   try {
-    const r = await fetch('/api/webapp/garden/harvest', {
+    const r = await fetchT('/api/webapp/garden/harvest', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({user_id:uid, garden_id:gardenId})
     });

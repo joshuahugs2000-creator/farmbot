@@ -5246,6 +5246,23 @@ const PLUS_PAGES = {
   encheres: { fn: 'loadEncheres'},
   boutique: { fn: 'loadBoutique'},
 };
+function bqBack() {
+  // Retour vers la boutique depuis une sous-page
+  plusGo('boutique');
+}
+
+function bqOpenSection(section) {
+  // Navigation depuis la boutique vers une sous-page
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pageEl = document.getElementById('page-' + section);
+  if (!pageEl) return;
+  pageEl.classList.add('active');
+  document.getElementById('subnav').style.display = 'none';
+  // Charger le contenu si une fonction dédiée existe
+  const fnName = 'load' + section.replace(/-([a-z])/g, (_, c) => c.toUpperCase()).replace(/^./, c => c.toUpperCase());
+  if (window[fnName]) window[fnName]();
+}
+
 function plusGo(key) {
   if (key === 'hub') {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));

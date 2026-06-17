@@ -7366,6 +7366,42 @@ async function loadPortfolio() {
   }
 }
 
+async function showConfirmModal(title, subtitle, confirmLabel = '✅ Confirmer', confirmColor = 'var(--success)') {
+  return new Promise(resolve => {
+    // Créer le modal s'il n'existe pas
+    let overlay = document.getElementById('_confirm-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = '_confirm-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);display:flex;align-items:flex-end;justify-content:center;';
+      overlay.innerHTML = `
+        <div id="_confirm-box" style="background:var(--card);border-radius:24px 24px 0 0;padding:28px 22px 38px;width:100%;max-width:480px;border-top:1px solid var(--border);">
+          <div id="_confirm-title" style="font-size:17px;font-weight:900;margin-bottom:6px;"></div>
+          <div id="_confirm-sub" style="font-size:13px;color:var(--text2);margin-bottom:22px;"></div>
+          <div style="display:flex;gap:10px;">
+            <button id="_confirm-cancel" style="flex:1;padding:14px;border-radius:14px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-weight:700;font-size:14px;cursor:pointer;font-family:'Nunito',sans-serif;">Annuler</button>
+            <button id="_confirm-ok" style="flex:2;padding:14px;border-radius:14px;border:none;color:#fff;font-weight:900;font-size:14px;cursor:pointer;font-family:'Nunito',sans-serif;"></button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+    }
+    document.getElementById('_confirm-title').textContent = title;
+    document.getElementById('_confirm-sub').textContent   = subtitle;
+    const okBtn = document.getElementById('_confirm-ok');
+    okBtn.textContent    = confirmLabel;
+    okBtn.style.background = confirmColor;
+    overlay.style.display = 'flex';
+
+    const close = (val) => {
+      overlay.style.display = 'none';
+      resolve(val);
+    };
+    okBtn.onclick = () => close(true);
+    document.getElementById('_confirm-cancel').onclick = () => close(false);
+    overlay.onclick = (e) => { if (e.target === overlay) close(false); };
+  });
+}
+
 async function sellPosition(invId) {
   const ok = await showConfirmModal('Vendre cette position ?', 'La vente sera immédiate au prix actuel du marché.', '💸 Vendre', 'var(--accent2)');
   if (!ok) return;

@@ -21,7 +21,7 @@ WEBAPP_ADMIN_IDS = {
 WEBAPP_OPEN = True
 
 # Routes qui n'ont pas besoin d'authentification
-_PUBLIC_PATHS = {'/', '/webapp', '/api/webapp/load', '/api/webapp/photo'}
+_PUBLIC_PATHS = {'/', '/webapp', '/api/webapp/load', '/api/webapp/photo', '/webhook', '/health'}
 
 def _is_allowed(user_id: int) -> bool:
     """Vérifie que le user_id correspond à l'utilisateur authentifié via initData."""

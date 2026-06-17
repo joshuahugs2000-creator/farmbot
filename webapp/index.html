@@ -8653,6 +8653,7 @@ window.addEventListener('load', () => {
   setTimeout(() => { if (uid) fetchT(`/api/webapp/journal?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{entries:[]}).then(d=>{ window._cachedJournal = d; }).catch(()=>{}); }, 2500);
   setTimeout(() => { if (uid) fetchT(`/api/webapp/events?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{events:[]}).then(d=>{ window._cachedEvents = d; }).catch(()=>{}); }, 3500);
   setTimeout(() => { if (uid) fetchT(`/api/webapp/annonces?user_id=${uid}`,{},20000).then(r=>r.ok?r.json():{annonces:[]}).then(d=>{ window._cachedAnnonces = d; }).catch(()=>{}); }, 4500);
+  setTimeout(() => { if (uid) ftRefreshOwned(); }, 1000);
   setTimeout(() => {
     document.getElementById('loading').style.opacity = '0';
     setTimeout(() => document.getElementById('loading').style.display = 'none', 300);
@@ -11886,6 +11887,187 @@ function _loadProfileCustomization(d) {
     }
   });
 })();
+
+
+// ═══════════════════════════════════════════════════════
+//  FAMILY TICKETS — JS complet
+// ═══════════════════════════════════════════════════════
+
+const FT_PRICES = { basique: 3, premium: 5, vip: 10 };
+const FT_ICONS  = { basique: '🎫', premium: '🎟️', vip: '👑' };
+const FT_NAMES  = { basique: 'Ticket Basique', premium: 'Ticket Premium', vip: 'Ticket VIP' };
+
+let _ftOwned = { basique: 0, premium: 0, vip: 0 };
+let _ftCurrent = 'basique';
+let _ftQty = 1;
+let _ftSendQty = 1;
+
+// ── Chargement initial + refresh solde ──
+async function loadBoutique() {
+  await ftRefreshOwned();
+}
+
+async function loadFamilyTickets() {
+  await ftRefreshOwned();
+}
+
+async function ftRefreshOwned() {
+  try {
+    const r = await fetchT(`/api/webapp/tickets/owned?user_id=${uid}`);
+    const d = await r.json();
+    if (d.error) return;
+    _ftOwned = { basique: 0, premium: 0, vip: 0 };
+    (d.tickets || []).forEach(t => { _ftOwned[t.type] = t.qty; });
+    _ftUpdateUI();
+  } catch(e) { console.error('ftRefreshOwned', e); }
+}
+
+function _ftUpdateUI() {
+  // Cartes liste
+  ['basique','premium','vip'].forEach(t => {
+    const el = document.getElementById('ft-owned-' + t);
+    if (el) el.textContent = _ftOwned[t] || 0;
+  });
+  // Topbar chip
+  const total = (_ftOwned.basique||0) + (_ftOwned.premium||0) + (_ftOwned.vip||0);
+  const chip = document.getElementById('ft-topbar-count');
+  if (chip) chip.textContent = total;
+  // Dropdown
+  ['basique','premium','vip'].forEach(t => {
+    const el = document.getElementById('ft-dd-' + t);
+    if (el) el.textContent = _ftOwned[t] || 0;
+  });
+  // Page détail si ouverte
+  const ownedEl = document.getElementById('ft-detail-owned');
+  if (ownedEl) ownedEl.textContent = _ftOwned[_ftCurrent] || 0;
+}
+
+// ── Navigation ──
+function ftOpenTicket(type) {
+  _ftCurrent = type;
+  _ftQty = 1;
+  _ftSendQty = 1;
+
+  document.getElementById('ft-detail-icon').textContent  = FT_ICONS[type];
+  document.getElementById('ft-detail-name').textContent  = FT_NAMES[type];
+  document.getElementById('ft-detail-price').textContent = `${FT_PRICES[type]} ⭐ / unité`;
+  document.getElementById('ft-detail-owned').textContent = _ftOwned[type] || 0;
+  document.getElementById('ft-detail-qty').textContent   = 1;
+  document.getElementById('ft-detail-send-qty').textContent = 1;
+  document.getElementById('ft-detail-total').textContent = `Total : ${FT_PRICES[type]} ⭐`;
+  document.getElementById('ft-detail-send-id').value = '';
+
+  // Couleur hero selon type
+  const hero = document.getElementById('ft-detail-hero');
+  if (hero) {
+    const cols = {
+      basique: 'linear-gradient(135deg,#1a2a1a,#2d4a2d)',
+      premium: 'linear-gradient(135deg,#1a1a2e,#2d2d5e)',
+      vip:     'linear-gradient(135deg,#2a1a00,#4a3000)',
+    };
+    hero.style.background = cols[type] || '';
+  }
+
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-ticket-detail').classList.add('active');
+}
+
+function ftCloseDetail() {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-family-tickets').classList.add('active');
+}
+
+// ── Quantités ──
+function ftDetailQty(delta) {
+  _ftQty = Math.max(1, Math.min(99, _ftQty + delta));
+  document.getElementById('ft-detail-qty').textContent = _ftQty;
+  document.getElementById('ft-detail-total').textContent = `Total : ${FT_PRICES[_ftCurrent] * _ftQty} ⭐`;
+}
+
+function ftDetailSendQty(delta) {
+  _ftSendQty = Math.max(1, Math.min(_ftOwned[_ftCurrent] || 1, _ftSendQty + delta));
+  document.getElementById('ft-detail-send-qty').textContent = _ftSendQty;
+}
+
+// ── Achat via Telegram Stars Invoice ──
+async function ftDetailBuy() {
+  const btn = document.getElementById('ft-detail-buy-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳…';
+  try {
+    const r = await fetchT('/api/webapp/tickets/invoice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: uid, ticket_type: _ftCurrent, qty: _ftQty })
+    });
+    const d = await r.json();
+    if (d.error) { showToast('❌ ' + d.error); return; }
+    if (d.invoice_url) {
+      // Ouvrir la facture Telegram Stars
+      if (window.Telegram?.WebApp?.openInvoice) {
+        window.Telegram.WebApp.openInvoice(d.invoice_url, async (status) => {
+          if (status === 'paid') {
+            showToast('✅ Achat confirmé !');
+            await ftRefreshOwned();
+          } else if (status === 'cancelled') {
+            showToast('❌ Paiement annulé');
+          }
+        });
+      } else {
+        // Fallback navigateur
+        window.open(d.invoice_url, '_blank');
+        showToast('🔗 Lien de paiement ouvert');
+      }
+    }
+  } catch(e) {
+    showToast('Erreur : ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="tgs">⭐</span> Acheter';
+  }
+}
+
+// ── Envoi de tickets ──
+async function ftDetailSend() {
+  const toId = parseInt(document.getElementById('ft-detail-send-id').value || '0');
+  if (!toId) { showToast('❌ Entrez un ID joueur valide'); return; }
+  if (_ftSendQty > (_ftOwned[_ftCurrent] || 0)) {
+    showToast('❌ Pas assez de tickets'); return;
+  }
+  try {
+    const r = await fetchT('/api/webapp/tickets/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: uid, to_user_id: toId, ticket_type: _ftCurrent, qty: _ftSendQty })
+    });
+    const d = await r.json();
+    if (d.error) { showToast('❌ ' + d.error); return; }
+    showToast(`✅ ${_ftSendQty} ticket(s) envoyé(s) !`);
+    await ftRefreshOwned();
+    document.getElementById('ft-detail-send-id').value = '';
+    _ftSendQty = 1;
+    document.getElementById('ft-detail-send-qty').textContent = 1;
+  } catch(e) {
+    showToast('Erreur : ' + e.message);
+  }
+}
+
+// ── Dropdown topbar ──
+function ftToggleDropdown(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('ft-dropdown');
+  if (!dd) return;
+  const isOpen = dd.style.display === 'block';
+  dd.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) ftRefreshOwned();
+}
+document.addEventListener('click', () => {
+  const dd = document.getElementById('ft-dropdown');
+  if (dd) dd.style.display = 'none';
+});
+
+
+
 </script>
 
 <!-- ── SLIDES + NOTIFICATIONS STYLES & JS ── -->

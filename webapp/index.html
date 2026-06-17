@@ -403,6 +403,27 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .game-lancer .game-card-name { color: #a29bfe; }
 .game-lancer .game-card-label { color: #a29bfe; }
 .game-lancer .game-card-tag { background: rgba(162,155,254,.12); color: #a29bfe; border: 1px solid rgba(162,155,254,.2); }
+
+.game-roulette .game-card-top-bar { background: linear-gradient(90deg, #fd79a8, #e84393); }
+.game-roulette .game-card-glow { background: #fd79a8; }
+.game-roulette .game-card-icon-bg { background: rgba(253,121,168,.12); border: 1px solid rgba(253,121,168,.2); }
+.game-roulette .game-card-name { color: #fd79a8; }
+.game-roulette .game-card-label { color: #fd79a8; }
+.game-roulette .game-card-tag { background: rgba(253,121,168,.12); color: #fd79a8; border: 1px solid rgba(253,121,168,.2); }
+
+.rl-choice-btn {
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: none;
+  color: #fff;
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity .2s, transform .1s;
+}
+.rl-choice-btn:active { transform: scale(.95); }
 .game-lancer { border-color: rgba(162,155,254,.15); }
 
 /* ── PROFILE HEADER ── */
@@ -1603,6 +1624,23 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <div style="color:var(--text2);font-size:12px;padding:10px 0;">Chargement…</div>
     </div>
 
+    <!-- ── SALON DE DISCUSSION ── -->
+    <div class="sh2-section-label" style="margin-top:18px">💬 SALON <span class="sh2-label-line"></span></div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:4px;">
+      <!-- Messages -->
+      <div id="chat-messages" style="height:220px;overflow-y:auto;padding:12px 12px 8px;display:flex;flex-direction:column;gap:6px;scroll-behavior:smooth;">
+        <div style="text-align:center;color:var(--text2);font-size:12px;padding:20px 0;">⏳ Chargement…</div>
+      </div>
+      <!-- Saisie -->
+      <div style="border-top:1px solid var(--border);padding:10px 12px;display:flex;gap:8px;align-items:center;background:var(--bg);">
+        <input id="chat-input" type="text" maxlength="300" placeholder="Écris un message…"
+          style="flex:1;background:transparent;border:none;outline:none;color:var(--text1);font-size:13px;font-family:'Nunito',sans-serif;"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMsg();}"
+        >
+        <button onclick="sendChatMsg()" style="background:var(--accent);border:none;border-radius:10px;padding:8px 12px;color:#000;font-weight:900;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;flex-shrink:0;">→</button>
+      </div>
+    </div>
+
     <!-- ── RÉSEAU ── -->
     <div class="sh2-section-label" style="margin-top:18px">RÉSEAU <span class="sh2-label-line"></span></div>
 
@@ -1715,6 +1753,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <button class="co-tab-btn" onclick="coTab('parts',this)" data-tab="parts" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📜 Parts</button>
           <button class="co-tab-btn" onclick="coTab('candidatures',this)" data-tab="candidatures" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📥 Candidats</button>
           <button class="co-tab-btn" onclick="coTab('logs',this)" data-tab="logs" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📜 Logs</button>
+          <button class="co-tab-btn" onclick="coTab('presences',this)" data-tab="presences" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📊 Présences</button>
         </div>
       </div>
 
@@ -1775,7 +1814,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
             <button class="eco-action-btn red" onclick="coShowRetrait()">
               <span class="ico">💸</span>Retirer
             </button>
+            <button class="eco-action-btn" style="background:rgba(0,184,148,.12);border-color:rgba(0,184,148,.3);color:#00b894;" onclick="coVerserSalaires(this)">
+              <span class="ico">💵</span>Salaires
+            </button>
           </div>
+          <div id="co-versersalaires-msg" style="text-align:center;font-size:12px;color:var(--text2);min-height:14px;margin-top:4px;"></div>
         </div>
 
         <!-- Actionnariat -->
@@ -1874,6 +1917,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div class="card" style="margin-top:10px;">
           <div class="card-title">📜 HISTORIQUE</div>
           <div id="co-logs-list"><div style="color:var(--text2);font-size:13px;">Chargement...</div></div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET PRÉSENCES ── -->
+      <div id="co-tab-presences" style="display:none;">
+        <div id="co-presences-content" style="padding-top:10px;">
+          <div class="plus-loader">⏳ Chargement…</div>
         </div>
       </div>
 
@@ -3181,6 +3231,43 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           </div>
         </div>
 
+        <!-- ROULETTE -->
+        <div class="game-card game-roulette" onclick="openGame('roulette')">
+          <div class="game-card-glow"></div>
+          <div class="game-card-top-bar"></div>
+          <div class="game-card-play">▶</div>
+          <div class="game-card-art" style="background:linear-gradient(135deg,#1a0010 0%,#2d0020 100%);display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 160 90" width="160" height="90" xmlns="http://www.w3.org/2000/svg">
+              <!-- Roue roulette -->
+              <circle cx="80" cy="45" r="38" fill="#1a0010" stroke="#fd79a8" stroke-width="2.5" stroke-opacity=".7"/>
+              <circle cx="80" cy="45" r="28" fill="none" stroke="#fd79a8" stroke-width="1" stroke-opacity=".3"/>
+              <circle cx="80" cy="45" r="10" fill="#fd79a8" opacity=".8"/>
+              <!-- Segments rouge/noir alternés -->
+              <path d="M80,45 L80,7 A38,38 0 0,1 112,26 Z" fill="#c0392b" opacity=".85"/>
+              <path d="M80,45 L112,26 A38,38 0 0,1 118,64 Z" fill="#222" opacity=".85"/>
+              <path d="M80,45 L118,64 A38,38 0 0,1 80,83 Z" fill="#c0392b" opacity=".85"/>
+              <path d="M80,45 L80,83 A38,38 0 0,1 42,64 Z" fill="#222" opacity=".85"/>
+              <path d="M80,45 L42,64 A38,38 0 0,1 48,26 Z" fill="#c0392b" opacity=".85"/>
+              <path d="M80,45 L48,26 A38,38 0 0,1 80,7 Z" fill="#1e8c2e" opacity=".9"/>
+              <!-- Bille -->
+              <circle cx="108" cy="30" r="5" fill="white" opacity=".95"/>
+              <!-- Numéros -->
+              <text x="80" y="20" font-family="'Bangers',cursive" font-size="9" fill="white" text-anchor="middle" opacity=".9">0</text>
+              <text x="113" y="49" font-family="'Bangers',cursive" font-size="9" fill="white" text-anchor="middle" opacity=".9">7</text>
+              <text x="80" y="79" font-family="'Bangers',cursive" font-size="9" fill="white" text-anchor="middle" opacity=".9">14</text>
+              <text x="44" y="49" font-family="'Bangers',cursive" font-size="9" fill="white" text-anchor="middle" opacity=".9">21</text>
+            </svg>
+          </div>
+          <div class="game-card-info">
+            <div class="game-card-name">ROULETTE</div>
+            <div class="game-card-desc">Rouge, noir ou ton numéro</div>
+            <div class="game-card-meta">
+              <span class="game-card-tag">×2 / ×36</span>
+              <span class="game-card-tag">Min 1k$</span>
+            </div>
+          </div>
+        </div>
+
         <!-- REBET -->
         <div class="game-card game-rebet" onclick="openGame('rebet')">
           <div class="game-card-glow"></div>
@@ -3542,6 +3629,54 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           </div>
           <div id="ld-result" style="margin-top:12px;font-weight:700;min-height:22px;font-size:15px;"></div>
           <button id="ld-replay-btn" onclick="lancerReset()" style="display:none;margin-top:10px;width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">🔄 REJOUER</button>
+        </div>
+      </div>
+
+      <!-- ROULETTE PANEL -->
+      <div id="game-roulette" class="game-panel" style="display:none;">
+        <div class="card" style="text-align:center;">
+          <div style="font-family:'Bangers',cursive;font-size:28px;color:#fd79a8;letter-spacing:2px;margin-bottom:4px;">🎡 ROULETTE</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:18px;">Mise sur rouge/noir (×2), pair/impair (×2) ou un numéro 0-36 (×36)</div>
+
+          <!-- Roue animée -->
+          <div id="rl-wheel-wrap" style="display:flex;justify-content:center;margin-bottom:16px;">
+            <div id="rl-wheel" style="width:130px;height:130px;border-radius:50%;background:conic-gradient(#c0392b 0deg 60deg,#222 60deg 120deg,#c0392b 120deg 180deg,#222 180deg 240deg,#c0392b 240deg 300deg,#1e8c2e 300deg 360deg);border:4px solid #fd79a8;position:relative;transition:transform 1.5s cubic-bezier(.17,.67,.12,1.03);">
+              <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:28px;height:28px;border-radius:50%;background:#fd79a8;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#1a0010;">●</div>
+              <!-- Bille -->
+              <div id="rl-ball" style="position:absolute;top:8px;left:50%;transform:translateX(-50%);width:12px;height:12px;border-radius:50%;background:white;box-shadow:0 0 6px rgba(255,255,255,.8);transition:all 1.5s cubic-bezier(.17,.67,.12,1.03);"></div>
+            </div>
+          </div>
+
+          <!-- Résultat numéro -->
+          <div id="rl-numero-display" style="font-family:'Bangers',cursive;font-size:42px;min-height:54px;letter-spacing:2px;"></div>
+
+          <!-- Contrôles -->
+          <div id="roulette-controls">
+            <input id="rl-mise" type="number" placeholder="Mise (min 1 000 $)" min="1000"
+              style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;margin-bottom:12px;box-sizing:border-box;">
+
+            <!-- Grille de choix -->
+            <div style="margin-bottom:14px;">
+              <div style="font-size:12px;color:var(--text2);margin-bottom:8px;text-align:left;">Ton pari :</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+                <button onclick="rlSetChoice('rouge')"  id="rl-btn-rouge"  class="rl-choice-btn" style="background:#c0392b;">🔴 Rouge ×2</button>
+                <button onclick="rlSetChoice('noir')"   id="rl-btn-noir"   class="rl-choice-btn" style="background:#222;border:1.5px solid #555;">⚫ Noir ×2</button>
+                <button onclick="rlSetChoice('pair')"   id="rl-btn-pair"   class="rl-choice-btn" style="background:#0984e3;">🔵 Pair ×2</button>
+                <button onclick="rlSetChoice('impair')" id="rl-btn-impair" class="rl-choice-btn" style="background:#6c5ce7;">🟣 Impair ×2</button>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px;align-items:center;justify-content:center;">
+                <input id="rl-numero-input" type="number" min="0" max="36" placeholder="Numéro 0-36 (×36)"
+                  style="flex:1;max-width:180px;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;font-family:'Nunito',sans-serif;outline:none;"
+                  oninput="rlSetChoice('num:'+this.value)" onfocus="rlClearBtns()">
+              </div>
+              <div id="rl-choice-label" style="margin-top:8px;font-size:13px;font-weight:700;color:#fd79a8;min-height:18px;"></div>
+            </div>
+
+            <button onclick="rouletteStart()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#fd79a8,#e84393);color:#fff;font-family:'Bangers',cursive;font-size:20px;letter-spacing:2px;cursor:pointer;">🎡 LANCER LA ROULETTE</button>
+          </div>
+
+          <div id="rl-result" style="margin-top:14px;font-weight:700;font-size:15px;min-height:22px;"></div>
+          <button id="rl-replay-btn" onclick="rouletteReset()" style="display:none;margin-top:10px;width:100%;padding:12px;border-radius:12px;border:none;background:var(--card2);color:var(--text);font-family:'Bangers',cursive;font-size:17px;cursor:pointer;">🔄 REJOUER</button>
         </div>
       </div>
 
@@ -4953,26 +5088,6 @@ const MAIN_TABS = {
 let _curMain = 'moi';
 let _curSub  = 'profile';
 
-// ── 🚧 SECTIONS EN MAINTENANCE ────────────────────────────────────────
-// Pour rouvrir une section : repasse sa valeur à false (ou supprime la ligne).
-const MAINTENANCE_LOCK = {
-  'eco-hub':     true,
-  'entreprises': true,
-};
-function _renderMaintenance(el) {
-  if (!el || el.querySelector('.maint-overlay')) return;
-  el.style.position = 'relative';
-  const ov = document.createElement('div');
-  ov.className = 'maint-overlay';
-  ov.style.cssText = 'position:absolute;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 24px;gap:10px;';
-  ov.innerHTML = `
-    <div style="font-size:54px">🚧</div>
-    <div style="font-family:'Bangers',cursive;font-size:22px;letter-spacing:1px;color:var(--accent)">Bientôt disponible</div>
-    <div style="color:var(--text2);font-size:13px;max-width:260px;line-height:1.5">Cette section revient dans quelques heures, le temps de finaliser les derniers réglages. Reviens un peu plus tard !</div>
-  `;
-  el.prepend(ov);
-}
-
 // ── ECO PUSH NAVIGATION ──────────────────
 const ECO_PAGES = {
   bank:     { title:'🏦 Banque',     fn:'loadBank'    },
@@ -5075,7 +5190,6 @@ function subTab(page, fn) {
   const el = document.getElementById('page-'+page);
   if (el) {
     el.classList.add('active');
-    if (MAINTENANCE_LOCK[page]) { _renderMaintenance(el); return; }
     if (page === 'eco-hub') loadEcoHub();
     if (page === 'games') loadCasinoBalance();
     if (page === 'social-hub') { _shLoaded = false; loadSocialHub(); }
@@ -5105,7 +5219,6 @@ function ecoAccToggle(id) {
 // ── LOAD ECO HUB ────────────────────────────
 async function loadEcoHub() {
   if (!uid) return;
-  if (MAINTENANCE_LOCK['eco-hub']) { _renderMaintenance(document.getElementById('page-eco-hub')); return; }
   try {
     // Charger bank + portfolio + company en parallèle
     const [bankData, portfolioData] = await Promise.all([
@@ -5996,7 +6109,7 @@ async function claimDailyFromProfile() {
       if (res) { res.textContent = '⏰ Déjà récupéré aujourd\'hui !'; res.style.color = 'var(--text2)'; }
     } else if (d.status === 'ok') {
       if (res) { res.textContent = `🎁 +${_fmt(d.amount)} $ gagné !`; res.style.color = '#00c864'; }
-      setTimeout(() => { _cachedUser = null; loadData(); }, 1400);
+      setTimeout(() => _loadProfileActivities(), 1400);
     } else {
       if (res) { res.textContent = `❌ ${d.error || d.status}`; res.style.color = 'var(--accent2)'; }
       if (btn) { btn.disabled = false; btn.textContent = '🎁 Récupérer'; }
@@ -6027,7 +6140,7 @@ async function claimWorkFromProfile() {
     } else if (d.status === 'ok') {
       const job = JOBS[Math.floor(Math.random() * JOBS.length)];
       if (res) { res.textContent = `${job} — +${_fmt(d.amount)} $ !`; res.style.color = '#6c63ff'; }
-      setTimeout(() => { _cachedUser = null; loadData(); }, 1500);
+      setTimeout(() => _loadProfileActivities(), 1500);
     } else {
       if (res) { res.textContent = `❌ ${d.error || d.status}`; res.style.color = 'var(--accent2)'; }
       if (btn) { btn.disabled = false; btn.textContent = '💼 Travailler'; }
@@ -8136,6 +8249,113 @@ function lancerReset() {
   document.getElementById('ld-mise').value = '';
 }
 
+// ─── ROULETTE ────────────────────────────────────────────────────────────────
+let _rlChoice = null;
+
+function rlSetChoice(val) {
+  _rlChoice = val;
+  // Reset button styles
+  ['rouge','noir','pair','impair'].forEach(c => {
+    const b = document.getElementById('rl-btn-'+c);
+    if (b) b.style.opacity = '0.45';
+  });
+  if (!val.startsWith('num:')) {
+    const b = document.getElementById('rl-btn-'+val);
+    if (b) b.style.opacity = '1';
+    document.getElementById('rl-numero-input').value = '';
+    const labels = { rouge:'🔴 Rouge (×2)', noir:'⚫ Noir (×2)', pair:'🔵 Pair (×2)', impair:'🟣 Impair (×2)' };
+    document.getElementById('rl-choice-label').textContent = 'Pari : ' + (labels[val] || val);
+  } else {
+    const num = val.split(':')[1];
+    if (num !== '') document.getElementById('rl-choice-label').textContent = `Pari : numéro ${num} (×36)`;
+  }
+}
+
+function rlClearBtns() {
+  ['rouge','noir','pair','impair'].forEach(c => {
+    const b = document.getElementById('rl-btn-'+c);
+    if (b) b.style.opacity = '0.45';
+  });
+}
+
+function _rlSpinWheel() {
+  const wheel = document.getElementById('rl-wheel');
+  const deg = 720 + Math.floor(Math.random() * 360);
+  wheel.style.transform = `rotate(${deg}deg)`;
+}
+
+async function rouletteStart() {
+  const mise = parseInt(document.getElementById('rl-mise').value || '0');
+  if (!mise || mise < 1000) return showToast('Mise minimum 1 000 $');
+
+  let choix = _rlChoice;
+  if (!choix) {
+    const numVal = document.getElementById('rl-numero-input').value;
+    if (numVal !== '') choix = 'num:' + numVal;
+  }
+  if (!choix) return showToast('Choisis un pari d\'abord !');
+
+  // Si numéro, extraire la valeur
+  let finalChoix = choix;
+  if (choix.startsWith('num:')) {
+    const n = parseInt(choix.split(':')[1]);
+    if (isNaN(n) || n < 0 || n > 36) return showToast('Numéro entre 0 et 36');
+    finalChoix = String(n);
+  }
+
+  document.getElementById('roulette-controls').style.display = 'none';
+  document.getElementById('rl-result').textContent = '⏳ La roue tourne…';
+  document.getElementById('rl-numero-display').textContent = '';
+  _rlSpinWheel();
+
+  await new Promise(r => setTimeout(r, 1600));
+
+  try {
+    const r = await fetchT('/api/webapp/game', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, game: 'roulette', mise, choix: finalChoix })
+    }, 12000);
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('rl-result').innerHTML = `<span style="color:var(--danger)">${d.error}</span>`;
+      document.getElementById('roulette-controls').style.display = 'block';
+      return;
+    }
+
+    const colorMap = { rouge:'🔴', noir:'⚫', vert:'🟢' };
+    const colorCSS = { rouge:'#c0392b', noir:'#aaa', vert:'#1e8c2e' };
+    document.getElementById('rl-numero-display').innerHTML =
+      `<span style="color:${colorCSS[d.couleur] || '#fff'}">${colorMap[d.couleur] || ''} ${d.numero}</span>`;
+
+    const win = d.gain > 0;
+    document.getElementById('rl-result').innerHTML = win
+      ? `<span style="color:var(--success)">✅ Gagné ! +${d.gain.toLocaleString('fr-FR')} $</span><br><span style="color:var(--text2);font-size:12px;">Solde : ${d.new_balance.toLocaleString('fr-FR')} $</span>`
+      : `<span style="color:var(--danger)">❌ Perdu ! -${mise.toLocaleString('fr-FR')} $</span><br><span style="color:var(--text2);font-size:12px;">Solde : ${d.new_balance.toLocaleString('fr-FR')} $</span>`;
+
+    document.getElementById('rl-replay-btn').style.display = 'block';
+  } catch(e) {
+    document.getElementById('rl-result').innerHTML = '<span style="color:var(--danger)">Erreur réseau</span>';
+    document.getElementById('roulette-controls').style.display = 'block';
+  }
+}
+
+function rouletteReset() {
+  _rlChoice = null;
+  document.getElementById('roulette-controls').style.display = 'block';
+  document.getElementById('rl-result').textContent = '';
+  document.getElementById('rl-replay-btn').style.display = 'none';
+  document.getElementById('rl-numero-display').textContent = '';
+  document.getElementById('rl-mise').value = '';
+  document.getElementById('rl-numero-input').value = '';
+  document.getElementById('rl-choice-label').textContent = '';
+  document.getElementById('rl-wheel').style.transform = '';
+  ['rouge','noir','pair','impair'].forEach(c => {
+    const b = document.getElementById('rl-btn-'+c);
+    if (b) b.style.opacity = '0.45';
+  });
+}
+
 function fillMock() {
   const _s = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
   _s('pf-name',  firstName);
@@ -8316,7 +8536,7 @@ async function bankOpenAccount(bank_id) {
 let _coData = null;
 
 function coTab(tab, btn) {
-  ['general','equipe','contrats','auto','impots','parts','candidatures','logs'].forEach(t => {
+  ['general','equipe','contrats','auto','impots','parts','candidatures','logs','presences'].forEach(t => {
     const el = document.getElementById('co-tab-'+t);
     if (el) el.style.display = t===tab ? 'block' : 'none';
   });
@@ -8328,6 +8548,93 @@ function coTab(tab, btn) {
   btn.style.borderBottom = '2.5px solid var(--accent)';
   btn.style.color = 'var(--accent)';
   btn.style.fontWeight = '800';
+  if (tab === 'presences') coLoadPresences();
+}
+
+async function coLoadPresences() {
+  const el = document.getElementById('co-presences-content');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/presences?user_id='+uid);
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text2)">${d.error}</div>`; return; }
+    const members = d.employees || [];
+    const isPdg = d.is_pdg || false;
+    const canPay = d.can_pay || false;
+    const payIn = d.pay_in || '';
+    const ROLE_LABELS = {pdg:'👑 PDG',directeur:'🎯 Dir.',manager:'📊 Manager',employe:'💼 Employé',secretaire:'📋 Secrétaire',stagiaire:'🎓 Stagiaire'};
+    const rows = members.map(m => `
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);${m.is_me?'background:rgba(247,201,72,.06);border-radius:8px;padding:8px;':''}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:800;font-size:13px;">${m.name}${m.is_me?' <span style="color:var(--accent);font-size:10px;">(moi)</span>':''}</div>
+            <div style="font-size:11px;color:var(--text2);">${ROLE_LABELS[m.role]||m.role} · ${m.contract==='signed'?'✅ Signé':m.contract==='pending'?'⏳ En attente':'—'}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:14px;font-weight:900;color:var(--accent);">${m.activity||0} cmds</div>
+            <div style="font-size:11px;color:var(--text2);">${m.daily||'0 $'}/j</div>
+          </div>
+        </div>
+        ${isPdg && !m.is_me && m.role !== 'pdg' ? `
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <input type="number" id="copay-${m.user_id}" placeholder="Montant" min="1" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text1);font-size:12px;font-family:'Nunito',sans-serif;">
+          <button onclick="coPayer(${m.user_id},'${m.name.replace(/'/g,"\\'")}',this)" style="padding:7px 12px;border-radius:8px;border:none;background:rgba(0,184,148,.15);border:1px solid var(--success);color:var(--success);font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">💵</button>
+        </div>
+        <div id="copay-msg-${m.user_id}" style="font-size:11px;color:var(--text2);min-height:14px;margin-top:3px;"></div>` : ''}
+      </div>`).join('');
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-title">📊 PRÉSENCES & SALAIRES</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+          <div style="background:var(--bg);border-radius:10px;padding:10px;border:1px solid var(--border);">
+            <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;">Trésorerie</div>
+            <div style="font-size:14px;font-weight:900;color:#f7c948;">${d.treasury||'0'} $</div>
+          </div>
+          <div style="background:var(--bg);border-radius:10px;padding:10px;border:1px solid var(--border);">
+            <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;">Masse salariale</div>
+            <div style="font-size:14px;font-weight:900;color:var(--text1);">${d.total_masse||'0'} $</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px;">Dernière paie : <b>${d.last_payroll||'Jamais'}</b>${payIn?' · Prochaine dans <b>'+payIn+'</b>':''}</div>
+        ${isPdg ? `
+        <button id="co-pay-all-btn" onclick="coVerserSalaires(this)" style="width:100%;padding:11px;border-radius:12px;border:none;background:${canPay?'linear-gradient(135deg,var(--success),#00b894)':'rgba(255,255,255,.08)'};color:${canPay?'#000':'var(--text2)'};font-weight:900;font-size:13px;cursor:${canPay?'pointer':'default'};font-family:'Nunito',sans-serif;margin-bottom:6px;">${canPay?'💰 Verser les salaires à tous':'⏳ Paie dans '+payIn}</button>
+        <div id="co-pay-all-msg" style="text-align:center;font-size:12px;color:var(--text2);min-height:14px;margin-bottom:10px;"></div>` : ''}
+        <div>${rows||'<div style="color:var(--text2);font-size:13px;text-align:center;padding:20px;">Aucun membre.</div>'}</div>
+      </div>`;
+  } catch(e) { if(el) el.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center;">Erreur de chargement.</div>'; }
+}
+
+async function coVerserSalaires(btn) {
+  const msgEl = document.getElementById('co-versersalaires-msg') || document.getElementById('co-pay-all-msg');
+  if (btn) btn.disabled = true;
+  if (msgEl) msgEl.textContent = '⏳ Versement…';
+  try {
+    const r = await fetchT('/api/webapp/versersalaires',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast(d.msg||'💵 Salaires versés !');
+    if(msgEl) msgEl.textContent = '✅ '+d.msg;
+    setTimeout(() => coLoadPresences(), 1500);
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
+}
+
+async function coPayer(targetId, name, btn) {
+  const amtEl = document.getElementById('copay-'+targetId);
+  const msgEl = document.getElementById('copay-msg-'+targetId);
+  const amount = parseInt(amtEl?.value||0);
+  if (!amount || amount <= 0) { if(msgEl) msgEl.textContent = 'Montant invalide'; return; }
+  if(btn) btn.disabled=true;
+  if(msgEl) msgEl.textContent = '⏳…';
+  try {
+    const r = await fetchT('/api/webapp/payeremploye',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,target_id:targetId,amount})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast('💵 '+name+' payé !');
+    if(msgEl) msgEl.textContent = '✅ Envoyé';
+    if(amtEl) amtEl.value='';
+    if(btn) btn.disabled=false;
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
 }
 
 function _coRoleLabel(role) {
@@ -10077,11 +10384,10 @@ async function submitPay() {
 // ══════════════════════════════════════════════════
 let _coSearchTimer = null;
 async function loadEntreprises() {
-  if (MAINTENANCE_LOCK['entreprises']) { _renderMaintenance(document.getElementById('page-entreprises')); return; }
   const el = document.getElementById('co-list');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/companies/list?user_id='+uid, {}, 10000);
+    const r = await fetchT('/api/webapp/companies/list?user_id='+uid, {}, 10000);
     const d = await r.json();
     renderCoList(d.companies || []);
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
@@ -10091,7 +10397,7 @@ function searchCompanies(q) {
   _coSearchTimer = setTimeout(async () => {
     if (!q.trim()) { loadEntreprises(); return; }
     try {
-      const r = await fetchT('/api/webapp/actions/companies/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 8000);
+      const r = await fetchT('/api/webapp/companies/search?user_id='+uid+'&q='+encodeURIComponent(q), {}, 8000);
       const d = await r.json();
       renderCoList(d.companies || []);
     } catch(e) {}
@@ -10126,7 +10432,7 @@ async function openCOModal(coId) {
   modal.style.display = 'flex';
   document.getElementById('co-detail-content').innerHTML = '<div class="plus-loader" style="padding:40px">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/companies/search?user_id='+uid+'&id='+coId, {}, 8000);
+    const r = await fetchT('/api/webapp/companies/search?user_id='+uid+'&id='+coId, {}, 8000);
     const d = await r.json();
     const co = (d.companies||[])[0];
     if (!co) { document.getElementById('co-detail-content').innerHTML='<div style="color:var(--text2)">Entreprise introuvable</div>'; return; }
@@ -10159,7 +10465,7 @@ async function submitPostuler(coId) {
   const salary = parseInt(document.getElementById('postuler-salary').value)||0;
   const message = document.getElementById('postuler-message').value.trim();
   try {
-    const r = await fetchT('/api/webapp/actions/postuler', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_id: coId, salary_request: salary, message }) }, 10000);
+    const r = await fetchT('/api/webapp/postuler', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_id: coId, salary_request: salary, message }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('📨 Candidature envoyée !'); closeCOModal(); }
     else showToast(d.error || 'Erreur');
@@ -10174,7 +10480,7 @@ async function loadInvitations() {
   const el = document.getElementById('inv-list');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/invitations?user_id='+uid, {}, 10000);
+    const r = await fetchT('/api/webapp/invitations?user_id='+uid, {}, 10000);
     const d = await r.json();
     const invs = d.invitations || [];
     if (!invs.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">📬</div><div style="font-size:15px;font-weight:700">Aucune invitation</div></div>'; return; }
@@ -10198,7 +10504,7 @@ async function loadInvitations() {
 }
 async function acceptInvitation(invId) {
   try {
-    const r = await fetchT('/api/webapp/actions/invitations/accepter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
+    const r = await fetchT('/api/webapp/invitations/accepter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('✅ Invitation acceptée !'); loadInvitations(); }
     else showToast(d.error || 'Erreur');
@@ -10206,7 +10512,7 @@ async function acceptInvitation(invId) {
 }
 async function refuseInvitation(invId) {
   try {
-    const r = await fetchT('/api/webapp/actions/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
+    const r = await fetchT('/api/webapp/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('❌ Invitation refusée.'); loadInvitations(); }
     else showToast(d.error || 'Erreur');
@@ -10223,7 +10529,7 @@ async function submitCounterOffer() {
   const salary = parseInt(document.getElementById('inv-counter-salary').value);
   if (!salary || salary <= 0 || !_counterInvId) { showToast('Montant invalide'); return; }
   try {
-    const r = await fetchT('/api/webapp/actions/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: _counterInvId, counter_salary: salary }) }, 10000);
+    const r = await fetchT('/api/webapp/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: _counterInvId, counter_salary: salary }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('💬 Contre-proposition envoyée !'); closeCounterModal(); loadInvitations(); }
     else showToast(d.error || 'Erreur');
@@ -10237,29 +10543,94 @@ async function loadPresences() {
   const el = document.getElementById('presences-content');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/presences?user_id='+uid, {}, 10000);
+    const r = await fetchT('/api/webapp/presences?user_id='+uid, {}, 10000);
     const d = await r.json();
-    if (!d.ok) { el.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2)">${d.error||'Pas accès aux présences'}</div>`; return; }
-    const members = d.members || [];
-    if (!members.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun membre à afficher</div>'; return; }
+    if (d.error) { el.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2)">${d.error}</div>`; return; }
+    const members = d.employees || [];
+    const isPdg = d.is_pdg || false;
+    const canPay = d.can_pay || false;
+    const payIn = d.pay_in || '';
+    const lastPay = d.last_payroll || 'Jamais';
+    const treasury = d.treasury || '0';
+    const totalMasse = d.total_masse || '0';
+
+    const ROLE_LABELS = {pdg:'👑 PDG',directeur:'🎯 Directeur',manager:'📊 Manager',employe:'💼 Employé',secretaire:'📋 Secrétaire',stagiaire:'🎓 Stagiaire'};
+    const CONTRACT_LABELS = {signed:'✅ Signé',pending:'⏳ En attente',none:'—'};
+
+    const rows = members.map(m => `
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);${m.is_me?'background:rgba(247,201,72,.05);border-radius:8px;padding:10px;':''}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:800;font-size:13px;color:var(--text1);">${m.name}${m.is_me?' <span style="color:var(--accent);font-size:11px;">(moi)</span>':''}</div>
+            <div style="font-size:11px;color:var(--text2);">@${m.username||'—'} · ${ROLE_LABELS[m.role]||m.role}</div>
+            <div style="font-size:11px;color:var(--text2);">Contrat : ${CONTRACT_LABELS[m.contract]||m.contract}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:14px;font-weight:900;color:var(--accent);">${m.activity||0} cmds</div>
+            <div style="font-size:11px;color:var(--text2);">${m.daily||'0 $'}/j</div>
+            <div style="font-size:11px;color:var(--text2);">${m.cmd_count||0} total</div>
+          </div>
+        </div>
+        ${isPdg && !m.is_me && m.role !== 'pdg' ? `
+        <div style="margin-top:8px;">
+          <input type="number" id="pay-amt-${m.user_id}" placeholder="Montant manuel" min="1" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text1);font-size:12px;margin-bottom:6px;">
+          <button onclick="payerEmployeManuel(${m.user_id},'${m.name.replace(/'/g,"\\'")}',this)" style="width:100%;padding:7px;border-radius:8px;border:none;background:rgba(100,200,100,.15);border:1px solid var(--success);color:var(--success);font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">💵 Payer manuellement</button>
+          <div id="pay-msg-${m.user_id}" style="font-size:11px;color:var(--text2);text-align:center;min-height:14px;margin-top:4px;"></div>
+        </div>` : ''}
+      </div>`).join('');
+
     el.innerHTML = `
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-title">TABLEAU DES PRÉSENCES — ${d.company_name||''}</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Période : ${d.period_label||'Ce mois'}</div>
-        ${members.map(m => `
-          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-            <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${m.avatar_emoji||'👤'}</div>
-            <div style="flex:1">
-              <div style="font-weight:800;font-size:13px">${m.name}</div>
-              <div style="font-size:11px;color:var(--text2)">${m.poste||'Employé'}</div>
-            </div>
-            <div style="text-align:right">
-              <div style="font-weight:900;font-size:14px;color:var(--accent)">${m.days_active||0}j actifs</div>
-              <div style="font-size:11px;color:var(--text2)">${m.cmds_done||0} cmds</div>
-            </div>
-          </div>`).join('')}
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title">📊 TABLEAU DES PRÉSENCES</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+          <div style="background:var(--bg);border-radius:10px;padding:10px;border:1px solid var(--border);">
+            <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;">Trésorerie</div>
+            <div style="font-size:14px;font-weight:900;color:#f7c948;">${treasury} $</div>
+          </div>
+          <div style="background:var(--bg);border-radius:10px;padding:10px;border:1px solid var(--border);">
+            <div style="font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;">Masse salariale</div>
+            <div style="font-size:14px;font-weight:900;color:var(--text1);">${totalMasse} $</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px;">Dernière paie : <b>${lastPay}</b>${payIn?' · Prochaine dans <b>'+payIn+'</b>':''}</div>
+        ${isPdg ? `
+        <button onclick="verserSalaires(this)" style="width:100%;padding:11px;border-radius:12px;border:none;background:${canPay?'linear-gradient(135deg,var(--success),#00b894)':'rgba(255,255,255,.08)'};color:${canPay?'#000':'var(--text2)'};font-weight:900;font-size:13px;cursor:${canPay?'pointer':'default'};font-family:'Nunito',sans-serif;margin-bottom:6px;">${canPay?'💰 Verser les salaires':'⏳ Paie dans '+payIn}</button>
+        <div id="verser-msg" style="text-align:center;font-size:12px;color:var(--text2);min-height:16px;margin-bottom:10px;"></div>` : ''}
+        <div>${rows||'<div style="color:var(--text2);font-size:13px;text-align:center;padding:20px;">Aucun membre.</div>'}</div>
       </div>`;
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
+}
+
+async function verserSalaires(btn) {
+  const msgEl = document.getElementById('verser-msg');
+  if (btn) btn.disabled = true;
+  if (msgEl) msgEl.textContent = '⏳ Versement en cours...';
+  try {
+    const r = await fetchT('/api/webapp/versersalaires', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast(d.msg||'💰 Salaires versés !');
+    if(msgEl) msgEl.textContent = d.msg||'';
+    setTimeout(() => loadPresences(), 1500);
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
+}
+
+async function payerEmployeManuel(targetId, targetName, btn) {
+  const amtEl = document.getElementById('pay-amt-'+targetId);
+  const msgEl = document.getElementById('pay-msg-'+targetId);
+  const amount = parseInt(amtEl?.value||0);
+  if (!amount || amount <= 0) { if(msgEl) msgEl.textContent = 'Montant invalide'; return; }
+  if(btn) btn.disabled = true;
+  if(msgEl) msgEl.textContent = '⏳...';
+  try {
+    const r = await fetchT('/api/webapp/payeremploye', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,target_id:targetId,amount})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast('💵 '+targetName+' payé !');
+    if(msgEl) msgEl.textContent = '✅ Payé';
+    if(amtEl) amtEl.value = '';
+    setTimeout(() => loadPresences(), 1200);
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
 }
 
 // ══════════════════════════════════════════════════
@@ -10277,7 +10648,7 @@ async function loadPartsMes() {
   const el = document.getElementById('parts-mes');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/parts?user_id='+uid, {}, 10000);
+    const r = await fetchT('/api/webapp/parts?user_id='+uid, {}, 10000);
     const d = await r.json();
     const parts = d.parts || [];
     if (!parts.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">📜</div><div>Aucune part détenue</div></div>'; return; }
@@ -10301,7 +10672,7 @@ async function loadPartsOffres() {
   const el = document.getElementById('parts-offres');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/parts?user_id='+uid, {}, 10000);
+    const r = await fetchT('/api/webapp/parts?user_id='+uid, {}, 10000);
     const d = await r.json();
     const offres = d.pending_offers || [];
     if (!offres.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucune offre en attente</div>'; return; }
@@ -10318,7 +10689,7 @@ async function loadPartsOffres() {
 }
 async function acceptPartsOffer(offerId) {
   try {
-    const r = await fetchT('/api/webapp/actions/parts/accepteroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
+    const r = await fetchT('/api/webapp/parts/accepteroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('✅ Offre acceptée !'); loadPartsOffres(); }
     else showToast(d.error||'Erreur');
@@ -10326,7 +10697,7 @@ async function acceptPartsOffer(offerId) {
 }
 async function refusePartsOffer(offerId) {
   try {
-    const r = await fetchT('/api/webapp/actions/parts/refuseroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
+    const r = await fetchT('/api/webapp/parts/refuseroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('❌ Offre refusée.'); loadPartsOffres(); }
     else showToast(d.error||'Erreur');
@@ -10339,7 +10710,7 @@ async function submitVendreParts() {
   const target = document.getElementById('parts-sell-target').value.trim();
   if (!company || !qty || !price) { showToast('Remplis tous les champs obligatoires'); return; }
   try {
-    const r = await fetchT('/api/webapp/actions/parts/vendre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, price_per_part: price, target_name: target||null }) }, 10000);
+    const r = await fetchT('/api/webapp/parts/vendre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, price_per_part: price, target_name: target||null }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('📤 Parts mises en vente !'); document.getElementById('parts-sell-company').value=''; document.getElementById('parts-sell-qty').value=''; document.getElementById('parts-sell-price').value=''; document.getElementById('parts-sell-target').value=''; }
     else showToast(d.error||'Erreur');
@@ -10351,7 +10722,7 @@ async function submitAcheterParts() {
   const price = parseInt(document.getElementById('parts-buy-price').value);
   if (!company || !qty || !price) { showToast('Remplis tous les champs'); return; }
   try {
-    const r = await fetchT('/api/webapp/actions/parts/acheter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, max_price_per_part: price }) }, 10000);
+    const r = await fetchT('/api/webapp/parts/acheter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, max_price_per_part: price }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('🛒 Offre d\'achat soumise !'); document.getElementById('parts-buy-company').value=''; document.getElementById('parts-buy-qty').value=''; document.getElementById('parts-buy-price').value=''; }
     else showToast(d.error||'Erreur');
@@ -10374,7 +10745,7 @@ async function loadContratsBc() {
   const el = document.getElementById('contrats-bc');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/contrats/bc?user_id='+uid, {}, 10000);
+    const r = await fetchT('/api/webapp/contrats/bc?user_id='+uid, {}, 10000);
     const d = await r.json();
     const contrats = d.contrats || [];
     if (!contrats.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun contrat BC actif</div>'; return; }
@@ -10394,7 +10765,7 @@ async function loadContratsAuto() {
   const el = document.getElementById('contrats-auto');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/contrats/auto?user_id='+uid, {}, 10000);
+    const r = await fetchT('/api/webapp/contrats/auto?user_id='+uid, {}, 10000);
     const d = await r.json();
     const contrats = d.contrats || [];
     if (!contrats.length) { el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">Aucun contrat auto actif</div>'; return; }
@@ -10424,16 +10795,17 @@ async function loadRecruter() {
   const el = document.getElementById('team-manage-list');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
   try {
-    const r = await fetchT('/api/webapp/actions/presences?user_id='+uid, {}, 10000);
+    const r = await fetchT('/api/webapp/presences?user_id='+uid, {}, 10000);
     const d = await r.json();
-    if (!d.ok) { el.innerHTML = `<div style="font-size:13px;color:var(--text2);padding:10px">${d.error||'Accès PDG requis'}</div>`; return; }
-    const members = d.members || [];
+    if (d.error) { el.innerHTML = `<div style="font-size:13px;color:var(--text2);padding:10px">${d.error||'Accès PDG requis'}</div>`; return; }
+    const members = d.employees || [];
+    const ROLE_LABELS = {pdg:'👑 PDG',directeur:'🎯 Dir.',manager:'📊 Manager',employe:'💼 Employé',secretaire:'📋 Secrétaire',stagiaire:'🎓 Stagiaire'};
     if (!members.length) { el.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:10px">Aucun membre pour l\'instant</div>'; return; }
     el.innerHTML = members.map(m => `
       <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:18px">${m.avatar_emoji||'👤'}</div>
-        <div style="flex:1"><div style="font-weight:800;font-size:13px">${m.name}</div><div style="font-size:11px;color:var(--text2)">${m.poste||'Employé'}</div></div>
-        <button onclick="openTeamModal(${m.user_id},'${(m.name||'').replace(/'/g,"\\'")}','${m.poste||'employe'}')" style="padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-weight:800;font-size:12px;cursor:pointer">⚙️</button>
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>
+        <div style="flex:1"><div style="font-weight:800;font-size:13px">${m.name}</div><div style="font-size:11px;color:var(--text2)">${ROLE_LABELS[m.role]||m.role}</div></div>
+        <button onclick="openTeamModal(${m.user_id},'${(m.name||'').replace(/'/g,"\\'")}','${m.role||'employe'}')" style="padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-weight:800;font-size:12px;cursor:pointer">⚙️</button>
       </div>`).join('');
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur.</div>'; }
 }
@@ -10461,7 +10833,7 @@ async function submitRecruter() {
   const poste = document.getElementById('rec-poste').value;
   if (!_recTargetUid) { showToast('Sélectionne un joueur'); return; }
   try {
-    const r = await fetchT('/api/webapp/actions/recruter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _recTargetUid, salary, poste }) }, 10000);
+    const r = await fetchT('/api/webapp/recruter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _recTargetUid, salary, poste }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('📨 Invitation envoyée !'); cancelRec(); loadRecruter(); }
     else showToast(d.error||'Erreur');
@@ -10484,7 +10856,7 @@ function openTeamModal(userId, name, poste) {
 function closeTeamModal() { document.getElementById('team-action-modal').style.display='none'; _teamModalUid=null; }
 async function teamNommer(newPoste) {
   try {
-    const r = await fetchT('/api/webapp/actions/nommer', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid, new_poste: newPoste }) }, 10000);
+    const r = await fetchT('/api/webapp/nommer', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid, new_poste: newPoste }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('✅ Poste mis à jour !'); closeTeamModal(); loadRecruter(); }
     else showToast(d.error||'Erreur');
@@ -10492,7 +10864,7 @@ async function teamNommer(newPoste) {
 }
 async function teamLicencier() {
   try {
-    const r = await fetchT('/api/webapp/actions/licencier', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid }) }, 10000);
+    const r = await fetchT('/api/webapp/licencier', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('🚫 Employé licencié.'); closeTeamModal(); loadRecruter(); }
     else showToast(d.error||'Erreur');
@@ -12327,5 +12699,115 @@ function _ftShowToast(msg) {
 // ── Init topbar au chargement ─────────────────────────────────────────────────
 window.addEventListener('load', () => {
   setTimeout(_ftLoadOwned, 1500);
+});
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+//  💬 CHAT GLOBAL — Salon de discussion
+// ══════════════════════════════════════════════════════════════════
+
+let _chatLastId = 0;
+let _chatPollInterval = null;
+let _chatPolling = false;
+
+function _chatUserColor(userId) {
+  const colors = ['#74b9ff','#55efc4','#fdcb6e','#a29bfe','#fd79a8','#00cec9','#e17055','#6c5ce7'];
+  return colors[Math.abs(userId) % colors.length];
+}
+
+function _renderChatMsg(m) {
+  const isMe = m.is_me;
+  const color = _chatUserColor(m.user_id);
+  const name = m.username ? `@${m.username}` : m.name;
+  return `<div style="display:flex;flex-direction:${isMe?'row-reverse':'row'};gap:6px;align-items:flex-end;">
+    ${!isMe?`<div style="width:28px;height:28px;border-radius:50%;background:${color}22;border:1px solid ${color}44;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;color:${color};font-weight:900;">${(m.name||'?')[0].toUpperCase()}</div>`:''}
+    <div style="max-width:70%;">
+      ${!isMe?`<div style="font-size:10px;color:${color};font-weight:800;margin-bottom:2px;">${name}</div>`:''}
+      <div style="background:${isMe?'var(--accent)':'var(--card2)'};color:${isMe?'#000':'var(--text1)'};border-radius:${isMe?'14px 14px 4px 14px':'14px 14px 14px 4px'};padding:7px 11px;font-size:13px;line-height:1.4;word-break:break-word;">${m.content}</div>
+      <div style="font-size:10px;color:var(--text2);margin-top:2px;text-align:${isMe?'right':'left'};">${m.time}</div>
+    </div>
+  </div>`;
+}
+
+async function _chatLoad(initial=false) {
+  if (_chatPolling) return;
+  _chatPolling = true;
+  try {
+    const url = `/api/webapp/chat?user_id=${uid}${_chatLastId>0?'&since='+_chatLastId:''}`;
+    const r = await fetchT(url, {}, 8000);
+    const d = await r.json();
+    if (d.error) { _chatPolling=false; return; }
+    const msgs = d.messages || [];
+    const el = document.getElementById('chat-messages');
+    if (!el) { _chatPolling=false; return; }
+    if (initial) {
+      if (!msgs.length) {
+        el.innerHTML = '<div style="text-align:center;color:var(--text2);font-size:12px;padding:30px 0;">Aucun message. Sois le premier à parler ! 👋</div>';
+      } else {
+        el.innerHTML = msgs.map(_renderChatMsg).join('');
+        el.scrollTop = el.scrollHeight;
+      }
+    } else if (msgs.length) {
+      // Supprimer loader si présent
+      const loader = el.querySelector('[data-loader]');
+      if (loader) loader.remove();
+      msgs.forEach(m => {
+        el.insertAdjacentHTML('beforeend', _renderChatMsg(m));
+      });
+      el.scrollTop = el.scrollHeight;
+    }
+    if (d.last_id) _chatLastId = d.last_id;
+  } catch(e) {}
+  _chatPolling = false;
+}
+
+function _chatStartPolling() {
+  _chatLoad(true);
+  if (_chatPollInterval) clearInterval(_chatPollInterval);
+  _chatPollInterval = setInterval(() => _chatLoad(false), 4000);
+}
+
+function _chatStopPolling() {
+  if (_chatPollInterval) { clearInterval(_chatPollInterval); _chatPollInterval = null; }
+}
+
+async function sendChatMsg() {
+  const input = document.getElementById('chat-input');
+  const content = (input?.value||'').trim();
+  if (!content) return;
+  input.value = '';
+  input.disabled = true;
+  try {
+    const r = await fetchT('/api/webapp/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: uid, content})
+    }, 8000);
+    const d = await r.json();
+    if (d.error) { showToast('❌ '+d.error); input.value = content; }
+    else { setTimeout(() => _chatLoad(false), 300); }
+  } catch(e) { showToast('❌ Erreur réseau'); input.value = content; }
+  input.disabled = false;
+  input.focus();
+}
+
+// Démarrer le chat quand l'onglet Social est affiché
+const _origSubTab = window.subTab;
+window.subTab = function(page, fn) {
+  if (page === 'social-hub' || page === '') {
+    if (!_chatPollInterval) _chatStartPolling();
+  } else {
+    _chatStopPolling();
+  }
+  if (_origSubTab) _origSubTab.call(this, page, fn);
+};
+
+// Démarrer si on est déjà sur social
+document.addEventListener('DOMContentLoaded', () => {
+  const activePage = document.querySelector('.page.active');
+  if (!activePage || activePage.id === 'page-social-hub') {
+    setTimeout(_chatStartPolling, 2000);
+  }
 });
 </script>

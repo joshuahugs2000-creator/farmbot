@@ -53,6 +53,7 @@ from database.models import (
     User, Company, CompanyEmployee, CompanyShare,
     CompanyApplication, CompanyInvite, CompanyLog,
     CompanyShareOffer, BureauContrat, CompanyAutoContract,
+    ChatMessage, Relationship, RelationType,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,12 @@ MANAGEMENT_ROLES = ("pdg", "directeur", "manager")
 
 SKIP_COST = 500_000
 PAYROLL_COOLDOWN_HOURS = 20
+
+# ─── MESSAGERIE — accès restreint en bêta ───────────────────────────────────
+CHAT_BETA_USER_IDS = {6227863810}
+
+def _chat_beta_ok(uid: int) -> bool:
+    return uid in CHAT_BETA_USER_IDS
 
 # ─── UTILITAIRES ─────────────────────────────────────────────────────────────
 
@@ -2284,6 +2291,11 @@ def setup_actions_routes(app: web.Application):
     app.router.add_post("/api/webapp/family/unfriend",     webapp_family_unfriend)
     app.router.add_post("/api/webapp/family/disown",       webapp_family_disown)
 
+    # Messagerie privée (bêta fermée)
+    app.router.add_get("/api/webapp/chat/contacts",        webapp_chat_contacts)
+    app.router.add_get("/api/webapp/chat/messages",        webapp_chat_messages)
+    app.router.add_post("/api/webapp/chat/send",           webapp_chat_send)
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  MARCHÉ DES OBJETS (auction_inventory)
@@ -3628,3 +3640,250 @@ async def webapp_contrat_repondre(request: web.Request) -> web.Response:
             return _ok(f"💬 Contre-proposition envoyée : {_fmt(counter_amount)} $/jour")
 
         return _err("Action invalide (accepter / refuser / counter)")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  MESSAGERIE PRIVÉE (chat entre liens : famille / amis)
+#
+#  ⚠️ Fonctionnalité en bêta fermée : seuls les user_id de CHAT_BETA_USER_IDS
+#  peuvent y accéder pendant les tests. Retirer le check _chat_beta_ok une
+#  fois la feature validée pour l'ouvrir à tout le monde.
+# ═════════════════════════════════════════════════════════════════════════════
+
+CHAT_RELATION_LABELS_OUT = {
+    RelationType.SPOUSE: "💍 Conjoint·e",
+    RelationType.FRIEND: "🤝 Ami·e",
+    RelationType.PARENT: "👶 Enfant",
+    RelationType.SIBLING: "🧑‍🤝‍🧑 Frère/Sœur",
+}
+CHAT_RELATION_LABELS_IN = {
+    RelationType.SPOUSE: "💍 Conjoint·e",
+    RelationType.FRIEND: "🤝 Ami·e",
+    RelationType.PARENT: "👨‍👩 Parent",
+    RelationType.SIBLING: "🧑‍🤝‍🧑 Frère/Sœur",
+}
+
+
+async def _chat_linked_users(session, uid: int) -> dict:
+    """Retourne {other_user_id: relation_label} pour tous les liens de uid
+    (peu importe qui a initié la relation)."""
+    labels: dict[int, str] = {}
+
+    rels_out = (await session.execute(
+        select(Relationship).where(Relationship.user_id == uid)
+    )).scalars().all()
+    for r in rels_out:
+        lbl = CHAT_RELATION_LABELS_OUT.get(r.relation_type)
+        if lbl:
+            labels[r.related_user_id] = lbl
+
+    rels_in = (await session.execute(
+        select(Relationship).where(Relationship.related_user_id == uid)
+    )).scalars().all()
+    for r in rels_in:
+        if r.user_id in labels:
+            continue
+        lbl = CHAT_RELATION_LABELS_IN.get(r.relation_type)
+        if lbl:
+            labels[r.user_id] = lbl
+
+    return labels
+
+
+async def webapp_chat_contacts(request: web.Request) -> web.Response:
+    """GET /api/webapp/chat/contacts — liste des contacts (liens) avec aperçu
+    du dernier message et nombre de messages non lus."""
+    uid = _parse_uid(request)
+    if not _auth(uid):
+        return _err("unauthorized", 403)
+    if not _chat_beta_ok(uid):
+        return _err("Messagerie en cours de test, pas encore disponible.", 403)
+
+    async with AsyncSessionLocal() as session:
+        linked = await _chat_linked_users(session, uid)
+        if not linked:
+            return web.json_response({"contacts": [], "total_unread": 0})
+
+        other_ids = list(linked.keys())
+        users = (await session.execute(
+            select(User).where(User.user_id.in_(other_ids))
+        )).scalars().all()
+        user_map = {u.user_id: u for u in users}
+
+        contacts = []
+        total_unread = 0
+        for other_id, relation in linked.items():
+            ou = user_map.get(other_id)
+            if not ou:
+                continue
+
+            last_msg = (await session.execute(
+                select(ChatMessage).where(
+                    or_(
+                        (ChatMessage.from_user_id == uid) & (ChatMessage.to_user_id == other_id),
+                        (ChatMessage.from_user_id == other_id) & (ChatMessage.to_user_id == uid),
+                    )
+                ).order_by(ChatMessage.sent_at.desc()).limit(1)
+            )).scalar_one_or_none()
+
+            unread = (await session.execute(
+                select(func.count(ChatMessage.id)).where(
+                    ChatMessage.from_user_id == other_id,
+                    ChatMessage.to_user_id == uid,
+                    ChatMessage.read_at == None,
+                )
+            )).scalar() or 0
+            total_unread += unread
+
+            contacts.append({
+                "user_id":  other_id,
+                "name":     ou.first_name or "—",
+                "username": ou.username or "",
+                "relation": relation,
+                "last_message":    (last_msg.content[:80] if last_msg else ""),
+                "last_message_at": (last_msg.sent_at.isoformat() if last_msg else ""),
+                "last_message_mine": (last_msg.from_user_id == uid) if last_msg else False,
+                "unread": unread,
+                "_sort_ts": last_msg.sent_at.timestamp() if last_msg else 0,
+            })
+
+        contacts.sort(key=lambda c: (-c["_sort_ts"], c["name"]))
+        for c in contacts:
+            c.pop("_sort_ts", None)
+
+    return web.json_response({"contacts": contacts, "total_unread": total_unread})
+
+
+async def webapp_chat_messages(request: web.Request) -> web.Response:
+    """GET /api/webapp/chat/messages?with=<user_id> — historique d'une conversation.
+    Marque automatiquement les messages reçus comme lus."""
+    uid = _parse_uid(request)
+    if not _auth(uid):
+        return _err("unauthorized", 403)
+    if not _chat_beta_ok(uid):
+        return _err("Messagerie en cours de test, pas encore disponible.", 403)
+
+    try:
+        other_id = int(request.rel_url.query.get("with", 0))
+    except Exception:
+        other_id = 0
+    if other_id <= 0:
+        return _err("Contact invalide")
+
+    async with AsyncSessionLocal() as session:
+        linked = await _chat_linked_users(session, uid)
+        if other_id not in linked:
+            return _err("Tu n'as pas de lien avec ce joueur (ami / famille requis).", 403)
+
+        other = (await session.execute(
+            select(User).where(User.user_id == other_id)
+        )).scalar_one_or_none()
+        if not other:
+            return _err("Joueur introuvable", 404)
+
+        rows = (await session.execute(
+            select(ChatMessage).where(
+                or_(
+                    (ChatMessage.from_user_id == uid) & (ChatMessage.to_user_id == other_id),
+                    (ChatMessage.from_user_id == other_id) & (ChatMessage.to_user_id == uid),
+                )
+            ).order_by(ChatMessage.sent_at.asc()).limit(300)
+        )).scalars().all()
+
+        messages = [{
+            "id":      m.id,
+            "from":    m.from_user_id,
+            "content": m.content,
+            "sent_at": m.sent_at.isoformat() if m.sent_at else "",
+            "mine":    m.from_user_id == uid,
+        } for m in rows]
+
+        # Marquer comme lus les messages reçus de ce contact
+        await session.execute(
+            sa_text("""
+                UPDATE chat_messages SET read_at = NOW()
+                WHERE from_user_id = :other AND to_user_id = :me AND read_at IS NULL
+            """),
+            {"other": other_id, "me": uid},
+        )
+        await session.commit()
+
+    return web.json_response({
+        "messages": messages,
+        "contact": {
+            "user_id":  other.user_id,
+            "name":     other.first_name or "—",
+            "username": other.username or "",
+            "relation": linked[other_id],
+        },
+    })
+
+
+async def webapp_chat_send(request: web.Request) -> web.Response:
+    """POST /api/webapp/chat/send — body: {to, content}"""
+    uid = _parse_uid(request)
+    if not _auth(uid):
+        return _err("unauthorized", 403)
+    if not _chat_beta_ok(uid):
+        return _err("Messagerie en cours de test, pas encore disponible.", 403)
+
+    body = await _body(request)
+    try:
+        to_id = int(body.get("to", 0))
+    except Exception:
+        to_id = 0
+    content = str(body.get("content", "")).strip()
+
+    if to_id <= 0:
+        return _err("Destinataire invalide")
+    if to_id == uid:
+        return _err("Tu ne peux pas te parler à toi-même 😅")
+    if not content:
+        return _err("Message vide")
+    if len(content) > 1000:
+        content = content[:1000]
+
+    async with AsyncSessionLocal() as session:
+        linked = await _chat_linked_users(session, uid)
+        if to_id not in linked:
+            return _err("Tu n'as pas de lien avec ce joueur (ami / famille requis).", 403)
+
+        sender = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
+        target = (await session.execute(select(User).where(User.user_id == to_id))).scalar_one_or_none()
+        if not sender or not target:
+            return _err("Utilisateur introuvable", 404)
+        if target.is_banned:
+            return _err("Ce joueur est banni")
+
+        # Notifier Telegram seulement si pas de message récent (anti-spam)
+        recent = (await session.execute(
+            select(ChatMessage).where(
+                ChatMessage.from_user_id == uid,
+                ChatMessage.to_user_id == to_id,
+                ChatMessage.sent_at >= datetime.utcnow() - timedelta(minutes=5),
+            ).limit(1)
+        )).scalar_one_or_none()
+        should_notify = recent is None
+
+        msg = ChatMessage(from_user_id=uid, to_user_id=to_id, content=content)
+        session.add(msg)
+        await session.commit()
+
+        sender_name = sender.first_name or "Un joueur"
+        msg_id, sent_at = msg.id, msg.sent_at
+
+    if should_notify:
+        await _notify(to_id, f"💬 <b>{sender_name}</b> t'a envoyé un message !\n\n« {content[:200]} »")
+    try:
+        from api.webapp import push_db_notif as _pn
+        await _pn(to_id, "💬", f"Message de {sender_name}", content[:120])
+    except Exception as _e:
+        logger.error(f"push_db_notif chat: {_e}")
+
+    return _ok("Message envoyé", message={
+        "id": msg_id,
+        "from": uid,
+        "content": content,
+        "sent_at": sent_at.isoformat() if sent_at else "",
+        "mine": True,
+    })

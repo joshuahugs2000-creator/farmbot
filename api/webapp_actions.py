@@ -331,6 +331,7 @@ async def webapp_companies_list(request: web.Request) -> web.Response:
                 "rank":          i,
                 "id":            c.id,
                 "name":          c.name,
+                "emoji":         sec_emoji,
                 "sector":        c.sector,
                 "sec_emoji":     sec_emoji,
                 "sec_name":      sec_name,
@@ -339,36 +340,50 @@ async def webapp_companies_list(request: web.Request) -> web.Response:
                 "lvl_name":      lvl_name,
                 "value":         _fmt(c.value),
                 "value_raw":     c.value or 0,
+                "capital":       c.value or 0,
                 "treasury":      _fmt(c.treasury),
                 "reputation":    round(c.reputation or 0, 1),
                 "nb_emp":        nb_emp,
+                "employee_count": nb_emp,
                 "max_emp":       max_emp,
+                "max_employees": max_emp,
                 "is_bot":        c.is_bot_company,
                 "can_apply":     not already_in and not already_applied and nb_emp < max_emp,
+                "is_hiring":     not already_in and not already_applied and nb_emp < max_emp,
                 "already_applied": bool(already_applied),
                 "already_in":    bool(already_in),
             })
 
-    return web.json_response({"items": items, "total": total, "page": page, "pages": (total + PAGE - 1) // PAGE})
+    return web.json_response({"items": items, "companies": items, "total": total, "page": page, "pages": (total + PAGE - 1) // PAGE})
 
 
 async def webapp_companies_search(request: web.Request) -> web.Response:
-    """GET /api/webapp/companies/search?q=nom&user_id=xxx"""
+    """GET /api/webapp/companies/search?q=nom&user_id=xxx
+    GET /api/webapp/companies/search?id=123&user_id=xxx  (fiche détaillée d'une entreprise)"""
     uid = _parse_uid(request)
     if not _auth(uid):
         return _err("unauthorized", 403)
 
+    cid_param = request.rel_url.query.get("id", "").strip()
     q = request.rel_url.query.get("q", "").strip()
-    if len(q) < 2:
-        return _err("Tape au moins 2 caractères")
 
     async with AsyncSessionLocal() as session:
-        cos = (await session.execute(
-            select(Company).where(
-                Company.name.ilike(f"%{q}%"),
-                Company.is_active == True,
-            ).limit(10)
-        )).scalars().all()
+        if cid_param:
+            try:
+                cid = int(cid_param)
+            except ValueError:
+                return _err("id invalide")
+            target = await session.get(Company, cid)
+            cos = [target] if target and target.is_active else []
+        else:
+            if len(q) < 2:
+                return _err("Tape au moins 2 caractères")
+            cos = (await session.execute(
+                select(Company).where(
+                    Company.name.ilike(f"%{q}%"),
+                    Company.is_active == True,
+                ).limit(10)
+            )).scalars().all()
 
         items = []
         for c in cos:
@@ -380,21 +395,55 @@ async def webapp_companies_search(request: web.Request) -> web.Response:
                     CompanyEmployee.left_at == None,
                 )
             )).scalar()
+            max_emp = _max_employees(c)
+            avg_salary = (await session.execute(
+                select(func.avg(CompanyEmployee.daily_salary)).where(
+                    CompanyEmployee.company_id == c.id,
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar() or 0
+
+            already_applied = (await session.execute(
+                select(CompanyApplication).where(
+                    CompanyApplication.company_id == c.id,
+                    CompanyApplication.user_id == uid,
+                    CompanyApplication.status == "pending",
+                )
+            )).scalar_one_or_none()
+            already_in = (await session.execute(
+                select(CompanyEmployee).where(
+                    CompanyEmployee.company_id == c.id,
+                    CompanyEmployee.user_id == uid,
+                    CompanyEmployee.left_at == None,
+                )
+            )).scalar_one_or_none()
+
             items.append({
                 "id":        c.id,
                 "name":      c.name,
+                "emoji":     sec_emoji,
+                "sector":    c.sector,
                 "sec_emoji": sec_emoji,
                 "sec_name":  sec_name,
+                "level":     c.level or 1,
                 "lvl_emoji": lvl_emoji,
                 "lvl_name":  lvl_name,
+                "description": c.description or "",
                 "value":     _fmt(c.value),
+                "capital":   c.value or 0,
                 "reputation": round(c.reputation or 0, 1),
                 "nb_emp":    nb_emp,
-                "max_emp":   _max_employees(c),
+                "employee_count": nb_emp,
+                "max_emp":   max_emp,
+                "max_employees": max_emp,
+                "avg_salary": int(avg_salary),
                 "is_bot":    c.is_bot_company,
+                "is_hiring": not already_in and not already_applied and nb_emp < max_emp,
+                "already_applied": bool(already_applied),
+                "already_in": bool(already_in),
             })
 
-    return web.json_response({"items": items})
+    return web.json_response({"items": items, "companies": items})
 
 
 # ═════════════════════════════════════════════════════════════════════════════

@@ -151,11 +151,11 @@ async def _get_user_company(session, user_id: int):
 
 
 async def _get_employee_total_cmds(session, company_id: int) -> int:
-    """Somme des command_count de tous les employés actifs."""
+    """Somme des command_count de TOUS les employés (actifs + anciens).
+    On inclut les anciens pour éviter que les départs ne fassent régresser la progression."""
     result = await session.execute(
         select(func.sum(CompanyEmployee.command_count)).where(
             CompanyEmployee.company_id == company_id,
-            CompanyEmployee.left_at == None,
         )
     )
     return result.scalar() or 0
@@ -376,8 +376,9 @@ async def job_check_contracts(context: ContextTypes.DEFAULT_TYPE):
             if not company:
                 continue
 
-            # Commandes effectuées depuis l'acceptation (via cmds_done incrémenté en temps réel)
-            cmds_done = contract.cmds_done or 0
+            # Commandes effectuées depuis l'acceptation (calcul live — cmds_done en DB n'est pas fiable)
+            total_now = await _get_employee_total_cmds(session, contract.company_id)
+            cmds_done = max(0, total_now - (contract.cmds_at_start or 0))
             reward = contract.negotiated_reward or contract.reward
 
             # Contrat réussi
@@ -633,7 +634,8 @@ async def mescontratsauto_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             label = STATUS_LABEL.get(c.status, c.status)
             progress = ""
             if c.status == "active":
-                done = c.cmds_done or 0
+                total_now = await _get_employee_total_cmds(session, company.id)
+                done = max(0, total_now - int(c.cmds_at_start or 0))
                 pct = min(100, int(done / c.objective_cmds * 100))
                 bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
                 progress = f"\n   [{bar}] {done:,}/{c.objective_cmds:,} cmds ({pct}%)"
@@ -674,7 +676,7 @@ async def claimcontrat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         total_cmds_now = await _get_employee_total_cmds(session, contract.company_id)
-        cmds_done = contract.cmds_done or 0
+        cmds_done = max(0, total_cmds_now - (contract.cmds_at_start or 0))
         reward = contract.negotiated_reward or contract.reward
 
         if cmds_done < contract.objective_cmds:

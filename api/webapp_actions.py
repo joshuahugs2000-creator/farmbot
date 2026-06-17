@@ -2258,6 +2258,11 @@ def setup_actions_routes(app: web.Application):
     app.router.add_post("/api/webapp/renommerboite",       webapp_renommerboite)
     app.router.add_post("/api/webapp/acheterpla",          webapp_acheterpla)
     app.router.add_get("/api/webapp/pretboite",            webapp_pretboite)
+    app.router.add_post("/api/webapp/rembourserboite",     webapp_rembourserboite)
+    app.router.add_get("/api/webapp/batiments",            webapp_batiments)
+    app.router.add_post("/api/webapp/batiments/acheter",   webapp_batiments_acheter)
+    app.router.add_post("/api/webapp/negociercontrat",     webapp_negociercontrat)
+    app.router.add_post("/api/webapp/contrat/repondre",    webapp_contrat_repondre)
 
     # Notifications
     app.router.add_get("/api/webapp/notifications/all",    webapp_notifications_all)
@@ -3227,3 +3232,399 @@ async def webapp_family_disown(request: web.Request) -> web.Response:
         await session.commit()
 
     return _ok(f"😔 Désaveu effectué.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PRÊT BOÎTE — remboursement anticipé
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_rembourserboite(request: web.Request) -> web.Response:
+    """POST /api/webapp/rembourserboite  { amount: int | 'tout' }"""
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized", 403)
+    body = await request.json()
+    amount_raw = body.get("amount", 0)
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company: return _err("Tu n'appartiens à aucune entreprise")
+        if emp.role != "pdg": return _err("Réservé au PDG")
+
+        from database.models import CompanyLoan as CL
+        from handlers.company import _add_log, LEVELS
+        loan = (await session.execute(
+            select(CL).where(CL.company_id == company.id, CL.status == "active")
+        )).scalar_one_or_none()
+        if not loan: return _err("Aucun prêt actif")
+
+        if str(amount_raw).lower() == "tout":
+            amount = loan.remaining
+        else:
+            try:
+                amount = int(amount_raw)
+            except (ValueError, TypeError):
+                return _err("Montant invalide")
+
+        if amount <= 0: return _err("Montant invalide")
+        if amount > loan.remaining: amount = loan.remaining
+        if company.treasury < amount:
+            return _err(f"Trésorerie insuffisante ({_fmt(company.treasury)} $ dispo)")
+
+        company.treasury -= amount
+        company.value = max(LEVELS[1][2], company.value - amount)
+        loan.remaining -= amount
+        loan.missed_days = 0
+
+        if loan.remaining <= 0:
+            loan.status = "repaid"
+            await _add_log(session, company.id, "pret",
+                           f"Remboursement anticipé total du prêt ({_fmt(loan.amount)} $)")
+            msg = f"✅ Prêt entièrement remboursé ! {_fmt(amount)} $ prélevés."
+        else:
+            await _add_log(session, company.id, "pret",
+                           f"Remboursement anticipé partiel de {_fmt(amount)} $", amount=amount)
+            msg = f"✅ {_fmt(amount)} $ remboursés. Restant : {_fmt(loan.remaining)} $"
+
+        await session.commit()
+        return _ok(msg)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  BÂTIMENTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+BUILDINGS = {
+    "salle_reunion": {
+        "name": "🪑 Salle de Réunion",
+        "base_cost": 500_000,
+        "effect": "-10% délai négociation de contrats",
+        "unlock_lvl": 1,
+        "maintenance_pct": 0.005,
+    },
+    "entrepot": {
+        "name": "📦 Entrepôt",
+        "base_cost": 1_000_000,
+        "effect": "+15% trésorerie max autorisée",
+        "unlock_lvl": 1,
+        "maintenance_pct": 0.005,
+    },
+    "siege_social": {
+        "name": "🏛️ Siège Social",
+        "base_cost": 2_000_000,
+        "effect": "+10% réputation (boost passif)",
+        "unlock_lvl": 2,
+        "maintenance_pct": 0.005,
+    },
+    "datacenter": {
+        "name": "🖥️ Datacenter",
+        "base_cost": 5_000_000,
+        "effect": "+10% revenus des contrats",
+        "unlock_lvl": 3,
+        "maintenance_pct": 0.005,
+    },
+    "usine": {
+        "name": "🏭 Usine",
+        "base_cost": 8_000_000,
+        "effect": "+10% revenus journaliers",
+        "unlock_lvl": 3,
+        "maintenance_pct": 0.005,
+    },
+    "agence_bancaire": {
+        "name": "🏦 Agence Bancaire",
+        "base_cost": 15_000_000,
+        "effect": "Débloque les prêts inter-entreprises",
+        "unlock_lvl": 4,
+        "maintenance_pct": 0.005,
+    },
+    "campus_rd": {
+        "name": "🔬 Campus R&D",
+        "base_cost": 30_000_000,
+        "effect": "Débloque les contrats exclusifs",
+        "unlock_lvl": 5,
+        "maintenance_pct": 0.005,
+    },
+    "tour_controle": {
+        "name": "🗼 Tour de Contrôle",
+        "base_cost": 50_000_000,
+        "effect": "Visibilité dans le classement mondial",
+        "unlock_lvl": 5,
+        "maintenance_pct": 0.005,
+    },
+}
+
+LEVEL_MULTIPLIER = {1: 1, 2: 5, 3: 25, 4: 125, 5: 625}
+
+
+def _building_cost(btype: str, company_level: int) -> int:
+    b = BUILDINGS.get(btype)
+    if not b: return 0
+    return int(b["base_cost"] * LEVEL_MULTIPLIER.get(company_level, 1))
+
+
+def _building_maintenance(btype: str, company_level: int) -> int:
+    b = BUILDINGS.get(btype)
+    if not b: return 0
+    return int(_building_cost(btype, company_level) * b["maintenance_pct"])
+
+
+async def webapp_batiments(request: web.Request) -> web.Response:
+    """GET /api/webapp/batiments — catalogue + bâtiments possédés"""
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized", 403)
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company: return _err("Tu n'appartiens à aucune entreprise")
+
+        from database.models import CompanyBuilding as CB
+        owned_rows = (await session.execute(
+            select(CB).where(CB.company_id == company.id, CB.status == "active")
+        )).scalars().all()
+        owned_types = {b.building_type for b in owned_rows}
+
+        catalogue = []
+        for btype, b in BUILDINGS.items():
+            cost = _building_cost(btype, company.level)
+            maint = _building_maintenance(btype, company.level)
+            owned = btype in owned_types
+            unlocked = company.level >= b["unlock_lvl"]
+            catalogue.append({
+                "type": btype,
+                "name": b["name"],
+                "effect": b["effect"],
+                "cost": _fmt(cost),
+                "cost_raw": cost,
+                "maintenance": _fmt(maint),
+                "maintenance_raw": maint,
+                "unlock_lvl": b["unlock_lvl"],
+                "owned": owned,
+                "unlocked": unlocked,
+                "can_afford": company.treasury >= cost and not owned and unlocked,
+            })
+
+        owned_list = []
+        for ob in owned_rows:
+            b = BUILDINGS.get(ob.building_type, {})
+            maint = _building_maintenance(ob.building_type, company.level)
+            owned_list.append({
+                "type": ob.building_type,
+                "name": b.get("name", ob.building_type),
+                "effect": b.get("effect", ""),
+                "maintenance": _fmt(maint),
+                "purchased_at": ob.purchased_at.strftime("%d/%m/%Y") if ob.purchased_at else "—",
+            })
+
+        return web.json_response({
+            "ok": True,
+            "company_name": company.name,
+            "company_level": company.level,
+            "treasury": _fmt(company.treasury),
+            "treasury_raw": company.treasury,
+            "is_pdg": emp.role == "pdg",
+            "catalogue": catalogue,
+            "owned": owned_list,
+        })
+
+
+async def webapp_batiments_acheter(request: web.Request) -> web.Response:
+    """POST /api/webapp/batiments/acheter  { building_type: str }"""
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized", 403)
+    body = await request.json()
+    btype = body.get("building_type", "")
+
+    if btype not in BUILDINGS:
+        return _err("Type de bâtiment invalide")
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company: return _err("Tu n'appartiens à aucune entreprise")
+        if emp.role != "pdg": return _err("Réservé au PDG")
+
+        b = BUILDINGS[btype]
+        if company.level < b["unlock_lvl"]:
+            return _err(f"Ce bâtiment nécessite le niveau {b['unlock_lvl']}")
+
+        from database.models import CompanyBuilding as CB
+        from handlers.company import _add_log
+        existing = (await session.execute(
+            select(CB).where(
+                CB.company_id == company.id,
+                CB.building_type == btype,
+                CB.status == "active",
+            )
+        )).scalar_one_or_none()
+        if existing:
+            return _err("Vous possédez déjà ce bâtiment")
+
+        cost = _building_cost(btype, company.level)
+        if company.treasury < cost:
+            return _err(f"Trésorerie insuffisante ({_fmt(company.treasury)} $ / {_fmt(cost)} $ requis)")
+
+        company.treasury -= cost
+        building = CB(
+            company_id=company.id,
+            building_type=btype,
+            status="active",
+        )
+        session.add(building)
+        await _add_log(session, company.id, "batiment",
+                       f"Achat de {b['name']} pour {_fmt(cost)} $", amount=cost)
+        await session.commit()
+        return _ok(f"✅ {b['name']} acheté pour {_fmt(cost)} $ !")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  NÉGOCIATION CONTRAT (PDG → Employé)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def webapp_negociercontrat(request: web.Request) -> web.Response:
+    """POST /api/webapp/negociercontrat
+    PDG propose un contrat à un employé.
+    { target_user_id: int, salary: int, bonus: int = 0 }
+    """
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized", 403)
+    body = await request.json()
+    target_id = int(body.get("target_user_id", 0))
+    salary = int(body.get("salary", 0))
+    bonus = int(body.get("bonus", 0))
+
+    if not target_id or salary <= 0:
+        return _err("target_user_id et salary requis")
+
+    async with AsyncSessionLocal() as session:
+        from database.models import User as UserM
+        company, emp = await _get_user_company(session, uid)
+        if not company: return _err("Tu n'appartiens à aucune entreprise")
+        if emp.role != "pdg": return _err("Réservé au PDG")
+
+        # Vérifier que la cible est un employé de l'entreprise
+        target_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target_id,
+                CompanyEmployee.left_at == None,
+            ).limit(1)
+        )).scalar_one_or_none()
+        if not target_emp: return _err("Cet employé n'est pas dans ton entreprise")
+        if target_emp.role == "pdg": return _err("Tu ne peux pas te négocier avec toi-même")
+
+        target_emp.contract_status = "pending_employee"
+        target_emp.pending_salary = salary
+        target_emp.pending_bonus = bonus
+        await session.commit()
+
+        # Notif Telegram (best effort)
+        target_user = await session.get(UserM, target_id)
+        bonus_txt = f"\n🎁 Prime proposée : <b>{_fmt(bonus)} $</b>" if bonus > 0 else ""
+        try:
+            from main import application
+            await application.bot.send_message(
+                chat_id=target_id,
+                text=(
+                    f"📄 <b>Proposition de contrat — {company.name}</b>\n\n"
+                    f"💰 Salaire proposé : <b>{_fmt(salary)} $/jour</b>{bonus_txt}\n\n"
+                    f"✅ Accepter : <code>/negociercontrat accepter</code>\n"
+                    f"❌ Refuser : <code>/negociercontrat refuser</code>\n"
+                    f"💬 Contre-proposer : <code>/negociercontrat [ton_montant]</code>"
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        return _ok(f"📩 Proposition envoyée à {target_user.first_name if target_user else target_id} : {_fmt(salary)} $/jour" + (f" + {_fmt(bonus)} $ prime" if bonus else ""))
+
+
+async def webapp_contrat_repondre(request: web.Request) -> web.Response:
+    """POST /api/webapp/contrat/repondre
+    Employé accepte, refuse ou contre-propose.
+    { action: 'accepter' | 'refuser' | 'counter', amount: int (si counter) }
+    """
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized", 403)
+    body = await request.json()
+    action = body.get("action", "")
+    counter_amount = int(body.get("amount", 0))
+
+    async with AsyncSessionLocal() as session:
+        from database.models import User as UserM
+        company, emp = await _get_user_company(session, uid)
+        if not company: return _err("Tu n'appartiens à aucune entreprise")
+        if emp.contract_status != "pending_employee":
+            return _err("Aucune proposition en attente")
+
+        pending_sal = emp.pending_salary or 0
+        pending_bon = emp.pending_bonus or 0
+
+        # Trouver le PDG pour notifier
+        pdg_emp = (await session.execute(
+            select(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.role == "pdg",
+                CompanyEmployee.left_at == None,
+            ).limit(1)
+        )).scalar_one_or_none()
+
+        me = await session.get(UserM, uid)
+        my_name = me.first_name if me else str(uid)
+
+        if action == "accepter":
+            emp.daily_salary = pending_sal
+            emp.contract_status = "signed"
+            emp.pending_salary = 0
+            emp.pending_bonus = 0
+            await session.commit()
+            try:
+                from main import application
+                if pdg_emp:
+                    await application.bot.send_message(
+                        chat_id=pdg_emp.user_id,
+                        text=f"✅ <b>{my_name}</b> a accepté le contrat !\n📄 Salaire signé : <b>{_fmt(pending_sal)} $/jour</b>",
+                        parse_mode="HTML"
+                    )
+            except Exception:
+                pass
+            return _ok(f"✅ Contrat accepté ! Salaire : {_fmt(pending_sal)} $/jour")
+
+        elif action == "refuser":
+            emp.contract_status = "none"
+            emp.pending_salary = 0
+            emp.pending_bonus = 0
+            await session.commit()
+            try:
+                from main import application
+                if pdg_emp:
+                    await application.bot.send_message(
+                        chat_id=pdg_emp.user_id,
+                        text=f"❌ <b>{my_name}</b> a refusé ta proposition de contrat.",
+                    )
+            except Exception:
+                pass
+            return _ok("❌ Proposition refusée.")
+
+        elif action == "counter":
+            if counter_amount <= 0:
+                return _err("Montant invalide")
+            emp.contract_status = "pending_pdg"
+            emp.pending_salary = counter_amount
+            await session.commit()
+            try:
+                from main import application
+                if pdg_emp:
+                    await application.bot.send_message(
+                        chat_id=pdg_emp.user_id,
+                        text=(
+                            f"💬 <b>Contre-proposition de {my_name} !</b>\n\n"
+                            f"Il refuse {_fmt(pending_sal)} $/j et demande : <b>{_fmt(counter_amount)} $/jour</b>\n\n"
+                            f"✅ Accepter : <code>/negociercontrat @{my_name} {counter_amount}</code>\n"
+                            f"❌ Refuser : <code>/negociercontrat @{my_name} refuser</code>"
+                        ),
+                        parse_mode="HTML"
+                    )
+            except Exception:
+                pass
+            return _ok(f"💬 Contre-proposition envoyée : {_fmt(counter_amount)} $/jour")
+
+        return _err("Action invalide (accepter / refuser / counter)")

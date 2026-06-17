@@ -2649,10 +2649,11 @@ async def webapp_company_data(request: web.Request) -> web.Response:
         )).scalars().all()
 
         from sqlalchemy import func as _func
+        # IMPORTANT : on inclut aussi les anciens employés (left_at != None) pour que la
+        # progression des contrats bureau ne régresse pas quand quelqu'un quitte l'entreprise.
         total_cmds = (await session.execute(
             select(_func.sum(CompanyEmployee.command_count)).where(
                 CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
             )
         )).scalar() or 0
 

@@ -1660,6 +1660,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <div class="sh2-card-wide-arrow">›</div>
     </div>
 
+    <!-- ── EN LIGNE ── -->
+    <div class="sh2-section-label" style="margin-top:18px">EN LIGNE <span class="sh2-label-line"></span></div>
+    <div id="sh-online-list">
+      <div style="text-align:center;color:var(--text2);font-size:13px;padding:16px;">Chargement…</div>
+    </div>
+
   </div>
 
   <!-- ══ PAGE FAMILLE ══ -->
@@ -6355,6 +6361,44 @@ async function loadSocialHub() {
   } catch(e) {}
 
   _shLoaded = true;
+
+  // Charger les joueurs en ligne
+  loadOnlineUsers();
+}
+
+async function loadOnlineUsers() {
+  const el = document.getElementById('sh-online-list');
+  if (!el) return;
+  try {
+    const r = await fetchT(`/api/webapp/online?user_id=${uid}`, {}, 10000);
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="text-align:center;color:var(--text2);font-size:13px;padding:12px;">${d.error}</div>`; return; }
+    const users = d.online || [];
+    if (users.length === 0) {
+      el.innerHTML = '<div style="text-align:center;color:var(--text2);font-size:13px;padding:16px;">Aucun joueur actif dans les 30 dernières minutes.</div>';
+      return;
+    }
+    el.innerHTML = users.slice(0, 20).map(u => {
+      const rel = u.relation || '';
+      const relBadge = rel ? `<span style="font-size:10px;background:rgba(116,185,255,.15);border:1px solid rgba(116,185,255,.3);border-radius:20px;padding:2px 7px;color:#74b9ff;">${rel}</span>` : '';
+      const mins = u.minutes_ago != null ? (u.minutes_ago < 1 ? 'À l\'instant' : `il y a ${u.minutes_ago}min`) : '';
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid rgba(0,184,148,.3);">👤</div>
+          <div>
+            <div style="font-weight:800;font-size:13px;color:var(--text1);">${u.name} ${relBadge}</div>
+            <div style="font-size:11px;color:var(--text2);">${u.username ? '@'+u.username+' · ' : ''}${mins}</div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:12px;font-weight:700;color:var(--accent);">${Number(u.coins||0).toLocaleString('fr-FR')} $</div>
+          <div style="width:8px;height:8px;border-radius:50%;background:#00b894;margin:4px 0 0 auto;box-shadow:0 0 6px rgba(0,184,148,.8);"></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="text-align:center;color:var(--text2);font-size:13px;padding:12px;">Impossible de charger les joueurs en ligne.</div>';
+  }
 }
 
 function _shFillRanking(d) {

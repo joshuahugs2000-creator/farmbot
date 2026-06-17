@@ -42,6 +42,7 @@ import hmac
 import hashlib
 import json
 import logging
+import time as _time
 from datetime import datetime, timedelta
 
 from aiohttp import web
@@ -110,6 +111,20 @@ CHAT_BETA_USER_IDS = {6227863810}
 
 def _chat_beta_ok(uid: int) -> bool:
     return uid in CHAT_BETA_USER_IDS
+
+# ─── MESSAGERIE — indicateur "en train d'écrire" (éphémère, en mémoire) ─────
+# Clé : (from_uid, to_uid) -> timestamp epoch jusqu'auquel on considère que
+# from_uid est en train d'écrire à to_uid. Pas besoin de DB : c'est une donnée
+# très court-terme (quelques secondes), perdue au redémarrage sans conséquence.
+_CHAT_TYPING: dict[tuple[int, int], float] = {}
+_CHAT_TYPING_TTL_SECONDS = 6  # une frappe "vaut" 6s ; le front renvoie un ping toutes les ~3s pendant la saisie
+
+def _chat_set_typing(from_uid: int, to_uid: int) -> None:
+    _CHAT_TYPING[(from_uid, to_uid)] = _time.time() + _CHAT_TYPING_TTL_SECONDS
+
+def _chat_is_typing(from_uid: int, to_uid: int) -> bool:
+    exp = _CHAT_TYPING.get((from_uid, to_uid))
+    return exp is not None and exp > _time.time()
 
 # ─── UTILITAIRES ─────────────────────────────────────────────────────────────
 
@@ -2295,6 +2310,7 @@ def setup_actions_routes(app: web.Application):
     app.router.add_get("/api/webapp/chat/contacts",        webapp_chat_contacts)
     app.router.add_get("/api/webapp/chat/messages",        webapp_chat_messages)
     app.router.add_post("/api/webapp/chat/send",           webapp_chat_send)
+    app.router.add_post("/api/webapp/chat/typing",         webapp_chat_typing)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -3743,7 +3759,10 @@ async def webapp_chat_contacts(request: web.Request) -> web.Response:
                 "last_message":    (last_msg.content[:80] if last_msg else ""),
                 "last_message_at": (last_msg.sent_at.isoformat() if last_msg else ""),
                 "last_message_mine": (last_msg.from_user_id == uid) if last_msg else False,
+                "last_message_read": bool(last_msg.read_at) if (last_msg and last_msg.from_user_id == uid) else None,
                 "unread": unread,
+                "last_seen": ou.last_seen.isoformat() if ou.last_seen else "",
+                "is_typing": _chat_is_typing(other_id, uid),
                 "_sort_ts": last_msg.sent_at.timestamp() if last_msg else 0,
             })
 
@@ -3796,9 +3815,11 @@ async def webapp_chat_messages(request: web.Request) -> web.Response:
             "content": m.content,
             "sent_at": m.sent_at.isoformat() if m.sent_at else "",
             "mine":    m.from_user_id == uid,
+            "read":    bool(m.read_at),
         } for m in rows]
 
-        # Marquer comme lus les messages reçus de ce contact
+        # Marquer comme lus les messages reçus de ce contact (après lecture ci-dessus,
+        # pour ne pas fausser le statut "read" des messages qu'on vient de recevoir)
         await session.execute(
             sa_text("""
                 UPDATE chat_messages SET read_at = NOW()
@@ -3815,6 +3836,8 @@ async def webapp_chat_messages(request: web.Request) -> web.Response:
             "name":     other.first_name or "—",
             "username": other.username or "",
             "relation": linked[other_id],
+            "last_seen": other.last_seen.isoformat() if other.last_seen else "",
+            "is_typing": _chat_is_typing(other_id, uid),
         },
     })
 
@@ -3887,3 +3910,31 @@ async def webapp_chat_send(request: web.Request) -> web.Response:
         "sent_at": sent_at.isoformat() if sent_at else "",
         "mine": True,
     })
+
+
+async def webapp_chat_typing(request: web.Request) -> web.Response:
+    """POST /api/webapp/chat/typing — body: {to}
+    Signale que l'utilisateur est en train d'écrire à `to`. Donnée éphémère,
+    pas stockée en DB. Le front appelle ceci à intervalles réguliers pendant
+    que le champ de saisie est actif (throttle ~3s côté client)."""
+    uid = _parse_uid(request)
+    if not _auth(uid):
+        return _err("unauthorized", 403)
+    if not _chat_beta_ok(uid):
+        return _err("Messagerie en cours de test, pas encore disponible.", 403)
+
+    body = await _body(request)
+    try:
+        to_id = int(body.get("to", 0))
+    except Exception:
+        to_id = 0
+    if to_id <= 0:
+        return _err("Destinataire invalide")
+
+    async with AsyncSessionLocal() as session:
+        linked = await _chat_linked_users(session, uid)
+    if to_id not in linked:
+        return _err("Tu n'as pas de lien avec ce joueur (ami / famille requis).", 403)
+
+    _chat_set_typing(uid, to_id)
+    return _ok("ok")

@@ -114,7 +114,7 @@ from handlers.competition import startcompet_cmd, compet_cmd, stopcompet_cmd, co
 from handlers.bureau import soumettredossier_cmd, choisircontrat_cmd, mescontratsbc_cmd, claimcontratbc_cmd, bureau_check_job
 from handlers.company import (
     init_company_tables, update_company_activity, increment_contract_progress,
-    flush_activity_queue,
+    flush_activity_queue, spawn_bg,
     listeboites_cmd, listeboites_callback,
     versersalaires_cmd, presences_cmd, offresparts_cmd, infoboite_cmd, creerboite_cmd,
     postuler_cmd, candidatures_cmd, accepter_cmd, refuser_cmd,
@@ -652,7 +652,7 @@ async def activity_logging_middleware(update: Update, context) -> None:
     # Incrémenter le compteur cumulatif total_commands (jamais réinitialisé)
     _cmd_count_queue.append(user.id)
     # Incrémenter l'activité entreprise pour tous les groupes (pas juste _prison_checked)
-    asyncio.create_task(update_company_activity(user.id))
+    spawn_bg(update_company_activity(user.id))
     # Mettre à jour last_seen
     _last_seen_queue.append((user.id, datetime.utcnow()))
 
@@ -778,7 +778,7 @@ def _prison_checked(handler_func):
         # Incrémenter progression contrats à chaque commande
         if update.effective_user:
             try:
-                asyncio.create_task(increment_contract_progress(update.effective_user.id))
+                spawn_bg(increment_contract_progress(update.effective_user.id))
             except Exception:
                 pass
         return await handler_func(update, context)

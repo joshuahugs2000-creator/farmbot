@@ -1694,10 +1694,33 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   <div class="page" id="page-company">
 
     <!-- Pas d'entreprise -->
-    <div id="co-none" style="display:none;text-align:center;padding:50px 20px;">
-      <div style="font-size:64px;margin-bottom:16px;filter:grayscale(1);opacity:.4;">🏗️</div>
-      <div style="color:var(--text2);font-size:15px;font-weight:700;">Aucune entreprise</div>
-      <div style="color:var(--text2);font-size:13px;margin-top:8px;">Utilise <code style="background:var(--card);padding:2px 6px;border-radius:6px;">/postuler</code> sur le bot.</div>
+    <div id="co-none" style="display:none;">
+      <div style="text-align:center;padding:40px 20px 20px;">
+        <div style="font-size:64px;margin-bottom:16px;filter:grayscale(1);opacity:.4;">🏗️</div>
+        <div style="color:var(--text2);font-size:15px;font-weight:700;">Aucune entreprise</div>
+        <div style="color:var(--text2);font-size:13px;margin-top:8px;">Postule sur le bot ou <b style="color:var(--accent);">crée ta propre entreprise</b> ici.</div>
+      </div>
+      <!-- Créer une entreprise -->
+      <div class="card" style="margin-top:8px;">
+        <div class="card-title">🏗️ CRÉER UNE ENTREPRISE</div>
+        <div style="color:var(--text2);font-size:12px;margin-bottom:12px;">Coût : <span style="color:var(--accent);font-weight:700;">50 000 000 $</span> · Licence requise</div>
+        <input id="create-co-name" type="text" maxlength="40" placeholder="Nom de l'entreprise (2–40 chars)"
+          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;margin-bottom:10px;">
+        <select id="create-co-sector"
+          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;margin-bottom:12px;">
+          <option value="">— Choisir un secteur —</option>
+          <option value="tech">💻 Technologie</option>
+          <option value="finance">📈 Finance</option>
+          <option value="commerce">🛒 Commerce</option>
+          <option value="droit">⚖️ Droit</option>
+          <option value="agriculture">🌾 Agriculture</option>
+          <option value="securite">🛡️ Sécurité</option>
+          <option value="immobilier">🏗️ Immobilier</option>
+          <option value="sante">🏥 Santé</option>
+        </select>
+        <button class="btn-primary" style="width:100%;" onclick="coCreerBoite(this)">🚀 Créer l'entreprise</button>
+        <div id="create-co-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:16px;"></div>
+      </div>
     </div>
 
     <!-- Contenu entreprise -->
@@ -1731,6 +1754,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <button class="co-tab-btn" onclick="coTab('candidatures',this)" data-tab="candidatures" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📥 Candidats</button>
           <button class="co-tab-btn" onclick="coTab('logs',this)" data-tab="logs" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📜 Logs</button>
           <button class="co-tab-btn" onclick="coTab('presences',this)" data-tab="presences" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📊 Présences</button>
+          <button class="co-tab-btn" onclick="coTab('bilan',this)" data-tab="bilan" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📊 Bilan</button>
+          <button class="co-tab-btn" onclick="coTab('dividendes',this)" data-tab="dividendes" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">💎 Dividendes</button>
+          <button class="co-tab-btn" onclick="coTab('pretboite',this)" data-tab="pretboite" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">🏛️ Prêt</button>
+          <button class="co-tab-btn" onclick="coTab('pdgactions',this)" data-tab="pdgactions" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;" id="co-tab-btn-pdgactions">⚙️ PDG</button>
         </div>
       </div>
 
@@ -1901,6 +1928,83 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <div id="co-tab-presences" style="display:none;">
         <div id="co-presences-content" style="padding-top:10px;">
           <div class="plus-loader">⏳ Chargement…</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET BILAN ── -->
+      <div id="co-tab-bilan" style="display:none;">
+        <div id="co-bilan-content" style="padding-top:10px;">
+          <div class="plus-loader">⏳ Chargement…</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET DIVIDENDES ── -->
+      <div id="co-tab-dividendes" style="display:none;">
+        <div id="co-dividendes-content" style="padding-top:10px;">
+          <div class="plus-loader">⏳ Chargement…</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET PRÊT ── -->
+      <div id="co-tab-pretboite" style="display:none;">
+        <div id="co-pretboite-content" style="padding-top:10px;">
+          <div class="plus-loader">⏳ Chargement…</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET ACTIONS PDG ── -->
+      <div id="co-tab-pdgactions" style="display:none;">
+        <div style="padding-top:10px;">
+          <div class="eco-section-title">⚙️ Actions PDG</div>
+
+          <!-- Salaireinfo -->
+          <div class="card" style="margin-bottom:10px;" id="co-salaireinfo-card">
+            <div class="card-title">💵 MON SALAIRE</div>
+            <div id="co-salaireinfo-content"><div class="plus-loader" style="font-size:13px;">⏳ Chargement…</div></div>
+          </div>
+
+          <!-- Renommer -->
+          <div class="card" style="margin-bottom:10px;">
+            <div class="card-title">📛 RENOMMER L'ENTREPRISE</div>
+            <div style="color:var(--text2);font-size:12px;margin-bottom:10px;">Coût : <b>10 000 000 $</b> de trésorerie · Cooldown 30 jours</div>
+            <input id="co-rename-input" type="text" maxlength="40" placeholder="Nouveau nom"
+              style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;margin-bottom:10px;">
+            <button class="btn-primary" style="width:100%;" onclick="coRenommerBoite(this)">✏️ Renommer</button>
+            <div id="co-rename-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:14px;"></div>
+          </div>
+
+          <!-- Céder l'entreprise -->
+          <div class="card" style="margin-bottom:10px;">
+            <div class="card-title">🔄 CÉDER L'ENTREPRISE</div>
+            <div style="color:var(--text2);font-size:12px;margin-bottom:10px;">Transfère ton titre PDG à un employé (il doit avoir un MBA).</div>
+            <input id="co-ceder-input" type="text" placeholder="@username du nouveau PDG"
+              style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;margin-bottom:10px;">
+            <button style="width:100%;padding:12px;border-radius:12px;border:1px solid #e55;background:rgba(229,85,85,.12);color:#e55;font-weight:800;font-size:14px;cursor:pointer;font-family:'Nunito',sans-serif;" onclick="coCederEntreprise(this)">🔄 Céder le titre PDG</button>
+            <div id="co-ceder-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:14px;"></div>
+          </div>
+
+          <!-- Acheter places -->
+          <div class="card" style="margin-bottom:10px;">
+            <div class="card-title">➕ ACHETER DES PLACES</div>
+            <div style="color:var(--text2);font-size:12px;margin-bottom:10px;">Augmente la capacité de ton entreprise. Max 20 places bonus.</div>
+            <div style="color:var(--text2);font-size:12px;margin-bottom:8px;">Prix selon niveau : Startup 5M$ · PME 15M$ · Société 50M$ · Corp 150M$ · Holding 500M$</div>
+            <input id="co-pla-qty" type="number" min="1" max="20" placeholder="Nombre de places"
+              style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;margin-bottom:10px;">
+            <button class="btn-success" style="width:100%;" onclick="coAcheterPla(this)">➕ Acheter des places</button>
+            <div id="co-pla-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:14px;"></div>
+          </div>
+
+          <!-- Payer un employé -->
+          <div class="card" style="margin-bottom:10px;">
+            <div class="card-title">💸 PAYER UN EMPLOYÉ</div>
+            <div style="color:var(--text2);font-size:12px;margin-bottom:10px;">Versement libre depuis la trésorerie.</div>
+            <input id="co-payemp-uid" type="text" placeholder="@username ou ID du joueur"
+              style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;margin-bottom:8px;">
+            <input id="co-payemp-amount" type="number" min="1" placeholder="Montant ($)"
+              style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;margin-bottom:10px;">
+            <button class="btn-success" style="width:100%;" onclick="coPayerEmploye(this)">💸 Payer</button>
+            <div id="co-payemp-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:14px;"></div>
+          </div>
         </div>
       </div>
 
@@ -8512,7 +8616,7 @@ async function bankOpenAccount(bank_id) {
 let _coData = null;
 
 function coTab(tab, btn) {
-  ['general','equipe','contrats','auto','impots','parts','candidatures','logs','presences'].forEach(t => {
+  ['general','equipe','contrats','auto','impots','parts','candidatures','logs','presences','bilan','dividendes','pretboite','pdgactions'].forEach(t => {
     const el = document.getElementById('co-tab-'+t);
     if (el) el.style.display = t===tab ? 'block' : 'none';
   });
@@ -8525,6 +8629,10 @@ function coTab(tab, btn) {
   btn.style.color = 'var(--accent)';
   btn.style.fontWeight = '800';
   if (tab === 'presences') coLoadPresences();
+  if (tab === 'bilan') coLoadBilan();
+  if (tab === 'dividendes') coLoadDividendes();
+  if (tab === 'pretboite') coLoadPretBoite();
+  if (tab === 'pdgactions') coLoadSalaireInfo();
 }
 
 async function coLoadPresences() {
@@ -8654,6 +8762,9 @@ async function loadCompany() {
     document.getElementById('co-taxdebt').textContent = co.tax_debt_raw > 0 ? fmt(co.tax_debt_raw) + ' $' : '—';
     document.getElementById('co-mycmds').textContent = (co.my_cmds || 0).toLocaleString() + ' cmds';
     if (co.is_pdg) document.getElementById('co-pdg-actions').style.display = 'block';
+    // Show/hide PDG tab
+    const pdgTabBtn = document.getElementById('co-tab-btn-pdgactions');
+    if (pdgTabBtn) pdgTabBtn.style.display = co.is_pdg ? 'inline-block' : 'none';
 
     // Nouveaux champs
     document.getElementById('co-weekly').textContent = co.weekly_revenue || '0 $';
@@ -9057,6 +9168,246 @@ async function coGererOffre(offerId, action, btn) {
     setTimeout(() => loadCompany(), 1500);
   } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
 }
+
+
+// ════════════════════════════════════════
+//  NOUVELLES FONCTIONS ENTREPRISE
+// ════════════════════════════════════════
+
+async function coCreerBoite(btn) {
+  const name   = (document.getElementById('create-co-name')?.value || '').trim();
+  const sector = document.getElementById('create-co-sector')?.value || '';
+  const msgEl  = document.getElementById('create-co-msg');
+  if (!name)   { if(msgEl) msgEl.textContent = '❌ Entre un nom.'; return; }
+  if (!sector) { if(msgEl) msgEl.textContent = '❌ Choisis un secteur.'; return; }
+  if (btn) btn.disabled = true;
+  if (msgEl) msgEl.textContent = '⏳ Création…';
+  try {
+    const r = await fetchT('/api/webapp/creerboite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,name,sector})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast(d.msg || '✅ Entreprise créée !');
+    if(msgEl) msgEl.textContent = '';
+    setTimeout(() => loadCompany(), 1000);
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
+}
+
+async function coLoadBilan() {
+  const el = document.getElementById('co-bilan-content');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/bilan?user_id='+uid);
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text2)">${d.error}</div>`; return; }
+    const b = d.bilan;
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:10px;">
+        <div class="card-title">📊 REVENUS QUOTIDIENS</div>
+        <div class="stat-row"><span class="stat-label">💹 Revenus bruts</span><span class="stat-value gold">${b.gross_daily} $</span></div>
+        <div class="stat-row"><span class="stat-label">🔒 Réserve légale (10%)</span><span class="stat-value red">−${b.legal_daily} $</span></div>
+        <div class="stat-row"><span class="stat-label">📥 Revenus nets</span><span class="stat-value">${b.net_daily} $</span></div>
+        <div class="stat-row"><span class="stat-label">👷 Charges sal. (${b.nb_employees} emp.)</span><span class="stat-value red">−${b.charges_sal} $</span></div>
+        <div class="stat-row" style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px;"><span class="stat-label" style="font-weight:900;">💰 Bénéfice net</span><span class="stat-value gold" style="font-size:15px;">${b.benefice_net} $</span></div>
+      </div>
+      <div class="card" style="margin-bottom:10px;">
+        <div class="card-title">🏦 TRÉSORERIE</div>
+        <div class="stat-row"><span class="stat-label">🏦 Caisse totale</span><span class="stat-value gold">${b.treasury} $</span></div>
+        <div class="stat-row"><span class="stat-label">🔐 Réserve légale</span><span class="stat-value">${b.reserve_legale} $</span></div>
+        <div class="stat-row"><span class="stat-label">💸 Retirable (PDG)</span><span class="stat-value green">${b.disponible} $</span></div>
+      </div>
+      <div class="card" style="margin-bottom:10px;">
+        <div class="card-title">📜 ACTIONNARIAT & DIVIDENDES</div>
+        <div class="stat-row"><span class="stat-label">📜 Parts totales</span><span class="stat-value">${b.total_shares}</span></div>
+        <div class="stat-row"><span class="stat-label">👤 Actionnaires</span><span class="stat-value">${b.nb_actionnaires}</span></div>
+        <div class="stat-row"><span class="stat-label">💼 Rev. semaine</span><span class="stat-value">${b.weekly_revenue} $</span></div>
+        <div class="stat-row"><span class="stat-label">🎁 Pool dividendes (30%)</span><span class="stat-value gold">${b.dividend_pool} $</span></div>
+      </div>
+      ${b.loan ? `<div class="card" style="border-color:rgba(229,85,85,.4);">
+        <div class="card-title" style="color:#e55;">🏛️ PRÊT BANCAIRE ACTIF</div>
+        <div class="stat-row"><span class="stat-label">💰 Restant dû</span><span class="stat-value red">${b.loan.remaining} $</span></div>
+        <div class="stat-row"><span class="stat-label">💳 Rembt. auto/jour</span><span class="stat-value">${b.loan.daily_payment} $</span></div>
+        <div class="stat-row"><span class="stat-label">📅 Échéance</span><span class="stat-value">dans ${b.loan.jours_restants} j</span></div>
+        ${b.loan.missed_days > 0 ? `<div style="color:#e55;font-size:12px;margin-top:6px;">⚠️ ${b.loan.missed_days} jour(s) de retard</div>` : ''}
+      </div>` : ''}
+    `;
+  } catch(e) { el.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center;">Erreur de chargement.</div>'; }
+}
+
+async function coLoadDividendes() {
+  const el = document.getElementById('co-dividendes-content');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/dividendes?user_id='+uid);
+    const d = await r.json();
+    if (d.error) {
+      el.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text2)">${d.error}</div>`;
+      return;
+    }
+    const items = d.dividendes || [];
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:10px;">
+        <div class="card-title">💎 MES DIVIDENDES</div>
+        <div style="color:var(--text2);font-size:12px;margin-bottom:10px;">Distribution automatique chaque lundi à 9h.</div>
+        ${items.map(it => `
+          <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+            <div style="font-weight:800;color:var(--text1);">🏢 ${it.company_name}</div>
+            <div class="stat-row"><span class="stat-label">📜 Parts</span><span class="stat-value">${it.my_shares}/${it.total_shares} (${it.pct}%)</span></div>
+            <div class="stat-row"><span class="stat-label">💼 Rev. semaine</span><span class="stat-value">${it.weekly_rev} $</span></div>
+            <div class="stat-row"><span class="stat-label">🎁 Ton estimé</span><span class="stat-value gold">${it.my_dividend} $</span></div>
+          </div>`).join('')}
+        <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-weight:900;font-size:14px;">💰 Total estimé</span>
+          <span style="font-size:16px;font-weight:900;color:var(--accent);">${d.total_estimated} $</span>
+        </div>
+      </div>
+    `;
+  } catch(e) { el.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center;">Erreur de chargement.</div>'; }
+}
+
+async function coLoadPretBoite() {
+  const el = document.getElementById('co-pretboite-content');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/pretboite?user_id='+uid);
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text2)">${d.error}</div>`; return; }
+    const loan = d.loan;
+    if (!loan) {
+      const ll = d.last_loan;
+      el.innerHTML = `<div class="card" style="text-align:center;padding:30px;">
+        <div style="font-size:36px;">🏛️</div>
+        <div style="color:var(--text2);margin-top:8px;">${d.company_name} n'a pas de prêt actif.</div>
+        ${ll ? `<div style="color:var(--text2);font-size:12px;margin-top:8px;">Dernier prêt : ${ll.amount} $ — ${ll.status}</div>` : ''}
+        <div style="color:var(--text2);font-size:12px;margin-top:8px;">Utilise <code>/emprunterboite</code> sur le bot.</div>
+      </div>`;
+      return;
+    }
+    const barW = loan.progression_pct;
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-title">🏛️ PRÊT BANCAIRE ACTIF</div>
+        <div class="stat-row"><span class="stat-label">💰 Montant initial</span><span class="stat-value">${loan.amount} $</span></div>
+        <div class="stat-row"><span class="stat-label">📋 Restant dû</span><span class="stat-value red">${loan.remaining} $</span></div>
+        <div class="stat-row"><span class="stat-label">💳 Rembt. auto/jour</span><span class="stat-value">${loan.daily_payment} $</span></div>
+        <div class="stat-row"><span class="stat-label">📈 Taux annuel</span><span class="stat-value">${loan.taux}</span></div>
+        <div class="stat-row"><span class="stat-label">📅 Échéance</span><span class="stat-value">dans ${loan.jours_restants} jours</span></div>
+        <div style="margin-top:12px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:4px;"><span>Remboursement</span><span>${barW}%</span></div>
+          <div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden;"><div style="width:${barW}%;height:100%;background:${barW>=100?'var(--success)':'var(--accent)'};border-radius:6px;transition:width .3s;"></div></div>
+        </div>
+        ${loan.missed_days > 0 ? `<div style="color:#e55;font-size:12px;margin-top:8px;border:1px solid #e55;border-radius:8px;padding:8px;">⚠️ ${loan.missed_days} jour(s) de retard — pénalités appliquées !</div>` : ''}
+        <div style="color:var(--text2);font-size:12px;margin-top:10px;">Remboursement anticipé : <code>/rembourserboite [montant]</code></div>
+      </div>
+    `;
+  } catch(e) { el.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center;">Erreur de chargement.</div>'; }
+}
+
+async function coLoadSalaireInfo() {
+  const el = document.getElementById('co-salaireinfo-content');
+  if (!el) return;
+  try {
+    const r = await fetchT('/api/webapp/salaireinfo?user_id='+uid);
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="color:var(--text2);font-size:13px;">${d.error}</div>`; return; }
+    const s = d.salaireinfo;
+    el.innerHTML = `
+      <div class="stat-row"><span class="stat-label">${s.sector}</span><span class="stat-value">${s.company_name}</span></div>
+      <div class="stat-row"><span class="stat-label">Rôle</span><span class="stat-value">${s.role_emoji} ${s.role}</span></div>
+      <div class="stat-row"><span class="stat-label">Part des revenus</span><span class="stat-value">${s.personal_share_pct}</span></div>
+      <div class="stat-row"><span class="stat-label">Estimation prochaine paie</span><span class="stat-value gold">${s.estimated_salary} $</span></div>
+      <div class="stat-row"><span class="stat-label">Activité comptée</span><span class="stat-value">${s.activity_cmds} cmds</span></div>
+      <div class="stat-row"><span class="stat-label">Ancienneté</span><span class="stat-value">${s.days_here} jours</span></div>
+    `;
+  } catch(e) { if(el) el.innerHTML = '<div style="color:var(--text2);font-size:13px;">Erreur.</div>'; }
+}
+
+async function coRenommerBoite(btn) {
+  const new_name = (document.getElementById('co-rename-input')?.value || '').trim();
+  const msgEl = document.getElementById('co-rename-msg');
+  if (!new_name) { if(msgEl) msgEl.textContent = '❌ Entre un nouveau nom.'; return; }
+  if (!confirm(`Renommer l'entreprise en « ${new_name} » ? Coût : 10 000 000 $ de trésorerie.`)) return;
+  if (btn) btn.disabled = true;
+  if (msgEl) msgEl.textContent = '⏳…';
+  try {
+    const r = await fetchT('/api/webapp/renommerboite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,new_name})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast(d.msg);
+    if(msgEl) msgEl.textContent = '';
+    setTimeout(() => loadCompany(), 1200);
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
+}
+
+async function coCederEntreprise(btn) {
+  const target_username = (document.getElementById('co-ceder-input')?.value || '').trim();
+  const msgEl = document.getElementById('co-ceder-msg');
+  if (!target_username) { if(msgEl) msgEl.textContent = '❌ Entre un @username.'; return; }
+  if (!confirm(`Céder l'entreprise à @${target_username.replace('@','')} ? Cette action est IRRÉVERSIBLE.`)) return;
+  if (btn) btn.disabled = true;
+  if (msgEl) msgEl.textContent = '⏳…';
+  try {
+    const r = await fetchT('/api/webapp/cederentreprise',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,target_username:target_username.replace('@','')})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast(d.msg);
+    if(msgEl) msgEl.textContent = '';
+    setTimeout(() => loadCompany(), 1200);
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
+}
+
+async function coAcheterPla(btn) {
+  const qty = parseInt(document.getElementById('co-pla-qty')?.value || '0');
+  const msgEl = document.getElementById('co-pla-msg');
+  if (!qty || qty <= 0) { if(msgEl) msgEl.textContent = '❌ Quantité invalide.'; return; }
+  if (!confirm(`Acheter ${qty} place(s) supplémentaire(s) ?`)) return;
+  if (btn) btn.disabled = true;
+  if (msgEl) msgEl.textContent = '⏳…';
+  try {
+    const r = await fetchT('/api/webapp/acheterpla',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,qty})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast(d.msg);
+    if(msgEl) msgEl.textContent = '';
+    if(btn) btn.disabled=false;
+    setTimeout(() => loadCompany(), 1200);
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
+}
+
+async function coPayerEmploye(btn) {
+  const targetRaw = (document.getElementById('co-payemp-uid')?.value || '').trim();
+  const amount = parseInt(document.getElementById('co-payemp-amount')?.value || '0');
+  const msgEl = document.getElementById('co-payemp-msg');
+  if (!targetRaw) { if(msgEl) msgEl.textContent = '❌ Entre un @username ou ID.'; return; }
+  if (!amount || amount <= 0) { if(msgEl) msgEl.textContent = '❌ Montant invalide.'; return; }
+  if (!confirm(`Payer ${amount.toLocaleString()} $ à ${targetRaw} depuis la trésorerie ?`)) return;
+  if (btn) btn.disabled = true;
+  if (msgEl) msgEl.textContent = '⏳…';
+  try {
+    // Resolve username to ID if needed
+    let targetId = 0;
+    const isId = /^\d+$/.test(targetRaw.replace('@',''));
+    if (isId) {
+      targetId = parseInt(targetRaw.replace('@',''));
+    } else {
+      const sr = await fetchT('/api/webapp/players/search?user_id='+uid+'&q='+encodeURIComponent(targetRaw.replace('@','')));
+      const sd = await sr.json();
+      const found = (sd.players||[]).find(p => (p.username||'').toLowerCase() === targetRaw.replace('@','').toLowerCase());
+      if (!found) { if(msgEl) msgEl.textContent = '❌ Joueur introuvable'; if(btn) btn.disabled=false; return; }
+      targetId = found.user_id;
+    }
+    const r = await fetchT('/api/webapp/payeremploye',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,target_id:targetId,amount})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast(d.msg||'💵 Paiement effectué !');
+    if(msgEl) msgEl.textContent = '';
+    if(btn) btn.disabled=false;
+    document.getElementById('co-payemp-amount').value = '';
+  } catch(e) { if(msgEl) msgEl.textContent = 'Erreur réseau'; if(btn) btn.disabled=false; }
+}
+
 
 
 // ════════════════════════════════════════

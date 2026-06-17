@@ -1,7 +1,7 @@
 import logging
 import os
 import asyncio
-from datetime import datetime, time, timedelta
+from datetime import time, timedelta
 
 from aiohttp import web
 from telegram import Update
@@ -557,29 +557,6 @@ _cmd_count_queue: list = []
 # Queue pour last_seen — batch UPDATE toutes les 60s
 _last_seen_queue: list = []
 
-async def _flush_last_seen_queue():
-    """Vide la queue last_seen en batch UPDATE toutes les 60 secondes."""
-    while True:
-        await _asyncio.sleep(60)
-        if not _last_seen_queue:
-            continue
-        batch = _last_seen_queue[:]
-        _last_seen_queue.clear()
-        # Garder seulement le dernier timestamp par user
-        seen_map = {}
-        for entry in batch:
-            seen_map[entry['uid']] = entry['ts']
-        try:
-            async with AsyncSessionLocal() as session:
-                for uid_val, ts in seen_map.items():
-                    await session.execute(
-                        text("UPDATE users SET last_seen = :ts WHERE user_id = :uid"),
-                        {"ts": ts, "uid": uid_val}
-                    )
-                await session.commit()
-        except Exception as e:
-            logger.debug(f"Erreur flush_last_seen_queue: {e}")
-
 async def _flush_cmd_count_queue():
     """Vide la queue total_commands en batch UPDATE toutes les 10 secondes."""
     while True:
@@ -619,6 +596,30 @@ async def _flush_log_queue():
         except Exception as e:
             logger.debug(f"Erreur flush_log_queue: {e}")
 
+async def _flush_last_seen_queue():
+    """Vide la queue last_seen en batch UPDATE toutes les 60s."""
+    while True:
+        await _asyncio.sleep(60)
+        if not _last_seen_queue:
+            continue
+        batch = _last_seen_queue[:]
+        _last_seen_queue.clear()
+        # Garder seulement le dernier timestamp par user
+        from collections import OrderedDict
+        seen = OrderedDict()
+        for uid_val, ts in batch:
+            seen[uid_val] = ts
+        try:
+            async with AsyncSessionLocal() as session:
+                for uid_val, ts in seen.items():
+                    await session.execute(
+                        text("UPDATE users SET last_seen = :ts WHERE user_id = :uid"),
+                        {"ts": ts, "uid": uid_val}
+                    )
+                await session.commit()
+        except Exception as e:
+            logger.debug(f"Erreur flush_last_seen_queue: {e}")
+
 async def activity_logging_middleware(update: Update, context) -> None:
     """Logue automatiquement chaque commande — non bloquant via queue mémoire."""
     if not update.message or not update.message.text:
@@ -650,10 +651,10 @@ async def activity_logging_middleware(update: Update, context) -> None:
     })
     # Incrémenter le compteur cumulatif total_commands (jamais réinitialisé)
     _cmd_count_queue.append(user.id)
-    # Mettre à jour last_seen pour les utilisateurs en ligne (Social Hub)
-    _last_seen_queue.append({"uid": user.id, "ts": datetime.utcnow()})
     # Incrémenter l'activité entreprise pour tous les groupes (pas juste _prison_checked)
     asyncio.create_task(update_company_activity(user.id))
+    # Mettre à jour last_seen
+    _last_seen_queue.append((user.id, datetime.utcnow()))
 
 async def on_startup(application: Application):
     await init_db()

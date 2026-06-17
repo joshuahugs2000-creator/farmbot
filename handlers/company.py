@@ -521,6 +521,26 @@ async def job_company_revenues(context: ContextTypes.DEFAULT_TYPE):
 
 REVENUE_PER_CMD = 10_000  # 1 commande employé = 10 000 $ en trésorerie
 
+# ── Tâches "fire-and-forget" : asyncio ne garde qu'une référence FAIBLE sur
+# les tasks créées via create_task(). Sans référence forte ailleurs, une task
+# peut être garbage-collectée avant de s'exécuter — silencieusement, puisque
+# update_company_activity/increment_contract_progress avalent leurs erreurs.
+# C'était la cause probable du compteur de commandes (donc la barre de
+# progression des contrats) qui ne montait plus, même via le bot.
+# On garde une référence forte dans ce set tant que la task n'est pas finie.
+_bg_tasks: set = set()
+
+def spawn_bg(coro):
+    """Lance une coroutine en arrière-plan SANS risque de garbage collection
+    prématurée. À utiliser à la place de asyncio.create_task() nu pour tout
+    ce qui touche au comptage d'activité/commandes."""
+    import asyncio
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
+
 # Queue en mémoire pour les incréments d'activité (jamais throttlée)
 # Chaque élément = user_id dont l'activité doit être comptée
 _activity_queue: list[int] = []

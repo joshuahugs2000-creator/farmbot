@@ -4,9 +4,13 @@ from .models import (
     Base, User, GroupSettings, Relationship, PendingRequest,
     Garden, DailyWaifu, KarmaVote, UserBet, RelationType, RequestType,
     CoupleAccount, ActivityLog, BotGroup,
+    BankAccount, Loan, Investment,
+    LotterySession, LotteryTicket,
     Company, CompanyEmployee, CompanyShare,
     CompanyApplication, CompanyInvite, CompanyLog,
-    CompanyWorkShift, CompanyShareOffer,
+    CompanyWorkShift, CompanyShareOffer, CompanyLoan,
+    CompanyAutoContract, CompanySettings,
+    TaxRecord, StateCaisse, BureauContrat, CompanyBuilding,
     ChatMessage,
 )
 from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TITLES

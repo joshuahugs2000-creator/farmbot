@@ -21,7 +21,9 @@ WEBAPP_ADMIN_IDS = {
 WEBAPP_OPEN = True
 
 # Routes qui n'ont pas besoin d'authentification
-_PUBLIC_PATHS = {'/', '/webapp', '/api/webapp/load', '/api/webapp/photo'}
+# /webhook DOIT être ici : c'est Telegram qui poste les updates, pas la Mini App.
+# Sans ça le middleware renvoie 401 sur /webhook et le bot ne traite plus AUCUNE commande.
+_PUBLIC_PATHS = {'/', '/webapp', '/webhook', '/health', '/api/webapp/load', '/api/webapp/photo'}
 
 def _is_allowed(user_id: int) -> bool:
     """Vérifie que le user_id correspond à l'utilisateur authentifié via initData."""

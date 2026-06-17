@@ -5146,8 +5146,8 @@ function autoSave() {
   if (userId) {
     fetch('/api/webapp/avatar', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, avatar_data: avatar })
+      headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+      body: JSON.stringify({ avatar_data: avatar })
     }).catch(() => {}); // silencieux si pas de réseau
   }
 }
@@ -5697,18 +5697,10 @@ function stars(r) {
 async function fetchT(url, opts, ms=10000) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), ms);
-  // Injecter init_data automatiquement dans chaque requête
-  const initDataEnc = encodeURIComponent(tg?.initData || '');
-  if (opts && opts.method === 'POST' && opts.body) {
-    try {
-      const bodyObj = JSON.parse(opts.body);
-      if (!bodyObj.init_data) bodyObj.init_data = tg?.initData || '';
-      opts = { ...opts, body: JSON.stringify(bodyObj) };
-    } catch(e) {}
-  } else {
-    const sep = url.includes('?') ? '&' : '?';
-    if (!url.includes('init_data=')) url = url + sep + 'init_data=' + initDataEnc;
-  }
+  // Injecter initData dans le header X-Telegram-Init-Data (sécurité)
+  const initData = tg?.initData || '';
+  opts = opts ? { ...opts } : {};
+  opts.headers = { ...(opts.headers || {}), 'X-Telegram-Init-Data': initData };
   try {
     const r = await fetch(url, { ...opts, signal: ctrl.signal });
     clearTimeout(tid);
@@ -5743,7 +5735,7 @@ async function loadData() {
   try {
     // Charge user ET family en parallèle dès le démarrage — timeout 20s pour Railway cold start
     const [res, resFam] = await Promise.all([
-      fetchT(`/api/webapp/user?user_id=${uid}&init_data=${encodeURIComponent(tg?.initData||'')}`, {}, 20000),
+      fetchT(`/api/webapp/user?user_id=${uid}`, {}, 20000),
       fetchT(`/api/webapp/family?user_id=${uid}`, {}, 20000),
     ]);
     if (!res.ok) throw new Error('HTTP '+res.status);
@@ -5941,7 +5933,7 @@ async function claimDaily() {
     const r = await fetchT('/api/webapp/gains/daily', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid})
+      body: JSON.stringify({})
     }, 15000);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
@@ -5986,7 +5978,7 @@ async function claimWork() {
     const r = await fetchT('/api/webapp/gains/work', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid})
+      body: JSON.stringify({})
     }, 15000);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
@@ -6227,7 +6219,7 @@ async function claimDailyFromProfile() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
   const res = document.getElementById('pf-daily-result');
   try {
-    const r = await fetchT('/api/webapp/gains/daily', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
+    const r = await fetchT('/api/webapp/gains/daily', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
     const d = await r.json();
     if (d.status === 'already') {
       if (res) { res.textContent = '⏰ Déjà récupéré aujourd\'hui !'; res.style.color = 'var(--text2)'; }
@@ -6255,7 +6247,7 @@ async function claimWorkFromProfile() {
     '🍳 Cuisine resto','📦 Livraison express','🎨 Vente tableau',
   ];
   try {
-    const r = await fetchT('/api/webapp/gains/work', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id: uid}) });
+    const r = await fetchT('/api/webapp/gains/work', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
     const d = await r.json();
     if (d.status === 'cooldown') {
       const dur = _fmtCooldown(d.wait_min);
@@ -6307,7 +6299,7 @@ async function saveProfilePhoto() {
     const r = await fetchT('/api/webapp/profile/photo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: uid, photo_base64: _pendingPhotoBase64 })
+      body: JSON.stringify({ photo_base64: _pendingPhotoBase64 })
     });
     const d = await r.json();
     if (d.ok) {
@@ -6983,7 +6975,7 @@ async function famAction(type) {
   const msgEl = document.getElementById('fam-action-msg');
   msgEl.style.display = 'none';
 
-  let body = { user_id: uid, target_id: _famTarget.user_id };
+  let body = { target_id: _famTarget.user_id };
   if (type === 'marry') {
     body.marriage_type = 'monogame'; // TODO: ajouter un choix
   }
@@ -7010,7 +7002,7 @@ async function famRemove(type, targetId, btn) {
   try {
     const r = await fetchT(`/api/webapp/family/${type}`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, target_id: targetId })
+      body: JSON.stringify({ target_id: targetId })
     });
     const d = await r.json();
     if (d.error) { showToast('❌ ' + d.error); btn.disabled = false; btn.textContent = type === 'divorce' ? '💔' : type === 'disown' ? '😔' : '👋'; return; }
@@ -7291,7 +7283,7 @@ async function confirmBuy() {
     const r = await fetchT('/api/webapp/market/action', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, action: 'buy', asset_id: _mktModalAsset.id, quantity: qty })
+      body: JSON.stringify({ action: 'buy', asset_id: _mktModalAsset.id, quantity: qty })
     });
     const d = await r.json();
     if (d.ok) {
@@ -7409,7 +7401,7 @@ async function sellPosition(invId) {
     const r = await fetchT('/api/webapp/market/action', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, action: 'sell', inv_id: invId })
+      body: JSON.stringify({ action: 'sell', inv_id: invId })
     });
     const d = await r.json();
     if (d.ok) {
@@ -7487,7 +7479,7 @@ async function gamePost(payload) {
   const r = await fetch('/api/webapp/game', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({user_id: uid, ...payload})
+    body: JSON.stringify({...payload})
   });
   return r.json();
 }
@@ -8622,7 +8614,7 @@ async function rouletteStart() {
     const r = await fetchT('/api/webapp/game', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, game: 'roulette', mise, choix: finalChoix })
+      body: JSON.stringify({ game: 'roulette', mise, choix: finalChoix })
     }, 12000);
     const d = await r.json();
     if (d.error) {
@@ -8810,7 +8802,7 @@ async function confirmBankAction() {
     btn.textContent = '...'; btn.disabled = true;
     const r = await fetch(ep, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, bank_id, amount })
+      body: JSON.stringify({ bank_id, amount })
     });
     const d = await r.json();
     btn.textContent = 'Confirmer'; btn.disabled = false;
@@ -8828,7 +8820,7 @@ async function bankOpenAccount(bank_id) {
   try {
     const r = await fetchT('/api/webapp/bank/open', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, bank_id })
+      body: JSON.stringify({ bank_id })
     });
     const d = await r.json();
     if (d.error) { showToast(d.error, true); return; }
@@ -9078,7 +9070,7 @@ async function loadCompany() {
           <div class="stat-row"><span class="stat-label">Progression</span><span class="stat-value">${(c.cmds_done||0).toLocaleString()} / ${(c.objective||0).toLocaleString()} cmds (${c.pct}%)</span></div>
           <div class="stat-row"><span class="stat-label">Récompense</span><span class="stat-value gold">${c.reward} $</span></div>
           <div class="stat-row"><span class="stat-label">Deadline</span><span class="stat-value">${c.ends_at} (${c.days_left}j)</span></div>
-          ${canClaim ? `<button onclick="claimContratBc(${c.id}, this, loadCompany)" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
+          ${canClaim ? `<button data-claim-bc="${c.id}" data-on-success="loadCompany" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
         </div>`;
       }).join('');
     } else {
@@ -9241,7 +9233,7 @@ async function coAccepterCand(targetId) {
   try {
     const r = await fetchT('/api/webapp/company/accepter', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid, target_id: targetId})
+      body: JSON.stringify({target_id: targetId})
     });
     const d = await r.json();
     if (d.error) { if (msgEl) msgEl.textContent = d.error; return; }
@@ -9261,7 +9253,7 @@ async function coRefuserCand(targetId) {
   try {
     const r = await fetchT('/api/webapp/company/refuser', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid, target_id: targetId})
+      body: JSON.stringify({target_id: targetId})
     });
     const d = await r.json();
     if (d.error) { if (msgEl) msgEl.textContent = d.error; return; }
@@ -10579,7 +10571,7 @@ async function _loadSalleHistory() {
 
 async function _paySalleAccess() {
   try {
-    const r = await fetchT('/api/webapp/salle/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid }) }, 10000);
+    const r = await fetchT('/api/webapp/salle/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) }, 10000);
     let d; try { d = await r.json(); } catch(e) { showToast('❌ Erreur serveur'); return; }
     if (d.ok) { showToast('🏛️ Accès à La Salle accordé !'); _loadSalle(); }
     else showToast(d.error || 'Erreur');
@@ -10930,7 +10922,7 @@ async function submitPay() {
   const note = document.getElementById('pay-note').value.trim();
   if (!_payTargetUid || !amount || amount <= 0) { showToast('Montant ou destinataire invalide'); return; }
   try {
-    const r = await fetchT('/api/webapp/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _payTargetUid, amount, note }) }, 10000);
+    const r = await fetchT('/api/webapp/pay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ target_id: _payTargetUid, amount, note }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('💸 Virement effectué !'); cancelPay(); document.getElementById('pay-amount').value=''; document.getElementById('pay-note').value=''; }
     else showToast(d.error || 'Erreur');
@@ -11023,7 +11015,7 @@ async function submitPostuler(coId) {
   const salary = parseInt(document.getElementById('postuler-salary').value)||0;
   const message = document.getElementById('postuler-message').value.trim();
   try {
-    const r = await fetchT('/api/webapp/postuler', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_id: coId, salary_request: salary, message }) }, 10000);
+    const r = await fetchT('/api/webapp/postuler', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ company_id: coId, salary_request: salary, message }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('📨 Candidature envoyée !'); closeCOModal(); }
     else showToast(d.error || 'Erreur');
@@ -11062,7 +11054,7 @@ async function loadInvitations() {
 }
 async function acceptInvitation(invId) {
   try {
-    const r = await fetchT('/api/webapp/invitations/accepter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
+    const r = await fetchT('/api/webapp/invitations/accepter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitation_id: invId }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('✅ Invitation acceptée !'); loadInvitations(); }
     else showToast(d.error || 'Erreur');
@@ -11070,7 +11062,7 @@ async function acceptInvitation(invId) {
 }
 async function refuseInvitation(invId) {
   try {
-    const r = await fetchT('/api/webapp/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: invId }) }, 10000);
+    const r = await fetchT('/api/webapp/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitation_id: invId }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('❌ Invitation refusée.'); loadInvitations(); }
     else showToast(d.error || 'Erreur');
@@ -11087,7 +11079,7 @@ async function submitCounterOffer() {
   const salary = parseInt(document.getElementById('inv-counter-salary').value);
   if (!salary || salary <= 0 || !_counterInvId) { showToast('Montant invalide'); return; }
   try {
-    const r = await fetchT('/api/webapp/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, invitation_id: _counterInvId, counter_salary: salary }) }, 10000);
+    const r = await fetchT('/api/webapp/invitations/refuser', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ invitation_id: _counterInvId, counter_salary: salary }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('💬 Contre-proposition envoyée !'); closeCounterModal(); loadInvitations(); }
     else showToast(d.error || 'Erreur');
@@ -11247,7 +11239,7 @@ async function loadPartsOffres() {
 }
 async function acceptPartsOffer(offerId) {
   try {
-    const r = await fetchT('/api/webapp/parts/accepteroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
+    const r = await fetchT('/api/webapp/parts/accepteroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ offer_id: offerId }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('✅ Offre acceptée !'); loadPartsOffres(); }
     else showToast(d.error||'Erreur');
@@ -11255,7 +11247,7 @@ async function acceptPartsOffer(offerId) {
 }
 async function refusePartsOffer(offerId) {
   try {
-    const r = await fetchT('/api/webapp/parts/refuseroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, offer_id: offerId }) }, 10000);
+    const r = await fetchT('/api/webapp/parts/refuseroffre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ offer_id: offerId }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('❌ Offre refusée.'); loadPartsOffres(); }
     else showToast(d.error||'Erreur');
@@ -11268,7 +11260,7 @@ async function submitVendreParts() {
   const target = document.getElementById('parts-sell-target').value.trim();
   if (!company || !qty || !price) { showToast('Remplis tous les champs obligatoires'); return; }
   try {
-    const r = await fetchT('/api/webapp/parts/vendre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, price_per_part: price, target_name: target||null }) }, 10000);
+    const r = await fetchT('/api/webapp/parts/vendre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ company_name: company, quantity: qty, price_per_part: price, target_name: target||null }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('📤 Parts mises en vente !'); document.getElementById('parts-sell-company').value=''; document.getElementById('parts-sell-qty').value=''; document.getElementById('parts-sell-price').value=''; document.getElementById('parts-sell-target').value=''; }
     else showToast(d.error||'Erreur');
@@ -11280,7 +11272,7 @@ async function submitAcheterParts() {
   const price = parseInt(document.getElementById('parts-buy-price').value);
   if (!company || !qty || !price) { showToast('Remplis tous les champs'); return; }
   try {
-    const r = await fetchT('/api/webapp/parts/acheter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, company_name: company, quantity: qty, max_price_per_part: price }) }, 10000);
+    const r = await fetchT('/api/webapp/parts/acheter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ company_name: company, quantity: qty, max_price_per_part: price }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('🛒 Offre d\'achat soumise !'); document.getElementById('parts-buy-company').value=''; document.getElementById('parts-buy-qty').value=''; document.getElementById('parts-buy-price').value=''; }
     else showToast(d.error||'Erreur');
@@ -11322,7 +11314,7 @@ async function loadContratsBc() {
         <div class="stat-row"><span class="stat-label">📊 Progression</span><span class="stat-value">${(c.cmds_done||0).toLocaleString()} / ${(c.objective||0).toLocaleString()} cmds (${c.pct||0}%)</span></div>
         <div class="stat-row"><span class="stat-label">💰 Récompense</span><span class="stat-value gold">${c.reward||'—'} $</span></div>
         ${isActive ? `<div class="stat-row"><span class="stat-label">⏳ Échéance</span><span class="stat-value">${c.ends_at||'—'} (${c.days_left||0}j)</span></div>` : ''}
-        ${canClaim ? `<button onclick="claimContratBc(${c.id}, this)" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
+        ${canClaim ? `<button data-claim-bc="${c.id}" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
       </div>`;
     }).join('');
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
@@ -11330,7 +11322,7 @@ async function loadContratsBc() {
 async function claimContratBc(contractId, btn, onSuccess) {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Réclamation…'; }
   try {
-    const r = await fetchT('/api/webapp/contrats/bc/claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, contract_id: contractId }) }, 10000);
+    const r = await fetchT('/api/webapp/contrats/bc/claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contract_id: contractId }) }, 10000);
     const d = await r.json();
     if (d.ok) {
       showToast(d.msg || '✅ Récompense réclamée !');
@@ -11338,6 +11330,23 @@ async function claimContratBc(contractId, btn, onSuccess) {
     } else { showToast(d.error || 'Erreur'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
   } catch(e) { showToast('Erreur réseau'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
 }
+async function claimContratAuto(contractId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Réclamation…'; }
+  try {
+    const r = await fetchT('/api/webapp/contrats/auto/claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contract_id: contractId }) }, 10000);
+    const d = await r.json();
+    if (d.ok) { showToast(d.msg || '✅ Récompense réclamée !'); loadContratsAuto(); }
+    else { showToast(d.error || 'Erreur'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
+  } catch(e) { showToast('Erreur réseau'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
+}
+
+// Délégation d'événements pour les boutons claim générés dynamiquement
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-claim-bc]');
+  if (btn) { claimContratBc(parseInt(btn.dataset.claimBc), btn, btn.dataset.onSuccess ? window[btn.dataset.onSuccess] : null); return; }
+  const btn2 = e.target.closest('[data-claim-auto]');
+  if (btn2) { claimContratAuto(parseInt(btn2.dataset.claimAuto), btn2); return; }
+});
 async function loadContratsAuto() {
   const el = document.getElementById('contrats-auto');
   el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
@@ -11361,21 +11370,11 @@ async function loadContratsAuto() {
         <div class="stat-row"><span class="stat-label">📊 Progression</span><span class="stat-value">${(c.cmds_done||0).toLocaleString()} / ${(c.objective||0).toLocaleString()} cmds (${c.pct||0}%)</span></div>
         <div class="stat-row"><span class="stat-label">💰 Récompense</span><span class="stat-value gold">${c.reward||'—'} $</span></div>
         ${isActive ? `<div class="stat-row"><span class="stat-label">⏳ Échéance</span><span class="stat-value">${c.deadline||'—'} (${c.days_left||0}j)</span></div>` : ''}
-        ${canClaim ? `<button onclick="claimContratAuto(${c.id}, this)" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
+        ${canClaim ? `<button data-claim-auto="${c.id}" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer">🎉 Réclamer la récompense</button>` : ''}
       </div>`;
     }).join('');
   } catch(e) { el.innerHTML = '<div class="plus-loader">Erreur de chargement.</div>'; }
 }
-async function claimContratAuto(contractId, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Réclamation…'; }
-  try {
-    const r = await fetchT('/api/webapp/contrats/auto/claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, contract_id: contractId }) }, 10000);
-    const d = await r.json();
-    if (d.ok) { showToast(d.msg || '✅ Récompense réclamée !'); loadContratsAuto(); }
-    else { showToast(d.error || 'Erreur'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
-  } catch(e) { showToast('Erreur réseau'); if (btn) { btn.disabled = false; btn.textContent = '🎉 Réclamer la récompense'; } }
-}
-
 // ══════════════════════════════════════════════════
 //  👥 RECRUTER (PDG)
 // ══════════════════════════════════════════════════
@@ -11427,7 +11426,7 @@ async function submitRecruter() {
   const poste = document.getElementById('rec-poste').value;
   if (!_recTargetUid) { showToast('Sélectionne un joueur'); return; }
   try {
-    const r = await fetchT('/api/webapp/recruter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _recTargetUid, salary, poste }) }, 10000);
+    const r = await fetchT('/api/webapp/recruter', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ target_id: _recTargetUid, salary, poste }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('📨 Invitation envoyée !'); cancelRec(); loadRecruter(); }
     else showToast(d.error||'Erreur');
@@ -11450,7 +11449,7 @@ function openTeamModal(userId, name, poste) {
 function closeTeamModal() { document.getElementById('team-action-modal').style.display='none'; _teamModalUid=null; }
 async function teamNommer(newPoste) {
   try {
-    const r = await fetchT('/api/webapp/nommer', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid, new_poste: newPoste }) }, 10000);
+    const r = await fetchT('/api/webapp/nommer', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ target_id: _teamModalUid, new_poste: newPoste }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('✅ Poste mis à jour !'); closeTeamModal(); loadRecruter(); }
     else showToast(d.error||'Erreur');
@@ -11458,7 +11457,7 @@ async function teamNommer(newPoste) {
 }
 async function teamLicencier() {
   try {
-    const r = await fetchT('/api/webapp/licencier', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: uid, target_id: _teamModalUid }) }, 10000);
+    const r = await fetchT('/api/webapp/licencier', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ target_id: _teamModalUid }) }, 10000);
     const d = await r.json();
     if (d.ok) { showToast('🚫 Employé licencié.'); closeTeamModal(); loadRecruter(); }
     else showToast(d.error||'Erreur');
@@ -11538,7 +11537,7 @@ async function submitBid(isSalle) {
     const r = await fetchT(endpoint, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ user_id: uid, auction_id: savedId, amount })
+      body: JSON.stringify({ auction_id: savedId, amount })
     }, 15000);
     let d;
     try { d = await r.json(); }
@@ -11775,7 +11774,7 @@ async function buyBadge(id, price, clickedBtn) {
     const r = await fetchT('/api/webapp/profile/badge/buy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: uid, badge_id: id, price })
+      body: JSON.stringify({ badge_id: id, price })
     });
     let d;
     try { d = await r.json(); } catch(e) { showToast('❌ Erreur serveur (' + r.status + ')'); return; }
@@ -11882,7 +11881,7 @@ async function saveCustomize() {
       const rp = await fetchT('/api/webapp/profile/photo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: uid, photo_b64: _custPhotoBase64 })
+        body: JSON.stringify({ photo_b64: _custPhotoBase64 })
       });
       const dp = await rp.json();
       if (dp.ok) {
@@ -12072,7 +12071,7 @@ async function ftDetailBuy() {
     const r = await fetchT('/api/webapp/tickets/invoice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: uid, ticket_type: _ftCurrent, qty: _ftQty })
+      body: JSON.stringify({ ticket_type: _ftCurrent, qty: _ftQty })
     });
     const d = await r.json();
     if (d.error) { showToast('❌ ' + d.error); return; }
@@ -12112,7 +12111,7 @@ async function ftDetailSend() {
     const r = await fetchT('/api/webapp/tickets/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: uid, to_user_id: toId, ticket_type: _ftCurrent, qty: _ftSendQty })
+      body: JSON.stringify({ to_user_id: toId, ticket_type: _ftCurrent, qty: _ftSendQty })
     });
     const d = await r.json();
     if (d.error) { showToast('❌ ' + d.error); return; }
@@ -12337,7 +12336,7 @@ function openNotifications() {
   panel.classList.add('open');
   loadNotifications();
   // Marquer toutes comme lues à l'ouverture
-  if (uid) apiFetch('/notifications/read', {method:'POST', body: JSON.stringify({user_id: uid})}).catch(()=>{});
+  if (uid) apiFetch('/notifications/read', {method:'POST', body: JSON.stringify({})}).catch(()=>{});
 }
 function closeNotifications() {
   document.getElementById('notif-panel').classList.remove('open');
@@ -12347,7 +12346,7 @@ async function deleteNotification(notifId, e) {
   const el = document.getElementById('notif-' + notifId);
   if (el) { el.style.opacity = '0.3'; el.style.pointerEvents = 'none'; }
   try {
-    await apiFetch('/notifications/delete', {method:'POST', body: JSON.stringify({user_id: uid, notif_id: notifId})});
+    await apiFetch('/notifications/delete', {method:'POST', body: JSON.stringify({notif_id: notifId})});
     if (el) el.remove();
     // Si plus aucune notif, afficher vide
     const list = document.getElementById('notif-list');
@@ -12362,7 +12361,7 @@ async function deleteNotification(notifId, e) {
 async function deleteAllNotifications() {
   if (!uid) return;
   try {
-    await apiFetch('/notifications/delete', {method:'POST', body: JSON.stringify({user_id: uid})});
+    await apiFetch('/notifications/delete', {method:'POST', body: JSON.stringify({})});
     const list = document.getElementById('notif-list');
     if (list) list.innerHTML = `<div id="notif-empty"><div class="notif-empty-icon">🔔</div><div>Aucune notification</div></div>`;
     updateBellBadge(0);

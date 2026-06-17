@@ -451,4 +451,16 @@ class CompanyBuilding(Base):
     last_maintenance = Column(DateTime, nullable=True)
 
 
+# ─── MESSAGERIE PRIVÉE (chat entre liens) ──────────────────────────────────────
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    from_user_id  = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    to_user_id    = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    content       = Column(Text, nullable=False)
+    sent_at       = Column(DateTime, default=datetime.utcnow)
+    read_at       = Column(DateTime, nullable=True)
+
+
 # ─── FILIALES ─────────────────────────────────────────────────────────────────

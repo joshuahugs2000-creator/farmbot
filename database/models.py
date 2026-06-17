@@ -58,6 +58,7 @@ class User(Base):
 
     # ─── ACTIVITÉ GLOBALE ─────────────────────────────────────────────────────
     total_commands  = Column(BigInteger, default=0)        # compteur cumulatif, jamais réinitialisé
+    last_seen       = Column(DateTime, default=datetime.utcnow)  # présence — colonne déjà en base (migration db.py), manquait ici
 
 
 class GroupSettings(Base):

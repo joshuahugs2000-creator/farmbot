@@ -86,6 +86,23 @@ async def webapp_auth_middleware(request: web.Request, handler):
         return web.json_response({'error': 'unauthorized'}, status=401)
 
     request['verified_uid'] = uid
+
+    # ── Activité entreprise (mini app) ──────────────────────────────────────
+    # Côté bot Telegram, chaque commande passe par activity_logging_middleware
+    # qui incrémente company_employees.command_count (cf. main.py). Côté mini
+    # app, AUCUNE route n'incrémentait ce compteur : les actions faites depuis
+    # le webapp ne comptaient jamais comme "commande", donc la progression des
+    # contrats bureau (calculée en live via SUM(command_count)) restait figée
+    # pour les joueurs qui jouent uniquement depuis la mini app.
+    # On ne compte que les POST (= une action réelle), pas les GET (= simple
+    # lecture/polling de données, ex: rafraîchissement auto du classement).
+    if request.method == 'POST':
+        try:
+            from handlers.company import update_company_activity, spawn_bg
+            spawn_bg(update_company_activity(uid))
+        except Exception:
+            pass
+
     return await handler(request)
 
 

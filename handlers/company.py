@@ -1430,23 +1430,6 @@ async def accepter_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         session.add(new_emp)
 
-        # ── Ajuster cmds_at_start des contrats actifs pour neutraliser l'historique du nouvel employé ──
-        if candidate:
-            new_emp_cmds = (await session.execute(
-                select(func.sum(CompanyEmployee.command_count)).where(
-                    CompanyEmployee.user_id == target_id,
-                )
-            )).scalar() or 0
-            if new_emp_cmds > 0:
-                await session.execute(
-                    sa_text("""
-                        UPDATE bureau_contrats
-                        SET cmds_at_start = cmds_at_start + :cmds
-                        WHERE company_id = :cid AND status = 'active'
-                    """),
-                    {"cmds": new_emp_cmds, "cid": company.id}
-                )
-
         await _add_log(session, company.id, "recrutement",
                        f"{candidate.first_name if candidate else target_id} recruté comme {role}")
         await session.commit()

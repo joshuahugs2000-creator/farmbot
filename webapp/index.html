@@ -6474,9 +6474,15 @@ async function loadSocialHub() {
   if (_isAdmin) loadChatBadge();
 }
 
-function openChatCard() {
+function openChatCard(userId, name) {
   if (_isAdmin) {
-    subTab('chat-list', 'loadChatList');
+    if (userId) {
+      // Ouverture directe d'une conversation depuis le bouton Discuter
+      subTab('chat-list', 'loadChatList');
+      chatOpenConv(userId, name || '—', '');
+    } else {
+      subTab('chat-list', 'loadChatList');
+    }
   } else {
     showToast('🚧 Fonctionnalité en cours de développement, reviens bientôt !');
   }
@@ -6514,18 +6520,23 @@ async function loadOnlineUsers() {
       const rel = u.relation || '';
       const relBadge = rel ? `<span style="font-size:10px;background:rgba(116,185,255,.15);border:1px solid rgba(116,185,255,.3);border-radius:20px;padding:2px 7px;color:#74b9ff;">${rel}</span>` : '';
       const mins = u.minutes_ago != null ? (u.minutes_ago < 1 ? 'À l\'instant' : `il y a ${u.minutes_ago}min`) : '';
+      const photoUrl = `/api/webapp/photo?user_id=${u.user_id}&size=72`;
+      const avatarFallback = u.avatar_emoji || '\u{1F464}';
+      const escapedName = (u.name||'').replace(/'/g, "\\'");
       return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div style="width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid rgba(0,184,148,.3);">👤</div>
-          <div>
-            <div style="font-weight:800;font-size:13px;color:var(--text1);">${u.name} ${relBadge}</div>
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+          <div style="position:relative;width:40px;height:40px;flex-shrink:0;">
+            <div style="width:40px;height:40px;border-radius:50%;overflow:hidden;border:2px solid rgba(0,184,148,.4);background:var(--card2);">
+              <img src="${photoUrl}" width="40" height="40" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:20px;line-height:40px;display:block;text-align:center;&quot;>${avatarFallback}</span>'">
+            </div>
+            <div style="position:absolute;bottom:0;right:0;width:9px;height:9px;border-radius:50%;background:#00b894;border:1.5px solid var(--bg);box-shadow:0 0 6px rgba(0,184,148,.8);"></div>
+          </div>
+          <div style="min-width:0;">
+            <div style="font-weight:800;font-size:13px;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.name} ${relBadge}</div>
             <div style="font-size:11px;color:var(--text2);">${u.username ? '@'+u.username+' · ' : ''}${mins}</div>
           </div>
         </div>
-        <div style="text-align:right;">
-          <div style="font-size:12px;font-weight:700;color:var(--accent);">${Number(u.coins||0).toLocaleString('fr-FR')} $</div>
-          <div style="width:8px;height:8px;border-radius:50%;background:#00b894;margin:4px 0 0 auto;box-shadow:0 0 6px rgba(0,184,148,.8);"></div>
-        </div>
+        <button data-chat-uid="${u.user_id}" data-chat-name="${u.name}" style="flex-shrink:0;margin-left:10px;background:rgba(116,185,255,.15);border:1px solid rgba(116,185,255,.3);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;color:#74b9ff;cursor:pointer;" onclick="event.stopPropagation();openChatCard(parseInt(this.dataset.chatUid),this.dataset.chatName)">💬 Discuter</button>
       </div>`;
     }).join('');
   } catch(e) {
@@ -11544,7 +11555,10 @@ async function paySearchPlayer(q) {
               <div style="font-weight:800;font-size:14px;color:var(--text1);">${p.name}</div>
               <div style="font-size:11px;color:var(--text2);margin-top:2px;">${sub||'&nbsp;'}</div>
             </div>
-            <span style="color:var(--accent);font-size:18px;">→</span>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+              <button data-chat-uid="${p.user_id}" data-chat-name="${p.name}" onclick="event.stopPropagation();openChatCard(parseInt(this.dataset.chatUid),this.dataset.chatName)" style="background:rgba(116,185,255,.15);border:1px solid rgba(116,185,255,.3);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;color:#74b9ff;cursor:pointer;white-space:nowrap;">💬 Discuter</button>
+              <span style="color:var(--accent);font-size:18px;">→</span>
+            </div>
           </div>`;
         }).join('')
       : '<div style="text-align:center;color:var(--text2);padding:16px;font-size:13px;">Aucun résultat</div>';
@@ -12055,7 +12069,7 @@ async function recSearchPlayer(q) {
     const d = await r.json();
     const players = d.players || [];
     document.getElementById('rec-search-results').innerHTML = players.length
-      ? players.map(p => { const pu=`/api/webapp/photo?user_id=${p.user_id}&size=44`; const sub = p.username ? '@'+p.username : (p.company ? p.company+(p.role?' · '+p.role:'') : ''); return `<div onclick="selectRecTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}','${(p.username||'').replace(/'/g,"\\'")}')" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;"><div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);"><img src="${pu}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:20px;line-height:44px;display:block;text-align:center;&quot;>${p.avatar_emoji||'👤'}</span>'"></div><div><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">${sub||'&nbsp;'}</div></div></div>`; }).join('')
+      ? players.map(p => { const pu=`/api/webapp/photo?user_id=${p.user_id}&size=44`; const sub = p.username ? '@'+p.username : (p.company ? p.company+(p.role?' · '+p.role:'') : ''); return `<div onclick="selectRecTarget(${p.user_id},'${(p.name||'').replace(/'/g,"\\'")}','${(p.username||'').replace(/'/g,"\\'")}')" style="padding:10px 12px;background:var(--card2);border-radius:14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:12px;"><div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid var(--border);"><img src="${pu}" width="44" height="44" style="object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size:20px;line-height:44px;display:block;text-align:center;&quot;>${p.avatar_emoji||'👤'}</span>'"></div><div style="flex:1;min-width:0;"><div style="font-weight:800;font-size:14px">${p.name}</div><div style="font-size:11px;color:var(--text2)">${sub||'&nbsp;'}</div></div><button data-chat-uid="${p.user_id}" data-chat-name="${p.name}" onclick="event.stopPropagation();openChatCard(parseInt(this.dataset.chatUid),this.dataset.chatName)" style="flex-shrink:0;background:rgba(116,185,255,.15);border:1px solid rgba(116,185,255,.3);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;color:#74b9ff;cursor:pointer;white-space:nowrap;">💬 Discuter</button></div>`; }).join('')
       : '<div style="text-align:center;color:var(--text2);padding:12px;font-size:13px">Aucun résultat</div>';
   } catch(e) {}
 }

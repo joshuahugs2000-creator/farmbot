@@ -1783,12 +1783,16 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <button class="co-tab-btn" onclick="coTab('bilan',this)" data-tab="bilan" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">📊 Bilan</button>
           <button class="co-tab-btn" onclick="coTab('dividendes',this)" data-tab="dividendes" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">💎 Dividendes</button>
           <button class="co-tab-btn" onclick="coTab('pretboite',this)" data-tab="pretboite" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">🏛️ Prêt</button>
+          <button class="co-tab-btn" onclick="coTab('batiments',this)" data-tab="batiments" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">🏗️ Bâtiments</button>
           <button class="co-tab-btn" onclick="coTab('pdgactions',this)" data-tab="pdgactions" style="flex-shrink:0;padding:10px 14px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;" id="co-tab-btn-pdgactions">⚙️ PDG</button>
         </div>
       </div>
 
       <!-- ── ONGLET GÉNÉRAL ── -->
       <div id="co-tab-general">
+        <!-- Alerte contrat en attente -->
+        <div id="co-contrat-alert" style="display:none;"></div>
+
         <!-- Bento finances -->
         <div class="eco-bento">
           <div class="eco-bento-cell wide" data-icon="🏦">
@@ -1974,6 +1978,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <!-- ── ONGLET PRÊT ── -->
       <div id="co-tab-pretboite" style="display:none;">
         <div id="co-pretboite-content" style="padding-top:10px;">
+          <div class="plus-loader">⏳ Chargement…</div>
+        </div>
+      </div>
+
+      <!-- ── ONGLET BÂTIMENTS ── -->
+      <div id="co-tab-batiments" style="display:none;">
+        <div id="co-batiments-content" style="padding-top:10px;">
           <div class="plus-loader">⏳ Chargement…</div>
         </div>
       </div>
@@ -3948,12 +3959,26 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <div class="card-title">GÉRER L'ÉQUIPE</div>
       <div id="team-manage-list"><div class="plus-loader">⏳ Chargement…</div></div>
     </div>
-    <!-- Modal licencier/nommer -->
-    <div id="team-action-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.8);align-items:center;justify-content:center">
-      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">
-        <div id="team-action-name" style="font-size:16px;font-weight:900;margin-bottom:16px;text-align:center"></div>
-        <div style="display:flex;flex-direction:column;gap:8px" id="team-action-btns"></div>
-        <button onclick="closeTeamModal()" style="width:100%;padding:11px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;margin-top:10px;cursor:pointer">✖ Fermer</button>
+    <!-- Modal licencier/nommer -->\n    <div id="team-action-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.8);align-items:center;justify-content:center">\n      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border)">\n        <div id="team-action-name" style="font-size:16px;font-weight:900;margin-bottom:16px;text-align:center"></div>\n        <div style="display:flex;flex-direction:column;gap:8px" id="team-action-btns"></div>\n        <button onclick="closeTeamModal()" style="width:100%;padding:11px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;margin-top:10px;cursor:pointer">✖ Fermer</button>\n      </div>\n    </div>
+
+    <!-- Modal négocier contrat -->
+    <div id="co-negocier-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.85);align-items:center;justify-content:center;">
+      <div style="background:var(--card);border-radius:20px;padding:24px;width:88%;max-width:360px;border:1px solid var(--border);">
+        <div style="font-size:16px;font-weight:900;margin-bottom:4px;text-align:center;">📄 Négocier un contrat</div>
+        <div id="co-negocier-empname" style="text-align:center;color:var(--accent);font-size:13px;font-weight:700;margin-bottom:16px;"></div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:12px;color:var(--text2);font-weight:700;">Salaire proposé ($/jour)</label>
+          <input id="co-negocier-salary" type="number" min="1" placeholder="ex: 500000"
+            style="margin-top:4px;width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;font-family:'Nunito',sans-serif;">
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:12px;color:var(--text2);font-weight:700;">Prime (optionnel, $)</label>
+          <input id="co-negocier-bonus" type="number" min="0" placeholder="0"
+            style="margin-top:4px;width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text1);font-size:14px;font-family:'Nunito',sans-serif;">
+        </div>
+        <button id="co-negocier-submit" onclick="coSendNegocier(this)" style="width:100%;padding:12px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-weight:900;font-size:14px;cursor:pointer;font-family:'Nunito',sans-serif;">📩 Envoyer la proposition</button>
+        <div id="co-negocier-msg" style="text-align:center;margin-top:8px;font-size:13px;color:var(--text2);min-height:14px;"></div>
+        <button onclick="document.getElementById('co-negocier-modal').style.display='none'" style="width:100%;padding:11px;border-radius:12px;border:none;background:var(--card2);color:var(--text2);font-weight:700;margin-top:8px;cursor:pointer;font-family:'Nunito',sans-serif;">✖ Annuler</button>
       </div>
     </div>
   </div>
@@ -8837,7 +8862,7 @@ async function bankOpenAccount(bank_id) {
 let _coData = null;
 
 function coTab(tab, btn) {
-  ['general','equipe','contrats','auto','impots','parts','candidatures','logs','presences','bilan','dividendes','pretboite','pdgactions'].forEach(t => {
+  ['general','equipe','contrats','auto','impots','parts','candidatures','logs','presences','bilan','dividendes','pretboite','batiments','pdgactions'].forEach(t => {
     const el = document.getElementById('co-tab-'+t);
     if (el) el.style.display = t===tab ? 'block' : 'none';
   });
@@ -8853,6 +8878,7 @@ function coTab(tab, btn) {
   if (tab === 'bilan') coLoadBilan();
   if (tab === 'dividendes') coLoadDividendes();
   if (tab === 'pretboite') coLoadPretBoite();
+  if (tab === 'batiments') coLoadBatiments();
   if (tab === 'pdgactions') coLoadSalaireInfo();
 }
 
@@ -8980,6 +9006,48 @@ async function loadCompany() {
     document.getElementById('co-frozen-banner').style.display = co.frozen ? 'block' : 'none';
     document.getElementById('co-value').textContent = fmt(co.value_raw) + ' $';
     document.getElementById('co-treasury').textContent = fmt(co.treasury_raw) + ' $';
+
+    // Alerte contrat en attente
+    const alertEl = document.getElementById('co-contrat-alert');
+    if (alertEl) {
+      if (co.my_contract_status === 'pending_employee' && co.my_pending_salary > 0) {
+        const bonusTxt = co.my_pending_bonus > 0 ? ` + ${fmt(co.my_pending_bonus)} $ prime` : '';
+        alertEl.style.display = 'block';
+        alertEl.innerHTML = `<div style="background:rgba(247,201,72,.12);border:1px solid rgba(247,201,72,.4);border-radius:14px;padding:14px;margin-bottom:12px;">
+          <div style="font-weight:900;font-size:13px;color:#f7c948;">📄 Proposition de contrat en attente !</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;">Salaire proposé : <b style="color:var(--text1);">${fmt(co.my_pending_salary)} $/jour${bonusTxt}</b></div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button data-contrat-action="accepter" style="flex:1;padding:9px;border-radius:10px;border:none;background:var(--success);color:#fff;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">✅ Accepter</button>
+            <button data-contrat-action="refuser" style="flex:1;padding:9px;border-radius:10px;border:none;background:rgba(229,85,85,.15);border:1px solid #e55;color:#e55;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">❌ Refuser</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <input id="co-counter-amount" type="number" placeholder="Contre-proposer ($/j)" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text1);font-size:12px;font-family:'Nunito',sans-serif;">
+            <button data-contrat-action="counter" style="padding:9px 12px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:800;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">💬</button>
+          </div>
+          <div id="co-contrat-alert-msg" style="font-size:11px;color:var(--text2);min-height:12px;margin-top:4px;"></div>
+        </div>`;
+        // Attach event listeners
+        alertEl.querySelectorAll('[data-contrat-action]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const action = btn.dataset.contratAction;
+            const amount = action === 'counter' ? parseInt(document.getElementById('co-counter-amount')?.value||0) : 0;
+            const msgEl = document.getElementById('co-contrat-alert-msg');
+            if (action === 'counter' && (!amount || amount <= 0)) { if(msgEl) msgEl.textContent='❌ Entre un montant'; return; }
+            btn.disabled = true;
+            if(msgEl) msgEl.textContent = '⏳…';
+            try {
+              const r = await fetchT('/api/webapp/contrat/repondre', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action, amount})});
+              const d2 = await r.json();
+              if (d2.error) { if(msgEl) msgEl.textContent='❌ '+d2.error; btn.disabled=false; return; }
+              showToast(d2.msg);
+              setTimeout(() => loadCompany(), 1000);
+            } catch(e) { if(msgEl) msgEl.textContent='❌ Erreur réseau'; btn.disabled=false; }
+          });
+        });
+      } else {
+        alertEl.style.display = 'none';
+      }
+    }
     document.getElementById('co-taxdebt').textContent = co.tax_debt_raw > 0 ? fmt(co.tax_debt_raw) + ' $' : '—';
     document.getElementById('co-mycmds').textContent = (co.my_cmds || 0).toLocaleString() + ' cmds';
     if (co.is_pdg) document.getElementById('co-pdg-actions').style.display = 'block';
@@ -9031,6 +9099,7 @@ async function loadCompany() {
             </select>
             <button onclick="coNommerEmp(${e.user_id})" style="padding:6px 10px;border-radius:8px;border:none;background:rgba(100,200,100,.15);border:1px solid var(--success);color:var(--success);font-size:11px;font-weight:800;cursor:pointer;font-family:'Nunito',sans-serif;">✅ Nommer</button>
             ${isPdgOrDir ? `<button onclick="coLicencierEmp(${e.user_id},'${e.name.replace(/'/g,"\\'")}',this)" style="padding:6px 10px;border-radius:8px;border:none;background:rgba(229,85,85,.12);border:1px solid #e55;color:#e55;font-size:11px;font-weight:800;cursor:pointer;font-family:'Nunito',sans-serif;">🚪 Licencier</button>` : ''}
+            ${co.is_pdg ? `<button onclick="coOpenNegocier(${e.user_id},'${e.name.replace(/'/g,"\\'")}',${e.cmd_count||0})" style="padding:6px 10px;border-radius:8px;border:none;background:rgba(100,180,255,.12);border:1px solid var(--accent);color:var(--accent);font-size:11px;font-weight:800;cursor:pointer;font-family:'Nunito',sans-serif;">📄 Contrat</button>` : ''}
           </div>
           <div id="emp-msg-${e.user_id}" style="font-size:11px;color:var(--text2);min-height:14px;margin-top:4px;"></div>` : '';
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border);${e.is_me?'background:rgba(247,201,72,.06);border-radius:8px;padding:8px;':''}">
@@ -9358,6 +9427,37 @@ async function coDemissionner() {
   } catch(e) { showToast('❌ Erreur réseau'); }
 }
 
+let _negocierTargetId = 0;
+function coOpenNegocier(targetId, targetName) {
+  _negocierTargetId = targetId;
+  document.getElementById('co-negocier-empname').textContent = targetName;
+  document.getElementById('co-negocier-salary').value = '';
+  document.getElementById('co-negocier-bonus').value = '';
+  document.getElementById('co-negocier-msg').textContent = '';
+  const btn = document.getElementById('co-negocier-submit');
+  if (btn) { btn.disabled = false; btn.textContent = '📩 Envoyer la proposition'; }
+  const modal = document.getElementById('co-negocier-modal');
+  modal.style.display = 'flex';
+}
+
+async function coSendNegocier(btn) {
+  const salary = parseInt(document.getElementById('co-negocier-salary').value || 0);
+  const bonus = parseInt(document.getElementById('co-negocier-bonus').value || 0);
+  const msgEl = document.getElementById('co-negocier-msg');
+  if (!salary || salary <= 0) { msgEl.textContent = '❌ Entre un salaire valide.'; return; }
+  if (!_negocierTargetId) return;
+  btn.disabled = true;
+  btn.textContent = '⏳…';
+  msgEl.textContent = '';
+  try {
+    const r = await fetchT('/api/webapp/negociercontrat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({target_user_id: _negocierTargetId, salary, bonus})});
+    const d = await r.json();
+    if (d.error) { msgEl.textContent = '❌ ' + d.error; btn.disabled=false; btn.textContent='📩 Envoyer la proposition'; return; }
+    showToast(d.msg);
+    document.getElementById('co-negocier-modal').style.display = 'none';
+  } catch(e) { msgEl.textContent = '❌ Erreur réseau'; btn.disabled=false; btn.textContent='📩 Envoyer la proposition'; }
+}
+
 async function coSoumettreOffre() {
   const qty = parseInt(document.getElementById('co-buy-qty').value)||0;
   const msgEl = document.getElementById('co-buy-msg');
@@ -9522,9 +9622,107 @@ async function coLoadPretBoite() {
           <div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden;"><div style="width:${barW}%;height:100%;background:${barW>=100?'var(--success)':'var(--accent)'};border-radius:6px;transition:width .3s;"></div></div>
         </div>
         ${loan.missed_days > 0 ? `<div style="color:#e55;font-size:12px;margin-top:8px;border:1px solid #e55;border-radius:8px;padding:8px;">⚠️ ${loan.missed_days} jour(s) de retard — pénalités appliquées !</div>` : ''}
-        <div style="color:var(--text2);font-size:12px;margin-top:10px;">Remboursement anticipé : <code>/rembourserboite [montant]</code></div>
+        <div id="co-pretboite-remb-section" style="margin-top:14px;">
+          <div class="card-title" style="font-size:11px;">💸 REMBOURSEMENT ANTICIPÉ</div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <input id="co-pretboite-amount" type="number" min="1" placeholder="Montant ($)"
+              style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:9px;color:var(--text1);font-size:13px;font-family:'Nunito',sans-serif;">
+            <button onclick="coRembourserBoite(this,'partial')" style="padding:9px 14px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;">Payer</button>
+          </div>
+          <button onclick="coRembourserBoite(this,'tout')" style="margin-top:8px;width:100%;padding:11px;border-radius:12px;border:none;background:var(--success);color:#fff;font-weight:900;font-size:13px;cursor:pointer;font-family:'Nunito',sans-serif;">✅ Tout rembourser (${loan.remaining} $)</button>
+          <div id="co-pretboite-msg" style="text-align:center;margin-top:6px;font-size:12px;color:var(--text2);min-height:14px;"></div>
+        </div>
       </div>
     `;
+  } catch(e) { el.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center;">Erreur de chargement.</div>'; }
+}
+
+async function coRembourserBoite(btn, mode) {
+  const msgEl = document.getElementById('co-pretboite-msg');
+  let amount = mode === 'tout' ? 'tout' : parseInt(document.getElementById('co-pretboite-amount')?.value || 0);
+  if (mode !== 'tout' && (!amount || amount <= 0)) { if(msgEl) msgEl.textContent = '❌ Entre un montant.'; return; }
+  if (btn) btn.disabled = true;
+  if (msgEl) msgEl.textContent = '⏳…';
+  try {
+    const r = await fetchT('/api/webapp/rembourserboite', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({amount})});
+    const d = await r.json();
+    if (d.error) { if(msgEl) msgEl.textContent = '❌ '+d.error; if(btn) btn.disabled=false; return; }
+    showToast(d.msg);
+    coLoadPretBoite();
+  } catch(e) { if(msgEl) msgEl.textContent = '❌ Erreur réseau'; if(btn) btn.disabled=false; }
+}
+
+async function coLoadBatiments() {
+  const el = document.getElementById('co-batiments-content');
+  if (!el) return;
+  el.innerHTML = '<div class="plus-loader">⏳ Chargement…</div>';
+  try {
+    const r = await fetchT('/api/webapp/batiments');
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text2)">${d.error}</div>`; return; }
+
+    const isPdg = d.is_pdg;
+    let html = '';
+
+    // Bâtiments possédés
+    if (d.owned.length > 0) {
+      html += `<div class="card" style="margin-bottom:12px;">
+        <div class="card-title">✅ MES BÂTIMENTS (${d.owned.length})</div>`;
+      for (const b of d.owned) {
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-weight:800;font-size:14px;">${b.name}</div>
+            <div style="font-size:11px;color:var(--text2);">${b.effect}</div>
+            <div style="font-size:11px;color:var(--text2);">Maintenance : ${b.maintenance} $/jour · Acheté le ${b.purchased_at}</div>
+          </div>
+          <span style="font-size:20px;">✅</span>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+
+    // Catalogue
+    html += `<div class="card-title" style="margin-bottom:8px;">🏗️ CATALOGUE</div>`;
+    for (const b of d.catalogue) {
+      if (b.owned) continue; // déjà affiché ci-dessus
+      const locked = !b.unlocked;
+      const cantAfford = !b.can_afford && !locked;
+      html += `<div class="card" style="margin-bottom:10px;${locked ? 'opacity:0.5;' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div style="flex:1;">
+            <div style="font-weight:800;font-size:14px;">${b.name}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px;">${b.effect}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:4px;">
+              💰 ${b.cost} $ · 🔧 ${b.maintenance} $/jour
+              ${locked ? `<br><span style="color:#e55;">🔒 Niveau ${b.unlock_lvl} requis</span>` : ''}
+            </div>
+          </div>
+        </div>
+        ${isPdg && !locked ? `<button data-buy-bat="${b.type}" style="margin-top:10px;width:100%;padding:10px;border-radius:10px;border:none;background:${b.can_afford ? 'var(--accent)' : 'var(--border)'};color:${b.can_afford ? '#fff' : 'var(--text2)'};font-weight:800;font-size:13px;cursor:${b.can_afford ? 'pointer' : 'not-allowed'};font-family:'Nunito',sans-serif;" ${b.can_afford ? '' : 'disabled'}>
+          🏗️ Acheter — ${b.cost} $
+        </button>` : ''}
+      </div>`;
+    }
+
+    el.innerHTML = html;
+
+    // Event delegation pour boutons acheter
+    el.querySelectorAll('[data-buy-bat]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const btype = btn.dataset.buyBat;
+        if (!confirm(`Acheter ${btn.closest('.card').querySelector('div').textContent.trim()} ?`)) return;
+        btn.disabled = true;
+        btn.textContent = '⏳…';
+        try {
+          const r = await fetchT('/api/webapp/batiments/acheter', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({building_type: btype})});
+          const d2 = await r.json();
+          if (d2.error) { showToast('❌ '+d2.error); btn.disabled=false; btn.textContent='🏗️ Acheter'; return; }
+          showToast(d2.msg);
+          coLoadBatiments();
+        } catch(e) { showToast('❌ Erreur réseau'); btn.disabled=false; }
+      });
+    });
+
   } catch(e) { el.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center;">Erreur de chargement.</div>'; }
 }
 

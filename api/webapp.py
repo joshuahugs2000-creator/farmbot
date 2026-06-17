@@ -107,6 +107,13 @@ async def webapp_user(request: web.Request) -> web.Response:
         if not user:
             return web.json_response({'error': 'user not found'}, status=404)
 
+        # Mettre à jour last_seen sans bloquer la lecture
+        await session.execute(
+            text("UPDATE users SET last_seen = NOW() WHERE user_id = :uid"),
+            {'uid': uid}
+        )
+        await session.commit()
+
         # ── Banque ──
         banks = (await session.execute(
             select(BankAccount).where(BankAccount.user_id == uid)

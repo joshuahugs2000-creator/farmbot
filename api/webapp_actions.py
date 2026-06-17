@@ -1733,20 +1733,20 @@ async def webapp_contrats_bc(request: web.Request) -> web.Response:
             ).order_by(BureauContrat.created_at.desc()).limit(20)
         )).scalars().all()
 
-        # Total cmds équipe
+        # Total live des commandes de l'équipe (actifs + anciens, pour éviter une régression
+        # de la barre de progression quand un employé quitte l'entreprise)
         total_cmds = (await session.execute(
             select(func.sum(CompanyEmployee.command_count)).where(
                 CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
             )
         )).scalar() or 0
 
         now = datetime.utcnow()
         items = []
         for c in contrats:
-            cmds_done = getattr(c, "cmds_done", None)
-            if cmds_done is None:
-                cmds_done = max(0, int(total_cmds) - (c.cmds_at_start or 0))
+            # cmds_done en DB n'est pas fiable (incrémentée seulement pour certaines commandes) :
+            # on calcule toujours la progression live à partir du total d'équipe.
+            cmds_done = max(0, int(total_cmds) - (c.cmds_at_start or 0))
             obj  = c.objective_cmds or 1
             pct  = min(100, int(cmds_done / obj * 100))
             days = (c.ends_at - now).days if c.ends_at else 0
@@ -1760,6 +1760,7 @@ async def webapp_contrats_bc(request: web.Request) -> web.Response:
                 "cmds_done": cmds_done,
                 "pct":       pct,
                 "status":    c.status,
+                "can_claim": c.status == "active" and pct >= 100,
                 "days_left": max(0, days),
                 "ends_at":   c.ends_at.strftime("%d/%m à %H:%M") if c.ends_at else "—",
                 "starts_at": c.starts_at.strftime("%d/%m") if c.starts_at else "—",
@@ -1788,16 +1789,14 @@ async def webapp_contrats_auto(request: web.Request) -> web.Response:
         total_cmds = (await session.execute(
             select(func.sum(CompanyEmployee.command_count)).where(
                 CompanyEmployee.company_id == company.id,
-                CompanyEmployee.left_at == None,
             )
         )).scalar() or 0
 
         now = datetime.utcnow()
         items = []
         for ac in rows:
-            cmds_done = getattr(ac, "cmds_done", None)
-            if cmds_done is None:
-                cmds_done = max(0, int(total_cmds) - (ac.cmds_at_start or 0))
+            # cmds_done en DB n'est pas fiable : calcul toujours live.
+            cmds_done = max(0, int(total_cmds) - (ac.cmds_at_start or 0))
             obj = ac.objective_cmds or 1
             pct = min(100, int(cmds_done / obj * 100))
             deadline_left = (ac.deadline_at - now).days if ac.deadline_at else 0
@@ -1811,6 +1810,7 @@ async def webapp_contrats_auto(request: web.Request) -> web.Response:
                 "reward":     _fmt(ac.negotiated_reward or ac.reward),
                 "reward_raw": ac.negotiated_reward or ac.reward,
                 "status":     ac.status,
+                "can_claim":  ac.status == "active" and pct >= 100,
                 "days_left":  max(0, deadline_left),
                 "deadline":   ac.deadline_at.strftime("%d/%m à %H:%M") if ac.deadline_at else "—",
                 "is_pdg":     emp.role == "pdg",
@@ -1819,9 +1819,105 @@ async def webapp_contrats_auto(request: web.Request) -> web.Response:
     return web.json_response({"contrats": items, "company": company.name})
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  SKIP ATTENTE (cooldown démission)
-# ═════════════════════════════════════════════════════════════════════════════
+async def webapp_contrats_bc_claim(request: web.Request) -> web.Response:
+    """POST /api/webapp/contrats/bc/claim — body: {user_id, contract_id}
+    Réclame immédiatement la récompense d'un contrat Bureau si l'objectif est atteint."""
+    body = await _body(request)
+    uid  = int(body.get("user_id", 0))
+    if not _auth(uid):
+        return _err("unauthorized", 403)
+    contract_id = int(body.get("contract_id", 0) or 0)
+    if not contract_id:
+        return _err("contract_id manquant")
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or not emp or emp.role not in ("pdg", "directeur"):
+            return _err("Tu n'es PDG ni directeur d'aucune entreprise.")
+
+        contract = await session.get(BureauContrat, contract_id)
+        if not contract or contract.company_id != company.id:
+            return _err("Contrat introuvable.")
+        if contract.status != "active":
+            return _err("Ce contrat n'est plus actif.")
+
+        total_cmds = (await session.execute(
+            select(func.sum(CompanyEmployee.command_count)).where(
+                CompanyEmployee.company_id == company.id,
+            )
+        )).scalar() or 0
+        progression = max(0, int(total_cmds) - (contract.cmds_at_start or 0))
+        obj = contract.objective_cmds or 1
+        if progression < obj:
+            return _err(f"Objectif pas encore atteint : {progression:,}/{obj:,} commandes".replace(",", " "))
+
+        contract.status = "completed"
+        company.treasury = (company.treasury or 0) + contract.reward
+        company.value = company.treasury
+        await _add_log(session, company.id, "contrat_bureau",
+                        f"Contrat BC '{contract.title}' réclamé via la mini app — +{_fmt(contract.reward)} $",
+                        amount=contract.reward)
+        await session.commit()
+        treasury_now = company.treasury
+
+    try:
+        await _notify(uid, f"🎉 Contrat Bureau '{contract.title}' réclamé ! +{_fmt(contract.reward)} $ en trésorerie.")
+    except Exception:
+        pass
+
+    return _ok(f"✅ +{_fmt(contract.reward)} $ crédités en trésorerie !", treasury=_fmt(treasury_now))
+
+
+async def webapp_contrats_auto_claim(request: web.Request) -> web.Response:
+    """POST /api/webapp/contrats/auto/claim — body: {user_id, contract_id}
+    Réclame immédiatement la récompense d'un contrat automatique si l'objectif est atteint."""
+    body = await _body(request)
+    uid  = int(body.get("user_id", 0))
+    if not _auth(uid):
+        return _err("unauthorized", 403)
+    contract_id = int(body.get("contract_id", 0) or 0)
+    if not contract_id:
+        return _err("contract_id manquant")
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or not emp or emp.role not in ("pdg", "directeur"):
+            return _err("Tu n'es PDG ni directeur d'aucune entreprise.")
+
+        contract = await session.get(CompanyAutoContract, contract_id)
+        if not contract or contract.company_id != company.id:
+            return _err("Contrat introuvable.")
+        if contract.status != "active":
+            return _err("Ce contrat n'est plus actif.")
+
+        total_cmds = (await session.execute(
+            select(func.sum(CompanyEmployee.command_count)).where(
+                CompanyEmployee.company_id == company.id,
+            )
+        )).scalar() or 0
+        progression = max(0, int(total_cmds) - (contract.cmds_at_start or 0))
+        obj = contract.objective_cmds or 1
+        if progression < obj:
+            return _err(f"Objectif pas encore atteint : {progression:,}/{obj:,} commandes".replace(",", " "))
+
+        reward = contract.negotiated_reward or contract.reward
+        contract.status = "completed"
+        company.treasury = (company.treasury or 0) + reward
+        import random as _rnd
+        rep_gain = _rnd.choice([0.05, 0.05, 0.075, 0.075, 0.10])
+        company.reputation = min(5.0, (company.reputation or 3.0) + rep_gain)
+        await _add_log(session, company.id, "contrat_auto",
+                        f"Contrat auto '{contract.client_name}' réclamé via la mini app — +{_fmt(reward)} $",
+                        amount=reward)
+        await session.commit()
+        treasury_now = company.treasury
+
+    try:
+        await _notify(uid, f"🎉 Contrat '{contract.client_name}' réclamé ! +{_fmt(reward)} $ en trésorerie.")
+    except Exception:
+        pass
+
+    return _ok(f"✅ +{_fmt(reward)} $ crédités en trésorerie !", treasury=_fmt(treasury_now))
 
 async def webapp_skipattente(request: web.Request) -> web.Response:
     """POST /api/webapp/skipattente — body: {user_id}"""
@@ -2104,6 +2200,8 @@ def setup_actions_routes(app: web.Application):
     # Contrats
     app.router.add_get("/api/webapp/contrats/bc",          webapp_contrats_bc)
     app.router.add_get("/api/webapp/contrats/auto",        webapp_contrats_auto)
+    app.router.add_post("/api/webapp/contrats/bc/claim",   webapp_contrats_bc_claim)
+    app.router.add_post("/api/webapp/contrats/auto/claim", webapp_contrats_auto_claim)
 
     # Misc
     app.router.add_post("/api/webapp/skipattente",         webapp_skipattente)

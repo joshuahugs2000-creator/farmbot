@@ -3,6 +3,7 @@ api/webapp.py — Routes API pour la Mini App Telegram
 """
 import hmac, hashlib, json
 from datetime import datetime, timedelta
+from urllib.parse import unquote
 from aiohttp import web
 from sqlalchemy import select, text, func
 from database.db import AsyncSessionLocal
@@ -19,34 +20,67 @@ WEBAPP_ADMIN_IDS = {
 # Mini App ouverte au public
 WEBAPP_OPEN = True
 
+# Routes qui n'ont pas besoin d'authentification
+_PUBLIC_PATHS = {'/', '/webapp', '/api/webapp/load', '/api/webapp/photo'}
+
 def _is_allowed(user_id: int) -> bool:
-    """Toujours True — la sécurité est garantie par /api/webapp/load (initData)."""
-    return True
+    """Vérifie que le user_id correspond à l'utilisateur authentifié via initData."""
+    return user_id > 0
 
 def _is_admin(user_id: int) -> bool:
     return user_id in WEBAPP_ADMIN_IDS
 
 
-@web.middleware
-async def webapp_auth_middleware(request: web.Request, handler):
-    """Middleware : seul /api/webapp/load valide initData. Les routes API passent librement
-    (la sécurité est garantie par le skeleton — sans initData valide le HTML n'est jamais livré)."""
-    return await handler(request)
-
-
-def _verify_init_data(init_data: str) -> bool:
-    """Vérifie la signature Telegram initData."""
+def _verify_init_data(init_data: str) -> tuple[bool, int]:
+    """
+    Vérifie la signature Telegram initData.
+    Retourne (valide, user_id) — user_id=0 si invalide.
+    """
     if not init_data:
-        return False
+        return False, 0
     try:
         pairs = dict(p.split('=', 1) for p in init_data.split('&') if '=' in p)
         check_hash = pairs.pop('hash', '')
         data_check = '\n'.join(f'{k}={v}' for k, v in sorted(pairs.items()))
         secret = hmac.new(b'WebAppData', BOT_TOKEN.encode(), hashlib.sha256).digest()
         expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, check_hash)
+        if not hmac.compare_digest(expected, check_hash):
+            return False, 0
+        # Extraire le user_id depuis le champ "user" du initData
+        user_str = pairs.get('user', '{}')
+        user_obj = json.loads(unquote(user_str))
+        uid = int(user_obj.get('id', 0))
+        return uid > 0, uid
     except Exception:
-        return False
+        return False, 0
+
+
+def _get_verified_uid(request: web.Request) -> int:
+    """
+    Retourne le user_id vérifié posé par le middleware.
+    Retourne 0 si la requête n'est pas authentifiée (ne devrait pas arriver
+    sur les routes protégées car le middleware bloque avant).
+    """
+    return request.get('verified_uid', 0)
+
+
+@web.middleware
+async def webapp_auth_middleware(request: web.Request, handler):
+    """
+    Middleware : vérifie le header X-Telegram-Init-Data sur toutes les routes
+    sauf les routes publiques. Pose request['verified_uid'] pour les handlers.
+    """
+    if request.path in _PUBLIC_PATHS:
+        return await handler(request)
+
+    init_data = request.headers.get('X-Telegram-Init-Data', '')
+    valid, uid = _verify_init_data(init_data)
+
+    if not valid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
+
+    request['verified_uid'] = uid
+    return await handler(request)
 
 
 def _fmt(n):
@@ -59,20 +93,10 @@ def _fmt(n):
 
 
 async def webapp_user(request: web.Request) -> web.Response:
-    """GET /api/webapp/user?user_id=xxx&init_data=xxx"""
-    user_id   = request.rel_url.query.get('user_id')
-    init_data = request.rel_url.query.get('init_data', '')
-
-    if not user_id:
-        return web.json_response({'error': 'missing user_id'}, status=400)
-
-    try:
-        uid = int(user_id)
-    except ValueError:
-        return web.json_response({'error': 'invalid user_id'}, status=400)
-
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'access denied'}, status=403)
+    """GET /api/webapp/user"""
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         # ── User ──
@@ -213,7 +237,7 @@ async def webapp_user(request: web.Request) -> web.Response:
 
 
 async def webapp_photo_proxy(request: web.Request) -> web.Response:
-    """GET /api/webapp/photo?user_id=xxx — Proxy vers la photo de profil Telegram ou photo custom."""
+    """GET /api/webapp/photo?user_id=xxx — Proxy vers la photo de profil Telegram ou photo custom. Route publique."""
     import aiohttp as _aiohttp
     import base64 as _b64
     user_id = request.rel_url.query.get('user_id')
@@ -273,19 +297,11 @@ async def webapp_save_avatar(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid JSON'}, status=400)
 
-    user_id_raw = body.get('user_id')
+    uid = _get_verified_uid(request)
     avatar_data = body.get('avatar_data')
 
-    if not user_id_raw or not avatar_data:
-        return web.json_response({'error': 'missing user_id or avatar_data'}, status=400)
-
-    try:
-        uid = int(user_id_raw)
-    except (ValueError, TypeError):
-        return web.json_response({'error': 'invalid user_id'}, status=400)
-
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'access denied'}, status=403)
+    if not uid or not avatar_data:
+        return web.json_response({'error': 'missing avatar_data'}, status=400)
 
     # Valider que avatar_data est bien du JSON sérialisable
     try:
@@ -377,11 +393,10 @@ async def webapp_load_app(request: web.Request) -> web.Response:
     except Exception:
         return web.Response(text="Bad request", status=400)
 
-    uid       = body.get('user_id')
     init_data = body.get('init_data', '')
+    valid, uid = _verify_init_data(init_data)
 
-    # Mini App ouverte à tous les utilisateurs Telegram
-    if not uid:
+    if not valid or not uid:
         return web.json_response({'error': 'access denied'}, status=403)
 
     import os
@@ -409,9 +424,9 @@ def _build_locked_page() -> str:
 
 # ── Route : Catalogue marché ─────────────────────────────────────────────────
 async def webapp_market_catalog(request: web.Request) -> web.Response:
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     catalog = {}
     for cat in CATEGORIES:
@@ -440,9 +455,9 @@ async def webapp_market_catalog(request: web.Request) -> web.Response:
 
 # ── Route : Portfolio détaillé ───────────────────────────────────────────────
 async def webapp_market_portfolio(request: web.Request) -> web.Response:
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     try:
         return await _webapp_market_portfolio_inner(uid)
@@ -518,9 +533,9 @@ async def webapp_market_action(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid = int(body.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     action = body.get('action')  # 'buy' ou 'sell'
     asset_id = body.get('asset_id', '')
@@ -595,9 +610,9 @@ async def webapp_game(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid = int(body.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     game = body.get('game')  # 'crash_start', 'crash_cashout', 'roue', 'mines_start', 'mines_reveal', 'mines_cashout'
     mise = int(body.get('mise', 0))
@@ -1156,9 +1171,9 @@ async def webapp_profile_customize(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid = int(body.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     cover_theme     = body.get('cover_theme', 'purple')
     cover_fx        = body.get('cover_fx', '')
@@ -1196,12 +1211,12 @@ async def webapp_profile_badge_buy(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid      = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     badge_id = body.get('badge_id', '')
     price    = int(body.get('price', 0))
 
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if not badge_id or price < 0:
         return web.json_response({'error': 'Paramètres invalides'}, status=400)
 
@@ -1249,11 +1264,11 @@ async def webapp_profile_photo(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid          = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     photo_b64    = body.get('photo_b64', '') or body.get('photo_base64', '')  # les deux clés acceptées
 
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if not photo_b64:
         return web.json_response({'error': 'Photo manquante'})
 
@@ -1379,9 +1394,9 @@ def setup_webapp_routes(app: web.Application):
 
 async def webapp_gains(request: web.Request) -> web.Response:
     """GET /api/webapp/gains?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     from datetime import datetime
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
@@ -1413,8 +1428,8 @@ async def webapp_gains_daily(request: web.Request) -> web.Response:
     """POST /api/webapp/gains/daily"""
     data = await request.json()
     uid = int(data.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     from database.db import claim_daily
     async with AsyncSessionLocal() as session:
         result = await claim_daily(session, uid)
@@ -1425,8 +1440,8 @@ async def webapp_gains_work(request: web.Request) -> web.Response:
     """POST /api/webapp/gains/work"""
     data = await request.json()
     uid = int(data.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     from database.db import claim_work
     async with AsyncSessionLocal() as session:
         result = await claim_work(session, uid)
@@ -1439,9 +1454,9 @@ async def webapp_gains_work(request: web.Request) -> web.Response:
 
 async def webapp_journal(request: web.Request) -> web.Response:
     """GET /api/webapp/journal?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     from datetime import datetime as _ddt
     entries = []
@@ -1494,9 +1509,9 @@ async def webapp_journal(request: web.Request) -> web.Response:
 
 async def webapp_events(request: web.Request) -> web.Response:
     """GET /api/webapp/events?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     from datetime import datetime as _ddt
     events = []
@@ -1535,9 +1550,9 @@ async def webapp_events(request: web.Request) -> web.Response:
 
 async def webapp_annonces(request: web.Request) -> web.Response:
     """GET /api/webapp/annonces?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     from datetime import date
     annonces = []
@@ -1577,9 +1592,9 @@ async def webapp_annonces(request: web.Request) -> web.Response:
 
 async def webapp_auctions_live(request: web.Request) -> web.Response:
     """GET /api/webapp/auctions/live?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     auctions = []
     async with AsyncSessionLocal() as session:
@@ -1640,9 +1655,9 @@ async def webapp_auctions_live(request: web.Request) -> web.Response:
 
 async def webapp_auctions_inventory(request: web.Request) -> web.Response:
     """GET /api/webapp/auctions/inventory?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     items = []
     async with AsyncSessionLocal() as session:
@@ -1679,12 +1694,12 @@ async def webapp_auctions_bid(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'ok': False, 'error': 'JSON invalide'}, status=400)
 
-    uid        = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     auction_id = int(body.get('auction_id', 0))
     amount     = int(body.get('amount', 0))
 
-    if not _is_allowed(uid):
-        return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if amount <= 0:
         return web.json_response({'ok': False, 'error': 'Montant invalide'})
 
@@ -1747,9 +1762,9 @@ from datetime import datetime as _dt
 
 async def webapp_bank_data(request: web.Request) -> web.Response:
     """GET /api/webapp/bank — Comptes + prêts + catalogue banques."""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         from database.models import BankAccount, Loan
@@ -1830,10 +1845,10 @@ async def webapp_bank_open(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid     = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     bank_id = body.get('bank_id', '')
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if bank_id not in BANKS_DEF:
         return web.json_response({'error': 'Banque inconnue'}, status=400)
 
@@ -1860,11 +1875,11 @@ async def webapp_bank_deposit(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid     = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     bank_id = body.get('bank_id', '')
     amount  = int(body.get('amount', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if bank_id not in BANKS_DEF:
         return web.json_response({'error': 'Banque inconnue'}, status=400)
     if amount <= 0:
@@ -1909,11 +1924,11 @@ async def webapp_bank_withdraw(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid     = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     bank_id = body.get('bank_id', '')
     amount  = int(body.get('amount', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if bank_id not in BANKS_DEF:
         return web.json_response({'error': 'Banque inconnue'}, status=400)
     if amount <= 0:
@@ -1949,11 +1964,11 @@ async def webapp_bank_loan(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid     = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     bank_id = body.get('bank_id', '')
     amount  = int(body.get('amount', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if bank_id not in BANKS_DEF:
         return web.json_response({'error': 'Banque inconnue'}, status=400)
     if amount <= 0:
@@ -2006,11 +2021,11 @@ async def webapp_bank_repay(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid     = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     bank_id = body.get('bank_id', '')
     amount  = int(body.get('amount', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if amount <= 0:
         return web.json_response({'error': 'Montant invalide'})
 
@@ -2049,9 +2064,9 @@ async def webapp_bank_repay(request: web.Request) -> web.Response:
 
 async def webapp_family(request: web.Request) -> web.Response:
     """GET /api/webapp/family?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     from database.models import Relationship, RelationType
 
@@ -2123,10 +2138,10 @@ async def webapp_family(request: web.Request) -> web.Response:
 
 async def webapp_garden(request: web.Request) -> web.Response:
     """GET /api/webapp/garden?user_id=xxx&group_id=xxx"""
-    uid      = int(request.rel_url.query.get('user_id', 0))
+    uid = _get_verified_uid(request)
     group_id = int(request.rel_url.query.get('group_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     from config import PLANT_TYPES, GARDEN_SLOTS
     from database.models import Garden
@@ -2192,8 +2207,8 @@ async def webapp_garden_plant(request: web.Request) -> web.Response:
     group_id  = int(data.get('group_id', 0))
     slot      = int(data.get('slot', 0))
     plant_type = data.get('plant_type', '')
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     from config import PLANT_TYPES, GARDEN_SLOTS
     from database.models import Garden
@@ -2223,8 +2238,8 @@ async def webapp_garden_harvest(request: web.Request) -> web.Response:
     data      = await request.json()
     uid       = int(data.get('user_id', 0))
     garden_id = int(data.get('garden_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     from config import PLANT_TYPES
     from database.models import Garden
@@ -2260,10 +2275,10 @@ async def webapp_garden_harvest(request: web.Request) -> web.Response:
 
 async def webapp_ranking(request: web.Request) -> web.Response:
     """GET /api/webapp/ranking?user_id=xxx&cat=coins|family|company"""
-    uid = int(request.rel_url.query.get('user_id', 0))
+    uid = _get_verified_uid(request)
     cat = request.rel_url.query.get('cat', 'coins')
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         ranking = []
@@ -2347,9 +2362,9 @@ async def webapp_ranking(request: web.Request) -> web.Response:
 
 async def webapp_crime(request: web.Request) -> web.Response:
     """GET /api/webapp/crime?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
@@ -2425,9 +2440,9 @@ async def webapp_crime(request: web.Request) -> web.Response:
 
 async def webapp_arena(request: web.Request) -> web.Response:
     """GET /api/webapp/arena?user_id=xxx"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.user_id == uid))).scalar_one_or_none()
@@ -2477,9 +2492,9 @@ async def webapp_diplomes(request: web.Request) -> web.Response:
     """GET /api/webapp/diplomes?user_id=xxx"""
     import traceback as _tb
     try:
-        uid = int(request.rel_url.query.get('user_id', 0))
-        if not _is_allowed(uid):
-            return web.json_response({'error': 'unauthorized'}, status=403)
+        uid = _get_verified_uid(request)
+        if not uid:
+            return web.json_response({'error': 'unauthorized'}, status=401)
 
         DIPLOMES_INFO = [
             {'key': 'bac',     'label': 'Baccalaureat', 'emoji': '📜', 'prerequis': None},
@@ -2549,9 +2564,9 @@ async def _get_user_company(session, uid: int):
 
 async def webapp_company_data(request: web.Request) -> web.Response:
     """GET /api/webapp/company — données complètes entreprise"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         # Trouver l'entreprise du user (PDG ou employé)
@@ -2819,10 +2834,10 @@ async def webapp_company_depot(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid    = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     amount = int(body.get('amount', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if amount <= 0:
         return web.json_response({'error': 'Montant invalide'})
 
@@ -2853,10 +2868,10 @@ async def webapp_company_retrait(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid    = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     amount = int(body.get('amount', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if amount <= 0:
         return web.json_response({'error': 'Montant invalide'})
 
@@ -2917,10 +2932,10 @@ async def webapp_company_payerimpots(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid    = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     amount = int(body.get('amount', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if amount <= 0:
         return web.json_response({'error': 'Montant invalide'})
 
@@ -2985,10 +3000,10 @@ async def webapp_company_accepter(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid       = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     target_id = int(body.get('target_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if not target_id:
         return web.json_response({'error': 'target_id manquant'})
 
@@ -3079,10 +3094,10 @@ async def webapp_company_refuser(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid       = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     target_id = int(body.get('target_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if not target_id:
         return web.json_response({'error': 'target_id manquant'})
 
@@ -3132,10 +3147,10 @@ async def webapp_company_licencier(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid       = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     target_id = int(body.get('target_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if not target_id:
         return web.json_response({'error': 'target_id manquant'})
 
@@ -3198,11 +3213,11 @@ async def webapp_company_nommer(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid       = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     target_id = int(body.get('target_id', 0))
     new_role  = str(body.get('role', '')).lower()
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     ROLES_ORDER = ["stagiaire", "secretaire", "employe", "manager", "directeur", "pdg"]
     MANAGEMENT_ROLES = ("pdg", "directeur", "manager")
@@ -3258,9 +3273,9 @@ async def webapp_company_demissionner(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid = int(body.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         company, emp = await _get_user_company(session, uid)
@@ -3294,11 +3309,11 @@ async def webapp_company_acheter_parts(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid        = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     company_id = int(body.get('company_id', 0))
     qty        = int(body.get('quantity', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if qty <= 0:
         return web.json_response({'error': 'Quantité invalide'})
 
@@ -3373,11 +3388,11 @@ async def webapp_company_gerer_offre(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid      = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     offer_id = int(body.get('offer_id', 0))
     action   = str(body.get('action', ''))  # 'accept' ou 'refuse'
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         offer = await session.get(CompanyShareOffer, offer_id)
@@ -3537,8 +3552,8 @@ async def webapp_notifications_read(request: web.Request) -> web.Response:
     except Exception:
         body = {}
     uid = int(body.get("user_id", 0))
-    if not _is_allowed(uid):
-        return web.json_response({"error": "unauthorized"}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     notif_id = body.get("notif_id")
     try:
         await _ensure_notif_table()
@@ -3565,8 +3580,8 @@ async def webapp_notifications_delete(request: web.Request) -> web.Response:
     except Exception:
         body = {}
     uid = int(body.get("user_id", 0))
-    if not _is_allowed(uid):
-        return web.json_response({"error": "unauthorized"}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     notif_id = body.get("notif_id")
     try:
         await _ensure_notif_table()
@@ -3675,9 +3690,9 @@ async def _ensure_salle_tables():
         _stlog.getLogger(__name__).error(f"_ensure_salle_tables error: {_ste}", exc_info=True)
 
 async def _webapp_salle_status_inner(request: web.Request) -> web.Response:
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     await _ensure_salle_tables()
 
@@ -3753,9 +3768,9 @@ async def webapp_salle_pay(request: web.Request) -> web.Response:
         _logger.error(f"webapp_salle_pay json parse error: {e}")
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid = int(body.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     try:
         await _ensure_salle_tables()
@@ -3817,12 +3832,12 @@ async def webapp_salle_bid(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'invalid json'}, status=400)
 
-    uid        = int(body.get('user_id', 0))
+    uid = _get_verified_uid(request)
     auction_id = int(body.get('auction_id', 0))
     amount     = int(body.get('amount', 0))
 
-    if not _is_allowed(uid):
-        return web.json_response({'ok': False, 'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     await _ensure_salle_tables()
 
@@ -3889,9 +3904,9 @@ async def webapp_salle_bid(request: web.Request) -> web.Response:
 
 async def webapp_salle_history(request: web.Request) -> web.Response:
     """GET /api/webapp/salle/history?user_id=xxx — dernières enchères Salle fermées"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     async with AsyncSessionLocal() as session:
         rows = await session.execute(text("""
@@ -3917,9 +3932,9 @@ async def webapp_salle_history(request: web.Request) -> web.Response:
 
 async def webapp_online_users(request: web.Request) -> web.Response:
     """GET /api/webapp/online?user_id=xxx — Utilisateurs actifs les 30 dernières minutes"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
 
     from datetime import timedelta
     from database.models import Relationship, RelationType
@@ -4011,9 +4026,9 @@ async def _ft_remove(session, uid: int, ticket_type: str, qty: int):
 
 async def webapp_tickets_owned(request: web.Request) -> web.Response:
     """GET /api/webapp/tickets/owned"""
-    uid = int(request.rel_url.query.get('user_id', 0))
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     async with AsyncSessionLocal() as session:
         await _ft_ensure_table(session)
         owned = await _ft_get_owned(session, uid)
@@ -4032,8 +4047,8 @@ async def webapp_tickets_invoice(request: web.Request) -> web.Response:
     ticket_type = data.get('ticket_type', '')
     qty         = max(1, min(99, int(data.get('qty', 1))))
 
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if ticket_type not in _FT_PRICES:
         return web.json_response({'error': 'ticket_type invalide'}, status=400)
 
@@ -4079,8 +4094,8 @@ async def webapp_tickets_send(request: web.Request) -> web.Response:
     ticket_type = data.get('ticket_type', '')
     qty         = max(1, int(data.get('qty', 1)))
 
-    if not _is_allowed(uid):
-        return web.json_response({'error': 'unauthorized'}, status=403)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
     if ticket_type not in _FT_PRICES:
         return web.json_response({'error': 'ticket_type invalide'}, status=400)
     if uid == to_uid:

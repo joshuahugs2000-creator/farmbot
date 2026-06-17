@@ -991,6 +991,48 @@ async def webapp_game(request: web.Request) -> web.Response:
             return web.json_response({'ok': True, 'winner': winner, 'p1_dice': p1, 'p2_dice': p2,
                                       'p1_total': t1, 'p2_total': t2, 'gain': gain if winner == 'player' else 0})
 
+        if game == 'roulette':
+            import random as _rr
+            mise = int(body.get('mise', 0))
+            choix = str(body.get('choix', '')).lower().strip()
+            if mise < 1000:
+                return web.json_response({'error': 'Mise minimum 1 000 $'})
+            if not choix:
+                return web.json_response({'error': 'Choix manquant'})
+            if user.coins < mise:
+                return web.json_response({'error': 'Fonds insuffisants'})
+
+            REDS   = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+            BLACKS = {2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35}
+
+            numero  = _rr.randint(0, 36)
+            couleur = 'rouge' if numero in REDS else ('noir' if numero in BLACKS else 'vert')
+
+            if choix in ('rouge', 'noir'):
+                win  = (choix == couleur)
+                mult = 2
+            elif choix in ('pair', 'impair'):
+                win  = numero != 0 and ((numero % 2 == 0) == (choix == 'pair'))
+                mult = 2
+            elif choix.isdigit() and 0 <= int(choix) <= 36:
+                win  = (numero == int(choix))
+                mult = 36
+            else:
+                return web.json_response({'error': 'Choix invalide (rouge/noir/pair/impair/0-36)'})
+
+            if win:
+                gain = mise * (mult - 1)
+                user.coins += gain
+            else:
+                gain = 0
+                user.coins -= mise
+
+            await session.commit()
+            return web.json_response({
+                'ok': True, 'numero': numero, 'couleur': couleur,
+                'win': win, 'gain': gain, 'new_balance': int(user.coins)
+            })
+
     return web.json_response({'error': 'Jeu inconnu'}, status=400)
 
 

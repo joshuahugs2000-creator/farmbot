@@ -1633,7 +1633,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <div class="sh2-card-wide-arrow">›</div>
     </div>
 
-    <div class="sh2-card-wide sh2-c-blue" id="sh-chat-card" style="display:none" onclick="subTab('chat-list','loadChatList')">
+    <div class="sh2-card-wide sh2-c-blue" id="sh-chat-card" onclick="openChatCard()">
       <div class="sh2-card-wide-glow" style="background:#54a9eb"></div>
       <div class="sh2-card-wide-left">
         <div class="sh2-card-wide-icon" style="background:rgba(84,169,235,.15);border-color:rgba(84,169,235,.3)">💬</div>
@@ -6470,11 +6470,15 @@ async function loadSocialHub() {
   // Charger les joueurs en ligne
   loadOnlineUsers();
 
-  // Messagerie privée — bêta fermée, visible seulement pour le testeur autorisé
-  const chatCard = document.getElementById('sh-chat-card');
-  if (chatCard && _isAdmin) {
-    chatCard.style.display = 'flex';
-    loadChatBadge();
+  // Messagerie privée — bêta fermée : visible par tous, accessible seulement au testeur autorisé
+  if (_isAdmin) loadChatBadge();
+}
+
+function openChatCard() {
+  if (_isAdmin) {
+    subTab('chat-list', 'loadChatList');
+  } else {
+    showToast('🚧 Fonctionnalité en cours de développement, reviens bientôt !');
   }
 }
 

@@ -3,7 +3,7 @@ api/webapp.py — Routes API pour la Mini App Telegram
 """
 import hmac, hashlib, json
 from datetime import datetime, timedelta
-from urllib.parse import unquote
+from urllib.parse import unquote, parse_qsl
 from aiohttp import web
 from sqlalchemy import select, text, func
 from database.db import AsyncSessionLocal
@@ -21,7 +21,7 @@ WEBAPP_ADMIN_IDS = {
 WEBAPP_OPEN = True
 
 # Routes qui n'ont pas besoin d'authentification
-_PUBLIC_PATHS = {'/', '/webapp', '/api/webapp/load', '/api/webapp/photo', '/webhook', '/health'}
+_PUBLIC_PATHS = {'/', '/webapp', '/api/webapp/load', '/api/webapp/photo'}
 
 def _is_allowed(user_id: int) -> bool:
     """Vérifie que le user_id correspond à l'utilisateur authentifié via initData."""
@@ -39,16 +39,20 @@ def _verify_init_data(init_data: str) -> tuple[bool, int]:
     if not init_data:
         return False, 0
     try:
-        pairs = dict(p.split('=', 1) for p in init_data.split('&') if '=' in p)
+        # IMPORTANT : parse_qsl décode automatiquement les valeurs percent-encoded
+        # (ex: %7B%22id%22... -> {"id"...). Telegram calcule le hash sur les valeurs
+        # DÉCODÉES, donc utiliser le split('&')/split('=') brut ici cassait la
+        # vérification pour 100% des utilisateurs, peu importe le BOT_TOKEN.
+        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
         check_hash = pairs.pop('hash', '')
         data_check = '\n'.join(f'{k}={v}' for k, v in sorted(pairs.items()))
         secret = hmac.new(b'WebAppData', BOT_TOKEN.encode(), hashlib.sha256).digest()
         expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, check_hash):
             return False, 0
-        # Extraire le user_id depuis le champ "user" du initData
+        # Extraire le user_id depuis le champ "user" du initData (déjà décodé par parse_qsl)
         user_str = pairs.get('user', '{}')
-        user_obj = json.loads(unquote(user_str))
+        user_obj = json.loads(user_str)
         uid = int(user_obj.get('id', 0))
         return uid > 0, uid
     except Exception:

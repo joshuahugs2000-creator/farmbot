@@ -2108,6 +2108,16 @@ def setup_actions_routes(app: web.Application):
     # Misc
     app.router.add_post("/api/webapp/skipattente",         webapp_skipattente)
 
+    # Entreprise — création + gestion PDG
+    app.router.add_post("/api/webapp/creerboite",          webapp_creerboite)
+    app.router.add_get("/api/webapp/bilan",                webapp_bilan)
+    app.router.add_get("/api/webapp/dividendes",           webapp_dividendes)
+    app.router.add_get("/api/webapp/salaireinfo",          webapp_salaireinfo)
+    app.router.add_post("/api/webapp/cederentreprise",     webapp_cederentreprise)
+    app.router.add_post("/api/webapp/renommerboite",       webapp_renommerboite)
+    app.router.add_post("/api/webapp/acheterpla",          webapp_acheterpla)
+    app.router.add_get("/api/webapp/pretboite",            webapp_pretboite)
+
     # Notifications
     app.router.add_get("/api/webapp/notifications/all",    webapp_notifications_all)
     app.router.add_get("/api/webapp/notifications/eco",    webapp_notifications_eco)
@@ -2318,3 +2328,493 @@ async def webapp_item_delete(request: web.Request) -> web.Response:
         await session.commit()
 
     return _ok(f"🗑️ {row[2]} {row[1]} supprimé définitivement.")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  NOUVELLES ROUTES ENTREPRISE — création + gestion PDG
+# ═════════════════════════════════════════════════════════════════════════════
+
+async def webapp_creerboite(request: web.Request) -> web.Response:
+    """POST /api/webapp/creerboite — body: {user_id, name, sector}"""
+    body = await _body(request)
+    uid    = int(body.get("user_id", 0))
+    name   = (body.get("name") or "").strip()
+    sector = (body.get("sector") or "").strip().lower()
+    if not _auth(uid): return _err("unauthorized")
+    if not name:       return _err("Nom manquant")
+    if len(name) < 2:  return _err("Le nom doit contenir au moins 2 caractères")
+    if len(name) > 40: return _err("Le nom ne peut pas dépasser 40 caractères")
+
+    from handlers.company import SECTORS, SECTOR_ALLOWED_DOMAINS, LEVELS
+    if sector not in SECTORS:
+        return _err(f"Secteur invalide. Choix : {', '.join(SECTORS.keys())}")
+
+    async with AsyncSessionLocal() as session:
+        db_user = await get_user(session, uid)
+        if not db_user: return _err("Utilisateur introuvable")
+
+        if not db_user.diplome_licence:
+            return _err("Il te faut au minimum une Licence pour créer une entreprise")
+
+        # Vérifier cohérence domaine/secteur
+        user_domain = db_user.diplome_domain
+        allowed_domains = SECTOR_ALLOWED_DOMAINS.get(sector, [])
+        if user_domain and allowed_domains and user_domain not in allowed_domains:
+            sec_emoji, sec_name = SECTORS[sector]
+            return _err(f"Ton domaine ne te permet pas de créer une entreprise dans le secteur {sec_name}")
+
+        if db_user.coins < 50_000_000:
+            return _err(f"Il te faut 50 000 000 $ pour créer une entreprise (tu as {_fmt(db_user.coins)} $)")
+
+        # Vérifier déjà PDG
+        company, emp = await _get_user_company(session, uid)
+        if company and emp and emp.role == "pdg":
+            return _err(f"Tu es déjà PDG de {company.name}")
+
+        # Vérifier nom unique
+        from sqlalchemy import select as _sel
+        from database.models import Company, CompanyEmployee, CompanyShare
+        exists = (await session.execute(
+            _sel(Company).where(Company.name.ilike(name))
+        )).scalar_one_or_none()
+        if exists:
+            return _err(f"Une entreprise nommée « {name} » existe déjà. Choisis un autre nom.")
+
+        # Créer
+        db_user.coins -= 50_000_000
+        new_company = Company(
+            name=name,
+            sector=sector,
+            owner_id=uid,
+            group_id=0,
+            value=50_000_000,
+            treasury=0,
+            total_shares=100,
+            owner_shares=100,
+            level=1,
+            reputation=3.0,
+            is_bot_company=False,
+        )
+        session.add(new_company)
+        try:
+            await session.flush()
+        except Exception:
+            await session.rollback()
+            return _err("Ce nom est déjà pris. Choisis un autre nom.")
+
+        pdg_emp = CompanyEmployee(company_id=new_company.id, user_id=uid, role="pdg")
+        session.add(pdg_emp)
+        share = CompanyShare(company_id=new_company.id, owner_id=uid, quantity=100)
+        session.add(share)
+
+        await _add_log(session, new_company.id, "creation", f"Entreprise créée via Mini App")
+        await session.commit()
+
+        sec_emoji, sec_name = SECTORS[sector]
+        return _ok(
+            f"✅ {new_company.name} est fondée ! {sec_emoji} Secteur : {sec_name}. Tu es le PDG (fondateur).",
+            company_id=new_company.id, name=new_company.name, sector=sec_name
+        )
+
+
+async def webapp_bilan(request: web.Request) -> web.Response:
+    """GET /api/webapp/bilan?user_id=..."""
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized")
+
+    from handlers.company import ROLE_SHARE, LEVELS
+    from database.models import CompanyLoan
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company: return _err("Tu n'appartiens à aucune entreprise")
+
+        from handlers.company import _level_info as _li
+        level_label, _, _, monthly_rate, _ = _li(company.level)
+        gross_daily = int(company.value * monthly_rate) // 30
+        legal_daily = int(gross_daily * 0.10)
+        net_daily   = gross_daily - legal_daily
+
+        from sqlalchemy import select as _sel
+        from database.models import CompanyEmployee
+        emps = (await session.execute(
+            _sel(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalars().all()
+
+        charges_sal = sum(
+            int(gross_daily * ROLE_SHARE.get(e.role, 0))
+            for e in emps if e.role not in ("pdg",)
+        )
+        benefice_net = net_daily - charges_sal
+
+        from database.models import CompanyShare
+        shares = (await session.execute(
+            _sel(CompanyShare).where(CompanyShare.company_id == company.id)
+        )).scalars().all()
+
+        loan = None
+        try:
+            from database.models import CompanyLoan as CL
+            loan_row = (await session.execute(
+                _sel(CL).where(CL.company_id == company.id, CL.status == "active")
+            )).scalar_one_or_none()
+            if loan_row:
+                jours_restants = max(0, (loan_row.due_at - datetime.utcnow()).days)
+                loan = {
+                    "amount": _fmt(loan_row.amount),
+                    "remaining": _fmt(loan_row.remaining),
+                    "daily_payment": _fmt(loan_row.daily_payment),
+                    "jours_restants": jours_restants,
+                    "taux": f"{loan_row.interest_rate * 100:.0f}%",
+                    "missed_days": loan_row.missed_days or 0,
+                }
+        except Exception:
+            pass
+
+        reserve_legale = company.legal_reserve or 0
+        reserve_sal = sum(
+            int(gross_daily * ROLE_SHARE.get(e.role, 0))
+            for e in emps if e.role not in ("stagiaire", "pdg")
+        )
+        disponible = max(0, company.treasury - reserve_legale - reserve_sal)
+        dividend_pool = int((company.weekly_revenue or 0) * 0.30)
+
+        return web.json_response({
+            "ok": True,
+            "bilan": {
+                "company_name": company.name,
+                "level_label": level_label,
+                "reputation": f"{company.reputation:.1f}",
+                "gross_daily": _fmt(gross_daily),
+                "legal_daily": _fmt(legal_daily),
+                "net_daily": _fmt(net_daily),
+                "charges_sal": _fmt(charges_sal),
+                "nb_employees": len(emps),
+                "benefice_net": _fmt(benefice_net),
+                "treasury": _fmt(company.treasury),
+                "reserve_legale": _fmt(reserve_legale),
+                "disponible": _fmt(disponible),
+                "total_shares": company.total_shares,
+                "nb_actionnaires": len(shares),
+                "weekly_revenue": _fmt(company.weekly_revenue or 0),
+                "dividend_pool": _fmt(dividend_pool),
+                "loan": loan,
+            }
+        })
+
+
+async def webapp_dividendes(request: web.Request) -> web.Response:
+    """GET /api/webapp/dividendes?user_id=..."""
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized")
+
+    from sqlalchemy import select as _sel
+    from database.models import CompanyShare, Company
+
+    async with AsyncSessionLocal() as session:
+        user_shares = (await session.execute(
+            _sel(CompanyShare).where(CompanyShare.owner_id == uid)
+        )).scalars().all()
+
+        if not user_shares:
+            return _err("Tu ne détiens aucune part d'entreprise. Achète des parts pour toucher des dividendes.")
+
+        items = []
+        total_estimated = 0
+
+        for share in user_shares:
+            company = await session.get(Company, share.company_id)
+            if not company or not company.is_active:
+                continue
+            weekly_rev = company.weekly_revenue or 0
+            dividend_pool = int(weekly_rev * 0.30)
+            my_ratio = share.quantity / company.total_shares if company.total_shares > 0 else 0
+            my_dividend = int(dividend_pool * my_ratio)
+            total_estimated += my_dividend
+            items.append({
+                "company_name": company.name,
+                "my_shares": share.quantity,
+                "total_shares": company.total_shares,
+                "pct": round(my_ratio * 100, 1),
+                "weekly_rev": _fmt(weekly_rev),
+                "my_dividend": _fmt(my_dividend),
+                "my_dividend_raw": my_dividend,
+            })
+
+        return web.json_response({
+            "ok": True,
+            "dividendes": items,
+            "total_estimated": _fmt(total_estimated),
+        })
+
+
+async def webapp_salaireinfo(request: web.Request) -> web.Response:
+    """GET /api/webapp/salaireinfo?user_id=..."""
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized")
+
+    from handlers.company import ROLE_SHARE, ROLE_EMOJI, SECTORS, _level_info as _li
+
+    async with AsyncSessionLocal() as session:
+        db_user = await get_user(session, uid)
+        company, emp = await _get_user_company(session, uid)
+        if not company: return _err("Tu ne fais partie d'aucune entreprise")
+
+        _, _, _, monthly_rate, _ = _li(company.level)
+        total_revenue = int(company.value * monthly_rate) // 30
+        personal_share = ROLE_SHARE.get(emp.role, 0.0)
+        personal_revenue = int(total_revenue * personal_share)
+
+        joined = emp.joined_at if hasattr(emp, "joined_at") and emp.joined_at else None
+        days_here = (datetime.utcnow() - joined).days if joined else 0
+
+        activity = getattr(emp, "activity_since_payroll", 0) or 0
+        activity_bonus = min(0.5, activity / 40)
+        estimated = int(personal_revenue * (1 + activity_bonus)) if personal_revenue > 0 else 0
+
+        sec_emoji, sec_name = SECTORS.get(company.sector, ("🏢", company.sector))
+
+        return web.json_response({
+            "ok": True,
+            "salaireinfo": {
+                "company_name": company.name,
+                "sector": f"{sec_emoji} {sec_name}",
+                "role": emp.role,
+                "role_emoji": ROLE_EMOJI.get(emp.role, "👤"),
+                "personal_share_pct": f"{personal_share*100:.0f}%",
+                "estimated_salary": _fmt(estimated),
+                "activity_cmds": activity,
+                "days_here": days_here,
+                "is_pdg": emp.role == "pdg",
+                "wallet": _fmt(db_user.coins),
+            }
+        })
+
+
+async def webapp_cederentreprise(request: web.Request) -> web.Response:
+    """POST /api/webapp/cederentreprise — body: {user_id, target_username}"""
+    body = await _body(request)
+    uid      = int(body.get("user_id", 0))
+    username = (body.get("target_username") or "").lstrip("@").strip()
+    if not _auth(uid): return _err("unauthorized")
+    if not username:   return _err("Nom d'utilisateur manquant")
+
+    from sqlalchemy import select as _sel, func
+    from database.models import User, CompanyShare, CompanyEmployee, Company
+    from handlers.company import _has_diploma
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ("pdg",):
+            return _err("Seul le PDG peut transférer ce titre")
+        if company.is_bot_company:
+            return _err("Impossible sur une entreprise officielle")
+
+        target = (await session.execute(
+            _sel(User).where(func.lower(User.username) == username.lower())
+        )).scalar_one_or_none()
+        if not target: return _err(f"@{username} introuvable")
+        if target.user_id == uid: return _err("Tu es déjà PDG")
+
+        target_emp = (await session.execute(
+            _sel(CompanyEmployee).where(
+                CompanyEmployee.company_id == company.id,
+                CompanyEmployee.user_id == target.user_id,
+                CompanyEmployee.left_at == None,
+            )
+        )).scalar_one_or_none()
+        if not target_emp:
+            return _err(f"{target.first_name} ne fait pas partie de {company.name}")
+
+        if not _has_diploma(target, "mba"):
+            return _err(f"{target.first_name} doit avoir un MBA pour devenir PDG")
+
+        emp.role = "directeur"
+        target_emp.role = "pdg"
+        company.owner_id = target.user_id
+
+        # Transférer les parts
+        old_share = (await session.execute(
+            _sel(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.owner_id == uid,
+            )
+        )).scalar_one_or_none()
+        new_share = (await session.execute(
+            _sel(CompanyShare).where(
+                CompanyShare.company_id == company.id,
+                CompanyShare.owner_id == target.user_id,
+            )
+        )).scalar_one_or_none()
+
+        if old_share and old_share.quantity > 0:
+            if new_share:
+                new_share.quantity += old_share.quantity
+            else:
+                transferred = CompanyShare(
+                    company_id=company.id, owner_id=target.user_id, quantity=old_share.quantity
+                )
+                session.add(transferred)
+            old_share.quantity = 0
+
+        await _add_log(session, company.id, "cession",
+                       f"PDG cédé à {target.first_name} (@{target.username or target.user_id})")
+        await session.commit()
+
+        return _ok(f"✅ Entreprise {company.name} cédée à {target.first_name} (@{target.username or target.user_id}). Tu deviens Directeur.")
+
+
+async def webapp_renommerboite(request: web.Request) -> web.Response:
+    """POST /api/webapp/renommerboite — body: {user_id, new_name}"""
+    body = await _body(request)
+    uid      = int(body.get("user_id", 0))
+    new_name = (body.get("new_name") or "").strip()
+    if not _auth(uid):     return _err("unauthorized")
+    if not new_name:       return _err("Nouveau nom manquant")
+    if len(new_name) < 2:  return _err("Le nom doit contenir au moins 2 caractères")
+    if len(new_name) > 40: return _err("Le nom ne peut pas dépasser 40 caractères")
+
+    RENAME_COST = 10_000_000
+    RENAME_COOLDOWN_DAYS = 30
+
+    from sqlalchemy import select as _sel
+    from database.models import Company
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ("pdg",):
+            return _err("Seul le PDG peut renommer l'entreprise")
+        if company.is_bot_company:
+            return _err("Les entreprises officielles ne peuvent pas être renommées")
+
+        if company.last_rename:
+            delta = datetime.utcnow() - company.last_rename
+            if delta.days < RENAME_COOLDOWN_DAYS:
+                reste = RENAME_COOLDOWN_DAYS - delta.days
+                return _err(f"Cooldown : encore {reste} jour(s) avant le prochain renommage")
+
+        name_conflict = (await session.execute(
+            _sel(Company).where(Company.name.ilike(new_name))
+        )).scalar_one_or_none()
+        if name_conflict:
+            return _err(f"Une entreprise nommée « {new_name} » existe déjà")
+
+        if company.treasury < RENAME_COST:
+            return _err(f"Trésorerie insuffisante. Coût : {_fmt(RENAME_COST)} $, disponible : {_fmt(company.treasury)} $")
+
+        old_name = company.name
+        company.treasury -= RENAME_COST
+        company.value = max(50_000_000, company.value - RENAME_COST)
+        company.name = new_name
+        company.last_rename = datetime.utcnow()
+
+        await _add_log(session, company.id, "renommage",
+                       f"Renommée de « {old_name} » en « {new_name} » (coût : {_fmt(RENAME_COST)} $)")
+        await session.commit()
+
+        return _ok(f"✅ Entreprise renommée : « {old_name} » → « {new_name} ». Coût : {_fmt(RENAME_COST)} $ débité de la trésorerie.")
+
+
+async def webapp_acheterpla(request: web.Request) -> web.Response:
+    """POST /api/webapp/acheterpla — body: {user_id, qty}"""
+    body = await _body(request)
+    uid = int(body.get("user_id", 0))
+    qty = int(body.get("qty", 0))
+    if not _auth(uid): return _err("unauthorized")
+    if qty <= 0:       return _err("Quantité invalide")
+
+    SLOT_PRICES = {1: 5_000_000, 2: 15_000_000, 3: 50_000_000, 4: 150_000_000, 5: 500_000_000}
+    MAX_EXTRA_SLOTS = 20
+    from handlers.company import _level_info as _li
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company or emp.role not in ("pdg",):
+            return _err("Seul le PDG peut acheter des places supplémentaires")
+        if company.is_bot_company:
+            return _err("Impossible sur une entreprise officielle")
+
+        current_extra = company.extra_slots or 0
+        if current_extra >= MAX_EXTRA_SLOTS:
+            return _err(f"Maximum de {MAX_EXTRA_SLOTS} places bonus atteint")
+
+        qty_possible = min(qty, MAX_EXTRA_SLOTS - current_extra)
+        qty = qty_possible
+
+        prix_unitaire = SLOT_PRICES.get(company.level, SLOT_PRICES[1])
+        cout_total = prix_unitaire * qty
+        _, _, _, _, base_cap = _li(company.level)
+        nouvelle_cap = base_cap + current_extra + qty
+
+        if company.treasury < cout_total:
+            return _err(f"Trésorerie insuffisante. Coût : {_fmt(cout_total)} $, disponible : {_fmt(company.treasury)} $")
+
+        company.treasury -= cout_total
+        company.value = max(50_000_000, company.value - cout_total)
+        company.extra_slots = current_extra + qty
+
+        await _add_log(session, company.id, "acheterpla",
+                       f"{qty} place(s) bonus achetée(s) pour {_fmt(cout_total)} $. Capacité : {nouvelle_cap}")
+        await session.commit()
+
+        return _ok(
+            f"✅ {qty} place(s) achetée(s) ! Capacité totale : {nouvelle_cap} employés. Coût : {_fmt(cout_total)} $ débité.",
+            nouvelle_cap=nouvelle_cap, qty=qty, cout_total=_fmt(cout_total)
+        )
+
+
+async def webapp_pretboite(request: web.Request) -> web.Response:
+    """GET /api/webapp/pretboite?user_id=..."""
+    uid = _parse_uid(request)
+    if not _auth(uid): return _err("unauthorized")
+
+    from sqlalchemy import select as _sel
+
+    async with AsyncSessionLocal() as session:
+        company, emp = await _get_user_company(session, uid)
+        if not company: return _err("Tu n'appartiens à aucune entreprise")
+
+        loan_data = None
+        last_loan_data = None
+
+        try:
+            from database.models import CompanyLoan as CL
+            loan = (await session.execute(
+                _sel(CL).where(CL.company_id == company.id, CL.status == "active")
+            )).scalar_one_or_none()
+
+            if loan:
+                jours_restants = max(0, (loan.due_at - datetime.utcnow()).days)
+                total_due = loan.amount + int(loan.amount * loan.interest_rate / 12)
+                paid_so_far = total_due - loan.remaining
+                progression_pct = int(paid_so_far / total_due * 100) if total_due > 0 else 0
+                loan_data = {
+                    "amount": _fmt(loan.amount),
+                    "remaining": _fmt(loan.remaining),
+                    "daily_payment": _fmt(loan.daily_payment),
+                    "taux": f"{loan.interest_rate * 100:.0f}%",
+                    "jours_restants": jours_restants,
+                    "progression_pct": progression_pct,
+                    "missed_days": loan.missed_days or 0,
+                }
+            else:
+                last_loan = (await session.execute(
+                    _sel(CL).where(CL.company_id == company.id).order_by(CL.taken_at.desc())
+                )).scalar_one_or_none()
+                if last_loan:
+                    last_loan_data = {
+                        "amount": _fmt(last_loan.amount),
+                        "status": "✅ Remboursé" if last_loan.status == "repaid" else "❌ En défaut",
+                    }
+        except Exception:
+            pass  # CompanyLoan peut ne pas exister
+
+        return web.json_response({
+            "ok": True,
+            "company_name": company.name,
+            "loan": loan_data,
+            "last_loan": last_loan_data,
+        })

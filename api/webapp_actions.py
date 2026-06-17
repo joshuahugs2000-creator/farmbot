@@ -195,10 +195,8 @@ async def _notify(chat_id: int, text: str, parse_mode: str = "HTML"):
 
 
 def _parse_uid(request: web.Request, key: str = "user_id") -> int:
-    try:
-        return int(request.rel_url.query.get(key, 0))
-    except Exception:
-        return 0
+    """Retourne le user_id vérifié par le middleware (ignore key, gardé pour compatibilité)."""
+    return request.get('verified_uid', 0)
 
 
 async def _body(request: web.Request) -> dict:
@@ -222,12 +220,8 @@ def _err(msg: str, status: int = 200) -> web.Response:
 # On vérifie juste que user_id est présent et entier.
 
 def _auth(uid: int) -> bool:
-    # Import dynamique pour ne pas créer de dépendance circulaire
-    try:
-        from api.webapp import _is_allowed
-        return _is_allowed(uid)
-    except Exception:
-        return uid > 0  # fallback si webapp.py non dispo
+    """uid > 0 suffit : le middleware a déjà vérifié la signature Telegram."""
+    return uid > 0
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -453,7 +447,7 @@ async def webapp_companies_search(request: web.Request) -> web.Response:
 async def webapp_postuler(request: web.Request) -> web.Response:
     """POST /api/webapp/postuler — body: {user_id, company_id}"""
     body = await _body(request)
-    uid  = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     cid  = int(body.get("company_id", 0))
 
     if not _auth(uid):
@@ -580,7 +574,7 @@ async def webapp_postuler(request: web.Request) -> web.Response:
 async def webapp_demissionner(request: web.Request) -> web.Response:
     """POST /api/webapp/demissionner — body: {user_id, company_id}"""
     body = await _body(request)
-    uid  = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     cid  = int(body.get("company_id", 0))
 
     if not _auth(uid):
@@ -643,7 +637,7 @@ async def webapp_demissionner(request: web.Request) -> web.Response:
 async def webapp_licencier(request: web.Request) -> web.Response:
     """POST /api/webapp/licencier — body: {user_id, target_id}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
 
     if not _auth(uid):
@@ -697,7 +691,7 @@ async def webapp_licencier(request: web.Request) -> web.Response:
 async def webapp_nommer(request: web.Request) -> web.Response:
     """POST /api/webapp/nommer — body: {user_id, target_id, role}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
     new_role  = str(body.get("role", "")).lower().strip()
 
@@ -758,7 +752,7 @@ async def webapp_nommer(request: web.Request) -> web.Response:
 async def webapp_recruter(request: web.Request) -> web.Response:
     """POST /api/webapp/recruter — body: {user_id, target_id, role, salary?, bonus?}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
     role      = str(body.get("role", "employe")).lower().strip()
     salary    = int(body.get("salary", 0))
@@ -878,7 +872,7 @@ async def webapp_invitations(request: web.Request) -> web.Response:
 async def webapp_invitations_accepter(request: web.Request) -> web.Response:
     """POST /api/webapp/invitations/accepter — body: {user_id, invite_id, counter_salary?}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     invite_id = int(body.get("invite_id", 0))
     counter   = int(body.get("counter_salary", 0))
 
@@ -986,7 +980,7 @@ async def webapp_invitations_accepter(request: web.Request) -> web.Response:
 async def webapp_invitations_refuser(request: web.Request) -> web.Response:
     """POST /api/webapp/invitations/refuser — body: {user_id, invite_id}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     invite_id = int(body.get("invite_id", 0))
 
     if not _auth(uid):
@@ -1009,7 +1003,7 @@ async def webapp_invitations_refuser(request: web.Request) -> web.Response:
 async def webapp_versersalaires(request: web.Request) -> web.Response:
     """POST /api/webapp/versersalaires — body: {user_id}"""
     body = await _body(request)
-    uid  = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
 
     if not _auth(uid):
         return _err("unauthorized", 403)
@@ -1100,7 +1094,7 @@ async def webapp_versersalaires(request: web.Request) -> web.Response:
 async def webapp_payeremploye(request: web.Request) -> web.Response:
     """POST /api/webapp/payeremploye — body: {user_id, target_id, amount}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
     amount    = int(body.get("amount", 0))
 
@@ -1172,7 +1166,7 @@ async def webapp_negociercontrat(request: web.Request) -> web.Response:
       Employé répond: {user_id, action: "accepter"|"refuser"|"counter", counter_salary?}
     """
     body   = await _body(request)
-    uid    = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     action = str(body.get("action", "")).lower()
 
     if not _auth(uid):
@@ -1434,7 +1428,7 @@ async def webapp_mes_parts(request: web.Request) -> web.Response:
 async def webapp_vendre_parts(request: web.Request) -> web.Response:
     """POST /api/webapp/parts/vendre — body: {user_id, company_id, quantity}"""
     body = await _body(request)
-    uid  = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     cid  = int(body.get("company_id", 0))
     qty  = int(body.get("quantity", 0))
 
@@ -1507,7 +1501,7 @@ async def webapp_vendre_parts(request: web.Request) -> web.Response:
 async def webapp_acheter_parts(request: web.Request) -> web.Response:
     """POST /api/webapp/parts/acheter — body: {user_id, company_id, quantity}"""
     body = await _body(request)
-    uid  = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     cid  = int(body.get("company_id", 0))
     qty  = int(body.get("quantity", 0))
 
@@ -1582,7 +1576,7 @@ async def webapp_acheter_parts(request: web.Request) -> web.Response:
 async def webapp_accepter_offre(request: web.Request) -> web.Response:
     """POST /api/webapp/parts/accepteroffre — body: {user_id, offer_id}"""
     body     = await _body(request)
-    uid      = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     offer_id = int(body.get("offer_id", 0))
 
     if not _auth(uid):
@@ -1664,7 +1658,7 @@ async def webapp_accepter_offre(request: web.Request) -> web.Response:
 async def webapp_refuser_offre(request: web.Request) -> web.Response:
     """POST /api/webapp/parts/refuseroffre — body: {user_id, offer_id}"""
     body     = await _body(request)
-    uid      = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     offer_id = int(body.get("offer_id", 0))
 
     if not _auth(uid):
@@ -1708,7 +1702,7 @@ async def webapp_refuser_offre(request: web.Request) -> web.Response:
 async def webapp_pay(request: web.Request) -> web.Response:
     """POST /api/webapp/pay — body: {user_id, target_id, amount}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
     amount    = int(body.get("amount", 0))
 
@@ -1872,7 +1866,7 @@ async def webapp_contrats_bc_claim(request: web.Request) -> web.Response:
     """POST /api/webapp/contrats/bc/claim — body: {user_id, contract_id}
     Réclame immédiatement la récompense d'un contrat Bureau si l'objectif est atteint."""
     body = await _body(request)
-    uid  = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     if not _auth(uid):
         return _err("unauthorized", 403)
     contract_id = int(body.get("contract_id", 0) or 0)
@@ -1921,7 +1915,7 @@ async def webapp_contrats_auto_claim(request: web.Request) -> web.Response:
     """POST /api/webapp/contrats/auto/claim — body: {user_id, contract_id}
     Réclame immédiatement la récompense d'un contrat automatique si l'objectif est atteint."""
     body = await _body(request)
-    uid  = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     if not _auth(uid):
         return _err("unauthorized", 403)
     contract_id = int(body.get("contract_id", 0) or 0)
@@ -1971,7 +1965,7 @@ async def webapp_contrats_auto_claim(request: web.Request) -> web.Response:
 async def webapp_skipattente(request: web.Request) -> web.Response:
     """POST /api/webapp/skipattente — body: {user_id}"""
     body = await _body(request)
-    uid  = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
 
     if not _auth(uid):
         return _err("unauthorized", 403)
@@ -2293,7 +2287,7 @@ def setup_actions_routes(app: web.Application):
 async def webapp_item_sell_expert(request: web.Request) -> web.Response:
     """POST /api/webapp/items/sell_expert — Revendre un objet au bot (50% valeur)"""
     body = await _body(request)
-    uid     = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     item_id = int(body.get("item_id", 0))
     if not _auth(uid):
         return _err("unauthorized")
@@ -2328,7 +2322,7 @@ async def webapp_item_sell_expert(request: web.Request) -> web.Response:
 async def webapp_item_put_market(request: web.Request) -> web.Response:
     """POST /api/webapp/items/put_market — Mettre un objet en vente sur le marché"""
     body = await _body(request)
-    uid     = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     item_id = int(body.get("item_id", 0))
     price   = int(body.get("price", 0))
     if not _auth(uid):
@@ -2359,7 +2353,7 @@ async def webapp_item_put_market(request: web.Request) -> web.Response:
 async def webapp_item_remove_market(request: web.Request) -> web.Response:
     """POST /api/webapp/items/remove_market — Retirer un objet du marché"""
     body = await _body(request)
-    uid     = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     item_id = int(body.get("item_id", 0))
     if not _auth(uid):
         return _err("unauthorized")
@@ -2413,7 +2407,7 @@ async def webapp_item_market_list(request: web.Request) -> web.Response:
 async def webapp_item_buy(request: web.Request) -> web.Response:
     """POST /api/webapp/items/buy — Acheter un objet sur le marché"""
     body = await _body(request)
-    uid     = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     item_id = int(body.get("item_id", 0))
     if not _auth(uid):
         return _err("unauthorized")
@@ -2461,7 +2455,7 @@ async def webapp_item_buy(request: web.Request) -> web.Response:
 async def webapp_item_delete(request: web.Request) -> web.Response:
     """POST /api/webapp/items/delete — Supprimer définitivement un objet de l'inventaire"""
     body = await _body(request)
-    uid     = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     item_id = int(body.get("item_id", 0))
     if not _auth(uid):
         return _err("unauthorized")
@@ -2492,7 +2486,7 @@ async def webapp_item_delete(request: web.Request) -> web.Response:
 async def webapp_creerboite(request: web.Request) -> web.Response:
     """POST /api/webapp/creerboite — body: {user_id, name, sector}"""
     body = await _body(request)
-    uid    = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     name   = (body.get("name") or "").strip()
     sector = (body.get("sector") or "").strip().lower()
     if not _auth(uid): return _err("unauthorized")
@@ -2752,7 +2746,7 @@ async def webapp_salaireinfo(request: web.Request) -> web.Response:
 async def webapp_cederentreprise(request: web.Request) -> web.Response:
     """POST /api/webapp/cederentreprise — body: {user_id, target_username}"""
     body = await _body(request)
-    uid      = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     username = (body.get("target_username") or "").lstrip("@").strip()
     if not _auth(uid): return _err("unauthorized")
     if not username:   return _err("Nom d'utilisateur manquant")
@@ -2825,7 +2819,7 @@ async def webapp_cederentreprise(request: web.Request) -> web.Response:
 async def webapp_renommerboite(request: web.Request) -> web.Response:
     """POST /api/webapp/renommerboite — body: {user_id, new_name}"""
     body = await _body(request)
-    uid      = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     new_name = (body.get("new_name") or "").strip()
     if not _auth(uid):     return _err("unauthorized")
     if not new_name:       return _err("Nouveau nom manquant")
@@ -2876,7 +2870,7 @@ async def webapp_renommerboite(request: web.Request) -> web.Response:
 async def webapp_acheterpla(request: web.Request) -> web.Response:
     """POST /api/webapp/acheterpla — body: {user_id, qty}"""
     body = await _body(request)
-    uid = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     qty = int(body.get("qty", 0))
     if not _auth(uid): return _err("unauthorized")
     if qty <= 0:       return _err("Quantité invalide")
@@ -3051,7 +3045,7 @@ async def _send_family_request(from_id: int, to_id: int, req_type_str: str,
 async def webapp_family_marry(request: web.Request) -> web.Response:
     """POST /api/webapp/family/marry — body: {user_id, target_id, marriage_type}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
     mtype     = body.get("marriage_type", "monogame")  # monogame | polygame
 
@@ -3097,7 +3091,7 @@ async def webapp_family_marry(request: web.Request) -> web.Response:
 async def webapp_family_adopt(request: web.Request) -> web.Response:
     """POST /api/webapp/family/adopt — body: {user_id, target_id}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
 
     if not _auth(uid): return _err("unauthorized", 403)
@@ -3118,7 +3112,7 @@ async def webapp_family_adopt(request: web.Request) -> web.Response:
 async def webapp_family_friend(request: web.Request) -> web.Response:
     """POST /api/webapp/family/friend — body: {user_id, target_id}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
 
     if not _auth(uid): return _err("unauthorized", 403)
@@ -3149,7 +3143,7 @@ async def webapp_family_friend(request: web.Request) -> web.Response:
 async def webapp_family_divorce(request: web.Request) -> web.Response:
     """POST /api/webapp/family/divorce — body: {user_id, target_id}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
 
     if not _auth(uid): return _err("unauthorized", 403)
@@ -3182,7 +3176,7 @@ async def webapp_family_divorce(request: web.Request) -> web.Response:
 async def webapp_family_unfriend(request: web.Request) -> web.Response:
     """POST /api/webapp/family/unfriend — body: {user_id, target_id}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
 
     if not _auth(uid): return _err("unauthorized", 403)
@@ -3210,7 +3204,7 @@ async def webapp_family_unfriend(request: web.Request) -> web.Response:
 async def webapp_family_disown(request: web.Request) -> web.Response:
     """POST /api/webapp/family/disown — body: {user_id, target_id}"""
     body      = await _body(request)
-    uid       = int(body.get("user_id", 0))
+    uid = _parse_uid(request)
     target_id = int(body.get("target_id", 0))
 
     if not _auth(uid): return _err("unauthorized", 403)

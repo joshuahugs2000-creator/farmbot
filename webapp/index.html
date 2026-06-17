@@ -1678,6 +1678,26 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text2);margin-bottom:4px">Nom de famille</div>
         <div style="font-family:'Bangers',cursive;font-size:26px;color:var(--accent);letter-spacing:2px" id="fam-name">—</div>
       </div>
+
+      <!-- ── Panneau d'actions famille ── -->
+      <div class="fam-actions-panel">
+        <div class="fam-actions-title">🔗 Nouvelle relation</div>
+        <div class="fam-search-row">
+          <input class="fam-search-input" id="fam-search-input" placeholder="@pseudo ou nom..." autocomplete="off" onkeydown="if(event.key==='Enter')famSearch()"/>
+          <button class="fam-search-btn" onclick="famSearch()">🔍</button>
+        </div>
+        <div class="fam-target-card" id="fam-target-card">
+          <div class="fam-target-name" id="fam-target-name">—</div>
+          <div class="fam-target-un" id="fam-target-un">—</div>
+          <div class="fam-action-btns">
+            <button class="fam-action-btn" onclick="famAction('marry')">💍 Mariage</button>
+            <button class="fam-action-btn" onclick="famAction('adopt')">👨‍👦 Adopter</button>
+            <button class="fam-action-btn" onclick="famAction('friend')">🤝 Ami(e)</button>
+          </div>
+        </div>
+        <div id="fam-action-msg" style="font-size:12px;text-align:center;color:var(--success);margin-top:6px;display:none"></div>
+      </div>
+
       <div id="fam-sections"></div>
     </div>
   </div>
@@ -6771,6 +6791,47 @@ function _shFillRanking(d) {
     .fam-kp { font-size:12px; color:var(--accent); font-weight:800; white-space:nowrap; }
     .fam-empty { text-align:center; padding:18px 0; color:var(--text2); font-size:13px; opacity:.6; }
 
+    /* ── Actions famille ── */
+    .fam-actions-panel {
+      background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);
+      border-radius:18px; padding:16px; margin-bottom:18px;
+    }
+    .fam-actions-title {
+      font-size:10px; letter-spacing:2px; text-transform:uppercase;
+      color:var(--text2); margin-bottom:12px;
+    }
+    .fam-search-row { display:flex; gap:8px; margin-bottom:10px; }
+    .fam-search-input {
+      flex:1; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+      border-radius:10px; padding:10px 12px; color:var(--text);
+      font-size:13px; font-weight:700; outline:none; font-family:'Nunito',sans-serif;
+    }
+    .fam-search-input::placeholder { color:rgba(255,255,255,0.3); }
+    .fam-search-input:focus { border-color:rgba(247,201,72,0.4); }
+    .fam-search-btn {
+      padding:10px 14px; border-radius:10px; border:none;
+      background:rgba(247,201,72,0.15); color:var(--accent);
+      font-weight:900; font-size:13px; cursor:pointer; font-family:'Nunito',sans-serif;
+    }
+    .fam-target-card {
+      background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);
+      border-radius:12px; padding:11px 13px; margin-bottom:10px; display:none;
+    }
+    .fam-target-name { font-weight:900; font-size:14px; margin-bottom:2px; }
+    .fam-target-un { font-size:11px; color:var(--text2); }
+    .fam-action-btns { display:flex; gap:7px; flex-wrap:wrap; margin-top:10px; }
+    .fam-action-btn {
+      flex:1; min-width:calc(33% - 7px); padding:10px 8px; border-radius:10px;
+      border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05);
+      color:var(--text); font-weight:900; font-size:12px; cursor:pointer;
+      font-family:'Nunito',sans-serif; text-align:center;
+    }
+    .fam-remove-btn {
+      padding:6px 10px; border-radius:8px; border:1px solid rgba(229,85,85,0.3);
+      background:rgba(229,85,85,0.08); color:#e55; font-weight:900; font-size:11px;
+      cursor:pointer; font-family:'Nunito',sans-serif; white-space:nowrap;
+    }
+
     /* ── Classement ── */
     .rank-tabs-wrap {
       display:flex; gap:6px; margin-bottom:16px; overflow-x:auto; padding-bottom:2px;
@@ -6870,11 +6931,76 @@ function _shFillRanking(d) {
 /* ── Famille ── */
 const GENDER_EMOJI = { m: '👨', f: '👩', '': '👤' };
 const FAM_SECTIONS = [
-  { key:'spouses',  label:'💍 Conjoint(e)s', empty:'Aucun conjoint'  },
-  { key:'parents',  label:'👴 Parents',       empty:'Aucun parent'   },
-  { key:'children', label:'👶 Enfants',       empty:null             },
-  { key:'friends',  label:'🤝 Amis',          empty:'Aucun ami'      },
+  { key:'spouses',  label:'💍 Conjoint(e)s', empty:'Aucun conjoint', action:'divorce'  },
+  { key:'parents',  label:'👴 Parents',       empty:'Aucun parent',   action:null       },
+  { key:'children', label:'👶 Enfants',       empty:null,             action:'disown'   },
+  { key:'friends',  label:'🤝 Amis',          empty:'Aucun ami',      action:'unfriend' },
 ];
+
+// ── Recherche de joueur pour actions famille ──
+let _famTarget = null;
+
+async function famSearch() {
+  const q = document.getElementById('fam-search-input').value.trim();
+  if (!q) return;
+  const card = document.getElementById('fam-target-card');
+  card.style.display = 'none';
+  _famTarget = null;
+  try {
+    const r = await fetchT(`/api/webapp/players/search?q=${encodeURIComponent(q)}&user_id=${uid}`);
+    const d = await r.json();
+    if (d.error || !d.results || !d.results.length) {
+      showToast('❌ Aucun joueur trouvé'); return;
+    }
+    const p = d.results[0];
+    _famTarget = p;
+    document.getElementById('fam-target-name').textContent = p.first_name || p.name || '?';
+    document.getElementById('fam-target-un').textContent = p.username ? '@'+p.username : 'ID: '+p.user_id;
+    card.style.display = 'block';
+    document.getElementById('fam-action-msg').style.display = 'none';
+  } catch(e) { showToast('Erreur: ' + e.message); }
+}
+
+async function famAction(type) {
+  if (!_famTarget) return;
+  const msgEl = document.getElementById('fam-action-msg');
+  msgEl.style.display = 'none';
+
+  let body = { user_id: uid, target_id: _famTarget.user_id };
+  if (type === 'marry') {
+    body.marriage_type = 'monogame'; // TODO: ajouter un choix
+  }
+
+  try {
+    const r = await fetchT(`/api/webapp/family/${type}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.error) { showToast('❌ ' + d.error); return; }
+    msgEl.textContent = d.msg || '✅ Action effectuée !';
+    msgEl.style.color = 'var(--success)';
+    msgEl.style.display = 'block';
+    document.getElementById('fam-search-input').value = '';
+    document.getElementById('fam-target-card').style.display = 'none';
+    _famTarget = null;
+    setTimeout(loadFamille, 1200);
+  } catch(e) { showToast('Erreur: ' + e.message); }
+}
+
+async function famRemove(type, targetId, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const r = await fetchT(`/api/webapp/family/${type}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, target_id: targetId })
+    });
+    const d = await r.json();
+    if (d.error) { showToast('❌ ' + d.error); btn.disabled = false; btn.textContent = type === 'divorce' ? '💔' : type === 'disown' ? '😔' : '👋'; return; }
+    showToast(d.msg || '✅ Effectué');
+    setTimeout(loadFamille, 800);
+  } catch(e) { showToast('Erreur: ' + e.message); btn.disabled = false; }
+}
 
 async function loadFamille() {
   if (!uid) return;
@@ -6903,13 +7029,18 @@ async function loadFamille() {
       } else {
         members.forEach((m, i) => {
           const em = GENDER_EMOJI[m.gender] || '👤';
+          let removeBtn = '';
+          if (sec.action) {
+            const labels = { divorce: '💔 Divorcer', disown: '😔 Désavouer', unfriend: '👋 Retirer' };
+            removeBtn = `<button class="fam-remove-btn" onclick="famRemove('${sec.action}',${m.user_id},this)">${labels[sec.action]}</button>`;
+          }
           html += `<div class="fam-card" style="animation-delay:${i*0.05}s">
             <div class="fam-av">${em}</div>
             <div class="fam-info">
               <div class="fam-nm">${m.name}</div>
               <div class="fam-un">${m.username ? '@'+m.username : 'Sans pseudo'}</div>
             </div>
-            <div class="fam-kp">⭐ ${m.karma}</div>
+            ${removeBtn || `<div class="fam-kp">⭐ ${m.karma}</div>`}
           </div>`;
         });
       }

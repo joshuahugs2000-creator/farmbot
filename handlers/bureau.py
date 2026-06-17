@@ -510,9 +510,9 @@ async def mescontratsbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 days = remaining.days
                 hours = remaining.seconds // 3600
 
-                # Progression commandes
+                # Progression commandes (calcul live, la colonne cmds_done n'est pas fiable)
                 total_now = await _get_employee_total_cmds(session, company.id)
-                done = int(c.cmds_done or 0)
+                done = max(0, total_now - int(c.cmds_at_start or 0))
                 obj = c.objective_cmds or 1
                 pct = min(100, int(done / obj * 100))
                 bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
@@ -570,10 +570,19 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             treasury_now = int(row[1] or 0)
 
             contracts_rows = (await s.execute(
-                text("SELECT id, title, cmds_done, objective_cmds, reward, ends_at, cmds_at_start "
+                text("SELECT id, title, objective_cmds, reward, ends_at, cmds_at_start "
                      "FROM bureau_contrats WHERE company_id=:cid AND status='active'"),
                 {"cid": company_id}
             )).fetchall()
+
+            # Total live des commandes de l'équipe (actifs + anciens), comme _get_employee_total_cmds.
+            # La colonne bureau_contrats.cmds_done n'est PAS fiable (incrémentée seulement
+            # pour les commandes passées par _prison_checked) donc on ne s'en sert jamais ici.
+            total_row = (await s.execute(
+                text("SELECT COALESCE(SUM(command_count),0) FROM company_employees WHERE company_id=:cid"),
+                {"cid": company_id}
+            )).fetchone()
+            total_cmds_now = int(total_row[0] or 0) if total_row else 0
 
         if not contracts_rows:
             await update.message.reply_text(
@@ -586,12 +595,12 @@ async def claimcontratbc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # ── Phase 2 : calcul hors DB ──────────────────────────────────────────
         to_claim = []   # (id, title, cmds_done, obj, reward)
         for r in contracts_rows:
-            cid, title, cmds_done, obj, reward, ends_at, cmds_at_start = r
-            cmds_done     = int(cmds_done or 0)
+            cid, title, obj, reward, ends_at, cmds_at_start = r
             cmds_at_start = int(cmds_at_start or 0)
             obj           = int(obj or 1)
             reward        = int(reward or 0)
-            progression   = max(0, cmds_done - cmds_at_start)
+            progression   = max(0, total_cmds_now - cmds_at_start)
+            cmds_done     = progression  # alias pour les messages ci-dessous
             if progression >= obj:
                 time_saved = ""
                 if ends_at and now < ends_at:
@@ -685,10 +694,10 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             total_now = await _get_employee_total_cmds(session, contract.company_id)
-            cmds_done     = int(contract.cmds_done or 0)
             cmds_at_start = int(contract.cmds_at_start or 0)
             obj           = contract.objective_cmds or 1
-            progression   = max(0, cmds_done - cmds_at_start)
+            progression   = max(0, total_now - cmds_at_start)
+            cmds_done     = progression  # pour les messages ci-dessous
 
             # Contrat réussi — objectif atteint
             if progression >= obj:
@@ -705,9 +714,8 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                         CompanyEmployee.company_id == company.id,
                         CompanyEmployee.role == "pdg",
                         CompanyEmployee.left_at == None,
-                    )
-                )
-                ).limit(1).scalar_one_or_none()
+                    ).limit(1)
+                )).scalar_one_or_none()
 
                 if pdg_emp:
                     try:
@@ -736,9 +744,8 @@ async def bureau_check_job(context: ContextTypes.DEFAULT_TYPE):
                         CompanyEmployee.company_id == company.id,
                         CompanyEmployee.role == "pdg",
                         CompanyEmployee.left_at == None,
-                    )
-                )
-                ).limit(1).scalar_one_or_none()
+                    ).limit(1)
+                )).scalar_one_or_none()
 
                 if pdg_emp:
                     try:

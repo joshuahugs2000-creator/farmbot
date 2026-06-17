@@ -3953,17 +3953,19 @@ async def webapp_online_users(request: web.Request) -> web.Response:
         for u in users:
             if u.user_id == uid:
                 continue
+            mins_ago = int((datetime.utcnow() - u.last_seen).total_seconds() / 60) if u.last_seen else None
             online.append({
-                'user_id':  u.user_id,
-                'name':     u.first_name or '—',
-                'username': u.username or '',
-                'coins':    int(u.coins or 0),
-                'gender':   u.gender or '',
-                'relation': rel_map.get(u.user_id, ''),
-                'last_seen': u.last_seen.isoformat() if u.last_seen else '',
+                'user_id':    u.user_id,
+                'name':       u.first_name or '—',
+                'username':   u.username or '',
+                'coins':      int(u.coins or 0),
+                'gender':     u.gender or '',
+                'relation':   rel_map.get(u.user_id, ''),
+                'last_seen':  u.last_seen.isoformat() if u.last_seen else '',
+                'minutes_ago': mins_ago,
             })
 
-    return web.json_response({'users': online})
+    return web.json_response({'online': online, 'count': len(online)})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

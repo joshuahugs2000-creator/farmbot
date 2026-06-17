@@ -7,6 +7,7 @@ from .models import (
     Company, CompanyEmployee, CompanyShare,
     CompanyApplication, CompanyInvite, CompanyLog,
     CompanyWorkShift, CompanyShareOffer,
+    ChatMessage,
 )
 from config import DATABASE_URL, REQUEST_TIMEOUT, PLANT_TYPES, GARDEN_SLOTS, TITLES
 from datetime import datetime, timedelta
@@ -118,6 +119,8 @@ async def init_db():
         # karma & harvest
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS karma         INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS harvest_count INTEGER DEFAULT 0",
+        # last_seen — utilisé par le tracking de présence (main.py) et le webapp admin
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen     TIMESTAMP DEFAULT NOW()",
         """CREATE TABLE IF NOT EXISTS couple_accounts (
             id         SERIAL PRIMARY KEY,
             user1_id   BIGINT REFERENCES users(user_id),

@@ -806,12 +806,52 @@ async def _launch_salle_auction(context=None):
     """Lance une nouvelle enchère dans La Salle (1 objet / heure)."""
     import random as _r
     async with AsyncSessionLocal() as session:
+        # Récupérer les enchères expirées non clôturées AVANT de les fermer
+        expired_r = await session.execute(text("""
+            SELECT id, item_id, item_name, item_emoji, rarity, true_value, leader_id
+            FROM salle_auctions
+            WHERE status = 'active' AND ends_at <= NOW()
+        """))
+        expired = expired_r.fetchall()
+
         # Clôturer les enchères expirées
         await session.execute(text("""
             UPDATE salle_auctions
             SET status = 'closed'
             WHERE status = 'active' AND ends_at <= NOW()
         """))
+        await session.commit()
+
+        # Livrer les objets aux gagnants
+        for exp in expired:
+            exp_id, exp_item_id, exp_item_name, exp_item_emoji, exp_rarity, exp_true_value, exp_leader_id = exp
+            if exp_leader_id:
+                import random as _rr
+                daily_delta = _rr.uniform(-0.15, 0.15)
+                await session.execute(text("""
+                    INSERT INTO auction_inventory
+                        (user_id, item_id, item_name, item_emoji, rarity, true_value, daily_delta)
+                    VALUES (:uid, :iid, :iname, :iemoji, :rarity, :tv, :delta)
+                """), {
+                    "uid": exp_leader_id, "iid": exp_item_id,
+                    "iname": exp_item_name, "iemoji": exp_item_emoji,
+                    "rarity": exp_rarity, "tv": exp_true_value,
+                    "delta": daily_delta
+                })
+                # Notification au gagnant
+                try:
+                    await session.execute(text("""
+                        INSERT INTO user_notifications (user_id, icon, title, body)
+                        VALUES (:uid, :icon, :title, :body)
+                    """), {
+                        "uid": exp_leader_id,
+                        "icon": "🏆",
+                        "title": "La Salle — Enchère gagnée !",
+                        "body": f"Tu as remporté {exp_item_emoji} {exp_item_name} ! L'objet est maintenant dans ton inventaire.",
+                    })
+                except Exception as _ne:
+                    logger.warning(f"Notif salle gagnant: {_ne}")
+                logger.info(f"La Salle — {exp_item_name} livré à user {exp_leader_id}")
         await session.commit()
 
         # Vérifier qu'aucune enchère active n'est en cours

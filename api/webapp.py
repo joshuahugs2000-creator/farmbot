@@ -1456,8 +1456,7 @@ async def webapp_gains(request: web.Request) -> web.Response:
 
 async def webapp_gains_daily(request: web.Request) -> web.Response:
     """POST /api/webapp/gains/daily"""
-    data = await request.json()
-    uid = int(data.get('user_id', 0))
+    uid = _get_verified_uid(request)
     if not uid:
         return web.json_response({'error': 'unauthorized'}, status=401)
     from database.db import claim_daily
@@ -1468,8 +1467,7 @@ async def webapp_gains_daily(request: web.Request) -> web.Response:
 
 async def webapp_gains_work(request: web.Request) -> web.Response:
     """POST /api/webapp/gains/work"""
-    data = await request.json()
-    uid = int(data.get('user_id', 0))
+    uid = _get_verified_uid(request)
     if not uid:
         return web.json_response({'error': 'unauthorized'}, status=401)
     from database.db import claim_work
@@ -2231,9 +2229,9 @@ async def webapp_garden(request: web.Request) -> web.Response:
 
 
 async def webapp_garden_plant(request: web.Request) -> web.Response:
-    """POST /api/webapp/garden/plant  body: {user_id, group_id, slot, plant_type}"""
+    """POST /api/webapp/garden/plant  body: {group_id, slot, plant_type}"""
     data      = await request.json()
-    uid       = int(data.get('user_id', 0))
+    uid       = _get_verified_uid(request)
     group_id  = int(data.get('group_id', 0))
     slot      = int(data.get('slot', 0))
     plant_type = data.get('plant_type', '')
@@ -2264,9 +2262,9 @@ async def webapp_garden_plant(request: web.Request) -> web.Response:
 
 
 async def webapp_garden_harvest(request: web.Request) -> web.Response:
-    """POST /api/webapp/garden/harvest  body: {user_id, garden_id}"""
+    """POST /api/webapp/garden/harvest  body: {garden_id}"""
     data      = await request.json()
-    uid       = int(data.get('user_id', 0))
+    uid       = _get_verified_uid(request)
     garden_id = int(data.get('garden_id', 0))
     if not uid:
         return web.json_response({'error': 'unauthorized'}, status=401)
@@ -3585,7 +3583,7 @@ async def webapp_notifications_read(request: web.Request) -> web.Response:
         body = await request.json()
     except Exception:
         body = {}
-    uid = int(body.get("user_id", 0))
+    uid = _get_verified_uid(request)
     if not uid:
         return web.json_response({'error': 'unauthorized'}, status=401)
     notif_id = body.get("notif_id")
@@ -3613,7 +3611,7 @@ async def webapp_notifications_delete(request: web.Request) -> web.Response:
         body = await request.json()
     except Exception:
         body = {}
-    uid = int(body.get("user_id", 0))
+    uid = _get_verified_uid(request)
     if not uid:
         return web.json_response({'error': 'unauthorized'}, status=401)
     notif_id = body.get("notif_id")
@@ -3641,11 +3639,11 @@ async def webapp_notifications_announce(request: web.Request) -> web.Response:
         body = await request.json()
     except Exception:
         body = {}
-    admin_id = int(body.get("admin_id", 0))
-    # Vérifier que c'est un admin
+    uid = _get_verified_uid(request)
+    # Vérifier que c'est un admin authentifié
     try:
         from config import ADMIN_IDS
-        if admin_id not in ADMIN_IDS:
+        if not uid or uid not in ADMIN_IDS:
             return web.json_response({"error": "unauthorized"}, status=403)
     except Exception:
         return web.json_response({"error": "unauthorized"}, status=403)
@@ -4077,7 +4075,7 @@ async def webapp_tickets_invoice(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'bad json'}, status=400)
 
-    uid         = int(data.get('user_id', 0))
+    uid         = _get_verified_uid(request)
     ticket_type = data.get('ticket_type', '')
     qty         = max(1, min(99, int(data.get('qty', 1))))
 
@@ -4123,7 +4121,7 @@ async def webapp_tickets_send(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'bad json'}, status=400)
 
-    uid         = int(data.get('user_id', 0))
+    uid         = _get_verified_uid(request)
     to_uid      = int(data.get('to_user_id', 0))
     ticket_type = data.get('ticket_type', '')
     qty         = max(1, int(data.get('qty', 1)))

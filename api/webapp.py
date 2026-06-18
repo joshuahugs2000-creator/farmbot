@@ -1402,6 +1402,7 @@ def setup_webapp_routes(app: web.Application):
     app.router.add_get('/api/webapp/online',       webapp_online_users)
 
     # ── Notifications persistantes ───────────────────────────────────────────
+    app.router.add_get('/api/webapp/notifications/all',       webapp_notifications_all)
     app.router.add_post('/api/webapp/notifications/read',     webapp_notifications_read)
     app.router.add_post('/api/webapp/notifications/delete',   webapp_notifications_delete)
     app.router.add_post('/api/webapp/notifications/announce', webapp_notifications_announce)
@@ -3574,6 +3575,36 @@ async def webapp_notifications_debug(request: web.Request) -> web.Response:
     except Exception as e:
         result["error"] = str(e)
     return web.json_response(result)
+
+
+async def webapp_notifications_all(request: web.Request) -> web.Response:
+    """GET /api/webapp/notifications/all — retourne toutes les notifs du joueur."""
+    uid = _get_verified_uid(request)
+    if not uid:
+        return web.json_response({'error': 'unauthorized'}, status=401)
+    try:
+        await _ensure_notif_table()
+        async with AsyncSessionLocal() as session:
+            rows = (await session.execute(text(
+                "SELECT id, icon, title, body, is_read, created_at "
+                "FROM user_notifications WHERE user_id = :uid "
+                "ORDER BY created_at DESC LIMIT 50"
+            ), {"uid": uid})).fetchall()
+        notifications = []
+        for r in rows:
+            notifications.append({
+                "id":    r[0],
+                "icon":  r[1] or "📢",
+                "title": r[2] or "",
+                "text":  r[3] or "",
+                "body":  r[3] or "",
+                "unread": not r[4],
+                "time":  r[5].strftime("%d/%m %H:%M") if r[5] else "",
+            })
+        unread_count = sum(1 for n in notifications if n["unread"])
+        return web.json_response({"ok": True, "notifications": notifications, "count": unread_count})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
 
 
 async def webapp_notifications_read(request: web.Request) -> web.Response:

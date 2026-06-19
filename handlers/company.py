@@ -549,6 +549,14 @@ _activity_queue: list[int] = []
 _company_activity_last: dict[int, float] = {}
 _ACTIVITY_THROTTLE = 60  # secondes entre les opérations lourdes par user
 
+# Throttle sur l'incrément lui-même (command_count / activity_since_payroll).
+# Sans ça, un script qui spam des requêtes (Mini App ou Telegram) peut gonfler
+# artificiellement command_count et faire avancer les contrats d'entreprise
+# sans aucune activité réelle. 1 incrément max toutes les _COUNT_THROTTLE
+# secondes par joueur, peu importe le nombre d'appels reçus.
+_company_count_last: dict[int, float] = {}
+_COUNT_THROTTLE = 3  # secondes entre deux incréments de command_count par user
+
 
 async def update_company_activity(user_id: int):
     """Appelé à chaque commande — UPDATE direct en DB, fiable sans queue mémoire."""
@@ -559,16 +567,22 @@ async def update_company_activity(user_id: int):
     if throttle_heavy:
         _company_activity_last[user_id] = now
 
+    last_count = _company_count_last.get(user_id, 0)
+    allow_count = now - last_count >= _COUNT_THROTTLE
+    if allow_count:
+        _company_count_last[user_id] = now
+
     try:
         from sqlalchemy import text as _text
         async with AsyncSessionLocal() as session:
-            await session.execute(_text("""
-                UPDATE company_employees
-                SET command_count = COALESCE(command_count, 0) + 1,
-                    activity_since_payroll = COALESCE(activity_since_payroll, 0) + 1
-                WHERE user_id = :uid AND left_at IS NULL
-                  AND company_id IN (SELECT id FROM companies WHERE is_active = TRUE)
-            """), {"uid": user_id})
+            if allow_count:
+                await session.execute(_text("""
+                    UPDATE company_employees
+                    SET command_count = COALESCE(command_count, 0) + 1,
+                        activity_since_payroll = COALESCE(activity_since_payroll, 0) + 1
+                    WHERE user_id = :uid AND left_at IS NULL
+                      AND company_id IN (SELECT id FROM companies WHERE is_active = TRUE)
+                """), {"uid": user_id})
 
             if throttle_heavy:
                 await session.execute(_text("""
@@ -624,18 +638,35 @@ async def flush_activity_queue():
             pass  # Ne jamais bloquer
 
 
-# ─── INCREMENT CONTRATS : appelé à chaque commande, sans throttle ────────────
+# ─── INCREMENT CONTRATS : appelé à chaque commande ───────────────────────────
+
+# Throttle anti-script : peu importe combien de commandes un joueur spam,
+# cmds_done ne peut avancer qu'une fois toutes les _CONTRACT_THROTTLE secondes.
+# Avant ce fix, spammer n'importe quelle commande (même la plus inutile, ex:
+# /acc ou /monentreprise en boucle via un script) faisait avancer les contrats
+# d'entreprise à l'infini sans aucune activité réelle — c'était le vecteur
+# principal pour gonfler artificiellement le budget/les contrats d'une boîte.
+_contract_progress_last: dict[int, float] = {}
+_CONTRACT_THROTTLE = 3  # secondes entre deux incréments de contrat par user
+
 
 async def increment_contract_progress(user_id: int):
     """Incrémente cmds_done des contrats actifs de l'entreprise de l'employé.
-    Léger : 1 SELECT + 1 UPDATE atomique. Pas de throttle.
-    
+    Léger : 1 SELECT + 1 UPDATE atomique. Throttlé par user (cf. _CONTRACT_THROTTLE).
+
     Règle : on incrémente UNIQUEMENT l'entreprise principale de l'employé
     (pas les filiales dont il serait owner_id par héritage).
     Si l'employé est PDG d'une filiale, on incrémente la filiale.
     Si l'employé est dans la boîte mère, on incrémente la boîte mère.
     Les deux sont indépendants — jamais mélangés.
     """
+    import time
+    now = time.monotonic()
+    last = _contract_progress_last.get(user_id, 0)
+    if now - last < _CONTRACT_THROTTLE:
+        return
+    _contract_progress_last[user_id] = now
+
     try:
         async with AsyncSessionLocal() as session:
             # Récupérer toutes les appartenances actives

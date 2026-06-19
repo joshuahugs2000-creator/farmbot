@@ -6549,16 +6549,11 @@ async function loadSocialHub() {
 }
 
 function openChatCard(userId, name) {
-  if (_isAdmin) {
-    if (userId) {
-      // Ouverture directe d'une conversation depuis le bouton Discuter
-      subTab('chat-list', 'loadChatList');
-      chatOpenConv(userId, name || '—', '');
-    } else {
-      subTab('chat-list', 'loadChatList');
-    }
+  if (userId) {
+    subTab('chat-list', 'loadChatList');
+    chatOpenConv(userId, name || '—', '');
   } else {
-    showToast('🚧 Fonctionnalité en cours de développement, reviens bientôt !');
+    subTab('chat-list', 'loadChatList');
   }
 }
 
@@ -6873,13 +6868,13 @@ async function chatGlobalSearch() {
   try {
     var r = await fetchT('/api/webapp/players/search?q=' + encodeURIComponent(q) + '&user_id=' + uid, {}, 10000);
     var d = await r.json();
-    if (d.error || !d.results || !d.results.length) {
+    if (d.error || !d.players || !d.players.length) {
       if (resEl) resEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2);font-size:13px">\ud83d\ude15 Aucun joueur trouv\xe9</div>';
       return;
     }
     if (resEl) {
       resEl.innerHTML = '';
-      d.results.forEach(function(p) {
+      d.players.forEach(function(p) {
         var sub = p.username ? '@' + p.username : 'ID: ' + p.user_id;
         var photo = '/api/webapp/photo?user_id=' + p.user_id + '&size=48';
         var userId = p.user_id;
@@ -7002,10 +6997,11 @@ async function chatSendMessage() {
       await loadChatMessages(true);
       return;
     }
-    await loadChatMessages(true);
+    // Petit délai pour laisser le temps à la DB d'enregistrer avant de recharger
+    setTimeout(() => loadChatMessages(true), 300);
   } catch(e) {
     showToast?.('❌ Message non envoyé');
-    await loadChatMessages(true);
+    setTimeout(() => loadChatMessages(true), 300);
   }
 }
 

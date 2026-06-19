@@ -70,6 +70,32 @@ def _get_verified_uid(request: web.Request) -> int:
     return request.get('verified_uid', 0)
 
 
+# ── Anti-flood Mini App ──────────────────────────────────────────────────────
+# Équivalent du antispam_middleware Telegram (main.py), mais côté API web.
+# Sans ça, un script peut frapper n'importe quelle route POST de la Mini App
+# en boucle (acc, monentreprise, etc.) à un rythme impossible pour un humain —
+# c'était le principal moyen de gonfler artificiellement l'activité
+# d'entreprise et faire avancer des contrats sans rien faire de réel.
+import time as _webapp_time
+from collections import deque as _webapp_deque
+
+_WEBAPP_RATE_LIMIT = 8     # max 8 requêtes POST
+_WEBAPP_RATE_WINDOW = 10   # par fenêtre de 10 secondes, par utilisateur
+_webapp_flood_log: dict[int, "_webapp_deque"] = {}
+
+
+def _webapp_flood_check(uid: int) -> bool:
+    """Retourne True si la requête est autorisée, False si le débit est dépassé."""
+    now = _webapp_time.monotonic()
+    q = _webapp_flood_log.setdefault(uid, _webapp_deque())
+    while q and now - q[0] > _WEBAPP_RATE_WINDOW:
+        q.popleft()
+    if len(q) >= _WEBAPP_RATE_LIMIT:
+        return False
+    q.append(now)
+    return True
+
+
 @web.middleware
 async def webapp_auth_middleware(request: web.Request, handler):
     """
@@ -86,6 +112,15 @@ async def webapp_auth_middleware(request: web.Request, handler):
         return web.json_response({'error': 'unauthorized'}, status=401)
 
     request['verified_uid'] = uid
+
+    # ── Anti-flood : limite le débit de requêtes POST par utilisateur ────────
+    # Les admins ne sont pas exemptés ici volontairement : si un script tourne
+    # sur un compte admin compromis, on veut quand même le ralentir.
+    if request.method == 'POST' and not _webapp_flood_check(uid):
+        return web.json_response(
+            {'ok': False, 'error': 'Trop de requêtes, ralentis un peu.'},
+            status=429,
+        )
 
     # ── Activité entreprise (mini app) ──────────────────────────────────────
     # Côté bot Telegram, chaque commande passe par activity_logging_middleware
@@ -1718,6 +1753,18 @@ async def webapp_auctions_inventory(request: web.Request) -> web.Response:
 
 async def webapp_auctions_bid(request: web.Request) -> web.Response:
     """POST /api/webapp/auctions/bid  body: {user_id, auction_id, amount}"""
+    # ⏸️ Désactivé temporairement (suspicion d'exploit sur ce endpoint — pas de
+    # verrou DB sur la mise à jour concurrente du leader/current_bid, ce qui
+    # permettait potentiellement un remboursement multiple en cas de mises
+    # simultanées). On réactivera une fois le correctif validé.
+    return web.json_response({
+        'ok': False,
+        'error': "Les enchères sont temporairement désactivées. Réessaie plus tard."
+    })
+
+async def _webapp_auctions_bid_DISABLED(request: web.Request) -> web.Response:
+    """Ancienne implémentation, conservée pour référence — non utilisée tant que
+    webapp_auctions_bid renvoie la réponse "désactivé" ci-dessus."""
     try:
         body = await request.json()
     except Exception:
